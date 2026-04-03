@@ -190,8 +190,14 @@ class Pipeline:
 
         t0 = time.time()
 
-        # ===== Step 1: 人声分离 (始终执行，带错误处理) =====
-        if config.use_vocal_separator:
+        # ===== Step 1: 人声分离 (有 VTT 时跳过，直接使用原音频) =====
+        if has_vtt:
+            # 有 VTT 字幕，跳过人声分离，直接使用原音频
+            current_step += 1
+            results["vocal_path"] = str(input_path)
+            _report(f"[{current_step}/{total_steps}] [跳过] 人声分离 (有VTT字幕，直接使用原音频)")
+            results["steps"]["vocal_separator"] = {"duration": 0, "skipped": True, "source": "original"}
+        elif config.use_vocal_separator:
             vocal_path = task_dir / "vocal.wav"
             current_step += 1
             if config.skip_existing and vocal_path.exists():
@@ -487,12 +493,18 @@ class Pipeline:
         current_step += 1
         mix_path = task_dir / "final_mix.wav"
 
+
+        # 确定混音用的原音频（有 VTT 时用原音频，否则用人声分离的结果）
+        use_vocal = results.get("steps", {}).get("vocal_separator", {}).get("source") != "original"
+        original_for_mix = results["vocal_path"] if use_vocal else str(input_path)
+        mix_source_note = "人声分离结果" if use_vocal else "原音频"
+
         if config.use_mixer and results.get("tts_path"):
             if config.skip_existing and mix_path.exists():
                 _report(f"[{current_step}/{total_steps}] [跳过] 混音已存在: {mix_path.name}")
             else:
                 _report("")
-                _report(f"[{current_step}/{total_steps}] 混音...")
+                _report(f"[{current_step}/{total_steps}] 混音 (原音: {mix_source_note})...")
                 t1 = time.time()
 
                 try:
@@ -502,7 +514,7 @@ class Pipeline:
                         tts_delay_ms=config.tts_delay_ms,
                     )
                     mixer.mix(
-                        results["vocal_path"],
+                        original_for_mix,
                         results["tts_path"],
                         str(mix_path),
                         adjust_tts_volume=True,
