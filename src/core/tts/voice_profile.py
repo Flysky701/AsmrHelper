@@ -9,6 +9,7 @@ Qwen3-TTS 音色配置管理模块
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field, asdict
@@ -39,9 +40,10 @@ class VoiceProfile:
 
 
 class VoiceProfileManager:
-    """音色配置管理器（单例）"""
+    """音色配置管理器（单例，线程安全）"""
 
     _instance = None
+    _instance_lock = threading.Lock()
 
     def __init__(self, config_path: str = None):
         """
@@ -50,6 +52,10 @@ class VoiceProfileManager:
         Args:
             config_path: 配置文件路径，默认使用 config/voice_profiles.json
         """
+        # 使用实例锁而非类锁，避免在 __init__ 中使用类锁（可能导致死锁）
+        self._profiles_lock = threading.RLock()
+        self._config_lock = threading.RLock()
+
         if config_path:
             self.config_path = Path(config_path)
         else:
@@ -61,57 +67,64 @@ class VoiceProfileManager:
         self._load()
 
     def _load(self):
-        """从 JSON 文件加载音色配置"""
-        if not self.config_path.exists():
-            print(f"[VoiceProfileManager] 配置文件不存在: {self.config_path}")
-            return
+        """从 JSON 文件加载音色配置（线程安全）"""
+        with self._profiles_lock:
+            if not self.config_path.exists():
+                print(f"[VoiceProfileManager] 配置文件不存在: {self.config_path}")
+                return
 
-        try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
 
-            profiles = data.get("profiles", [])
-            for p in profiles:
-                profile = VoiceProfile(**p)
-                self._profiles[profile.id] = profile
+                profiles = data.get("profiles", [])
+                for p in profiles:
+                    profile = VoiceProfile(**p)
+                    self._profiles[profile.id] = profile
 
-            print(f"[VoiceProfileManager] 加载了 {len(self._profiles)} 个音色配置")
+                print(f"[VoiceProfileManager] 加载了 {len(self._profiles)} 个音色配置")
 
-        except Exception as e:
-            print(f"[VoiceProfileManager] 加载配置文件失败: {e}")
+            except Exception as e:
+                print(f"[VoiceProfileManager] 加载配置文件失败: {e}")
 
     def save(self):
-        """保存配置到 JSON 文件"""
-        data = {
-            "version": 1,
-            "profiles": [asdict(p) for p in self._profiles.values()]
-        }
+        """保存配置到 JSON 文件（线程安全）"""
+        with self._profiles_lock:
+            with self._config_lock:
+                data = {
+                    "version": 1,
+                    "profiles": [asdict(p) for p in self._profiles.values()]
+                }
 
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+                self.config_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.config_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
 
         print(f"[VoiceProfileManager] 保存了 {len(self._profiles)} 个音色配置")
 
     def get_by_id(self, profile_id: str) -> Optional[VoiceProfile]:
-        """根据 ID 获取音色配置"""
-        return self._profiles.get(profile_id)
+        """根据 ID 获取音色配置（线程安全）"""
+        with self._profiles_lock:
+            return self._profiles.get(profile_id)
 
     def get_presets(self) -> List[VoiceProfile]:
-        """获取所有预设音色"""
-        return [p for p in self._profiles.values() if p.category == "preset"]
+        """获取所有预设音色（线程安全）"""
+        with self._profiles_lock:
+            return [p for p in self._profiles.values() if p.category == "preset"]
 
     def get_customs(self) -> List[VoiceProfile]:
-        """获取所有自定义音色（VoiceDesign 预生成）"""
-        return [p for p in self._profiles.values() if p.category == "custom"]
+        """获取所有自定义音色（VoiceDesign 预生成）（线程安全）"""
+        with self._profiles_lock:
+            return [p for p in self._profiles.values() if p.category == "custom"]
 
     def get_clones(self) -> List[VoiceProfile]:
-        """获取所有克隆音色（用户上传）"""
-        return [p for p in self._profiles.values() if p.category == "clone"]
+        """获取所有克隆音色（用户上传）（线程安全）"""
+        with self._profiles_lock:
+            return [p for p in self._profiles.values() if p.category == "clone"]
 
     def update_generated(self, profile_id: str, generated: bool, ref_audio: str = None, prompt_cache: str = None):
         """
-        更新音色生成状态
+        更新音色生成状态（线程安全）
 
         Args:
             profile_id: 音色 ID
@@ -119,18 +132,19 @@ class VoiceProfileManager:
             ref_audio: 参考音频路径（可选）
             prompt_cache: prompt 缓存路径（可选）
         """
-        profile = self._profiles.get(profile_id)
-        if profile:
-            profile.generated = generated
-            if ref_audio:
-                profile.ref_audio = ref_audio
-            if prompt_cache:
-                profile.prompt_cache = prompt_cache
-            self.save()
+        with self._profiles_lock:
+            profile = self._profiles.get(profile_id)
+            if profile:
+                profile.generated = generated
+                if ref_audio:
+                    profile.ref_audio = ref_audio
+                if prompt_cache:
+                    profile.prompt_cache = prompt_cache
+        self.save()
 
     def add_clone_profile(self, name: str, ref_audio: str, description: str = "") -> str:
         """
-        添加用户克隆音色
+        添加用户克隆音色（线程安全）
 
         Args:
             name: 音色名称
@@ -140,37 +154,42 @@ class VoiceProfileManager:
         Returns:
             新音色 ID
         """
-        # 生成新 ID
-        clone_ids = [int(p.id[1:]) for p in self.get_clones()]
-        new_id = f"C{max(clone_ids) + 1 if clone_ids else 1}"
+        with self._profiles_lock:
+            # 生成新 ID
+            clone_ids = [int(p.id[1:]) for p in self._profiles.values() if p.category == "clone"]
+            new_id = f"C{max(clone_ids) + 1 if clone_ids else 1}"
 
-        # 音色目录
-        project_root = Path(__file__).parent.parent.parent.parent
-        voice_dir = project_root / "models" / "voice_profiles"
-        voice_dir.mkdir(parents=True, exist_ok=True)
+            # 音色目录
+            project_root = Path(__file__).parent.parent.parent.parent
+            voice_dir = project_root / "models" / "voice_profiles"
+            voice_dir.mkdir(parents=True, exist_ok=True)
 
-        profile = VoiceProfile(
-            id=new_id,
-            name=name,
-            category="clone",
-            engine="qwen3_clone",
-            description=description,
-            ref_audio=ref_audio,
-            prompt_cache=str(voice_dir / f"{new_id}_prompt.pt"),
-            generated=False,
-        )
+            profile = VoiceProfile(
+                id=new_id,
+                name=name,
+                category="clone",
+                engine="qwen3_clone",
+                description=description,
+                ref_audio=ref_audio,
+                prompt_cache=str(voice_dir / f"{new_id}_prompt.pt"),
+                generated=False,
+            )
 
-        self._profiles[new_id] = profile
+            self._profiles[new_id] = profile
+
         self.save()
         return new_id
 
     def get_all(self) -> List[VoiceProfile]:
-        """获取所有音色"""
-        return list(self._profiles.values())
+        """获取所有音色（线程安全）"""
+        with self._profiles_lock:
+            return list(self._profiles.values())
 
 
 def get_voice_manager() -> VoiceProfileManager:
-    """获取音色管理器单例"""
+    """获取音色管理器单例（线程安全双重检查锁定）"""
     if VoiceProfileManager._instance is None:
-        VoiceProfileManager._instance = VoiceProfileManager()
+        with VoiceProfileManager._instance_lock:
+            if VoiceProfileManager._instance is None:
+                VoiceProfileManager._instance = VoiceProfileManager()
     return VoiceProfileManager._instance
