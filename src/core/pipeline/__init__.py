@@ -139,8 +139,8 @@ class Pipeline:
 
         # 创建任务名
         task_name = input_path.stem
-        # 中间文件放在 <name>_outcome/ 文件夹
-        task_dir = output_dir / f"{task_name}_outcome"
+        # 中间文件放在 remaining_item/<name>_outcome/ 文件夹
+        task_dir = output_dir / "remaining_item" / f"{task_name}_outcome"
         ensure_dir(task_dir)
 
         # 成品混音文件输出目录
