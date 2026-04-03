@@ -1,0 +1,36 @@
+﻿============================================================
+完整流程：翻译 + TTS + 混音
+============================================================
+
+[1/3] DeepSeek 翻译...
+翻译完成，耗时: 28.3s
+翻译了 20 段
+示例: 打扰了。...
+
+[2/3] Edge-TTS 语音合成...
+TTS 合成完成，耗时: 3.3s
+输出文件: d:\WorkSpace\AsmrHelper\pyvideotrans\output\asmr_test\tts_output.mp3
+
+[3/3] ffmpeg 混音（人声+配音）...
+C:\Users\Fly\.local\bin\uv : D:\WorkSpace\AsmrHelper\pyvideotrans\.venv\lib\site-packages\imageio_ffmpeg\_utils.py:7: U
+serWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg
+_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<8
+1.
+所在位置 行:1 字符: 44
++ ... ideotrans"; C:\Users\Fly\.local\bin\uv run python test_full_flow.py 2 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\WorkSpace\As... Setuptools<81.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  from pkg_resources import resource_filename
+混音完成，耗时: 0.4s
+输出文件: d:\WorkSpace\AsmrHelper\pyvideotrans\output\asmr_test\final_mix.wav
+
+============================================================
+最终测试结果
+============================================================
+  translate: PASS
+  tts: PASS
+  mix: PASS
+
+*** 所有步骤全部成功！完整流程验证通过 ***
