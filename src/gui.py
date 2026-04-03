@@ -558,8 +558,8 @@ class MainWindow(QMainWindow):
         qwen3_voice_layout.addWidget(self.single_qwen3_voice_stack, 1)  # 拉伸因子=1
         qwen3_voice_widget = QWidget()
         qwen3_voice_widget.setLayout(qwen3_voice_layout)
-        # 设置容器最小高度
-        qwen3_voice_widget.setMinimumHeight(80)
+        # 设置容器最小高度（适应下拉框+标签+输入行的组合）
+        qwen3_voice_widget.setMinimumHeight(100)
         self.single_voice_container.addWidget(qwen3_voice_widget)
         # 添加拉伸因子让容器能够正常显示
         tts_layout.addWidget(self.single_voice_container, stretch=1)
@@ -818,7 +818,8 @@ class MainWindow(QMainWindow):
         qwen3_voice_layout.addWidget(self.batch_qwen3_voice_stack, 1)  # 拉伸因子=1
         qwen3_voice_widget = QWidget()
         qwen3_voice_widget.setLayout(qwen3_voice_layout)
-        qwen3_voice_widget.setMinimumHeight(80)
+        # 设置容器最小高度（适应下拉框+标签+输入行的组合）
+        qwen3_voice_widget.setMinimumHeight(100)
         self.batch_voice_container.addWidget(qwen3_voice_widget)
         # 添加拉伸因子让容器能够正常显示
         tts_layout.addWidget(self.batch_voice_container, stretch=1)
