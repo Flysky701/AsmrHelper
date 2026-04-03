@@ -470,7 +470,14 @@ class TTSEngine:
 # 注册内置引擎（模块加载时自动注册）
 TTSEngine.register("edge", EdgeTTSEngine)
 TTSEngine.register("qwen3", Qwen3TTSEngine)
-TTSEngine.register("gptsovits", GPTSoVITSEngine)
+
+# 延迟导入 GPTSoVITSEngine（避免无依赖时模块加载失败）
+try:
+    from .gptsovits import GPTSoVITSEngine
+    TTSEngine.register("gptsovits", GPTSoVITSEngine)
+except ImportError as e:
+    import warnings
+    warnings.warn(f"GPTSoVITS 不可用: {e}")
 
 
 # 便捷函数
