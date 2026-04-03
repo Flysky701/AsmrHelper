@@ -77,16 +77,35 @@ class Pipeline:
         "auto_subtitle": "自动字幕（ASR + 翻译）",
     }
 
-    def __init__(self, config: PipelineConfig):
+    def __init__(self, config: PipelineConfig,
+                 separator=None, recognizer=None,
+                 translator=None, tts_engine=None, mixer=None):
         """
-        初始化流水线
+        初始化流水线（支持依赖注入）
 
         Args:
             config: 流水线配置
+            separator: 人声分离器实例（可选，默认自动创建）
+            recognizer: ASR 识别器实例（可选，默认自动创建）
+            translator: 翻译器实例（可选，默认自动创建）
+            tts_engine: TTS 引擎实例（可选，默认自动创建）
+            mixer: 混音器实例（可选，默认自动创建）
         """
         self.config = config
         self.steps = []
         self.results = {}
+
+        # 依赖注入的组件（支持外部传入，便于测试和复用）
+        self._injected_separator = separator
+        self._injected_recognizer = recognizer
+        self._injected_translator = translator
+        self._injected_tts_engine = tts_engine
+        self._injected_mixer = mixer
+
+    @classmethod
+    def create_from_config(cls, config: PipelineConfig) -> "Pipeline":
+        """工厂方法，从配置创建（保持向后兼容）"""
+        return cls(config=config)
 
     def run(
         self,
@@ -171,7 +190,7 @@ class Pipeline:
 
         t0 = time.time()
 
-        # ===== Step 1: 人声分离 (始终执行) =====
+        # ===== Step 1: 人声分离 (始终执行，带错误处理) =====
         if config.use_vocal_separator:
             vocal_path = task_dir / "vocal.wav"
             current_step += 1
@@ -182,23 +201,39 @@ class Pipeline:
                 _report(f"[{current_step}/{total_steps}] 人声分离 (Demucs)...")
                 t1 = time.time()
 
-                separator = VocalSeparator(model_name=config.vocal_model)
-                sep_results = separator.separate(
-                    str(input_path),
-                    str(task_dir),
-                    stems=["vocals"],
-                )
-                vocal_path = Path(sep_results.get("vocals", ""))
+                try:
+                    # 使用注入的组件或创建新实例
+                    if self._injected_separator is not None:
+                        separator = self._injected_separator
+                    else:
+                        separator = VocalSeparator(model_name=config.vocal_model)
 
-                # 释放 Demucs 模型显存
-                del separator
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                    sep_results = separator.separate(
+                        str(input_path),
+                        str(task_dir),
+                        stems=["vocals"],
+                    )
+                    vocal_path = Path(sep_results.get("vocals", ""))
 
-                results["steps"]["vocal_separator"] = {
-                    "duration": time.time() - t1,
-                    "output": str(vocal_path),
-                }
+                    results["steps"]["vocal_separator"] = {
+                        "duration": time.time() - t1,
+                        "output": str(vocal_path),
+                    }
+                except Exception as e:
+                    # 降级：使用原音作为人声
+                    _report(f"[WARN] 人声分离失败，使用原音: {e}")
+                    results["steps"]["vocal_separator"] = {
+                        "error": str(e),
+                        "recoverable": True,
+                    }
+                    vocal_path = input_path
+                finally:
+                    # 释放 Demucs 模型显存
+                    if self._injected_separator is None and 'separator' in locals():
+                        del separator
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
             results["vocal_path"] = str(vocal_path)
         else:
             current_step += 1
@@ -231,28 +266,42 @@ class Pipeline:
                 _report(f"[{current_step}/{total_steps}] ASR 语音识别 (Whisper)...")
                 t1 = time.time()
 
-                recognizer = ASRRecognizer(
-                    model_size=config.asr_model,
-                    language=config.asr_language,
-                )
-                asr_results = recognizer.recognize(
-                    results["vocal_path"],
-                    str(asr_text_path),
-                )
+                try:
+                    if self._injected_recognizer is not None:
+                        recognizer = self._injected_recognizer
+                    else:
+                        recognizer = ASRRecognizer(
+                            model_size=config.asr_model,
+                            language=config.asr_language,
+                        )
 
-                # 保留时间戳信息
-                timestamped_segments = asr_results.copy()
+                    asr_results = recognizer.recognize(
+                        results["vocal_path"],
+                        str(asr_text_path),
+                    )
 
-                # 释放 Whisper 模型显存
-                del recognizer
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                    # 保留时间戳信息
+                    timestamped_segments = asr_results.copy()
 
-                results["steps"]["asr"] = {
-                    "duration": time.time() - t1,
-                    "segments": len(asr_results),
-                    "output": str(asr_text_path),
-                }
+                    results["steps"]["asr"] = {
+                        "duration": time.time() - t1,
+                        "segments": len(asr_results),
+                        "output": str(asr_text_path),
+                    }
+                except Exception as e:
+                    _report(f"[WARN] ASR 识别失败: {e}")
+                    results["steps"]["asr"] = {
+                        "error": str(e),
+                        "recoverable": True,
+                    }
+                    asr_results = []
+                    timestamped_segments = []
+                finally:
+                    # 释放 Whisper 模型显存
+                    if self._injected_recognizer is None and 'recognizer' in locals():
+                        del recognizer
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
         else:
             if asr_text_path.exists():
                 text = asr_text_path.read_text(encoding="utf-8")
@@ -289,24 +338,36 @@ class Pipeline:
             _report(f"[{current_step}/{total_steps}] 翻译 (VTT {vtt_lang} -> 中文)...")
             t1 = time.time()
 
-            translator = Translator(provider=config.translate_provider, model=config.translate_model)
-            translations = translator.translate_batch(
-                vtt_translations,
-                source_lang="日文",
-                target_lang="中文",
-            )
-            translated_path.write_text("\n".join(translations), encoding="utf-8")
+            try:
+                if self._injected_translator is not None:
+                    translator = self._injected_translator
+                else:
+                    translator = Translator(provider=config.translate_provider, model=config.translate_model)
+
+                translations = translator.translate_batch(
+                    vtt_translations,
+                    source_lang="日文",
+                    target_lang="中文",
+                )
+                translated_path.write_text("\n".join(translations), encoding="utf-8")
+
+                results["steps"]["translate"] = {
+                    "duration": time.time() - t1,
+                    "segments": len(translations),
+                    "source": "vtt_ja",
+                    "output": str(translated_path),
+                }
+            except Exception as e:
+                _report(f"[WARN] 翻译失败，使用原文: {e}")
+                results["steps"]["translate"] = {
+                    "error": str(e),
+                    "recoverable": True,
+                }
+                translations = vtt_translations  # 降级：使用原文
 
             # 为 timestamped_segments 填充 translation 字段
             for seg, trans in zip(timestamped_segments, translations):
                 seg["translation"] = trans
-
-            results["steps"]["translate"] = {
-                "duration": time.time() - t1,
-                "segments": len(translations),
-                "source": "vtt_ja",
-                "output": str(translated_path),
-            }
         elif config.use_translate and asr_results:
             # 无 VTT：正常 ASR + 翻译
             current_step += 1
@@ -321,22 +382,34 @@ class Pipeline:
                 _report(f"[{current_step}/{total_steps}] 翻译 (DeepSeek)...")
                 t1 = time.time()
 
-                translator = Translator(provider=config.translate_provider, model=config.translate_model)
-                texts = [r["text"] for r in asr_results]
-                translations = translator.translate_batch(
-                    texts,
-                    source_lang=config.source_lang,
-                    target_lang=config.target_lang,
-                )
+                try:
+                    if self._injected_translator is not None:
+                        translator = self._injected_translator
+                    else:
+                        translator = Translator(provider=config.translate_provider, model=config.translate_model)
 
-                translated_path.write_text("\n".join(translations), encoding="utf-8")
+                    texts = [r["text"] for r in asr_results]
+                    translations = translator.translate_batch(
+                        texts,
+                        source_lang=config.source_lang,
+                        target_lang=config.target_lang,
+                    )
 
-                results["steps"]["translate"] = {
-                    "duration": time.time() - t1,
-                    "segments": len(translations),
-                    "source": "api",
-                    "output": str(translated_path),
-                }
+                    translated_path.write_text("\n".join(translations), encoding="utf-8")
+
+                    results["steps"]["translate"] = {
+                        "duration": time.time() - t1,
+                        "segments": len(translations),
+                        "source": "api",
+                        "output": str(translated_path),
+                    }
+                except Exception as e:
+                    _report(f"[WARN] 翻译失败，使用原文: {e}")
+                    results["steps"]["translate"] = {
+                        "error": str(e),
+                        "recoverable": True,
+                    }
+                    translations = [r["text"] for r in asr_results]  # 降级：使用原文
 
             # 为 timestamped_segments 填充 translation 字段
             for seg, trans in zip(timestamped_segments, translations):
@@ -344,7 +417,7 @@ class Pipeline:
 
         results["translations"] = translations
 
-        # ===== Step 4: TTS 合成 + 时间轴对齐 =====
+        # ===== Step 4: TTS 合成 + 时间轴对齐 (带错误处理) =====
         current_step += 1
         tts_ext = "wav" if config.tts_engine == "qwen3" else "mp3"
         tts_aligned_path = task_dir / "tts_aligned.wav"
@@ -358,45 +431,59 @@ class Pipeline:
                 _report(f"[{current_step}/{total_steps}] TTS 逐句合成 + 时间轴对齐...")
                 t1 = time.time()
 
-                # 获取参考音频时长
-                ref_info = sf.info(str(results["vocal_path"]))
-                ref_duration = ref_info.duration
-                sample_rate = ref_info.samplerate
+                try:
+                    # 获取参考音频时长
+                    ref_info = sf.info(str(results["vocal_path"]))
+                    ref_duration = ref_info.duration
+                    sample_rate = ref_info.samplerate
 
-                # 初始化 TTS 引擎
-                tts_engine = TTSEngine(
-                    engine=config.tts_engine,
-                    voice=config.tts_voice if config.tts_engine == "edge" else config.qwen3_voice,
-                    speed=config.tts_speed,
-                    voice_profile_id=config.voice_profile_id,
-                )
+                    # 使用注入的 TTS 引擎或创建新实例
+                    if self._injected_tts_engine is not None:
+                        tts_engine = self._injected_tts_engine
+                    else:
+                        tts_engine = TTSEngine(
+                            engine=config.tts_engine,
+                            voice=config.tts_voice if config.tts_engine == "edge" else config.qwen3_voice,
+                            speed=config.tts_speed,
+                            voice_profile_id=config.voice_profile_id,
+                        )
 
-                # 使用时间轴对齐方法
-                mixer = Mixer(
-                    original_volume=config.original_volume,
-                    tts_volume_ratio=config.tts_volume_ratio,
-                    tts_delay_ms=config.tts_delay_ms,
-                )
+                    # 使用注入的混音器或创建新实例
+                    if self._injected_mixer is not None:
+                        mixer = self._injected_mixer
+                    else:
+                        mixer = Mixer(
+                            original_volume=config.original_volume,
+                            tts_volume_ratio=config.tts_volume_ratio,
+                            tts_delay_ms=config.tts_delay_ms,
+                        )
 
-                mixer.build_aligned_tts(
-                    segments=timestamped_segments,
-                    tts_engine=tts_engine.engine,  # 传入底层引擎
-                    output_path=str(tts_aligned_path),
-                    reference_duration=ref_duration,
-                    sample_rate=sample_rate,
-                )
+                    mixer.build_aligned_tts(
+                        segments=timestamped_segments,
+                        tts_engine=tts_engine.engine,  # 传入底层引擎
+                        output_path=str(tts_aligned_path),
+                        reference_duration=ref_duration,
+                        sample_rate=sample_rate,
+                    )
 
-                results["steps"]["tts"] = {
-                    "duration": time.time() - t1,
-                    "output": str(tts_aligned_path),
-                    "aligned": True,
-                    "segments": len(timestamped_segments),
-                }
-            results["tts_path"] = str(tts_aligned_path)
+                    results["steps"]["tts"] = {
+                        "duration": time.time() - t1,
+                        "output": str(tts_aligned_path),
+                        "aligned": True,
+                        "segments": len(timestamped_segments),
+                    }
+                    results["tts_path"] = str(tts_aligned_path)
+                except Exception as e:
+                    _report(f"[WARN] TTS 合成失败: {e}")
+                    results["steps"]["tts"] = {
+                        "error": str(e),
+                        "recoverable": True,
+                    }
+                    results["tts_path"] = ""
         else:
             results["tts_path"] = ""
 
-        # ===== Step 5: 混音 (始终执行) =====
+        # ===== Step 5: 混音 (带错误处理) =====
         current_step += 1
         mix_path = task_dir / "final_mix.wav"
 
@@ -408,23 +495,32 @@ class Pipeline:
                 _report(f"[{current_step}/{total_steps}] 混音...")
                 t1 = time.time()
 
-                mixer = Mixer(
-                    original_volume=config.original_volume,
-                    tts_volume_ratio=config.tts_volume_ratio,
-                    tts_delay_ms=config.tts_delay_ms,
-                )
-                mixer.mix(
-                    results["vocal_path"],
-                    results["tts_path"],
-                    str(mix_path),
-                    adjust_tts_volume=True,
-                )
+                try:
+                    mixer = Mixer(
+                        original_volume=config.original_volume,
+                        tts_volume_ratio=config.tts_volume_ratio,
+                        tts_delay_ms=config.tts_delay_ms,
+                    )
+                    mixer.mix(
+                        results["vocal_path"],
+                        results["tts_path"],
+                        str(mix_path),
+                        adjust_tts_volume=True,
+                    )
 
-                results["steps"]["mixer"] = {
-                    "duration": time.time() - t1,
-                    "output": str(mix_path),
-                }
-            results["mix_path"] = str(mix_path)
+                    results["steps"]["mixer"] = {
+                        "duration": time.time() - t1,
+                        "output": str(mix_path),
+                    }
+                    results["mix_path"] = str(mix_path)
+                except Exception as e:
+                    _report(f"[WARN] 混音失败: {e}")
+                    results["steps"]["mixer"] = {
+                        "error": str(e),
+                        "recoverable": True,
+                    }
+                    # 降级：使用 TTS 输出作为最终输出
+                    results["mix_path"] = results.get("tts_path", "")
         else:
             results["mix_path"] = ""
 
@@ -443,6 +539,8 @@ class Pipeline:
         for step, data in results["steps"].items():
             if data.get("skipped"):
                 _report(f"  {step}: [跳过]")
+            elif data.get("error"):
+                _report(f"  {step}: [错误] {data['error']} (可恢复: {data.get('recoverable', False)})")
             else:
                 _report(f"  {step}: {data.get('duration', 0):.1f}s")
 
