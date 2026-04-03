@@ -173,6 +173,20 @@ class ASRRecognizer:
 
         return text
 
+    def unload(self):
+        """
+        释放模型占用的内存（Phase 3）
+
+        在批量处理完成后调用以释放显存/CPU内存。
+        """
+        if hasattr(self, "model") and self.model is not None:
+            del self.model
+            self.model = None
+            if self.device == "cuda":
+                import torch
+                torch.cuda.empty_cache()
+            print(f"[ASRRecognizer] 模型已卸载，设备: {self.device}")
+
 
 # 便捷函数
 def recognize_speech(
