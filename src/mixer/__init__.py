@@ -356,17 +356,18 @@ class Mixer:
             # 3. 处理时长差异（TTS 过长时加速）
             if tts_duration > original_duration * tts_speed_range[1]:
                 target_duration = original_duration * tts_speed_range[1]
-                speed_factor = tts_duration / target_duration
 
                 try:
                     import pytsmod
-                    tts_data = pytsmod.time_stretch(
-                        tts_data,
-                        sample_rate,
-                        target_rate=speed_factor,
-                    )
+                    # pytsmod.ola(audio, s): s = 目标长度 / 原始长度
+                    # s < 1 表示压缩，s > 1 表示拉伸
+                    current_samples = len(tts_data)
+                    target_samples = int(target_duration * sample_rate)
+                    stretch_factor = target_samples / current_samples
+
+                    tts_data = pytsmod.ola(tts_data, stretch_factor)
                     tts_duration = len(tts_data) / sample_rate
-                    print(f"  [{i+1}] 加速 {speed_factor:.2f}x: {tts_duration:.1f}s -> {target_duration:.1f}s")
+                    print(f"  [{i+1}] 压缩 {1/stretch_factor:.2f}x: {tts_duration/target_duration*target_duration:.1f}s -> {target_duration:.1f}s")
                 except ImportError:
                     print(f"  [WARN] 第 {i+1} 句 TTS 过长 ({tts_duration:.1f}s > {original_duration:.1f}s)，需要安装 pytsmod")
                     # 截断到原音长度
