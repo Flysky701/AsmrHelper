@@ -73,6 +73,7 @@ class SingleWorkerThread(QThread):
                 tts_engine=self.params.get("tts_engine", "edge"),
                 tts_voice=self.params.get("tts_voice", "zh-CN-XiaoxiaoNeural"),
                 qwen3_voice=self.params.get("tts_voice", "Vivian"),
+                voice_profile_id=self.params.get("voice_profile_id"),  # 传递音色配置 ID
                 tts_speed=self.params.get("tts_speed", 1.0),
                 original_volume=self.params.get("original_volume", 0.85),
                 tts_volume_ratio=self.params.get("tts_ratio", 0.5),
@@ -209,6 +210,7 @@ class BatchWorkerThread(QThread):
                 tts_engine=self.params.get("tts_engine", "edge"),
                 tts_voice=self.params.get("tts_voice", "zh-CN-XiaoxiaoNeural"),
                 qwen3_voice=self.params.get("tts_voice", "Vivian"),
+                voice_profile_id=self.params.get("voice_profile_id"),  # 传递音色配置 ID
                 tts_speed=self.params.get("tts_speed", 1.0),
                 original_volume=self.params.get("original_volume", 0.85),
                 tts_volume_ratio=self.params.get("tts_ratio", 0.5),
