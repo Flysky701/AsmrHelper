@@ -14,7 +14,7 @@ from src.core.pipeline import Pipeline, PipelineConfig
 from src.core.tts import TTSEngine
 from src.core.translate import Translator
 from src.core.tts.voice_profile import get_voice_manager
-from src.utils import find_vtt_file, sanitize_filename
+from src.utils import find_vtt_file, sanitize_filename, ensure_dir
 
 
 class AppService:
@@ -158,22 +158,26 @@ class AppService:
         params: Dict[str, Any],
         vtt_path: str = None,
         progress_callback: Callable[[str], None] = None,
+        mix_output_dir: str = None,
     ) -> Dict[str, Any]:
         """
         单文件处理
 
         Args:
             input_path: 输入音频路径
-            output_dir: 输出目录
+            output_dir: 输出目录（中间文件放这里）
             params: 处理参数
             vtt_path: 字幕文件路径
             progress_callback: 进度回调
+            mix_output_dir: 成品混音输出目录（默认同 output_dir）
 
         Returns:
             处理结果
         """
         # 构建流水线配置
-        pipeline_config = self._build_pipeline_config(input_path, output_dir, params, vtt_path)
+        pipeline_config = self._build_pipeline_config(
+            input_path, output_dir, params, vtt_path, mix_output_dir
+        )
 
         # 创建流水线
         pipeline = Pipeline(config=pipeline_config)
@@ -190,6 +194,7 @@ class AppService:
         output_dir: str,
         params: Dict[str, Any],
         vtt_path: str = None,
+        mix_output_dir: str = None,
     ) -> PipelineConfig:
         """从参数构建流水线配置"""
         engine = params.get("tts_engine", "Edge-TTS")
@@ -203,6 +208,7 @@ class AppService:
             input_path=str(input_path),
             output_dir=str(output_dir),
             vtt_path=str(vtt_path) if vtt_path else None,
+            mix_output_dir=str(mix_output_dir) if mix_output_dir else None,
 
             # 人声分离
             use_vocal_separator=params.get("use_vocal_separator", True),
@@ -274,6 +280,13 @@ class AppService:
         """
         批量处理
 
+        输出结构:
+        - output_dir/
+          - product/           # 所有成品混音文件
+          - <name1>_outcome/   # 中间文件（人声、翻译、TTS等）
+          - <name2>_outcome/
+          - ...
+
         Args:
             input_paths: 输入文件列表
             output_dir: 输出目录
@@ -284,26 +297,34 @@ class AppService:
         Returns:
             批量处理结果
         """
+        # 成品输出目录
+        product_dir = Path(output_dir) / "product"
+        ensure_dir(product_dir)
+
         results = []
         total = len(input_paths)
 
         for i, input_path in enumerate(input_paths):
+            input_p = Path(input_path)
             if progress_callback:
-                progress_callback(f"[{i+1}/{total}] 处理: {Path(input_path).name}")
+                progress_callback(f"[{i+1}/{total}] 处理: {input_p.name}")
 
             # 查找 VTT
-            vtt_path = find_vtt_file(Path(input_path))
+            vtt_path = find_vtt_file(input_p)
             if vtt_path:
                 if progress_callback:
                     progress_callback(f"  找到字幕: {vtt_path.name}")
 
             # 处理单个文件
+            # 中间文件放在 output_dir/<name>_outcome/
+            # 成品放在 output_dir/product/
             try:
                 result = self.process_single(
                     input_path=input_path,
-                    output_dir=output_dir,
+                    output_dir=output_dir,  # 中间文件的根目录
                     params=params,
                     vtt_path=str(vtt_path) if vtt_path else None,
+                    mix_output_dir=str(product_dir),  # 成品放这里
                 )
                 results.append({
                     "input": input_path,
