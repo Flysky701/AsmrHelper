@@ -347,7 +347,50 @@ class Qwen3TTSEngine:
 
 
 class TTSEngine:
-    """TTS 引擎（统一接口，支持 edge/qwen3/gptsovits）"""
+    """
+    TTS 引擎（统一接口，支持注册式工厂模式）
+
+    使用方法:
+        # 注册新引擎
+        TTSEngine.register("cosyvoice", CosyVoiceEngine)
+
+        # 列出可用引擎
+        print(TTSEngine.available_engines())  # ["edge", "qwen3", "gptsovits"]
+
+        # 创建引擎
+        tts = TTSEngine(engine="edge", voice="zh-CN-XiaoxiaoNeural")
+    """
+
+    # 引擎注册表
+    _registry: dict = {}
+    # 注册的引擎类
+    _engine_classes: dict = {}
+
+    @classmethod
+    def register(cls, name: str, engine_class, **kwargs):
+        """
+        注册新 TTS 引擎（开闭原则：新引擎无需修改此类）
+
+        Args:
+            name: 引擎名称
+            engine_class: 引擎类（必须实现 synthesize 方法）
+            **kwargs: 引擎默认参数
+        """
+        cls._registry[name] = kwargs
+        cls._engine_classes[name] = engine_class
+        print(f"[TTSEngine] 注册引擎: {name}")
+
+    @classmethod
+    def available_engines(cls) -> list:
+        """获取可用引擎列表"""
+        return list(cls._registry.keys())
+
+    @classmethod
+    def get_engine_class(cls, name: str):
+        """获取引擎类"""
+        if name not in cls._engine_classes:
+            raise ValueError(f"未知引擎: {name}，可用: {cls.available_engines()}")
+        return cls._engine_classes[name]
 
     def __init__(
         self,
@@ -365,7 +408,7 @@ class TTSEngine:
         gptsovits_language: str = "zh",
     ):
         """
-        初始化 TTS 引擎
+        初始化 TTS 引擎（使用注册式工厂）
 
         Args:
             engine: 引擎类型 (edge/qwen3/gptsovits)
@@ -422,6 +465,12 @@ class TTSEngine:
         if self.engine_type == "gptsovits":
             return self.engine.is_service_available()
         return True  # edge/qwen3 本地可用
+
+
+# 注册内置引擎（模块加载时自动注册）
+TTSEngine.register("edge", EdgeTTSEngine)
+TTSEngine.register("qwen3", Qwen3TTSEngine)
+TTSEngine.register("gptsovits", GPTSoVITSEngine)
 
 
 # 便捷函数
