@@ -8,12 +8,41 @@
 """
 
 import time
+import re
 from pathlib import Path
 from typing import Optional, Tuple
 import soundfile as sf
 import numpy as np
 
 from ..utils import get_ffmpeg, ensure_dir
+
+
+def _clean_text_for_tts(text: str) -> str:
+    """
+    清理文本以适配 TTS 引擎
+
+    Args:
+        text: 原始文本
+
+    Returns:
+        str: 清理后的文本
+    """
+    if not text:
+        return ""
+
+    # 移除可能导致 Edge-TTS 问题的特殊字符
+    # 保留中文、英文、数字、基本标点
+    cleaned = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', text)
+
+    # 移除多余的空白字符
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+    # Edge-TTS 对某些字符可能有问题，替换或移除
+    # 移除控制字符和零宽字符
+    cleaned = cleaned.replace('\u200b', '')  # 零宽空格
+    cleaned = cleaned.replace('\ufeff', '')  # BOM
+
+    return cleaned
 
 
 def _apply_fade(audio: np.ndarray, sample_rate: int, fade_in_ms: int = 30, fade_out_ms: int = 50) -> np.ndarray:
@@ -261,8 +290,11 @@ class Mixer:
         print(f"[Mixer] 逐句合成 TTS ({len(segments)} 句)...")
 
         synthesized_count = 0
+        failed_count = 0
         for i, seg in enumerate(segments):
             translation = seg.get("translation", "")
+            # 清理文本
+            translation = _clean_text_for_tts(translation)
             if not translation.strip():
                 continue
 
@@ -270,12 +302,26 @@ class Mixer:
             end_sec = seg["end"]
             original_duration = end_sec - start_sec
 
-            # 1. 合成单句 TTS
+            # 1. 合成单句 TTS（带重试机制）
             temp_tts = temp_dir / f"tts_{i:04d}.wav"
-            try:
-                tts_engine.synthesize(translation, str(temp_tts))
-            except Exception as e:
-                print(f"  [WARN] 第 {i+1} 句 TTS 失败: {e}")
+            success = False
+            last_error = None
+
+            for retry in range(3):  # 最多重试 3 次
+                try:
+                    tts_engine.synthesize(translation, str(temp_tts))
+                    # 验证文件是否生成
+                    if temp_tts.exists() and temp_tts.stat().st_size > 0:
+                        success = True
+                        break
+                except Exception as e:
+                    last_error = e
+                    if retry < 2:  # 不是最后一次，重试
+                        time.sleep(0.5)  # 短暂等待
+
+            if not success:
+                failed_count += 1
+                print(f"  [WARN] 第 {i+1} 句 TTS 失败: {last_error}")
                 continue
 
             # 2. 读取 TTS 音频
@@ -364,7 +410,11 @@ class Mixer:
         import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-        print(f"[Mixer] 时间轴拼装完成: {output_path.name} ({synthesized_count}/{len(segments)} 句)")
+        # 打印汇总
+        success_count = synthesized_count
+        skip_count = len(segments) - success_count - failed_count
+        print(f"[Mixer] 时间轴拼装完成: {output_path.name}")
+        print(f"  成功: {success_count} 句, 失败: {failed_count} 句, 跳过(空): {skip_count} 句")
         return str(output_path)
 
 
