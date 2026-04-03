@@ -8,7 +8,7 @@
 import os
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 
 
 # 项目配置目录
@@ -141,6 +141,47 @@ class Config:
         elif provider == "openai":
             return self.openai_api_key
         return ""
+
+    def validate(self) -> Tuple[bool, List[str]]:
+        """
+        验证配置有效性（Phase 3）
+
+        Returns:
+            Tuple[bool, List[str]]: (是否有效, 错误信息列表)
+        """
+        errors: List[str] = []
+
+        # 验证 API 配置
+        provider = self.get("api.provider", "")
+        if provider not in ("deepseek", "openai"):
+            errors.append(f"api.provider 必须是 'deepseek' 或 'openai'，当前: {provider}")
+
+        if provider and not self.get_api_key(provider):
+            errors.append(f"API provider '{provider}' 的 API Key 未设置")
+
+        # 验证 TTS 配置
+        tts_engine = self.get("tts.engine", "")
+        if tts_engine not in ("edge", "qwen3", "gptsovits"):
+            errors.append(f"tts.engine 必须是 'edge', 'qwen3', 或 'gptsovits'，当前: {tts_engine}")
+
+        speed = self.get("tts.speed", 1.0)
+        if not isinstance(speed, (int, float)) or speed <= 0 or speed > 3.0:
+            errors.append(f"tts.speed 必须在 0.1-3.0 之间，当前: {speed}")
+
+        # 验证音量配置
+        orig_vol = self.get("processing.original_volume", 0.85)
+        tts_vol = self.get("processing.tts_volume", 0.5)
+        if not (0 <= orig_vol <= 1.5):
+            errors.append(f"processing.original_volume 必须在 0-1.5 之间，当前: {orig_vol}")
+        if not (0 <= tts_vol <= 2.0):
+            errors.append(f"processing.tts_volume 必须在 0-2.0 之间，当前: {tts_vol}")
+
+        # 验证模型配置
+        vocal_model = self.get("processing.vocal_model", "")
+        if vocal_model not in ("htdemucs", "htdemucs_ft", "htdemucs_6s", "mdx", "mdx_extra"):
+            errors.append(f"processing.vocal_model 不支持: {vocal_model}")
+
+        return (len(errors) == 0, errors)
 
 
 # 全局配置实例

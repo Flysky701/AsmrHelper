@@ -153,6 +153,20 @@ class VocalSeparator:
         results = self.separate(audio_path, output_dir, stems=["vocals"])
         return results.get("vocals", "")
 
+    def unload(self):
+        """
+        释放模型占用的 GPU 内存（Phase 3）
+
+        在批量处理完成后调用以释放显存。
+        """
+        if hasattr(self, "model") and self.model is not None:
+            del self.model
+            self.model = None
+            if self.device.startswith("cuda"):
+                import torch
+                torch.cuda.empty_cache()
+            print(f"[VocalSeparator] 模型已卸载，设备: {self.device}")
+
 
 # 便捷函数
 def separate_vocals(
