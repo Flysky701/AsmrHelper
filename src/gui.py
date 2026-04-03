@@ -561,7 +561,8 @@ class MainWindow(QMainWindow):
         # 设置容器最小高度
         qwen3_voice_widget.setMinimumHeight(80)
         self.single_voice_container.addWidget(qwen3_voice_widget)
-        tts_layout.addWidget(self.single_voice_container)
+        # 添加拉伸因子让容器能够正常显示
+        tts_layout.addWidget(self.single_voice_container, stretch=1)
 
         # 初始化：默认显示 Edge-TTS 音色选择器
         self.single_voice_container.setCurrentIndex(0)
@@ -819,7 +820,8 @@ class MainWindow(QMainWindow):
         qwen3_voice_widget.setLayout(qwen3_voice_layout)
         qwen3_voice_widget.setMinimumHeight(80)
         self.batch_voice_container.addWidget(qwen3_voice_widget)
-        tts_layout.addWidget(self.batch_voice_container)
+        # 添加拉伸因子让容器能够正常显示
+        tts_layout.addWidget(self.batch_voice_container, stretch=1)
 
         # 初始化：默认显示 Edge-TTS 音色选择器
         self.batch_voice_container.setCurrentIndex(0)

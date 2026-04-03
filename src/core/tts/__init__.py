@@ -299,8 +299,8 @@ class Qwen3TTSEngine:
         if not self.prompt_cache or not Path(self.prompt_cache).exists():
             raise FileNotFoundError(f"prompt_cache 不存在: {self.prompt_cache}")
 
-        # 加载 prompt_cache
-        prompt_cache = torch.load(self.prompt_cache, map_location="cpu")
+        # 加载 prompt_cache (PyTorch 2.6+ 需要 weights_only=False)
+        prompt_cache = torch.load(self.prompt_cache, map_location="cpu", weights_only=False)
         prompt_cache["thinks"] = prompt_cache.get("thinks", "")
 
         # 使用 Base 模型合成（voice_clone）
