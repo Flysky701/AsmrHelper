@@ -516,7 +516,6 @@ class MainWindow(QMainWindow):
         preset_layout.addStretch()
         preset_widget = QWidget()
         preset_widget.setLayout(preset_layout)
-        preset_widget.setMinimumHeight(50)
         self.single_qwen3_voice_stack.addWidget(preset_widget)
 
         # Tab 2: 自定义音色
@@ -530,7 +529,6 @@ class MainWindow(QMainWindow):
         custom_layout.addStretch()
         custom_widget = QWidget()
         custom_widget.setLayout(custom_layout)
-        custom_widget.setMinimumHeight(50)
         self.single_qwen3_voice_stack.addWidget(custom_widget)
 
         # Tab 3: 克隆音色
@@ -547,7 +545,6 @@ class MainWindow(QMainWindow):
         clone_layout.addStretch()
         clone_widget = QWidget()
         clone_widget.setLayout(clone_layout)
-        clone_widget.setMinimumHeight(50)
         self.single_qwen3_voice_stack.addWidget(clone_widget)
 
         # 音色类型选择器 + QStackedWidget
@@ -558,9 +555,11 @@ class MainWindow(QMainWindow):
         )
         qwen3_voice_layout = QVBoxLayout()
         qwen3_voice_layout.addWidget(self.single_voice_type)
-        qwen3_voice_layout.addWidget(self.single_qwen3_voice_stack)
+        qwen3_voice_layout.addWidget(self.single_qwen3_voice_stack, 1)  # 拉伸因子=1
         qwen3_voice_widget = QWidget()
         qwen3_voice_widget.setLayout(qwen3_voice_layout)
+        # 设置容器最小高度
+        qwen3_voice_widget.setMinimumHeight(80)
         self.single_voice_container.addWidget(qwen3_voice_widget)
         tts_layout.addWidget(self.single_voice_container)
 
@@ -776,7 +775,6 @@ class MainWindow(QMainWindow):
         preset_layout.addStretch()
         preset_widget = QWidget()
         preset_widget.setLayout(preset_layout)
-        preset_widget.setMinimumHeight(50)
         self.batch_qwen3_voice_stack.addWidget(preset_widget)
 
         # Tab 2: 自定义音色
@@ -790,7 +788,6 @@ class MainWindow(QMainWindow):
         custom_layout.addStretch()
         custom_widget = QWidget()
         custom_widget.setLayout(custom_layout)
-        custom_widget.setMinimumHeight(50)
         self.batch_qwen3_voice_stack.addWidget(custom_widget)
 
         # Tab 3: 克隆音色
@@ -807,7 +804,6 @@ class MainWindow(QMainWindow):
         clone_layout.addStretch()
         clone_widget = QWidget()
         clone_widget.setLayout(clone_layout)
-        clone_widget.setMinimumHeight(50)
         self.batch_qwen3_voice_stack.addWidget(clone_widget)
 
         # 音色类型选择器 + QStackedWidget
@@ -818,9 +814,10 @@ class MainWindow(QMainWindow):
         )
         qwen3_voice_layout = QVBoxLayout()
         qwen3_voice_layout.addWidget(self.batch_voice_type)
-        qwen3_voice_layout.addWidget(self.batch_qwen3_voice_stack)
+        qwen3_voice_layout.addWidget(self.batch_qwen3_voice_stack, 1)  # 拉伸因子=1
         qwen3_voice_widget = QWidget()
         qwen3_voice_widget.setLayout(qwen3_voice_layout)
+        qwen3_voice_widget.setMinimumHeight(80)
         self.batch_voice_container.addWidget(qwen3_voice_widget)
         tts_layout.addWidget(self.batch_voice_container)
 
