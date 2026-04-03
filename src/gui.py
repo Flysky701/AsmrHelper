@@ -326,16 +326,17 @@ class MainWindow(QMainWindow):
         self.single_tts_vol.valueChanged.connect(lambda v: self.single_tts_vol_label.setText(f"{v}%"))
         settings_layout.addLayout(tts_vol_layout)
 
-        # 时间轴延迟
+        # 时间轴偏移 (相对于原音)
         delay_layout = QHBoxLayout()
-        delay_layout.addWidget(QLabel("TTS延迟:"))
+        delay_layout.addWidget(QLabel("音轨偏移:"))
         self.single_delay = QSpinBox()
         self.single_delay.setRange(-3000, 3000)
         self.single_delay.setValue(0)
         self.single_delay.setSuffix(" ms")
+        self.single_delay.setToolTip("TTS 相对于原音的时间偏移\n正数：TTS 稍慢（晚播放）\n负数：TTS 稍快（早播放）")
         delay_layout.addWidget(self.single_delay)
 
-        # 延迟调整按钮 (增量模式)
+        # 偏移调整按钮 (增量模式) - 交换位置并加上提示
         def adjust_delay(delta):
             new_val = self.single_delay.value() + delta
             new_val = max(-3000, min(3000, new_val))
@@ -345,17 +346,20 @@ class MainWindow(QMainWindow):
             self.single_delay.setValue(0)
 
         from functools import partial
-        delay_m100_btn = QPushButton("-100ms")
-        delay_m100_btn.clicked.connect(partial(adjust_delay, -100))
-        delay_layout.addWidget(delay_m100_btn)
+        # 交换位置：+100ms 在左（稍慢），-100ms 在右（稍快）
+        delay_p100_btn = QPushButton("+100ms 稍慢")
+        delay_p100_btn.setToolTip("让 TTS 相对于原音稍慢（晚播放）")
+        delay_p100_btn.clicked.connect(partial(adjust_delay, 100))
+        delay_layout.addWidget(delay_p100_btn)
 
         delay_0_btn = QPushButton("Reset")
         delay_0_btn.clicked.connect(reset_delay)
         delay_layout.addWidget(delay_0_btn)
 
-        delay_p100_btn = QPushButton("+100ms")
-        delay_p100_btn.clicked.connect(partial(adjust_delay, 100))
-        delay_layout.addWidget(delay_p100_btn)
+        delay_m100_btn = QPushButton("-100ms 稍快")
+        delay_m100_btn.setToolTip("让 TTS 相对于原音稍快（早播放）")
+        delay_m100_btn.clicked.connect(partial(adjust_delay, -100))
+        delay_layout.addWidget(delay_m100_btn)
 
         delay_layout.addStretch()
         settings_layout.addLayout(delay_layout)
