@@ -180,7 +180,8 @@ class Translator:
 
             except Exception as e:
                 print(f"  翻译失败 [{i+1}]: {e}")
-                results.append("")
+                # 降级：保留原文，避免空字符串导致 TTS 产出无声片段
+                results.append(text)
 
             # 请求间隔
             if delay > 0:
