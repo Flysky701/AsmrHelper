@@ -502,10 +502,8 @@ class MainWindow(QMainWindow):
         edge_voice_widget.setLayout(edge_voice_layout)
         self.single_voice_container.addWidget(edge_voice_widget)
 
-        # Qwen3-TTS 音色选择器 (Index 1)
-        self.single_voice_tabs = QTabWidget()
-        self.single_voice_tabs.setTabPosition(QTabWidget.West)
-        self.single_voice_tabs.setDocumentMode(True)
+        # Qwen3-TTS 音色选择器 (Index 1) - 使用 QStackedWidget + QComboBox 替代 QTabWidget
+        self.single_qwen3_voice_stack = QStackedWidget()
 
         # Tab 1: 预设音色
         self.single_preset_voice = QComboBox()
@@ -518,7 +516,7 @@ class MainWindow(QMainWindow):
         preset_layout.addStretch()
         preset_widget = QWidget()
         preset_widget.setLayout(preset_layout)
-        self.single_voice_tabs.addTab(preset_widget, "预设音色")
+        self.single_qwen3_voice_stack.addWidget(preset_widget)
 
         # Tab 2: 自定义音色
         self.single_custom_voice = QComboBox()
@@ -531,7 +529,7 @@ class MainWindow(QMainWindow):
         custom_layout.addStretch()
         custom_widget = QWidget()
         custom_widget.setLayout(custom_layout)
-        self.single_voice_tabs.addTab(custom_widget, "自定义音色")
+        self.single_qwen3_voice_stack.addWidget(custom_widget)
 
         # Tab 3: 克隆音色
         clone_layout = QVBoxLayout()
@@ -547,9 +545,20 @@ class MainWindow(QMainWindow):
         clone_layout.addStretch()
         clone_widget = QWidget()
         clone_widget.setLayout(clone_layout)
-        self.single_voice_tabs.addTab(clone_widget, "克隆音色")
+        self.single_qwen3_voice_stack.addWidget(clone_widget)
 
-        self.single_voice_container.addWidget(self.single_voice_tabs)
+        # 音色类型选择器 + QStackedWidget
+        self.single_voice_type = QComboBox()
+        self.single_voice_type.addItems(["预设音色", "自定义音色", "克隆音色"])
+        self.single_voice_type.currentIndexChanged.connect(
+            self.single_qwen3_voice_stack.setCurrentIndex
+        )
+        qwen3_voice_layout = QVBoxLayout()
+        qwen3_voice_layout.addWidget(self.single_voice_type)
+        qwen3_voice_layout.addWidget(self.single_qwen3_voice_stack)
+        qwen3_voice_widget = QWidget()
+        qwen3_voice_widget.setLayout(qwen3_voice_layout)
+        self.single_voice_container.addWidget(qwen3_voice_widget)
         tts_layout.addWidget(self.single_voice_container)
 
         # 初始化：默认显示 Edge-TTS 音色选择器
@@ -750,10 +759,8 @@ class MainWindow(QMainWindow):
         edge_voice_widget.setLayout(edge_voice_layout)
         self.batch_voice_container.addWidget(edge_voice_widget)
 
-        # Qwen3-TTS 音色选择器 (Index 1)
-        self.batch_voice_tabs = QTabWidget()
-        self.batch_voice_tabs.setTabPosition(QTabWidget.West)
-        self.batch_voice_tabs.setDocumentMode(True)
+        # Qwen3-TTS 音色选择器 (Index 1) - 使用 QStackedWidget + QComboBox 替代 QTabWidget
+        self.batch_qwen3_voice_stack = QStackedWidget()
 
         # Tab 1: 预设音色
         self.batch_preset_voice = QComboBox()
@@ -766,7 +773,7 @@ class MainWindow(QMainWindow):
         preset_layout.addStretch()
         preset_widget = QWidget()
         preset_widget.setLayout(preset_layout)
-        self.batch_voice_tabs.addTab(preset_widget, "预设音色")
+        self.batch_qwen3_voice_stack.addWidget(preset_widget)
 
         # Tab 2: 自定义音色
         self.batch_custom_voice = QComboBox()
@@ -779,7 +786,7 @@ class MainWindow(QMainWindow):
         custom_layout.addStretch()
         custom_widget = QWidget()
         custom_widget.setLayout(custom_layout)
-        self.batch_voice_tabs.addTab(custom_widget, "自定义音色")
+        self.batch_qwen3_voice_stack.addWidget(custom_widget)
 
         # Tab 3: 克隆音色
         clone_layout = QVBoxLayout()
@@ -795,9 +802,20 @@ class MainWindow(QMainWindow):
         clone_layout.addStretch()
         clone_widget = QWidget()
         clone_widget.setLayout(clone_layout)
-        self.batch_voice_tabs.addTab(clone_widget, "克隆音色")
+        self.batch_qwen3_voice_stack.addWidget(clone_widget)
 
-        self.batch_voice_container.addWidget(self.batch_voice_tabs)
+        # 音色类型选择器 + QStackedWidget
+        self.batch_voice_type = QComboBox()
+        self.batch_voice_type.addItems(["预设音色", "自定义音色", "克隆音色"])
+        self.batch_voice_type.currentIndexChanged.connect(
+            self.batch_qwen3_voice_stack.setCurrentIndex
+        )
+        qwen3_voice_layout = QVBoxLayout()
+        qwen3_voice_layout.addWidget(self.batch_voice_type)
+        qwen3_voice_layout.addWidget(self.batch_qwen3_voice_stack)
+        qwen3_voice_widget = QWidget()
+        qwen3_voice_widget.setLayout(qwen3_voice_layout)
+        self.batch_voice_container.addWidget(qwen3_voice_widget)
         tts_layout.addWidget(self.batch_voice_container)
 
         # 初始化：默认显示 Edge-TTS 音色选择器
@@ -1034,7 +1052,8 @@ class MainWindow(QMainWindow):
                 return voice_text.split(" ")[0], None  # "zh-CN-XiaoxiaoNeural"
             return "zh-CN-XiaoxiaoNeural", None
 
-        # Qwen3-TTS: 从 Tab 获取音色
+        # Qwen3-TTS: 从 voice_type 下拉框获取音色
+        # voice_tabs 参数现在代表 voice_type QComboBox
         if voice_tabs is None:
             return "Vivian", "A1"
 
@@ -1079,7 +1098,7 @@ class MainWindow(QMainWindow):
         # 获取音色信息 (根据引擎类型获取)
         tts_voice, voice_profile_id = self._get_voice_info(
             engine,
-            voice_tabs=self.single_voice_tabs,
+            voice_tabs=self.single_voice_type,
             preset_combo=self.single_preset_voice,
             custom_combo=self.single_custom_voice,
             clone_line=self.single_clone_audio,
@@ -1120,7 +1139,7 @@ class MainWindow(QMainWindow):
         # 获取音色信息 (根据引擎类型获取)
         tts_voice, voice_profile_id = self._get_voice_info(
             engine,
-            voice_tabs=self.batch_voice_tabs,
+            voice_tabs=self.batch_voice_type,
             preset_combo=self.batch_preset_voice,
             custom_combo=self.batch_custom_voice,
             clone_line=self.batch_clone_audio,
@@ -1312,7 +1331,7 @@ class MainWindow(QMainWindow):
         # 使用 _get_voice_info 获取当前选中的音色
         voice, voice_profile_id = self._get_voice_info(
             engine,
-            voice_tabs=self.single_voice_tabs,
+            voice_tabs=self.single_voice_type,
             preset_combo=self.single_preset_voice,
             custom_combo=self.single_custom_voice,
             clone_line=self.single_clone_audio,
