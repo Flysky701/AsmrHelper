@@ -300,8 +300,8 @@ class Qwen3TTSEngine:
             raise FileNotFoundError(f"prompt_cache 不存在: {self.prompt_cache}")
 
         # 加载 prompt_cache (PyTorch 2.6+ 需要 weights_only=False)
+        # prompt_cache 是 list[VoiceClonePromptItem]，直接传给 generate_voice_clone
         prompt_cache = torch.load(self.prompt_cache, map_location="cpu", weights_only=False)
-        prompt_cache["thinks"] = prompt_cache.get("thinks", "")
 
         # 使用 Base 模型合成（voice_clone）
         model = self._get_base_model()
