@@ -1,0 +1,102 @@
+[project]
+name = "asmr-helper"
+version = "0.2.0"
+description = "ASMR 音频汉化工具，支持人声分离、ASR、翻译、TTS 和智能混音"
+authors = [
+    {name = "ASMR Helper Team"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+keywords = ["asmr", "audio", "whisper", "tts", "translation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # 核心依赖
+    "faster-whisper>=1.0.0",
+    "edge-tts>=6.1.0",
+    "openai>=1.0.0",
+    "httpx>=0.25.0",
+    "huggingface-hub>=0.34.0",
+
+    # 音频处理
+    "demucs>=4.0.0",
+    "soundfile>=0.12.0",
+    "pydub>=0.25.0",
+    "imageio-ffmpeg>=0.4.0",
+    "pytsmod>=0.3.0,<1.0.0",
+    "numpy>=1.24.0,<2.0.0",
+    "scipy>=1.11.0",
+
+    # GUI (可选)
+    "PySide6>=6.5.0",
+
+    # 工具
+    "tqdm>=4.65.0",
+    "click>=8.1.0",
+]
+
+[project.optional-dependencies]
+qwen3 = [
+    "qwen-tts>=0.1.0",
+    "flash-attn>=2.7.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+asmr-helper = "src.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.uv]
+# PyTorch CUDA 版本覆盖（防止 uv 从 PyPI 拉取 CPU 版本）
+override-dependencies = [
+    "onnxruntime>=1.16.0,<1.20.0",
+    "torch==2.11.0+cu126",
+    "torchaudio==2.11.0+cu126",
+]
+
+# PyTorch CUDA 源：确保 uv sync / uv run 安装 CUDA 版本而非 CPU 版本
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchaudio = { index = "pytorch-cu126" }

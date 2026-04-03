@@ -1,0 +1,26 @@
+{
+    "api": {
+        "provider": "deepseek",
+        "deepseek_api_key": "",
+        "openai_api_key": "",
+        "deepseek_base_url": "https://api.deepseek.com",
+        "openai_base_url": "https://api.openai.com/v1"
+    },
+    "tts": {
+        "engine": "edge",
+        "voice": "zh-CN-XiaoxiaoNeural",
+        "speed": 1.0
+    },
+    "paths": {
+        "output_dir": "",
+        "vtt_dir": "",
+        "model_cache_dir": ""
+    },
+    "processing": {
+        "original_volume": 0.85,
+        "tts_volume": 0.5,
+        "tts_delay": 0,
+        "vocal_model": "htdemucs",
+        "asr_model": "base"
+    }
+}

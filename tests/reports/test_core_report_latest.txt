@@ -1,0 +1,87 @@
+﻿============================================================
+  pyvideotrans 核心流程测试
+============================================================
+  CUDA 可用: True
+  测试音频: D:\ASMR_WORK\RJ01515410\正篇\#1.千寻的担心工作过度的嘴对嘴喂红茶.wav
+  存在: True
+
+
+[测试 1] ffmpeg 环境
+C:\Users\Fly\.local\bin\uv : D:\WorkSpace\AsmrHelper\pyvideotrans\.venv\lib\site-packages\imageio_ffmpeg\_utils.py:7: U
+serWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg
+_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<8
+1.
+所在位置 行:1 字符: 44
++ ... ideotrans"; C:\Users\Fly\.local\bin\uv run python test_core_flows.py  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\WorkSpace\As... Setuptools<81.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  from pkg_resources import resource_filename
+  [OK] ffmpeg 可用
+
+[测试 2] 音频提取
+获取音频信息失败: [WinError 2] 系统找不到指定的文件。
+  [OK] AudioProcessor.get_audio_info
+  [OK] AudioProcessor.split_stereo_channels
+
+[测试 3] ASR 语音识别 (Whisper)
+D:\WorkSpace\AsmrHelper\pyvideotrans\.venv\lib\site-packages\pydub\utils.py:170: RuntimeWarning: Couldn't find ffmpeg o
+r avconv - defaulting to ffmpeg, but may not work
+  warn("Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work", RuntimeWarning)
+加载 Whisper large-v3 模型 (device=cuda)...
+  [OK] ASMRRecognizer.recognize
+      示例: 失礼致します、お代わりの水出し紅茶をお持ち致しました。...
+
+[测试 4] 翻译 (DeepSeek)
+  [OK] 翻译测试跳过（无 API Key）
+
+[测试 5] TTS 语音合成 (Edge-TTS)
+  [OK] EdgeTTS.generate
+
+[测试 6] Demucs 人声分离
+
+  [Demucs] 使用模型: htdemucs
+  [Demucs] 分离中，请稍候（首次运行会下载模型...）
+  [Demucs] 完成
+    人声: D:\WorkSpace\AsmrHelper\pyvideotrans\tmp\test_separate\vocal.wav
+    背景: D:\WorkSpace\AsmrHelper\pyvideotrans\tmp\test_separate\instrumental.wav
+  [OK] VocalSeparator.separate
+
+[测试 7] ASMRProcessor 人声分离
+
+  [Demucs] 使用模型: htdemucs
+  [Demucs] 分离中，请稍候（首次运行会下载模型...）
+  [Demucs] 完成
+    人声: D:\WorkSpace\AsmrHelper\pyvideotrans\tmp\test_asmr_sep\vocal.wav
+    背景: D:\WorkSpace\AsmrHelper\pyvideotrans\tmp\test_asmr_sep\instrumental.wav
+  [OK] ASMRProcessor
+
+[测试 8] GPT-SoVITS TTS
+  [FAIL] GPT-SoVITS 服务
+      详情: 服务未启动或无法连接 (localhost:9870)
+
+[测试 9] Qwen3-TTS API
+  [FAIL] Qwen-TTS API
+      详情: 无 API Key
+
+[测试 10] Faster-Whisper 批量推理
+  [OK] Faster-Whisper transcribe
+
+============================================================
+  测试结果汇总
+============================================================
+  通过: 9/11
+  [OK  ] ffmpeg 可用
+  [OK  ] AudioProcessor.get_audio_info
+  [OK  ] AudioProcessor.split_stereo_channels
+  [OK  ] ASMRRecognizer.recognize
+  [OK  ] 翻译测试跳过（无 API Key）
+  [OK  ] EdgeTTS.generate
+  [OK  ] VocalSeparator.separate
+  [OK  ] ASMRProcessor
+  [FAIL] GPT-SoVITS 服务
+  [FAIL] Qwen-TTS API
+  [OK  ] Faster-Whisper transcribe
+
+  报告已保存: D:\WorkSpace\AsmrHelper\pyvideotrans\test_core_flows_report.txt
