@@ -64,6 +64,7 @@ class PipelineConfig:
 
     # 高级
     skip_existing: bool = False
+    mix_output_dir: Optional[str] = None  # 成品混音输出目录（默认同 output_dir）
 
 
 class Pipeline:
@@ -138,8 +139,13 @@ class Pipeline:
 
         # 创建任务名
         task_name = input_path.stem
-        task_dir = output_dir / task_name
+        # 中间文件放在 <name>_outcome/ 文件夹
+        task_dir = output_dir / f"{task_name}_outcome"
         ensure_dir(task_dir)
+
+        # 成品混音文件输出目录
+        mix_output_dir = Path(config.mix_output_dir) if config.mix_output_dir else output_dir
+        ensure_dir(mix_output_dir)
 
         def _report(msg: str):
             """内部进度报告（打印 + 回调）"""
@@ -491,8 +497,9 @@ class Pipeline:
 
         # ===== Step 5: 混音 (带错误处理) =====
         current_step += 1
-        mix_path = task_dir / "final_mix.wav"
-
+        # 成品命名: <name>_mix.<ext>
+        mix_ext = "wav"
+        mix_path = mix_output_dir / f"{task_name}_mix.{mix_ext}"
 
         # 确定混音用的原音频（有 VTT 时用原音频，否则用人声分离的结果）
         use_vocal = results.get("steps", {}).get("vocal_separator", {}).get("source") != "original"
@@ -504,7 +511,8 @@ class Pipeline:
                 _report(f"[{current_step}/{total_steps}] [跳过] 混音已存在: {mix_path.name}")
             else:
                 _report("")
-                _report(f"[{current_step}/{total_steps}] 混音 (原音: {mix_source_note})...")
+                _report(f"[{current_step}/{total_steps}] 混音 -> {mix_path.name}")
+                _report(f"  (原音: {mix_source_note}, 中间文件: {task_dir.name}/)")
                 t1 = time.time()
 
                 try:
@@ -558,13 +566,14 @@ class Pipeline:
 
         _report("")
         _report("输出文件:")
-        for key in ["vocal_path", "translations", "tts_path", "mix_path"]:
-            val = results.get(key)
-            if val:
-                if key == "translations":
-                    _report(f"  - 翻译: {translated_path}")
-                else:
-                    _report(f"  - {key}: {val}")
+        _report(f"  [成品] {mix_path}")
+        _report(f"  [中间] {task_dir.name}/ (人声、翻译、TTS等)")
+        # 显示关键中间文件
+        if results.get("translations"):
+            _report(f"          - 翻译: {translated_path.name}")
+        if results.get("vocal_path") and "vocal_separator" in results.get("steps", {}):
+            if results["steps"]["vocal_separator"].get("source") != "original":
+                _report(f"          - 人声: {Path(results['vocal_path']).name}")
 
         return results
 
