@@ -77,6 +77,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.addTab(self.create_single_tab(), "单文件处理")
         self.tabs.addTab(self.create_batch_tab(), "批量处理")
+        self.tabs.addTab(self.create_voice_workshop_tab(), "音色工坊")
         main_layout.addWidget(self.tabs)
 
         # ===== 进度显示 =====
@@ -1150,6 +1151,454 @@ class MainWindow(QMainWindow):
             config.set("api.openai_api_key", openai_key.text())
             config.save()
             QMessageBox.information(self, "保存成功", "API 配置已保存！")
+
+    def create_voice_workshop_tab(self) -> QWidget:
+        """创建音色工坊标签页"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(15)
+
+        # ===== 音色定制区 =====
+        design_group = QGroupBox("音色定制 (自然语言)")
+        design_layout = QVBoxLayout()
+
+        # 音色名称
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("音色名称:"))
+        self.workshop_name = QLineEdit()
+        self.workshop_name.setPlaceholderText("给音色起个名字...")
+        self.workshop_name.setMaxLength(50)
+        name_layout.addWidget(self.workshop_name)
+        design_layout.addLayout(name_layout)
+
+        # 预设模板
+        template_layout = QHBoxLayout()
+        template_layout.addWidget(QLabel("预设模板:"))
+        self.workshop_template = QComboBox()
+        self.workshop_template.addItems([
+            "-- 选择模板 (可选) --",
+            "治愈大姐姐: 温柔成熟的大姐姐声线，音调偏低，语速舒缓",
+            "娇小萝莉: 可爱甜美的萝莉音，音调偏高，语速轻快",
+            "冷艳女王: 高冷优雅的女王音，音调平稳，语气冷淡",
+            "邻家女孩: 亲切自然的邻家女孩声线，音调适中",
+            "磁性低音: 低沉磁性的男性声线，音调偏低",
+        ])
+        self.workshop_template.currentTextChanged.connect(self._on_template_changed)
+        template_layout.addWidget(self.workshop_template)
+        design_layout.addLayout(template_layout)
+
+        # 音色描述
+        desc_layout = QHBoxLayout()
+        desc_layout.addWidget(QLabel("音色描述:"))
+        desc_layout.addWidget(QLabel("(用自然语言描述你想要的音色)"))
+        design_layout.addLayout(desc_layout)
+        self.workshop_description = QTextEdit()
+        self.workshop_description.setPlaceholderText(
+            "例如: 温柔成熟的大姐姐声线，音调偏低，语速舒缓，让人感到安心..."
+        )
+        self.workshop_description.setMaximumHeight(80)
+        design_layout.addWidget(self.workshop_description)
+
+        # 生成按钮和进度
+        btn_layout = QHBoxLayout()
+        self.workshop_design_btn = QPushButton("生成音色")
+        self.workshop_design_btn.setStyleSheet(
+            "QPushButton{background-color:#0078d4;color:white;font-weight:bold;border-radius:5px;padding:8px;}"
+        )
+        self.workshop_design_btn.clicked.connect(self._start_voice_design)
+        btn_layout.addWidget(self.workshop_design_btn)
+
+        self.workshop_design_progress = QProgressBar()
+        self.workshop_design_progress.setMinimumHeight(20)
+        self.workshop_design_progress.setFormat("%p%")
+        self.workshop_design_progress.setVisible(False)
+        btn_layout.addWidget(self.workshop_design_progress, stretch=1)
+        design_layout.addLayout(btn_layout)
+
+        design_group.setLayout(design_layout)
+        layout.addWidget(design_group)
+
+        # ===== 原音频克隆区 =====
+        clone_group = QGroupBox("原音频克隆")
+        clone_layout = QVBoxLayout()
+
+        # 提示
+        hint = QLabel("提示: 请先在\"单文件处理\"中完成人声分离，或手动选择参考音频")
+        hint.setStyleSheet("color: gray; font-size: 11px;")
+        clone_layout.addWidget(hint)
+
+        # 参考音频
+        audio_layout = QHBoxLayout()
+        audio_layout.addWidget(QLabel("参考音频:"))
+        self.workshop_clone_audio = QLineEdit()
+        self.workshop_clone_audio.setPlaceholderText("选择参考音频文件...")
+        audio_layout.addWidget(self.workshop_clone_audio)
+        browse_btn = QPushButton("浏览...")
+        browse_btn.clicked.connect(self._browse_workshop_audio)
+        audio_layout.addWidget(browse_btn)
+        clone_layout.addLayout(audio_layout)
+
+        # 参考文本
+        ref_text_layout = QHBoxLayout()
+        ref_text_layout.addWidget(QLabel("参考文本:"))
+        self.workshop_ref_text = QLineEdit()
+        self.workshop_ref_text.setText("你好，今天辛苦了，让我来帮你放松一下吧。")
+        self.workshop_ref_text.setPlaceholderText("参考音频对应的文本...")
+        ref_text_layout.addWidget(self.workshop_ref_text)
+        clone_layout.addLayout(ref_text_layout)
+
+        # 克隆音色名称
+        clone_name_layout = QHBoxLayout()
+        clone_name_layout.addWidget(QLabel("音色名称:"))
+        self.workshop_clone_name = QLineEdit()
+        self.workshop_clone_name.setPlaceholderText("给克隆音色起个名字...")
+        clone_name_layout.addWidget(self.workshop_clone_name)
+        clone_layout.addLayout(clone_name_layout)
+
+        # 克隆按钮和进度
+        clone_btn_layout = QHBoxLayout()
+        self.workshop_clone_btn = QPushButton("克隆音色")
+        self.workshop_clone_btn.setStyleSheet(
+            "QPushButton{background-color:#107c10;color:white;font-weight:bold;border-radius:5px;padding:8px;}"
+        )
+        self.workshop_clone_btn.clicked.connect(self._start_voice_clone)
+        clone_btn_layout.addWidget(self.workshop_clone_btn)
+
+        self.workshop_clone_progress = QProgressBar()
+        self.workshop_clone_progress.setMinimumHeight(20)
+        self.workshop_clone_progress.setFormat("%p%")
+        self.workshop_clone_progress.setVisible(False)
+        clone_btn_layout.addWidget(self.workshop_clone_progress, stretch=1)
+        clone_layout.addLayout(clone_btn_layout)
+
+        clone_group.setLayout(clone_layout)
+        layout.addWidget(clone_group)
+
+        # ===== 我的音色区 =====
+        my_voices_group = QGroupBox("我的音色")
+        my_voices_layout = QVBoxLayout()
+
+        # 刷新按钮
+        refresh_layout = QHBoxLayout()
+        refresh_btn = QPushButton("刷新列表")
+        refresh_btn.clicked.connect(self._refresh_my_voices)
+        refresh_layout.addWidget(refresh_btn)
+        refresh_layout.addStretch()
+        my_voices_layout.addLayout(refresh_layout)
+
+        # 音色列表
+        self.workshop_voice_list = QListWidget()
+        self.workshop_voice_list.setMaximumHeight(150)
+        my_voices_layout.addWidget(self.workshop_voice_list)
+
+        # 试音文本
+        preview_layout = QHBoxLayout()
+        preview_layout.addWidget(QLabel("试音文本:"))
+        self.workshop_preview_text = QLineEdit()
+        self.workshop_preview_text.setText("你好，这是一段测试语音。")
+        preview_layout.addWidget(self.workshop_preview_text)
+        my_voices_layout.addLayout(preview_layout)
+
+        # 列表操作按钮
+        list_btn_layout = QHBoxLayout()
+        self.workshop_preview_btn = QPushButton("试音")
+        self.workshop_preview_btn.clicked.connect(self._preview_workshop_voice)
+        list_btn_layout.addWidget(self.workshop_preview_btn)
+
+        self.workshop_delete_btn = QPushButton("删除")
+        self.workshop_delete_btn.setStyleSheet("QPushButton{background-color:#d13438;color:white;}")
+        self.workshop_delete_btn.clicked.connect(self._delete_workshop_voice)
+        list_btn_layout.addWidget(self.workshop_delete_btn)
+        list_btn_layout.addStretch()
+        my_voices_layout.addLayout(list_btn_layout)
+
+        my_voices_group.setLayout(my_voices_layout)
+        layout.addWidget(my_voices_group)
+
+        # ===== GPU 状态 =====
+        gpu_info = self._get_gpu_info()
+        gpu_label = QLabel(f"GPU: {gpu_info}")
+        gpu_label.setStyleSheet("color: gray; font-size: 11px;")
+        layout.addWidget(gpu_label)
+
+        layout.addStretch()
+
+        # 初始化音色列表
+        self._refresh_my_voices()
+
+        return widget
+
+    def _on_template_changed(self, text: str):
+        """选择预设模板时自动填入描述"""
+        if text.startswith("--"):
+            return  # 跳过 "-- 选择模板 --" 选项
+
+        if text:
+            # 提取模板名称和描述
+            if ": " in text:
+                _, description = text.split(": ", 1)
+                self.workshop_description.setText(description)
+
+    def _start_voice_design(self):
+        """开始音色设计"""
+        name = self.workshop_name.text().strip()
+        description = self.workshop_description.toPlainText().strip()
+
+        if not name:
+            QMessageBox.warning(self, "警告", "请输入音色名称!")
+            return
+
+        if not description:
+            QMessageBox.warning(self, "警告", "请输入音色描述!")
+            return
+
+        # 禁用按钮
+        self.workshop_design_btn.setEnabled(False)
+        self.workshop_design_btn.setText("生成中...")
+        self.workshop_design_progress.setVisible(True)
+        self.workshop_design_progress.setValue(0)
+
+        self.log(f"[音色工坊] 开始生成音色: {name}")
+
+        # 导入 Worker
+        from src.gui_workers import VoiceDesignWorker
+
+        self.design_worker = VoiceDesignWorker(
+            name=name,
+            description=description,
+        )
+        self.design_worker.progress.connect(self._on_design_progress)
+        self.design_worker.finished.connect(self._on_design_finished)
+        self.design_worker.start()
+
+    def _on_design_progress(self, msg: str, percent: int):
+        """音色设计进度回调"""
+        self.workshop_design_progress.setValue(percent)
+        self.log(f"[音色工坊] {msg}")
+
+    def _on_design_finished(self, success: bool, message: str, profile_id: str):
+        """音色设计完成回调"""
+        # 恢复按钮
+        self.workshop_design_btn.setEnabled(True)
+        self.workshop_design_btn.setText("生成音色")
+        self.workshop_design_progress.setVisible(False)
+
+        if success:
+            self.log(f"[音色工坊] {message}")
+            QMessageBox.information(self, "成功", message)
+            # 清空输入
+            self.workshop_name.clear()
+            self.workshop_description.clear()
+            self.workshop_template.setCurrentIndex(0)
+            # 刷新音色列表
+            self._refresh_my_voices()
+        else:
+            self.log(f"[音色工坊] 失败: {message}")
+            QMessageBox.critical(self, "错误", message)
+
+    def _browse_workshop_audio(self):
+        """浏览音色工坊的参考音频"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择参考音频",
+            "",
+            "音频文件 (*.wav *.mp3 *.flac *.m4a);;所有文件 (*.*)"
+        )
+        if file_path:
+            self.workshop_clone_audio.setText(file_path)
+            # 自动填入文件名作为音色名称
+            if not self.workshop_clone_name.text():
+                import os
+                name = os.path.splitext(os.path.basename(file_path))[0]
+                self.workshop_clone_name.setText(f"克隆_{name[:20]}")
+
+    def _start_voice_clone(self):
+        """开始音色克隆"""
+        audio_path = self.workshop_clone_audio.text().strip()
+        name = self.workshop_clone_name.text().strip()
+        ref_text = self.workshop_ref_text.text().strip()
+
+        if not audio_path:
+            QMessageBox.warning(self, "警告", "请选择参考音频!")
+            return
+
+        if not name:
+            QMessageBox.warning(self, "警告", "请输入音色名称!")
+            return
+
+        if not Path(audio_path).exists():
+            QMessageBox.critical(self, "错误", f"参考音频不存在:\n{audio_path}")
+            return
+
+        # 禁用按钮
+        self.workshop_clone_btn.setEnabled(False)
+        self.workshop_clone_btn.setText("克隆中...")
+        self.workshop_clone_progress.setVisible(True)
+        self.workshop_clone_progress.setValue(0)
+
+        self.log(f"[音色工坊] 开始克隆音色: {name}")
+
+        from src.gui_workers import VoiceCloneWorker
+
+        self.clone_worker = VoiceCloneWorker(
+            name=name,
+            audio_path=audio_path,
+            ref_text=ref_text,
+        )
+        self.clone_worker.progress.connect(self._on_clone_progress)
+        self.clone_worker.finished.connect(self._on_clone_finished)
+        self.clone_worker.start()
+
+    def _on_clone_progress(self, msg: str, percent: int):
+        """音色克隆进度回调"""
+        self.workshop_clone_progress.setValue(percent)
+        self.log(f"[音色工坊] {msg}")
+
+    def _on_clone_finished(self, success: bool, message: str, profile_id: str):
+        """音色克隆完成回调"""
+        # 恢复按钮
+        self.workshop_clone_btn.setEnabled(True)
+        self.workshop_clone_btn.setText("克隆音色")
+        self.workshop_clone_progress.setVisible(False)
+
+        if success:
+            self.log(f"[音色工坊] {message}")
+            QMessageBox.information(self, "成功", message)
+            # 清空输入
+            self.workshop_clone_audio.clear()
+            self.workshop_clone_name.clear()
+            # 刷新音色列表
+            self._refresh_my_voices()
+        else:
+            self.log(f"[音色工坊] 失败: {message}")
+            QMessageBox.critical(self, "错误", message)
+
+    def _refresh_my_voices(self):
+        """刷新我的音色列表"""
+        from src.core.tts.voice_profile import get_voice_manager
+
+        self.workshop_voice_list.clear()
+        manager = get_voice_manager()
+
+        # 显示自定义音色 (B 系列)
+        for profile in manager.get_customs():
+            self.workshop_voice_list.addItem(
+                f"{profile.name} (自定义, {profile.id})"
+            )
+
+        # 显示克隆音色 (C 系列)
+        for profile in manager.get_clones():
+            self.workshop_voice_list.addItem(
+                f"{profile.name} (克隆, {profile.id})"
+            )
+
+        if self.workshop_voice_list.count() == 0:
+            self.workshop_voice_list.addItem("(暂无自定义音色)")
+
+    def _preview_workshop_voice(self):
+        """试音我的音色"""
+        current_item = self.workshop_voice_list.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "警告", "请先选择一个音色!")
+            return
+
+        text = current_item.text()
+        # 解析 profile_id
+        import re
+        match = re.search(r'\(([^)]+)\)$', text)
+        if not match:
+            QMessageBox.warning(self, "警告", "无法解析音色 ID!")
+            return
+
+        category, profile_id = match.group(1).split(", ")
+        profile_id = f"{category[0].upper()}{profile_id[1:]}"
+
+        test_text = self.workshop_preview_text.text().strip()
+        if not test_text:
+            test_text = "你好，这是一段测试语音。"
+
+        self.log(f"[音色工坊] 试音: {profile_id}")
+        self.workshop_preview_btn.setEnabled(False)
+
+        from src.gui_workers import VoicePreviewWorker
+
+        self.preview_worker = VoicePreviewWorker(
+            profile_id=profile_id,
+            test_text=test_text,
+        )
+        self.preview_worker.finished.connect(self._on_workshop_preview_finished)
+        self.preview_worker.start()
+
+    def _on_workshop_preview_finished(self, success: bool, message: str, audio_path: str):
+        """试音完成回调"""
+        self.workshop_preview_btn.setEnabled(True)
+
+        if success:
+            self.log(f"[音色工坊] {message}")
+            import subprocess
+            import platform
+            if platform.system() == "Windows":
+                subprocess.Popen(["powershell", "-c", f"Start-Process '{audio_path}'"])
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", audio_path])
+            else:
+                subprocess.Popen(["xdg-open", audio_path])
+        else:
+            self.log(f"[音色工坊] 试音失败: {message}")
+            QMessageBox.critical(self, "错误", message)
+
+    def _delete_workshop_voice(self):
+        """删除音色"""
+        current_item = self.workshop_voice_list.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "警告", "请先选择一个音色!")
+            return
+
+        text = current_item.text()
+
+        # 解析 profile_id
+        import re
+        match = re.search(r'\(([^)]+)\)$', text)
+        if not match:
+            QMessageBox.warning(self, "警告", "无法解析音色!")
+            return
+
+        # 确认删除
+        reply = QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定要删除音色 \"{text}\" 吗？\n\n注意：预设音色不可删除。",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # 解析并删除
+        parts = match.group(1).split(", ")
+        category = parts[0].strip()
+        profile_id = f"{category[0].upper()}{parts[1][1:]}"
+
+        from src.core.tts.voice_profile import get_voice_manager
+        manager = get_voice_manager()
+
+        if manager.delete_profile(profile_id):
+            self.log(f"[音色工坊] 已删除: {text}")
+            self._refresh_my_voices()
+            QMessageBox.information(self, "成功", "音色已删除!")
+        else:
+            QMessageBox.critical(self, "错误", "删除失败或该音色不可删除!")
+
+    def _get_gpu_info(self) -> str:
+        """获取 GPU 信息"""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                props = torch.cuda.get_device_properties(0)
+                mem_total = props.total_memory / 1024**3
+                return f"{props.name} ({mem_total:.1f}GB)"
+            return "无 GPU (CPU 模式)"
+        except:
+            return "未知"
 
 
 def main():

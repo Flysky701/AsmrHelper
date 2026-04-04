@@ -180,6 +180,97 @@ class VoiceProfileManager:
         self.save()
         return new_id
 
+    def add_custom_profile(
+        self,
+        name: str,
+        description: str,
+        design_instruct: str,
+        ref_audio: str = "",
+        prompt_cache: str = "",
+    ) -> str:
+        """
+        添加自定义音色（VoiceDesign 生成的音色）（线程安全）
+
+        Args:
+            name: 音色名称
+            description: 描述
+            design_instruct: VoiceDesign 自然语言描述
+            ref_audio: 参考音频路径
+            prompt_cache: prompt 缓存路径
+
+        Returns:
+            新音色 ID (B 系列)
+        """
+        with self._profiles_lock:
+            # 生成新 ID (B 系列)
+            custom_ids = [int(p.id[1:]) for p in self._profiles.values()
+                         if p.category == "custom"]
+            new_id = f"B{max(custom_ids) + 1 if custom_ids else 1}"
+
+            # 音色目录
+            project_root = Path(__file__).parent.parent.parent.parent
+            voice_dir = project_root / "models" / "voice_profiles"
+            voice_dir.mkdir(parents=True, exist_ok=True)
+
+            profile = VoiceProfile(
+                id=new_id,
+                name=name,
+                category="custom",
+                engine="qwen3_clone",
+                description=description,
+                design_instruct=design_instruct,
+                ref_audio=ref_audio,
+                prompt_cache=prompt_cache,
+                generated=bool(prompt_cache),
+            )
+
+            self._profiles[new_id] = profile
+
+        self.save()
+        return new_id
+
+    def delete_profile(self, profile_id: str) -> bool:
+        """
+        删除音色配置（线程安全）
+
+        Args:
+            profile_id: 音色 ID
+
+        Returns:
+            是否删除成功
+        """
+        with self._profiles_lock:
+            if profile_id not in self._profiles:
+                return False
+
+            profile = self._profiles[profile_id]
+
+            # 不能删除预设音色
+            if profile.category == "preset":
+                print(f"[VoiceProfileManager] 不能删除预设音色: {profile_id}")
+                return False
+
+            # 删除 prompt 文件（如果存在）
+            if profile.prompt_cache:
+                prompt_path = Path(profile.prompt_cache)
+                if prompt_path.exists():
+                    prompt_path.unlink()
+                    print(f"[VoiceProfileManager] 已删除 prompt: {prompt_path}")
+
+            # 删除参考音频（如果是 custom 类型自己生成的）
+            if profile.ref_audio and profile.category == "custom":
+                ref_path = Path(profile.ref_audio)
+                if ref_path.exists() and "_ref.wav" in profile.ref_audio:
+                    ref_path.unlink()
+                    print(f"[VoiceProfileManager] 已删除参考音频: {ref_path}")
+
+            # 从字典移除
+            del self._profiles[profile_id]
+
+        self.save()
+        print(f"[VoiceProfileManager] 已删除音色: {profile_id}")
+        return True
+
     def get_all(self) -> List[VoiceProfile]:
         """获取所有音色（线程安全）"""
         with self._profiles_lock:
