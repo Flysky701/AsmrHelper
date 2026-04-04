@@ -24,8 +24,8 @@ class Segment:
 
     def to_dict(self) -> dict:
         return {
-            "start": round(self.start, 2),
-            "end": round(self.end, 2),
+            "start": round(self.start, 3),  # 毫秒级精度
+            "end": round(self.end, 3),
             "text": self.text,
             "log_prob": self.log_prob,
         }
