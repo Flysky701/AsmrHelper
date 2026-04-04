@@ -17,8 +17,10 @@ import re
 from pathlib import Path
 from typing import Dict, Optional, List
 
+from src.config import PROJECT_ROOT  # 统一使用项目根目录
 
-TERM_DB_PATH = Path(__file__).parent.parent.parent.parent / "config" / "asmr_terms.json"
+
+TERM_DB_PATH = PROJECT_ROOT / "config" / "asmr_terms.json"
 
 
 class ThreeLayerTerminologyDB:

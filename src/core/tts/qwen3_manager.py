@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+from src.config import PROJECT_ROOT  # 统一使用项目根目录
+
 
 class Qwen3ModelManager:
     """Qwen3 模型管理器 - 单例 + 延迟加载"""
@@ -31,8 +33,8 @@ class Qwen3ModelManager:
         if download_root:
             base = Path(download_root)
         else:
-            project_root = Path(__file__).parent.parent.parent.parent
-            base = project_root / "models" / "qwen3tts"
+            # 统一使用 PROJECT_ROOT
+            base = PROJECT_ROOT / "models" / "qwen3tts"
 
         model_dir = base / cls._MODEL_SUBDIRS[model_type]
         if not model_dir.exists():

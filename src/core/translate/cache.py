@@ -16,6 +16,8 @@ from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from src.config import PROJECT_ROOT  # 统一使用项目根目录
+
 
 @dataclass
 class CacheEntry:
@@ -68,7 +70,8 @@ class TranslationCache:
             max_age_days: 缓存有效期（天）
         """
         if cache_dir is None:
-            cache_dir = Path(__file__).parent.parent.parent.parent / ".workbuddy" / "translation_cache"
+            # 统一使用 PROJECT_ROOT
+            cache_dir = PROJECT_ROOT / ".workbuddy" / "translation_cache"
 
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)

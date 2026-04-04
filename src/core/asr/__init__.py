@@ -25,6 +25,7 @@ import numpy as np
 from faster_whisper import WhisperModel
 
 from .postprocess import ASRPostProcessor, PostProcessConfig
+from src.config import PROJECT_ROOT  # 统一使用项目根目录
 
 
 class ASRRecognizer:
@@ -86,8 +87,8 @@ class ASRRecognizer:
 
         # 加载模型，优先使用本地 models 目录
         t0 = time.time()
-        # 查找本地缓存目录
-        models_dir = Path(__file__).parent.parent.parent.parent / "models" / "whisper"
+        # 统一使用 PROJECT_ROOT
+        models_dir = PROJECT_ROOT / "models" / "whisper"
         download_root = str(models_dir) if models_dir.exists() else None
         self.model = WhisperModel(
             model_size,
