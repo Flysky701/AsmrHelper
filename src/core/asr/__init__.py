@@ -15,6 +15,7 @@ ASR 语音识别模块 - 使用 Faster-Whisper
 - SRT/LRC 输出格式支持
 """
 
+import math
 import time
 import sys
 from pathlib import Path
@@ -167,11 +168,21 @@ class ASRRecognizer:
                     })
                     word_count += 1
 
+            # 计算置信度：基于 words 的平均概率
+            if words:
+                avg_prob = sum(w["probability"] for w in words) / len(words)
+                # 转换为 log_prob 格式（兼容后处理），取自然对数
+                log_prob = -math.log(1.0 / (avg_prob + 1e-10) - 1.0 + 1e-10)
+            else:
+                # 如果没有 words，使用 no_speech_prob 的补数
+                # no_speech_prob 越高越可能是静音，取补数作为语音置信度
+                log_prob = -math.log(1.0 / (seg.no_speech_prob + 1e-10) - 1.0 + 1e-10) if seg.no_speech_prob < 0.99 else -1.0
+
             result = {
                 "start": round(seg.start, 3),  # 毫秒级精度 (3位小数)
                 "end": round(seg.end, 3),
                 "text": seg.text.strip(),
-                "log_prob": seg.avg_log_prob,  # 保留置信度
+                "log_prob": log_prob,  # 保留置信度（用于后处理过滤）
                 "words": words,
             }
             results.append(result)
