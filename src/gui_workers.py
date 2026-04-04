@@ -88,7 +88,14 @@ class SingleWorkerThread(QThread):
 
 
 class PreviewWorkerThread(QThread):
-    """试音线程 - 避免阻塞GUI"""
+    """
+    试音线程 - 避免阻塞GUI
+
+    支持三种音色类型的试音：
+    1. 预设音色 (voice_profile_id 如 "A1")
+    2. 自定义音色 (voice_profile_id 如 "B1")
+    3. 克隆音色 (voice_profile_id == "__clone__", voice=音频文件路径)
+    """
     finished = Signal(bool, str, str)  # success, message, output_path
 
     def __init__(self, engine: str, voice: str, voice_profile_id: str, speed: float, test_text: str):
@@ -102,20 +109,60 @@ class PreviewWorkerThread(QThread):
     def run(self):
         try:
             import tempfile
-            from src.core import TTSEngine
+            from src.core.tts.voice_designer import VoiceDesigner
 
             temp_dir = Path(tempfile.gettempdir())
-            ext = "wav" if self.engine == "qwen3" else "mp3"
-            output_path = temp_dir / f"asmr_preview.{ext}"
+            output_path = temp_dir / "asmr_preview.wav"
 
-            tts_engine = TTSEngine(
-                engine=self.engine,
-                voice=self.voice,
-                voice_profile_id=self.voice_profile_id,
-                speed=self.speed,
-            )
-            tts_engine.synthesize(self.test_text, str(output_path))
-            self.finished.emit(True, "播放中...", str(output_path))
+            # Edge-TTS: 使用简单路径
+            if self.engine == "edge":
+                from src.core import TTSEngine
+                tts_engine = TTSEngine(
+                    engine=self.engine,
+                    voice=self.voice,
+                    voice_profile_id=self.voice_profile_id,
+                    speed=self.speed,
+                )
+                tts_engine.synthesize(self.test_text, str(output_path))
+                self.finished.emit(True, "播放中...", str(output_path))
+                return
+
+            # Qwen3-TTS: 根据音色类型选择不同处理方式
+            if self.voice_profile_id == "__clone__":
+                # 克隆音色：直接使用音频文件克隆
+                designer = VoiceDesigner()
+                audio_path = designer.clone_and_preview(
+                    audio_path=self.voice,  # voice 实际上是音频文件路径
+                    text=self.test_text,
+                    output_path=str(output_path),
+                )
+                self.finished.emit(True, "播放中...", audio_path)
+            else:
+                # 预设/自定义音色：使用 VoiceDesigner.preview_profile
+                from src.core.tts.voice_profile import get_voice_manager
+                manager = get_voice_manager()
+                profile = manager.get_by_id(self.voice_profile_id)
+                if not profile:
+                    # 回退到 TTSEngine（可能是直接使用预设音色名）
+                    from src.core import TTSEngine
+                    tts_engine = TTSEngine(
+                        engine=self.engine,
+                        voice=self.voice,
+                        voice_profile_id=self.voice_profile_id,
+                        speed=self.speed,
+                    )
+                    tts_engine.synthesize(self.test_text, str(output_path))
+                    self.finished.emit(True, "播放中...", str(output_path))
+                    return
+
+                designer = VoiceDesigner()
+                audio_path = designer.preview_profile(
+                    profile=profile,
+                    text=self.test_text,
+                    output_path=str(output_path),
+                )
+                self.finished.emit(True, "播放中...", audio_path)
+
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -190,9 +237,9 @@ class BatchWorkerThread(QThread):
             with gpu_lock:
                 pipeline = Pipeline(cfg)
                 # 无回调，避免线程安全问题
-                pipeline.run(progress_callback=None)
+                results = pipeline.run(progress_callback=None)
 
-            mix_path = pipeline.results.get("mix_path", "")
+            mix_path = results.get("mix_path", "")
             if mix_path:
                 result["status"] = "success"
                 result["output"] = str(mix_path)
@@ -338,28 +385,135 @@ class VoiceCloneWorker(QThread):
     progress = Signal(str, int)
     finished = Signal(bool, str, str)
 
-    def __init__(self, name: str, audio_path: str, ref_text: str = None):
+    def __init__(self, name: str, audio_path: str, ref_text: str = None, separate_vocals: bool = True):
         super().__init__()
         self.name = name
         self.audio_path = audio_path
         self.ref_text = ref_text or "你好，今天辛苦了，让我来帮你放松一下吧。"
+        self.separate_vocals = separate_vocals
 
     def run(self):
         try:
             from src.core.tts.voice_designer import VoiceDesigner
+            from src.core.vocal_separator import separate_vocals as do_separate_vocals
+            import tempfile
 
             def progress_callback(msg: str, percent: int):
                 self.progress.emit(msg, percent)
 
+            audio_to_clone = self.audio_path
+
+            # 如果需要分离人声
+            if self.separate_vocals:
+                self.progress.emit("分离人声中...", 10)
+                try:
+                    temp_dir = Path(tempfile.gettempdir()) / "asmr_voice_clone"
+                    temp_dir.mkdir(parents=True, exist_ok=True)
+                    vocal_path = do_separate_vocals(
+                        audio_path=self.audio_path,
+                        output_dir=str(temp_dir),
+                    )
+                    if vocal_path and Path(vocal_path).exists():
+                        audio_to_clone = vocal_path
+                        self.progress.emit("人声分离完成，开始克隆...", 30)
+                    else:
+                        self.progress.emit("人声分离失败，使用原音频克隆...", 30)
+                except Exception as sep_err:
+                    self.progress.emit(f"人声分离失败，使用原音频: {sep_err}", 30)
+                    audio_to_clone = self.audio_path
+
             designer = VoiceDesigner()
             profile = designer.clone_from_audio(
-                audio_path=self.audio_path,
+                audio_path=audio_to_clone,
                 name=self.name,
                 ref_text=self.ref_text,
                 progress_callback=progress_callback,
             )
 
             self.finished.emit(True, f"音色 '{profile.name}' 克隆成功!", profile.id)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(False, f"音色克隆失败: {e}", "")
+
+
+class VoiceBatchCloneWorker(QThread):
+    """
+    音色批量克隆 Worker - 支持字幕切分
+
+    信号:
+        progress(str, int): 进度消息, 百分比
+        finished(bool, str, str): (success, message, profile_id)
+    """
+
+    progress = Signal(str, int)
+    finished = Signal(bool, str, str)
+
+    def __init__(self, name: str, audio_path: str, subtitle_path: str = None):
+        super().__init__()
+        self.name = name
+        self.audio_path = audio_path
+        self.subtitle_path = subtitle_path
+
+    def run(self):
+        try:
+            import tempfile
+            import os
+            from pathlib import Path
+            from src.core.tts.voice_designer import VoiceDesigner
+            from src.core.translate import load_subtitle_with_timestamps
+            from src.utils import cut_audio_by_subtitle
+
+            audio_segments = []
+
+            # Step 1: 如果有字幕，先切分音频
+            if self.subtitle_path and Path(self.subtitle_path).exists():
+                self.progress.emit("加载字幕文件...", 5)
+
+                # 加载字幕
+                subtitle_entries = load_subtitle_with_timestamps(self.subtitle_path)
+                if not subtitle_entries:
+                    raise ValueError(f"字幕文件为空或格式不支持: {self.subtitle_path}")
+
+                self.progress.emit(f"字幕包含 {len(subtitle_entries)} 条记录，开始切分音频...", 10)
+
+                # 切分音频
+                temp_dir = Path(tempfile.gettempdir()) / "asmr_voice_clone_batch"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+
+                audio_segments = cut_audio_by_subtitle(
+                    audio_path=self.audio_path,
+                    subtitle_entries=subtitle_entries,
+                    output_dir=str(temp_dir),
+                    prefix="clone_seg",
+                )
+
+                self.progress.emit(f"音频已切分为 {len(audio_segments)} 个片段", 20)
+            else:
+                # 没有字幕，使用整个音频文件
+                audio_segments = [{
+                    "path": self.audio_path,
+                    "index": 1,
+                }]
+                self.progress.emit("使用完整音频文件克隆...", 10)
+
+            # Step 2: 对第一个片段克隆音色
+            designer = VoiceDesigner()
+            ref_text = "你好，今天辛苦了，让我来帮你放松一下吧。"
+
+            self.progress.emit(f"对第 1/{len(audio_segments)} 个片段进行音色克隆...", 30)
+
+            first_segment = audio_segments[0]
+            profile = designer.clone_from_audio(
+                audio_path=first_segment["path"],
+                name=self.name,
+                ref_text=ref_text,
+                progress_callback=lambda msg, p=0: self.progress.emit(f"  {msg}", 30 + p * 0.5),
+            )
+
+            self.progress.emit(f"音色 '{self.name}' 克隆完成!", 100)
+            self.finished.emit(True, f"音色 '{self.name}' 克隆成功! (共处理 {len(audio_segments)} 个片段)", profile.id)
 
         except Exception as e:
             import traceback

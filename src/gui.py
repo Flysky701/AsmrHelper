@@ -84,8 +84,8 @@ class MainWindow(QMainWindow):
         # ===== 进度显示 =====
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimumHeight(22)
-        self.progress_bar.setFormat("%p%")
         main_layout.addWidget(self.progress_bar)
+        self.progress_bar.setFormat("%p%")  # 在addWidget之后设置，避免QPainter警告
 
         self.progress_text = QTextEdit()
         self.progress_text.setMaximumHeight(120)
@@ -248,9 +248,7 @@ class MainWindow(QMainWindow):
 
         # Tab 2: 自定义音色
         self.single_custom_voice = QComboBox()
-        self.single_custom_voice.addItems([
-            "治愈大姐姐 (B1)", "娇小萝莉 (B2)", "冷艳女王 (B3)", "温柔暖男 (B4)"
-        ])
+        # 初始化时从配置加载，稍后由 _refresh_custom_voice_combos() 填充
         custom_layout = QVBoxLayout()
         custom_layout.addWidget(self.single_custom_voice)
         custom_layout.addWidget(QLabel("（需要先运行预生成脚本）"))
@@ -269,15 +267,29 @@ class MainWindow(QMainWindow):
         clone_browse_btn.clicked.connect(lambda: self._browse_clone_audio(self.single_clone_audio))
         clone_audio_layout.addWidget(clone_browse_btn)
         clone_layout.addLayout(clone_audio_layout)
-        clone_layout.addWidget(QLabel("（需要先使用 Base 模型生成 prompt）"))
+
+        # 自动分离人声选项
+        self.single_clone_separate_check = QCheckBox("自动分离人声后克隆")
+        self.single_clone_separate_check.setChecked(True)  # 默认勾选
+        self.single_clone_separate_check.setToolTip(
+            "勾选后，将自动分离人声并使用纯净人声进行音色克隆"
+        )
+        clone_layout.addWidget(self.single_clone_separate_check)
+
+        # 克隆按钮
+        self.single_clone_btn = QPushButton("开始克隆音色")
+        self.single_clone_btn.clicked.connect(self._clone_voice_only)
+        clone_layout.addWidget(self.single_clone_btn)
+
+        clone_layout.addWidget(QLabel("提示: 推荐使用纯净人声音频进行克隆，效果更佳"))
         clone_layout.addStretch()
         clone_widget = QWidget()
         clone_widget.setLayout(clone_layout)
         self.single_qwen3_voice_stack.addWidget(clone_widget)
 
-        # 音色类型选择器 + QStackedWidget
+        # 音色类型选择器 + QStackedWidget（移除克隆音色Tab，C系列已合并到自定义音色下拉框）
         self.single_voice_type = QComboBox()
-        self.single_voice_type.addItems(["预设音色", "自定义音色", "克隆音色"])
+        self.single_voice_type.addItems(["预设音色", "自定义音色"])
         self.single_voice_type.currentIndexChanged.connect(
             self.single_qwen3_voice_stack.setCurrentIndex
         )
@@ -512,9 +524,7 @@ class MainWindow(QMainWindow):
 
         # Tab 2: 自定义音色
         self.batch_custom_voice = QComboBox()
-        self.batch_custom_voice.addItems([
-            "治愈大姐姐 (B1)", "娇小萝莉 (B2)", "冷艳女王 (B3)", "温柔暖男 (B4)"
-        ])
+        # 初始化时从配置加载，稍后由 _refresh_custom_voice_combos() 填充
         custom_layout = QVBoxLayout()
         custom_layout.addWidget(self.batch_custom_voice)
         custom_layout.addWidget(QLabel("（需要先运行预生成脚本）"))
@@ -539,9 +549,9 @@ class MainWindow(QMainWindow):
         clone_widget.setLayout(clone_layout)
         self.batch_qwen3_voice_stack.addWidget(clone_widget)
 
-        # 音色类型选择器 + QStackedWidget
+        # 音色类型选择器 + QStackedWidget（移除克隆音色Tab，C系列已合并到自定义音色下拉框）
         self.batch_voice_type = QComboBox()
-        self.batch_voice_type.addItems(["预设音色", "自定义音色", "克隆音色"])
+        self.batch_voice_type.addItems(["预设音色", "自定义音色"])
         self.batch_voice_type.currentIndexChanged.connect(
             self.batch_qwen3_voice_stack.setCurrentIndex
         )
@@ -801,14 +811,11 @@ class MainWindow(QMainWindow):
             voice_text = preset_combo.currentText()
             profile_id = voice_text.split("(")[1].rstrip(")") if "(" in voice_text else None
             return voice_text.split(" ")[0], profile_id
-        elif tab_index == 1:
-            # 自定义音色
+        else:
+            # 自定义音色 (包含 B/C 系列)
             voice_text = custom_combo.currentText()
             profile_id = voice_text.split("(")[1].rstrip(")") if "(" in voice_text else None
             return voice_text.split(" ")[0], profile_id
-        else:
-            # 克隆音色
-            return clone_line.text(), None
 
     def get_single_params(self) -> dict:
         """获取单文件处理参数"""
@@ -924,7 +931,7 @@ class MainWindow(QMainWindow):
             input_p.parent,
             input_p.parent / "ASMR_O",
         ]
-        from utils import find_subtitle_file
+        from src.utils import find_subtitle_file
         subtitle_path = find_subtitle_file(input_p, search_dirs)
         
         self.log(f"开始处理: {input_file}")
@@ -1221,9 +1228,9 @@ class MainWindow(QMainWindow):
 
         self.workshop_design_progress = QProgressBar()
         self.workshop_design_progress.setMinimumHeight(20)
-        self.workshop_design_progress.setFormat("%p%")
         self.workshop_design_progress.setVisible(False)
         btn_layout.addWidget(self.workshop_design_progress, stretch=1)
+        self.workshop_design_progress.setFormat("%p%")  # 在addWidget之后
         design_layout.addLayout(btn_layout)
 
         design_group.setLayout(design_layout)
@@ -1234,9 +1241,20 @@ class MainWindow(QMainWindow):
         clone_layout = QVBoxLayout()
 
         # 提示
-        hint = QLabel("提示: 请先在\"单文件处理\"中完成人声分离，或手动选择参考音频")
+        hint = QLabel("提示: 支持单音频克隆或多音频片段批量克隆")
         hint.setStyleSheet("color: gray; font-size: 11px;")
         clone_layout.addWidget(hint)
+
+        # 字幕文件（用于切分音频）
+        subtitle_layout = QHBoxLayout()
+        subtitle_layout.addWidget(QLabel("字幕文件:"))
+        self.workshop_subtitle = QLineEdit()
+        self.workshop_subtitle.setPlaceholderText("选择字幕文件(可选，用于自动切分音频)")
+        subtitle_layout.addWidget(self.workshop_subtitle)
+        sub_browse_btn = QPushButton("浏览...")
+        sub_browse_btn.clicked.connect(self._browse_workshop_subtitle)
+        subtitle_layout.addWidget(sub_browse_btn)
+        clone_layout.addLayout(subtitle_layout)
 
         # 参考音频
         audio_layout = QHBoxLayout()
@@ -1248,15 +1266,6 @@ class MainWindow(QMainWindow):
         browse_btn.clicked.connect(self._browse_workshop_audio)
         audio_layout.addWidget(browse_btn)
         clone_layout.addLayout(audio_layout)
-
-        # 参考文本
-        ref_text_layout = QHBoxLayout()
-        ref_text_layout.addWidget(QLabel("参考文本:"))
-        self.workshop_ref_text = QLineEdit()
-        self.workshop_ref_text.setText("你好，今天辛苦了，让我来帮你放松一下吧。")
-        self.workshop_ref_text.setPlaceholderText("参考音频对应的文本...")
-        ref_text_layout.addWidget(self.workshop_ref_text)
-        clone_layout.addLayout(ref_text_layout)
 
         # 克隆音色名称
         clone_name_layout = QHBoxLayout()
@@ -1277,9 +1286,9 @@ class MainWindow(QMainWindow):
 
         self.workshop_clone_progress = QProgressBar()
         self.workshop_clone_progress.setMinimumHeight(20)
-        self.workshop_clone_progress.setFormat("%p%")
         self.workshop_clone_progress.setVisible(False)
         clone_btn_layout.addWidget(self.workshop_clone_progress, stretch=1)
+        self.workshop_clone_progress.setFormat("%p%")  # 在addWidget之后
         clone_layout.addLayout(clone_btn_layout)
 
         clone_group.setLayout(clone_layout)
@@ -1423,11 +1432,22 @@ class MainWindow(QMainWindow):
                 name = os.path.splitext(os.path.basename(file_path))[0]
                 self.workshop_clone_name.setText(f"克隆_{name[:20]}")
 
+    def _browse_workshop_subtitle(self):
+        """浏览音色工坊的字幕文件"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择字幕文件",
+            "",
+            "字幕文件 (*.vtt *.srt *.lrc);;所有文件 (*.*)"
+        )
+        if file_path:
+            self.workshop_subtitle.setText(file_path)
+
     def _start_voice_clone(self):
-        """开始音色克隆"""
+        """开始音色克隆（支持字幕切分批量克隆）"""
         audio_path = self.workshop_clone_audio.text().strip()
+        subtitle_path = self.workshop_subtitle.text().strip()
         name = self.workshop_clone_name.text().strip()
-        ref_text = self.workshop_ref_text.text().strip()
 
         if not audio_path:
             QMessageBox.warning(self, "警告", "请选择参考音频!")
@@ -1449,12 +1469,13 @@ class MainWindow(QMainWindow):
 
         self.log(f"[音色工坊] 开始克隆音色: {name}")
 
-        from src.gui_workers import VoiceCloneWorker
+        # 使用批量克隆Worker，支持字幕切分
+        from src.gui_workers import VoiceBatchCloneWorker
 
-        self.clone_worker = VoiceCloneWorker(
+        self.clone_worker = VoiceBatchCloneWorker(
             name=name,
             audio_path=audio_path,
-            ref_text=ref_text,
+            subtitle_path=subtitle_path if subtitle_path else None,
         )
         self.clone_worker.progress.connect(self._on_clone_progress)
         self.clone_worker.finished.connect(self._on_clone_finished)
@@ -1506,6 +1527,102 @@ class MainWindow(QMainWindow):
         if self.workshop_voice_list.count() == 0:
             self.workshop_voice_list.addItem("(暂无自定义音色)")
 
+        # 同时刷新单文件和批量处理的下拉框
+        self._refresh_custom_voice_combos()
+
+    def _refresh_custom_voice_combos(self):
+        """刷新单文件和批量处理中的自定义音色下拉框"""
+        from src.core.tts.voice_profile import get_voice_manager
+        manager = get_voice_manager()
+
+        # 保存当前选中项
+        current_single = self.single_custom_voice.currentText() if self.single_custom_voice.count() > 0 else ""
+        current_batch = self.batch_custom_voice.currentText() if self.batch_custom_voice.count() > 0 else ""
+
+        def populate_combo(combo: QComboBox):
+            combo.clear()
+            # 自定义音色 (B 系列)
+            customs = list(manager.get_customs())
+            if customs:
+                combo.addItem("--- 自定义音色 ---")
+                combo.model().item(combo.count() - 1).setEnabled(False)
+                for profile in customs:
+                    combo.addItem(f"{profile.name} ({profile.id})")
+            # 克隆音色 (C 系列)
+            clones = list(manager.get_clones())
+            if clones:
+                combo.addItem("--- 克隆音色 ---")
+                combo.model().item(combo.count() - 1).setEnabled(False)
+                for profile in clones:
+                    combo.addItem(f"{profile.name} ({profile.id})")
+            # 如果没有音色，添加提示
+            if not customs and not clones:
+                combo.addItem("(暂无自定义音色)")
+
+        # 刷新单文件和批量处理
+        populate_combo(self.single_custom_voice)
+        populate_combo(self.batch_custom_voice)
+
+        # 恢复选中项（如果存在）
+        if current_single and self.single_custom_voice.findText(current_single) >= 0:
+            self.single_custom_voice.setCurrentText(current_single)
+        if current_batch and self.batch_custom_voice.findText(current_batch) >= 0:
+            self.batch_custom_voice.setCurrentText(current_batch)
+
+    def _clone_voice_only(self):
+        """单独克隆音色（不进行后续处理）"""
+        audio_path = self.single_clone_audio.text().strip()
+        if not audio_path:
+            QMessageBox.warning(self, "警告", "请先选择参考音频文件!")
+            return
+
+        audio_file = Path(audio_path)
+        if not audio_file.exists():
+            QMessageBox.warning(self, "警告", f"参考音频不存在:\n{audio_path}")
+            return
+
+        # 获取音色名称
+        voice_name = self.single_clone_voice_name.text().strip()
+        if not voice_name:
+            voice_name = f"克隆_{audio_file.stem}"
+
+        # 检查是否需要分离人声
+        separate_vocals = self.single_clone_separate_check.isChecked()
+
+        self.log(f"[音色克隆] 开始克隆: {voice_name}")
+        self.log(f"[音色克隆] 参考音频: {audio_path}")
+        if separate_vocals:
+            self.log(f"[音色克隆] 将自动分离人声后克隆")
+        self.single_clone_btn.setEnabled(False)
+        self.single_clone_btn.setText("克隆中...")
+
+        # 使用 VoiceCloneWorker 在后台线程中执行克隆
+        self.clone_only_worker = VoiceCloneWorker(
+            name=voice_name,
+            audio_path=audio_path,
+            separate_vocals=separate_vocals,
+        )
+        self.clone_only_worker.progress.connect(self._on_clone_only_progress)
+        self.clone_only_worker.finished.connect(self._on_clone_only_finished)
+        self.clone_only_worker.start()
+
+    def _on_clone_only_progress(self, msg: str, percent: int):
+        """克隆进度回调"""
+        self.log(f"[音色克隆] {msg}")
+
+    def _on_clone_only_finished(self, success: bool, message: str, profile_id: str):
+        """克隆完成回调"""
+        self.single_clone_btn.setEnabled(True)
+        self.single_clone_btn.setText("单独克隆音色")
+
+        if success:
+            self.log(f"[音色克隆] {message}")
+            self._refresh_my_voices()  # 刷新音色列表
+            QMessageBox.information(self, "成功", message)
+        else:
+            self.log(f"[音色克隆] 失败: {message}")
+            QMessageBox.critical(self, "克隆失败", f"音色克隆失败:\n{message}")
+
     def _preview_workshop_voice(self):
         """试音我的音色"""
         current_item = self.workshop_voice_list.currentItem()
@@ -1514,15 +1631,14 @@ class MainWindow(QMainWindow):
             return
 
         text = current_item.text()
-        # 解析 profile_id
+        # 格式: "名称 (类型, ID)" → 直接提取最后的 ID
         import re
         match = re.search(r'\(([^)]+)\)$', text)
         if not match:
             QMessageBox.warning(self, "警告", "无法解析音色 ID!")
             return
 
-        category, profile_id = match.group(1).split(", ")
-        profile_id = f"{category[0].upper()}{profile_id[1:]}"
+        profile_id = match.group(1).split(", ")[-1]  # 取最后一个元素即 ID
 
         test_text = self.workshop_preview_text.text().strip()
         if not test_text:
@@ -1584,10 +1700,8 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
 
-        # 解析并删除
-        parts = match.group(1).split(", ")
-        category = parts[0].strip()
-        profile_id = f"{category[0].upper()}{parts[1][1:]}"
+        # 解析并删除 - 直接取最后一个元素即为 profile_id
+        profile_id = match.group(1).split(", ")[-1].strip()
 
         from src.core.tts.voice_profile import get_voice_manager
         manager = get_voice_manager()

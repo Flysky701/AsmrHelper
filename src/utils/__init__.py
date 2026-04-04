@@ -154,6 +154,74 @@ def sanitize_filename(name: str) -> str:
     return "".join(c if c.isalnum() or c in " _-()" else "_" for c in name)
 
 
+def cut_audio_by_subtitle(
+    audio_path: str,
+    subtitle_entries: list,
+    output_dir: str,
+    prefix: str = "segment",
+) -> list:
+    """
+    根据字幕时间轴切分音频为多个片段
+
+    Args:
+        audio_path: 输入音频文件路径
+        subtitle_entries: 字幕条目列表 [{start, end, text}, ...]
+        output_dir: 输出目录
+        prefix: 输出文件前缀
+
+    Returns:
+        List[dict]: [{path, start, end, text, index}, ...] 切分后的音频片段信息
+    """
+    import soundfile as sf
+    import numpy as np
+
+    # 确保输出目录存在
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # 读取音频
+    data, sr = sf.read(audio_path)
+    if len(data.shape) == 1:
+        # 单声道
+        pass
+    else:
+        # 多声道，取第一个声道或混合
+        data = data[:, 0]  # 取单声道
+
+    results = []
+    for i, entry in enumerate(subtitle_entries):
+        start_sec = entry["start"]
+        end_sec = entry["end"]
+        text = entry.get("text", "")
+
+        # 计算采样点
+        start_sample = int(start_sec * sr)
+        end_sample = int(end_sec * sr)
+
+        # 确保不越界
+        end_sample = min(end_sample, len(data))
+
+        # 提取片段
+        segment = data[start_sample:end_sample]
+
+        # 生成输出文件名
+        safe_text = sanitize_filename(text[:20]) if text else f"seg{i+1}"
+        output_file = output_path / f"{prefix}_{i+1:03d}_{safe_text}.wav"
+
+        # 保存片段
+        sf.write(str(output_file), segment, sr)
+
+        results.append({
+            "path": str(output_file),
+            "start": start_sec,
+            "end": end_sec,
+            "text": text,
+            "index": i + 1,
+        })
+
+    return results
+
+
 # 导出设计模式
 from src.utils.patterns import singleton
 

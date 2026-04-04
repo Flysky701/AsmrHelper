@@ -12,6 +12,7 @@ import os
 import time
 import json
 import re
+from pathlib import Path
 from typing import List, Optional, Literal, Tuple
 
 from openai import OpenAI
@@ -1137,3 +1138,102 @@ def load_subtitle_with_timestamps(subtitle_path: str) -> List[dict]:
         
         print(f"[Subtitle Loader] 不支持的字幕格式: {subtitle_path}")
         return []
+
+
+# ===== 字幕清理集成 =====
+
+def load_and_clean_subtitle(
+    subtitle_path: str,
+    clean_sound_effects: bool = True,
+    clean_speaker_names: bool = True,
+) -> List[dict]:
+    """
+    加载字幕并自动清理拟声词和说话人名字
+
+    Args:
+        subtitle_path: 字幕文件路径
+        clean_sound_effects: 是否删除拟声词
+        clean_speaker_names: 是否删除说话人名字
+
+    Returns:
+        List[dict]: [{start, end, text, original_text?}, ...]
+    """
+    # 导入清理器
+    try:
+        from .subtitle_cleaner import SubtitleCleaner, CleanerConfig
+    except ImportError:
+        print("[WARN] 字幕清理模块不可用，返回原始字幕")
+        return load_subtitle_with_timestamps(subtitle_path)
+
+    # 加载字幕
+    entries = load_subtitle_with_timestamps(subtitle_path)
+    if not entries:
+        return []
+
+    # 创建清理器
+    config = CleanerConfig(
+        remove_sound_effects=clean_sound_effects,
+        remove_speaker_names=clean_speaker_names,
+        remove_punctuation_only=True,
+    )
+    cleaner = SubtitleCleaner(config)
+
+    # 清理每条字幕
+    cleaned_entries = []
+    stats = {"total": 0, "changed": 0, "removed": 0}
+
+    for entry in entries:
+        stats["total"] += 1
+        original_text = entry.get("text", "")
+
+        if not original_text.strip():
+            continue
+
+        cleaned_text = cleaner.clean(original_text)
+
+        if cleaned_text.strip():
+            # 保留原文供参考
+            entry_cleaned = entry.copy()
+            entry_cleaned["text"] = cleaned_text
+            if cleaned_text != original_text:
+                entry_cleaned["original_text"] = original_text
+            cleaned_entries.append(entry_cleaned)
+            stats["changed"] += 1
+        else:
+            stats["removed"] += 1
+
+    # 输出统计
+    if stats["changed"] > 0 or stats["removed"] > 0:
+        print(f"[SubtitleCleaner] 清理完成: {stats['changed']} 条修改, {stats['removed']} 条删除")
+
+    return cleaned_entries
+
+
+def clean_subtitle_batch(
+    texts: List[str],
+    clean_sound_effects: bool = True,
+    clean_speaker_names: bool = True,
+) -> List[str]:
+    """
+    批量清理字幕文本
+
+    Args:
+        texts: 原始字幕文本列表
+        clean_sound_effects: 是否删除拟声词
+        clean_speaker_names: 是否删除说话人名字
+
+    Returns:
+        List[str]: 清理后的文本列表
+    """
+    try:
+        from .subtitle_cleaner import SubtitleCleaner, CleanerConfig
+    except ImportError:
+        return texts
+
+    config = CleanerConfig(
+        remove_sound_effects=clean_sound_effects,
+        remove_speaker_names=clean_speaker_names,
+    )
+    cleaner = SubtitleCleaner(config)
+    return cleaner.clean_batch(texts)
+

@@ -73,6 +73,11 @@ class PipelineConfig:
     clone_voice_after_separation: bool = False  # 人声分离后自动克隆音色
     clone_voice_name: str = ""  # 克隆音色名称（留空则自动生成）
 
+    # 字幕清理 (report_18)
+    clean_subtitle: bool = True  # 是否清理字幕（删除拟声词、说话人名字）
+    clean_sound_effects: bool = True  # 删除拟声词
+    clean_speaker_names: bool = True  # 删除说话人名字
+
 
 class Pipeline:
     """处理流水线"""
@@ -156,8 +161,8 @@ class Pipeline:
             main_product_dir = base_dir
             by_product_dir = base_dir / "BY_Product"
 
-        # 成品路径: <name>_mix.<ext>
-        mix_path = main_product_dir / f"{task_name}_mix{input_ext}"
+        # 成品路径: <name>_mix.wav (强制使用 WAV 无损格式，避免 MP3 有损压缩)
+        mix_path = main_product_dir / f"{task_name}_mix.wav"
 
         ensure_dir(main_product_dir)
         ensure_dir(by_product_dir)
@@ -190,6 +195,7 @@ class Pipeline:
             load_subtitle_translations,
             load_subtitle_with_timestamps,
             detect_subtitle_language,
+            load_and_clean_subtitle,
         )
 
         config = self.config
@@ -214,6 +220,14 @@ class Pipeline:
         if subtitle_path and Path(subtitle_path).exists():
             subtitle_translations = load_subtitle_translations(subtitle_path)
             if subtitle_translations:
+                # 字幕清理（删除拟声词、说话人名字）
+                if config.clean_subtitle:
+                    from ..translate import clean_subtitle_batch
+                    subtitle_translations = clean_subtitle_batch(
+                        subtitle_translations,
+                        clean_sound_effects=config.clean_sound_effects,
+                        clean_speaker_names=config.clean_speaker_names,
+                    )
                 subtitle_lang = detect_subtitle_language(subtitle_translations)
                 has_subtitle = True
                 is_chinese_subtitle = subtitle_lang == "zh"
@@ -364,12 +378,22 @@ class Pipeline:
             # 使用字幕时间戳
             current_step += 1  # 递增步骤计数
             _report(f"[{current_step}/{total_steps}] [跳过] ASR (使用{subtitle_type}字幕时间戳)")
-            subtitle_entries = load_subtitle_with_timestamps(subtitle_path)
+
+            # 加载并清理字幕
+            if config.clean_subtitle:
+                subtitle_entries = load_and_clean_subtitle(
+                    subtitle_path,
+                    clean_sound_effects=config.clean_sound_effects,
+                    clean_speaker_names=config.clean_speaker_names,
+                )
+            else:
+                subtitle_entries = load_subtitle_with_timestamps(subtitle_path)
+
             timestamped_segments = [
                 {"start": e["start"], "end": e["end"], "text": e["text"]}
                 for e in subtitle_entries
             ]
-            results["steps"]["asr"] = {"duration": 0, "skipped": True, "source": subtitle_type.lower(), "segments": len(timestamped_segments)}
+            results["steps"]["asr"] = {"duration": 0, "skipped": True, "source": subtitle_type.lower(), "segments": len(timestamped_segments), "cleaned": config.clean_subtitle}
         elif config.use_asr:
             current_step += 1
             if config.skip_existing and asr_text_path.exists():

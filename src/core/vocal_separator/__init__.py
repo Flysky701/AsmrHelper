@@ -128,9 +128,9 @@ class VocalSeparator:
             # 确保是 float32
             source_wav = source_wav.astype(np.float32)
 
-            # 保存为 WAV（使用清理后的文件名）
+            # 保存为 WAV（使用无损float格式避免量化失真）
             stem_path = output_dir / f"{safe_name}_{source}.wav"
-            sf.write(stem_path, source_wav, self.model.samplerate, subtype="PCM_16")
+            sf.write(stem_path, source_wav, self.model.samplerate, subtype="FLOAT")
 
             results[source] = str(stem_path)
             print(f"  - {source}: {stem_path.name}")
