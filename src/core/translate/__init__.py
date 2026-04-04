@@ -108,11 +108,14 @@ class Translator:
         print(f"[Translator] 翻译缓存: {'ON' if use_cache else 'OFF'} (命名空间: {cache_namespace})")
 
     def _get_cache(self):
-        """获取翻译缓存（延迟加载）"""
+        """获取翻译缓存（延迟加载，自动持久化）"""
         if self._cache is None and self.use_cache:
             try:
                 from .cache import get_cache
                 self._cache = get_cache()
+                # 自动加载已有缓存
+                if not self._cache._memory_cache:
+                    self._cache._memory_cache = self._cache.load(self.cache_namespace)
             except Exception as e:
                 print(f"[Translator] 缓存加载失败: {e}")
                 self._cache = None
@@ -292,7 +295,7 @@ class Translator:
                     # 按 id 排序
                     results_dict = {r["id"]: r for r in results}
                     return [
-                        (batch_indices[i], results_dict[i]["src"] if i in results_dict else batch[i - len(batch_indices)], True)
+                        (batch_indices[i], results_dict[i]["src"] if i in results_dict else batch[i], True)
                         for i in range(len(batch))
                     ]
                 else:
@@ -415,6 +418,8 @@ class Translator:
             stats = cache.get_stats()
             if stats["total"] > 0:
                 print(f"[Translator] 缓存统计: 命中 {stats['hits']}/{stats['total']} ({stats['hit_rate']*100:.1f}%)")
+            # 自动保存缓存到文件
+            cache.save(cache._memory_cache, self.cache_namespace)
 
         print(f"[Translator] 批量翻译完成，{total_need} 句翻译 + {total_cache} 缓存命中，耗时: {time.time()-t0:.1f}s")
         return results
