@@ -7,11 +7,18 @@ ASR 语音识别模块 - 使用 Faster-Whisper
 - 文本规范化：去除重复标点、全角半角混用、空格、幻觉标记
 - 片段合并：合并间隔<0.3s 且单段<1s 的极短片段
 - 置信度过滤：利用 log_prob 过滤低质量片段
+
+增强功能（Report #14 P2/P3）：
+- word_timestamps：逐词时间戳用于 TTS 对齐优化
+- 毫秒级时间精度：3位小数（毫秒）
+- 流式进度显示：实时显示识别进度
+- SRT/LRC 输出格式支持
 """
 
 import time
+import sys
 from pathlib import Path
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Callable
 
 import numpy as np
 from faster_whisper import WhisperModel
@@ -95,6 +102,8 @@ class ASRRecognizer:
         output_path: Optional[str] = None,
         segment_threshold: float = 0.5,
         min_segment_duration: float = 0.5,
+        progress_callback: Optional[Callable[[float, float, int], None]] = None,
+        show_progress: bool = True,
     ) -> List[dict]:
         """
         识别音频
@@ -104,9 +113,11 @@ class ASRRecognizer:
             output_path: 输出文本文件路径（可选）
             segment_threshold: 片段阈值
             min_segment_duration: 最小片段时长（秒）
+            progress_callback: 进度回调函数 callback(current_time, duration, segments_count)
+            show_progress: 是否显示进度条
 
         Returns:
-            List[dict]: 识别结果 [{start, end, text}, ...]
+            List[dict]: 识别结果 [{start, end, text, words?, log_prob?}, ...]
         """
         audio_path = Path(audio_path)
 
@@ -122,7 +133,7 @@ class ASRRecognizer:
                 min_silence_duration_ms=500,
                 speech_pad_ms=200,
             ) if not self.disable_vad else None,
-            word_timestamps=False,
+            word_timestamps=True,  # 开启逐词时间戳（用于 TTS 对齐优化）
             beam_size=5,
             best_of=5,
             temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],  # 多温度重试，提高轻声识别率
@@ -133,19 +144,51 @@ class ASRRecognizer:
             no_speech_threshold=0.9,  # 高阈值保留 ASMR 轻声，让模型更难将轻声判断为无语音
         )
 
+        # 获取音频时长
+        duration = info.duration or 0.0
+        last_progress_update = 0.0  # 上次更新进度的时间
+
         # 收集结果（保留 log_prob 用于置信度过滤）
         results = []
+        word_count = 0
         for seg in segments:
             if seg.end - seg.start < min_segment_duration:
                 continue
 
+            # 收集单词时间戳
+            words = []
+            if seg.words:
+                for w in seg.words:
+                    words.append({
+                        "word": w.word.strip(),
+                        "start": round(w.start, 3),  # 毫秒级精度
+                        "end": round(w.end, 3),
+                        "probability": w.probability,
+                    })
+                    word_count += 1
+
             result = {
-                "start": round(seg.start, 2),
-                "end": round(seg.end, 2),
+                "start": round(seg.start, 3),  # 毫秒级精度 (3位小数)
+                "end": round(seg.end, 3),
                 "text": seg.text.strip(),
                 "log_prob": seg.avg_log_prob,  # 保留置信度
+                "words": words,
             }
             results.append(result)
+
+            # 流式进度显示（每5%更新一次）
+            current_time = seg.end
+            if show_progress and duration > 0:
+                progress = current_time / duration
+                if progress - last_progress_update >= 0.05:  # 每5%更新
+                    self._print_progress(current_time, duration, len(results))
+                    last_progress_update = progress
+
+            # 调用进度回调
+            if progress_callback:
+                progress_callback(current_time, duration, len(results))
+
+        total_words = sum(len(r.get("words", [])) for r in results)
 
         # 后处理：文本规范化 + 片段合并 + 置信度过滤
         results = self.postprocessor.process(results)
@@ -154,20 +197,103 @@ class ASRRecognizer:
         if output_path:
             self._save_results(results, output_path)
 
-        print(f"[ASRRecognizer] 识别完成，{len(results)} 段，耗时: {time.time()-t0:.1f}s")
+        print(f"[ASRRecognizer] 识别完成，{len(results)} 段 / {total_words} 词，耗时: {time.time()-t0:.1f}s")
 
         return results
 
+    def _print_progress(self, current: float, total: float, segments: int):
+        """打印进度条"""
+        pct = min(100.0, current / total * 100) if total > 0 else 0
+        bar_len = 30
+        filled = int(bar_len * pct / 100)
+        bar = "=" * filled + "-" * (bar_len - filled)
+        mins, secs = divmod(int(current), 60)
+        mins_t, secs_t = divmod(int(total), 60)
+        sys.stdout.write(f"\r[ASR] [{bar}] {pct:5.1f}% ({mins}:{secs:02d}/{mins_t}:{secs_t:02d}) {segments}段")
+        sys.stdout.flush()
+
     def _save_results(self, results: List[dict], output_path: str):
-        """保存识别结果到文件"""
+        """保存识别结果到文件（默认格式）"""
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(output_path, "w", encoding="utf-8") as f:
             for i, r in enumerate(results, 1):
-                f.write(f"[{i}] {r['start']:.2f}s - {r['end']:.2f}s\n")
+                f.write(f"[{i}] {r['start']:.3f}s - {r['end']:.3f}s\n")
                 f.write(f"{r['text']}\n")
                 f.write("\n")
+
+    def save_as_srt(self, results: List[dict], output_path: str):
+        """
+        保存为 SRT 格式（SubRip 字幕）
+
+        Args:
+            results: 识别结果
+            output_path: 输出文件路径
+        """
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            for i, r in enumerate(results, 1):
+                # SRT 时间格式: HH:MM:SS,mmm
+                start = self._format_srt_time(r["start"])
+                end = self._format_srt_time(r["end"])
+
+                f.write(f"{i}\n")
+                f.write(f"{start} --> {end}\n")
+                f.write(f"{r['text']}\n")
+                f.write("\n")
+
+        print(f"[ASRRecognizer] 已保存 SRT: {output_path}")
+
+    def save_as_lrc(
+        self,
+        results: List[dict],
+        output_path: str,
+        offset_ms: int = 0,
+        include_metadata: bool = True,
+    ):
+        """
+        保存为 LRC 格式（歌词时间戳）
+
+        Args:
+            results: 识别结果
+            output_path: 输出文件路径
+            offset_ms: 整体时间偏移（毫秒）
+            include_metadata: 是否包含元数据行
+        """
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            # 元数据
+            if include_metadata:
+                f.write("[ti:ASMR Transcription]\n")
+                f.write("[by:AsmrHelper]\n")
+                f.write(f"[offset:{offset_ms}]\n")
+
+            # 歌词行
+            for r in results:
+                # LRC 时间格式: [MM:SS.xx]
+                start = self._format_lrc_time(r["start"] + offset_ms / 1000.0)
+                f.write(f"{start}{r['text']}\n")
+
+        print(f"[ASRRecognizer] 已保存 LRC: {output_path}")
+
+    def _format_srt_time(self, seconds: float) -> str:
+        """将秒数格式化为 SRT 时间 (HH:MM:SS,mmm)"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds % 1) * 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+    def _format_lrc_time(self, seconds: float) -> str:
+        """将秒数格式化为 LRC 时间 [MM:SS.xx]"""
+        minutes = int(seconds // 60)
+        secs = seconds % 60
+        return f"[{minutes:02d}:{secs:05.2f}]"
 
     def recognize_to_text(self, audio_path: str, output_path: str) -> str:
         """
