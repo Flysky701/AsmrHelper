@@ -79,16 +79,28 @@ class SingleWorkerThread(QThread):
                 tts_volume_ratio=self.params.get("tts_ratio", 0.5),
                 tts_delay_ms=self.params.get("tts_delay", 0),
                 skip_existing=False,
+                # 音色克隆 (report_17)
+                clone_voice_after_separation=self.params.get("clone_voice_after_separation", False),
+                clone_voice_name=self.params.get("clone_voice_name", ""),
             )
 
             pipeline = Pipeline(cfg)
             results = pipeline.run(progress_callback=self.progress.emit)
 
             mix_path = results.get("mix_path", "")
+            cloned_profile_id = results.get("cloned_profile_id")
+
+            # 构建完成消息
+            msg_parts = []
             if mix_path:
-                self.finished.emit(True, mix_path)
-            else:
-                self.finished.emit(False, "流水线未生成混音文件")
+                msg_parts.append(f"成品: {mix_path}")
+            if cloned_profile_id:
+                msg_parts.append(f"克隆音色: {cloned_profile_id}")
+                msg_parts.append("(可在音色工坊中查看和管理)")
+
+            final_msg = "\n".join(msg_parts) if msg_parts else "处理完成"
+
+            self.finished.emit(True, final_msg)
 
         except Exception as e:
             import traceback

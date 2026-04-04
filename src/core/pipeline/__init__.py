@@ -69,6 +69,10 @@ class PipelineConfig:
     output_mode: str = "single"  # "single" | "batch"
     batch_root_dir: str = ""     # 批量模式下的根目录（Main_Product/ 和 BY_Product/ 在此目录下）
 
+    # 音色克隆 (report_17)
+    clone_voice_after_separation: bool = False  # 人声分离后自动克隆音色
+    clone_voice_name: str = ""  # 克隆音色名称（留空则自动生成）
+
 
 class Pipeline:
     """处理流水线"""
@@ -296,6 +300,51 @@ class Pipeline:
             current_step += 1
             results["vocal_path"] = str(input_path)
             _report(f"[{current_step}/{total_steps}] [跳过] 人声分离 (直接使用输入文件)")
+
+        # ===== 音色克隆 (人声分离后自动执行) =====
+        results["cloned_profile_id"] = None
+        if config.clone_voice_after_separation:
+            _report("")
+            _report(f"[音色克隆] 使用分离出的人声克隆音色...")
+            t_clone = time.time()
+
+            try:
+                from ..tts.voice_designer import VoiceDesigner
+                from ..tts.voice_profile import get_voice_manager
+
+                designer = VoiceDesigner()
+
+                # 自动生成音色名称
+                clone_name = config.clone_voice_name
+                if not clone_name:
+                    import datetime
+                    clone_name = f"克隆音色_{datetime.datetime.now().strftime('%m%d%H%M')}"
+
+                # 调用克隆
+                profile = designer.clone_from_audio(
+                    audio_path=results["vocal_path"],
+                    name=clone_name,
+                    ref_text="你好，这是一段测试语音。",
+                    progress_callback=lambda msg, p=0: _report(f"  {msg}"),
+                )
+
+                results["cloned_profile_id"] = profile.id
+                results["steps"]["voice_clone"] = {
+                    "duration": time.time() - t_clone,
+                    "profile_id": profile.id,
+                    "profile_name": profile.name,
+                    "audio_source": results["vocal_path"],
+                }
+                _report(f"[音色克隆] 完成: {profile.name} ({profile.id})")
+
+            except Exception as e:
+                _report(f"[WARN] 音色克隆失败（不影响主流程）: {e}")
+                import traceback
+                traceback.print_exc()
+                results["steps"]["voice_clone"] = {
+                    "error": str(e),
+                    "recoverable": True,
+                }
 
         # ===== Step 2: 时间戳获取 (ASR 或 VTT) =====
         asr_text_path = by_product_dir / "asr_result.txt"
