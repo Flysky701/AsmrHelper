@@ -3,10 +3,9 @@
 
 功能：将日文等外语翻译为中文
 
-升级功能（Report #13 Phase 1）：
-1. 批量翻译（10句/批）
-2. 重试机制（温度切换 + 指数退避）
-3. 质量检测（残日检测等）
+升级功能（Report #13）：
+- Phase 1: 批量翻译 + 重试机制 + 质量检测
+- Phase 2: 翻译缓存层 + 三层字典扩展
 """
 
 import os
@@ -52,6 +51,8 @@ class Translator:
         batch_size: int = DEFAULT_BATCH_SIZE,
         max_retries: int = DEFAULT_MAX_RETRIES,
         use_quality_check: bool = True,
+        use_cache: bool = True,
+        cache_namespace: str = "default",
     ):
         """
         初始化翻译器
@@ -66,6 +67,8 @@ class Translator:
             batch_size: 批量大小
             max_retries: 最大重试次数
             use_quality_check: 是否启用质量检测
+            use_cache: 是否启用翻译缓存
+            cache_namespace: 缓存命名空间（用于隔离不同项目）
         """
         self.provider = provider
         self.model = model
@@ -95,8 +98,25 @@ class Translator:
             except Exception:
                 pass  # 术语库不可用时静默降级
 
+        # 翻译缓存（延迟加载）
+        self.use_cache = use_cache
+        self.cache_namespace = cache_namespace
+        self._cache = None
+
         print(f"[Translator] 提供商: {provider}, 模型: {model}, 术语库: {'ON' if self.term_db else 'OFF'}")
         print(f"[Translator] 批量翻译: {'ON' if use_batch else 'OFF'} (每批{batch_size}句), 重试: {max_retries}次, 质量检测: {'ON' if use_quality_check else 'OFF'}")
+        print(f"[Translator] 翻译缓存: {'ON' if use_cache else 'OFF'} (命名空间: {cache_namespace})")
+
+    def _get_cache(self):
+        """获取翻译缓存（延迟加载）"""
+        if self._cache is None and self.use_cache:
+            try:
+                from .cache import get_cache
+                self._cache = get_cache()
+            except Exception as e:
+                print(f"[Translator] 缓存加载失败: {e}")
+                self._cache = None
+        return self._cache
 
     @property
     def api_key(self) -> str:
@@ -310,7 +330,7 @@ class Translator:
         delay: float = 0.1,
     ) -> List[str]:
         """
-        批量翻译（支持批量请求 + 重试 + 质量检测）
+        批量翻译（支持批量请求 + 重试 + 质量检测 + 缓存 + 三层字典）
 
         Args:
             texts: 文本列表
@@ -322,41 +342,105 @@ class Translator:
         Returns:
             List[str]: 翻译结果列表
         """
-        if system_prompt is None:
-            system_prompt = self._build_system_prompt(source_lang, target_lang)
-
         t0 = time.time()
 
-        # 空文本预处理
+        # Step 1: 预处理（ASR 纠错）
+        preprocessed = self._preprocess_texts(texts)
+
+        # Step 2: 构建 system prompt（带 GPT 字典）
+        if system_prompt is None:
+            system_prompt = self._build_system_prompt_with_dict(source_lang, target_lang, texts)
+
+        # Step 3: 空文本预处理
         results = [""] * len(texts)
-        need_translate = []  # [(index, text), ...]
-        for i, text in enumerate(texts):
-            if text.strip():
-                need_translate.append((i, text))
+        need_translate = []  # [(index, preprocessed_text), ...]
+        cache_hits = {}  # {index: cached_translation}
+
+        for i, (orig, pre) in enumerate(zip(texts, preprocessed)):
+            if pre.strip():
+                # 缓存命中检查（使用预处理后的文本作为 key）
+                cache = self._get_cache()
+                if cache:
+                    cached = cache.get(pre)
+                    if cached is not None:
+                        cache_hits[i] = cached
+                        continue
+                need_translate.append((i, pre))
             else:
                 results[i] = ""
 
         total_need = len(need_translate)
-        if total_need == 0:
+        total_cache = len(cache_hits)
+
+        if total_need == 0 and total_cache == 0:
             print(f"[Translator] 批量翻译完成，0 段有效文本")
             return results
 
-        # 启用批量翻译模式
-        if self.use_batch and total_need > 1:
-            results = self._translate_batch_mode(
-                need_translate, results, system_prompt, t0
-            )
-        else:
-            results = self._translate_single_mode(
-                need_translate, results, system_prompt, t0
-            )
+        # 输出缓存命中信息
+        if total_cache > 0:
+            print(f"[Translator] 缓存命中: {total_cache} 条")
 
-        # 质量检测
+        # Step 4: 翻译未命中的句子
+        if total_need > 0:
+            if self.use_batch and total_need > 1:
+                results = self._translate_batch_mode(
+                    need_translate, results, system_prompt, t0
+                )
+            else:
+                results = self._translate_single_mode(
+                    need_translate, results, system_prompt, t0
+                )
+
+        # 填入缓存命中的结果
+        for i, cached in cache_hits.items():
+            results[i] = cached
+
+        # Step 5: 保存新的翻译到缓存
+        if self.use_cache and self._get_cache():
+            cache = self._get_cache()
+            for i, pre in need_translate:
+                if results[i] and results[i] != pre:  # 只有实际翻译成功的才缓存
+                    cache.set(pre, results[i], self.model)
+
+        # Step 6: 质量检测
         if self.use_quality_check:
-            results = self._run_quality_check(results, texts)
+            results = self._run_quality_check(results, preprocessed)
 
-        print(f"[Translator] 批量翻译完成，{total_need} 段，耗时: {time.time()-t0:.1f}s")
+        # Step 7: 后处理（修正 LLM 顽固错误）
+        results = self._postprocess_texts(results)
+
+        # 输出统计信息
+        cache = self._get_cache()
+        if cache:
+            stats = cache.get_stats()
+            if stats["total"] > 0:
+                print(f"[Translator] 缓存统计: 命中 {stats['hits']}/{stats['total']} ({stats['hit_rate']*100:.1f}%)")
+
+        print(f"[Translator] 批量翻译完成，{total_need} 句翻译 + {total_cache} 缓存命中，耗时: {time.time()-t0:.1f}s")
         return results
+
+    def _preprocess_texts(self, texts: List[str]) -> List[str]:
+        """预处理文本（ASR 纠错）"""
+        if self.term_db and hasattr(self.term_db, 'preprocess_batch'):
+            return self.term_db.preprocess_batch(texts)
+        return texts
+
+    def _postprocess_texts(self, texts: List[str]) -> List[str]:
+        """后处理文本（修正 LLM 顽固错误）"""
+        if self.term_db and hasattr(self.term_db, 'postprocess_batch'):
+            return self.term_db.postprocess_batch(texts)
+        return texts
+
+    def _build_system_prompt_with_dict(
+        self,
+        source_lang: str,
+        target_lang: str,
+        texts: Optional[List[str]] = None,
+    ) -> str:
+        """构建带 GPT 字典的系统提示词"""
+        if self.term_db and hasattr(self.term_db, 'build_system_prompt'):
+            return self.term_db.build_system_prompt(source_lang, target_lang)
+        return f"你是一个专业的{source_lang}翻译。请将{source_lang}翻译成{target_lang}，保持自然流畅，口语化。"
 
     def _translate_batch_mode(
         self,
