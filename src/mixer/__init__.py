@@ -43,6 +43,13 @@ def _clean_text_for_tts(text: str) -> str:
     cleaned = cleaned.replace('\u200b', '')  # 零宽空格
     cleaned = cleaned.replace('\ufeff', '')  # BOM
 
+    # 移除开头和结尾的标点符号（Edge-TTS 无法处理纯标点）
+    cleaned = cleaned.strip('。？！，、；：""''「」『』【】()（）…—·')
+
+    # 如果清理后只剩标点或为空，返回空字符串
+    if not cleaned or re.match(r'^[\s。？！，、；：""''「」『』【】()（）…—·]*$', cleaned):
+        return ""
+
     return cleaned
 
 
