@@ -281,6 +281,7 @@ class Pipeline:
 
         if has_vtt:
             # 使用 VTT 时间戳
+            current_step += 1  # 递增步骤计数
             _report(f"[{current_step}/{total_steps}] [跳过] ASR (使用 VTT 字幕时间戳)")
             vtt_entries = load_vtt_with_timestamps(vtt_path)
             timestamped_segments = [
@@ -362,7 +363,7 @@ class Pipeline:
                 "duration": 0.0,
                 "segments": len(translations),
                 "source": "vtt_zh",
-                "skipped": False,
+                "skipped": True,  # 跳过了翻译 API 调用
                 "output": str(translated_path),
             }
         elif has_vtt and vtt_lang in ("ja", "mixed"):

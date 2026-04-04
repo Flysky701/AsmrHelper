@@ -9,6 +9,7 @@
 
 import time
 import re
+import shutil
 from pathlib import Path
 from typing import Optional, Tuple
 import soundfile as sf
@@ -274,8 +275,6 @@ class Mixer:
         Returns:
             str: 输出文件路径
         """
-        import shutil  # 用于临时目录清理
-
         output_path = Path(output_path)
         ensure_dir(output_path.parent)
 
@@ -408,7 +407,6 @@ class Mixer:
         sf.write(str(output_path), timeline, sample_rate)
 
         # 清理临时目录
-        import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
 
         # 打印汇总

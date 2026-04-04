@@ -284,7 +284,6 @@ class Qwen3TTSEngine:
             instruct=self.instruct or None,
         )
         # wavs 是 List[np.ndarray]，取第一个
-        import numpy as np
         if wavs and len(wavs) > 0:
             audio = wavs[0].astype(np.float32)
             sf.write(str(output_path), audio, sr)
@@ -310,7 +309,6 @@ class Qwen3TTSEngine:
             language="chinese",
             voice_clone_prompt=prompt_cache,
         )
-        import numpy as np
         if wavs and len(wavs) > 0:
             audio = wavs[0].astype(np.float32)
             sf.write(str(output_path), audio, sr)
