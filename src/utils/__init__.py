@@ -60,7 +60,7 @@ def run_ffmpeg(cmd: list, check: bool = True, timeout: int = 300) -> subprocess.
 
 def find_vtt_file(input_path: Path, extra_dirs: list = None) -> Optional[Path]:
     """
-    查找匹配的 VTT 字幕文件
+    查找匹配的 VTT 字幕文件（向后兼容）
 
     Args:
         input_path: 音频文件路径
@@ -69,14 +69,42 @@ def find_vtt_file(input_path: Path, extra_dirs: list = None) -> Optional[Path]:
     Returns:
         VTT 文件路径，未找到返回 None
     """
-    # 可能的 VTT 文件名
-    possible_names = [
-        f"{input_path.name}.vtt",
-        f"{input_path.stem}.vtt",
-        f"{input_path.name.removesuffix(input_path.suffix)}.vtt",
-    ]
+    # 优先只搜索 .vtt 文件
+    subtitle_exts = [".vtt"]
+    return _find_subtitle_file_impl(input_path, extra_dirs, subtitle_exts)
 
-    # 搜索目录
+
+def find_subtitle_file(input_path: Path, extra_dirs: list = None, extensions: list = None) -> Optional[Path]:
+    """
+    查找匹配的字幕文件（支持多种格式）
+
+    优先级: .vtt > .srt > .lrc
+
+    Args:
+        input_path: 音频文件路径
+        extra_dirs: 额外搜索目录列表
+        extensions: 指定要搜索的格式列表，如 [".vtt", ".srt", ".lrc"]
+
+    Returns:
+        字幕文件路径，未找到返回 None
+    """
+    if extensions is None:
+        extensions = [".vtt", ".srt", ".lrc"]
+    return _find_subtitle_file_impl(input_path, extra_dirs, extensions)
+
+
+def _find_subtitle_file_impl(input_path: Path, extra_dirs: list, extensions: list) -> Optional[Path]:
+    """
+    通用字幕文件搜索实现
+
+    Args:
+        input_path: 音频文件路径
+        extra_dirs: 额外搜索目录列表
+        extensions: 要搜索的格式列表
+
+    Returns:
+        字幕文件路径，未找到返回 None
+    """
     search_dirs = [input_path.parent]
 
     # 添加 ASMR_O 子目录
@@ -93,12 +121,22 @@ def find_vtt_file(input_path: Path, extra_dirs: list = None) -> Optional[Path]:
     # 去重
     search_dirs = list(dict.fromkeys(search_dirs))
 
-    # 搜索
+    # 为每个格式生成可能的文件名
+    possible_names_by_ext = {}
+    for ext in extensions:
+        possible_names_by_ext[ext] = [
+            f"{input_path.name}{ext}",
+            f"{input_path.stem}{ext}",
+            f"{input_path.name.removesuffix(input_path.suffix)}{ext}",
+        ]
+
+    # 按优先级搜索（先 vtt，再 srt，再 lrc）
     for search_dir in search_dirs:
-        for name in possible_names:
-            vtt_path = search_dir / name
-            if vtt_path.exists():
-                return vtt_path
+        for ext in extensions:
+            for name in possible_names_by_ext[ext]:
+                subtitle_path = search_dir / name
+                if subtitle_path.exists():
+                    return subtitle_path
 
     return None
 

@@ -826,3 +826,314 @@ def _parse_vtt_time(time_str: str) -> float:
         return int(m) * 60 + float(s)
 
     return 0.0
+
+
+# ===== 通用字幕格式支持 (SRT / LRC) =====
+
+def load_srt_translations(srt_path: str) -> List[str]:
+    """
+    从 SRT 文件加载翻译文本
+
+    SRT 格式:
+    1
+    00:00:01,000 --> 00:00:04,000
+    这是第一条字幕
+
+    Args:
+        srt_path: SRT 文件路径
+
+    Returns:
+        List[str]: 翻译文本列表（按时间顺序）
+    """
+    translations = []
+
+    try:
+        with open(srt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        lines = content.split("\n")
+        i = 0
+
+        while i < len(lines):
+            line = lines[i].strip()
+
+            # 跳过空行和序号行
+            if not line:
+                i += 1
+                continue
+
+            # 序号行（如 "1", "2", "3"）
+            if line.isdigit():
+                i += 1
+                continue
+
+            # 时间戳行: 00:00:01,000 --> 00:00:04,000
+            if "-->" in line:
+                i += 1
+                # 收集时间戳后的所有文本行
+                text_lines = []
+                while i < len(lines) and lines[i].strip():
+                    text_lines.append(lines[i].strip())
+                    i += 1
+                if text_lines:
+                    translations.append(" ".join(text_lines))
+                continue
+
+            i += 1
+
+        print(f"[SRT Loader] 加载了 {len(translations)} 条翻译: {srt_path}")
+
+    except FileNotFoundError:
+        print(f"[SRT Loader] 文件不存在: {srt_path}")
+    except Exception as e:
+        print(f"[SRT Loader] 解析失败: {e}")
+
+    return translations
+
+
+def load_srt_with_timestamps(srt_path: str) -> List[dict]:
+    """
+    从 SRT 文件加载翻译文本（带时间戳）
+
+    Returns:
+        List[dict]: [{start, end, text}, ...]
+    """
+    entries = []
+
+    try:
+        with open(srt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        lines = content.split("\n")
+        i = 0
+
+        while i < len(lines):
+            line = lines[i].strip()
+
+            if not line:
+                i += 1
+                continue
+
+            # 跳过序号
+            if line.isdigit():
+                i += 1
+                continue
+
+            if "-->" in line:
+                # 解析时间戳: 00:00:01,000 --> 00:00:04,000
+                parts = line.split("-->")
+                start_str = parts[0].strip()
+                end_str = parts[1].strip().split()[0]
+                start_sec = _parse_srt_time(start_str)
+                end_sec = _parse_srt_time(end_str)
+
+                # 收集文本行
+                i += 1
+                text_lines = []
+                while i < len(lines) and lines[i].strip():
+                    text_lines.append(lines[i].strip())
+                    i += 1
+
+                if text_lines:
+                    entries.append({
+                        "start": start_sec,
+                        "end": end_sec,
+                        "text": " ".join(text_lines),
+                    })
+                continue
+
+            i += 1
+
+        print(f"[SRT Loader] 加载了 {len(entries)} 条带时间戳翻译: {srt_path}")
+
+    except Exception as e:
+        print(f"[SRT Loader] 解析失败: {e}")
+
+    return entries
+
+
+def _parse_srt_time(time_str: str) -> float:
+    """
+    将 SRT 时间格式 '00:00:01,000' 转换为秒数
+    """
+    time_str = time_str.strip()
+    parts = time_str.replace(",", ".").split(":")
+
+    if len(parts) == 3:
+        h, m, s = parts
+        return int(h) * 3600 + int(m) * 60 + float(s)
+
+    return 0.0
+
+
+def load_lrc_translations(lrc_path: str) -> List[str]:
+    """
+    从 LRC 文件加载翻译文本
+
+    LRC 格式:
+    [ti:歌曲标题]
+    [ar:艺术家]
+    [00:00.00]第一句歌词
+    [00:05.50]第二句歌词
+
+    Args:
+        lrc_path: LRC 文件路径
+
+    Returns:
+        List[str]: 翻译文本列表（按时间顺序）
+    """
+    translations = []
+
+    try:
+        with open(lrc_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        for line in lines:
+            line = line.strip()
+            # LRC 时间标签格式: [mm:ss.xx] 或 [mm:ss:xx]
+            import re
+            match = re.match(r"\[(\d{2}):(\d{2})[.:](\d{2})\](.+)", line)
+            if match:
+                text = match.group(4).strip()
+                if text:
+                    translations.append(text)
+
+        print(f"[LRC Loader] 加载了 {len(translations)} 条翻译: {lrc_path}")
+
+    except FileNotFoundError:
+        print(f"[LRC Loader] 文件不存在: {lrc_path}")
+    except Exception as e:
+        print(f"[LRC Loader] 解析失败: {e}")
+
+    return translations
+
+
+def load_lrc_with_timestamps(lrc_path: str) -> List[dict]:
+    """
+    从 LRC 文件加载翻译文本（带时间戳）
+
+    Returns:
+        List[dict]: [{start, end, text}, ...]
+    """
+    entries = []
+
+    try:
+        with open(lrc_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        prev_end = 0.0
+        for line in lines:
+            line = line.strip()
+            import re
+            # 匹配 LRC 时间标签
+            match = re.match(r"\[(\d{2}):(\d{2})[.:](\d{2})\](.+)", line)
+            if match:
+                mm = int(match.group(1))
+                ss = int(match.group(2))
+                xx = int(match.group(3))
+                text = match.group(4).strip()
+
+                if text:
+                    start_sec = mm * 60 + ss + xx / 100.0
+                    # 估算结束时间（使用下一条开始时间或加 3 秒）
+                    end_sec = start_sec + 3.0
+                    entries.append({
+                        "start": start_sec,
+                        "end": end_sec,
+                        "text": text,
+                    })
+                    prev_end = start_sec
+
+        print(f"[LRC Loader] 加载了 {len(entries)} 条带时间戳翻译: {lrc_path}")
+
+    except Exception as e:
+        print(f"[LRC Loader] 解析失败: {e}")
+
+    return entries
+
+
+def detect_subtitle_language(translations: List[str]) -> str:
+    """
+    检测字幕的主语言（智能跳过 ASR/翻译的关键）
+
+    与 detect_vtt_language 相同，复用逻辑
+    """
+    return detect_vtt_language(translations)
+
+
+# ===== 统一字幕加载接口 =====
+
+def load_subtitle_translations(subtitle_path: str) -> List[str]:
+    """
+    统一加载字幕翻译文本（自动识别格式）
+
+    支持格式: .vtt, .srt, .lrc
+
+    Args:
+        subtitle_path: 字幕文件路径
+
+    Returns:
+        List[str]: 翻译文本列表
+    """
+    ext = Path(subtitle_path).suffix.lower()
+    
+    if ext == ".vtt":
+        return load_vtt_translations(subtitle_path)
+    elif ext == ".srt":
+        return load_srt_translations(subtitle_path)
+    elif ext == ".lrc":
+        return load_lrc_translations(subtitle_path)
+    else:
+        # 尝试根据内容自动检测
+        try:
+            with open(subtitle_path, "r", encoding="utf-8") as f:
+                content = f.read(1024)  # 只读开头部分
+            if "WEBVTT" in content:
+                return load_vtt_translations(subtitle_path)
+            elif "-->" in content:
+                return load_srt_translations(subtitle_path)
+            elif "[00:" in content or "[00:" in content:
+                return load_lrc_translations(subtitle_path)
+        except Exception:
+            pass
+        
+        print(f"[Subtitle Loader] 不支持的字幕格式: {subtitle_path}")
+        return []
+
+
+def load_subtitle_with_timestamps(subtitle_path: str) -> List[dict]:
+    """
+    统一加载带时间戳的字幕（自动识别格式）
+
+    支持格式: .vtt, .srt, .lrc
+
+    Args:
+        subtitle_path: 字幕文件路径
+
+    Returns:
+        List[dict]: [{start, end, text}, ...]
+    """
+    ext = Path(subtitle_path).suffix.lower()
+    
+    if ext == ".vtt":
+        return load_vtt_with_timestamps(subtitle_path)
+    elif ext == ".srt":
+        return load_srt_with_timestamps(subtitle_path)
+    elif ext == ".lrc":
+        return load_lrc_with_timestamps(subtitle_path)
+    else:
+        # 尝试根据内容自动检测
+        try:
+            with open(subtitle_path, "r", encoding="utf-8") as f:
+                content = f.read(1024)
+            if "WEBVTT" in content:
+                return load_vtt_with_timestamps(subtitle_path)
+            elif "-->" in content:
+                return load_srt_with_timestamps(subtitle_path)
+            elif "[00:" in content or "[00:" in content:
+                return load_lrc_with_timestamps(subtitle_path)
+        except Exception:
+            pass
+        
+        print(f"[Subtitle Loader] 不支持的字幕格式: {subtitle_path}")
+        return []

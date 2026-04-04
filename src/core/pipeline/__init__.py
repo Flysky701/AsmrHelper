@@ -186,7 +186,11 @@ class Pipeline:
         """
         import torch  # 延迟导入，避免顶层依赖
 
-        from ..translate import load_vtt_translations, load_vtt_with_timestamps, detect_vtt_language
+        from ..translate import (
+            load_subtitle_translations,
+            load_subtitle_with_timestamps,
+            detect_subtitle_language,
+        )
 
         config = self.config
         input_path = Path(config.input_path)
@@ -200,28 +204,32 @@ class Pipeline:
             if progress_callback:
                 progress_callback(msg)
 
-        # ===== VTT 预检测 =====
-        vtt_path = config.vtt_path
-        vtt_translations = None
-        vtt_lang = None
-        has_vtt = False
-        is_chinese_vtt = False
+        # ===== 字幕预检测 (支持 VTT / SRT / LRC) =====
+        subtitle_path = config.vtt_path  # 字段名保持 vtt_path，实际支持多种格式
+        subtitle_translations = None
+        subtitle_lang = None
+        has_subtitle = False
+        is_chinese_subtitle = False
 
-        if vtt_path and Path(vtt_path).exists():
-            vtt_translations = load_vtt_translations(vtt_path)
-            if vtt_translations:
-                vtt_lang = detect_vtt_language(vtt_translations)
-                has_vtt = True
-                is_chinese_vtt = vtt_lang == "zh"
+        if subtitle_path and Path(subtitle_path).exists():
+            subtitle_translations = load_subtitle_translations(subtitle_path)
+            if subtitle_translations:
+                subtitle_lang = detect_subtitle_language(subtitle_translations)
+                has_subtitle = True
+                is_chinese_subtitle = subtitle_lang == "zh"
 
         # 确定实际步骤数（固定 5 步，跳过的步骤显示为 [跳过]）
         # Step1: 分离 (始终)
-        # Step2: ASR (无 VTT 时执行)
-        # Step3: 翻译 (中文 VTT 跳过)
+        # Step2: ASR (无字幕时执行)
+        # Step3: 翻译 (中文字幕跳过)
         # Step4: TTS + 时间轴对齐 (始终)
         # Step5: 混音 (始终)
         total_steps = 5
         current_step = 0
+
+        # 获取字幕格式描述
+        subtitle_ext = Path(subtitle_path).suffix.upper() if subtitle_path else ""
+        subtitle_type = subtitle_ext.lstrip(".") or "VTT"
 
         _report("=" * 60)
         _report(f"ASMR Helper 流水线")
@@ -229,9 +237,9 @@ class Pipeline:
         _report(f"输入: {input_path}")
         _report(f"成品: {mix_path.parent}/{mix_path.name}")
         _report(f"中间: {by_product_dir}/")
-        if has_vtt:
-            _report(f"VTT字幕: {Path(vtt_path).name} (语言: {vtt_lang})")
-        _report(f"流程: {total_steps} 步" + (" (智能跳过优化)" if has_vtt else ""))
+        if has_subtitle:
+            _report(f"字幕: {Path(subtitle_path).name} ({subtitle_type}格式, 语言: {subtitle_lang})")
+        _report(f"流程: {total_steps} 步" + (" (智能跳过优化)" if has_subtitle else ""))
         _report("=" * 60)
 
         results = {
@@ -239,18 +247,19 @@ class Pipeline:
             "output_dir": str(by_product_dir),
             "mix_path": str(mix_path),
             "steps": {},
-            "vtt_lang": vtt_lang,
+            "subtitle_lang": subtitle_lang,  # 保持 vtt_lang 字段名兼容
+            "subtitle_type": subtitle_type,
             "total_steps": total_steps,
         }
 
         t0 = time.time()
 
-        # ===== Step 1: 人声分离 (有 VTT 时跳过，直接使用原音频) =====
-        if has_vtt:
-            # 有 VTT 字幕，跳过人声分离，直接使用原音频
+        # ===== Step 1: 人声分离 (有字幕时跳过，直接使用原音频) =====
+        if has_subtitle:
+            # 有字幕，跳过人声分离，直接使用原音频
             current_step += 1
             results["vocal_path"] = str(input_path)
-            _report(f"[{current_step}/{total_steps}] [跳过] 人声分离 (有VTT字幕，直接使用原音频)")
+            _report(f"[{current_step}/{total_steps}] [跳过] 人声分离 (有{subtitle_type}字幕，直接使用原音频)")
             results["steps"]["vocal_separator"] = {"duration": 0, "skipped": True, "source": "original"}
         elif config.use_vocal_separator:
             vocal_path = by_product_dir / "vocal.wav"
@@ -346,21 +355,21 @@ class Pipeline:
                     "recoverable": True,
                 }
 
-        # ===== Step 2: 时间戳获取 (ASR 或 VTT) =====
+        # ===== Step 2: 时间戳获取 (ASR 或字幕) =====
         asr_text_path = by_product_dir / "asr_result.txt"
         asr_results = []
         timestamped_segments = []  # [{start, end, text, translation}, ...] 贯穿整个流程
 
-        if has_vtt:
-            # 使用 VTT 时间戳
+        if has_subtitle:
+            # 使用字幕时间戳
             current_step += 1  # 递增步骤计数
-            _report(f"[{current_step}/{total_steps}] [跳过] ASR (使用 VTT 字幕时间戳)")
-            vtt_entries = load_vtt_with_timestamps(vtt_path)
+            _report(f"[{current_step}/{total_steps}] [跳过] ASR (使用{subtitle_type}字幕时间戳)")
+            subtitle_entries = load_subtitle_with_timestamps(subtitle_path)
             timestamped_segments = [
                 {"start": e["start"], "end": e["end"], "text": e["text"]}
-                for e in vtt_entries
+                for e in subtitle_entries
             ]
-            results["steps"]["asr"] = {"duration": 0, "skipped": True, "source": "vtt", "segments": len(timestamped_segments)}
+            results["steps"]["asr"] = {"duration": 0, "skipped": True, "source": subtitle_type.lower(), "segments": len(timestamped_segments)}
         elif config.use_asr:
             current_step += 1
             if config.skip_existing and asr_text_path.exists():
@@ -420,12 +429,12 @@ class Pipeline:
         translated_path = by_product_dir / "translated.txt"
         translations = []
 
-        if is_chinese_vtt:
-            # 中文 VTT：已是翻译结果，直接使用
+        if is_chinese_subtitle:
+            # 中文字幕：已是翻译结果，直接使用
             current_step += 1
-            translations = vtt_translations
+            translations = subtitle_translations
             translated_path.write_text("\n".join(translations), encoding="utf-8")
-            _report(f"[{current_step}/{total_steps}] [跳过] 翻译 (VTT 字幕已是中文，{len(translations)} 条)")
+            _report(f"[{current_step}/{total_steps}] [跳过] 翻译 ({subtitle_type}字幕已是中文，{len(translations)} 条)")
 
             # 为 timestamped_segments 填充 translation 字段
             for seg, trans in zip(timestamped_segments, translations):
@@ -434,15 +443,15 @@ class Pipeline:
             results["steps"]["translate"] = {
                 "duration": 0.0,
                 "segments": len(translations),
-                "source": "vtt_zh",
+                "source": f"{subtitle_type.lower()}_zh",
                 "skipped": True,  # 跳过了翻译 API 调用
                 "output": str(translated_path),
             }
-        elif has_vtt and vtt_lang in ("ja", "mixed"):
-            # 日文/混合 VTT：需要翻译
+        elif has_subtitle and subtitle_lang in ("ja", "mixed"):
+            # 日文/混合字幕：需要翻译
             current_step += 1
             _report("")
-            _report(f"[{current_step}/{total_steps}] 翻译 (VTT {vtt_lang} -> 中文)...")
+            _report(f"[{current_step}/{total_steps}] 翻译 ({subtitle_type} {subtitle_lang} -> 中文)...")
             t1 = time.time()
 
             try:
@@ -452,7 +461,7 @@ class Pipeline:
                     translator = Translator(provider=config.translate_provider, model=config.translate_model)
 
                 translations = translator.translate_batch(
-                    vtt_translations,
+                    subtitle_translations,
                     source_lang="日文",
                     target_lang="中文",
                 )
@@ -461,7 +470,7 @@ class Pipeline:
                 results["steps"]["translate"] = {
                     "duration": time.time() - t1,
                     "segments": len(translations),
-                    "source": "vtt_ja",
+                    "source": f"{subtitle_type.lower()}_ja",
                     "output": str(translated_path),
                 }
             except Exception as e:
@@ -642,11 +651,11 @@ class Pipeline:
         _report("")
         _report("=" * 60)
         _report(f"流水线完成! 总耗时: {total_time:.1f}s")
-        if has_vtt:
-            saved = 23 if is_chinese_vtt else 0
-            saved += 23 if (has_vtt and not is_chinese_vtt) else 0
+        if has_subtitle:
+            saved = 23 if is_chinese_subtitle else 0
+            saved += 23 if (has_subtitle and not is_chinese_subtitle) else 0
             if saved > 0:
-                _report(f"(相比无 VTT 流程节省约 {saved}s)")
+                _report(f"(相比无字幕流程节省约 {saved}s)")
         _report("=" * 60)
 
         for step, data in results["steps"].items():
