@@ -9,6 +9,7 @@ Qwen3-TTS 模型管理器
 
 import torch
 import os
+import threading
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -19,6 +20,7 @@ class Qwen3ModelManager:
     """Qwen3 模型管理器 - 单例 + 延迟加载"""
 
     _instances: Dict[str, Any] = {}
+    _lock = threading.Lock()
 
     # 模型本地路径（相对于 models/qwen3tts/）
     _MODEL_SUBDIRS = {
@@ -59,37 +61,38 @@ class Qwen3ModelManager:
         if model_type not in cls._MODEL_SUBDIRS:
             raise ValueError(f"未知的模型类型: {model_type}")
 
-        # 已加载则直接返回
-        if model_type in cls._instances and cls._instances[model_type] is not None:
-            print(f"[Qwen3ModelManager] 复用已加载的模型: {model_type}")
-            return cls._instances[model_type]
+        with cls._lock:
+            # 已加载则直接返回
+            if model_type in cls._instances and cls._instances[model_type] is not None:
+                print(f"[Qwen3ModelManager] 复用已加载的模型: {model_type}")
+                return cls._instances[model_type]
 
-        model_dir = cls._get_model_dir(model_type, download_root)
+            model_dir = cls._get_model_dir(model_type, download_root)
 
-        # 首次加载
-        print(f"[Qwen3ModelManager] 加载模型: {model_type} ({model_dir})...")
+            # 首次加载
+            print(f"[Qwen3ModelManager] 加载模型: {model_type} ({model_dir})...")
 
-        t0 = torch.cuda.Event(enable_timing=True) if torch.cuda.is_available() else None
-        t1 = torch.cuda.Event(enable_timing=True) if torch.cuda.is_available() else None
+            t0 = torch.cuda.Event(enable_timing=True) if torch.cuda.is_available() else None
+            t1 = torch.cuda.Event(enable_timing=True) if torch.cuda.is_available() else None
 
-        if t0:
-            t0.record()
+            if t0:
+                t0.record()
 
-        from qwen_tts import Qwen3TTSModel
+            from qwen_tts import Qwen3TTSModel
 
-        model = Qwen3TTSModel.from_pretrained(
-            str(model_dir),
-            device_map="cuda:0",
-            dtype=torch.bfloat16,
-        )
+            model = Qwen3TTSModel.from_pretrained(
+                str(model_dir),
+                device_map="cuda:0",
+                dtype=torch.bfloat16,
+            )
 
-        if t1:
-            t1.record()
-            torch.cuda.synchronize()
-            print(f"[Qwen3ModelManager] 模型加载完成，耗时: {t0.elapsed_time(t1)/1000:.1f}s")
+            if t1:
+                t1.record()
+                torch.cuda.synchronize()
+                print(f"[Qwen3ModelManager] 模型加载完成，耗时: {t0.elapsed_time(t1)/1000:.1f}s")
 
-        cls._instances[model_type] = model
-        return model
+            cls._instances[model_type] = model
+            return model
 
     @classmethod
     def get_custom_voice_model(cls, download_root: str = None) -> Any:

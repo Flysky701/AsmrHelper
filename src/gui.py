@@ -29,9 +29,7 @@ if str(project_root) not in sys.path:
 # 导入拆分模块
 from src.gui_workers import SingleWorkerThread, PreviewWorkerThread, BatchWorkerThread
 from src.gui_services import scan_audio_files
-
-# 支持的音频格式
-AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac"}
+from src.utils.constants import AUDIO_EXTENSIONS
 
 
 class MainWindow(QMainWindow):
@@ -140,24 +138,13 @@ class MainWindow(QMainWindow):
         vocal_layout = QHBoxLayout()
         vocal_layout.addWidget(QLabel("分离模型:"))
         self.single_vocal_model = QComboBox()
-        self.single_vocal_model.addItems([
-            "htdemucs (默认，4轨道)",
-            "htdemucs_ft (微调版，效果更好)",
-            "htdemucs_6s (6轨道，含钢琴/人声)",
-            "mdx (MDX 模型)",
-            "mdx_extra (MDX Extra，兼容性好)",
-        ])
+        self._init_vocal_model_combo(self.single_vocal_model)
         self.single_vocal_model.setToolTip("htdemucs_ft 及以上版本分离效果更好，但需要更多显存")
         vocal_layout.addWidget(self.single_vocal_model)
         vocal_layout.addSpacing(20)
         vocal_layout.addWidget(QLabel("识别模型:"))
         self.single_asr_model = QComboBox()
-        self.single_asr_model.addItems([
-            "base (快速，精度一般)",
-            "small (中等速度和精度)",
-            "medium (较高精度)",
-            "large-v3 (最高精度，推荐ASMR)",
-        ])
+        self._init_asr_model_combo(self.single_asr_model)
         self.single_asr_model.setCurrentIndex(3)  # 默认 large-v3
         self.single_asr_model.setToolTip("large-v3 对轻声/日语识别效果最好（RTX 4070 Ti SUPER 可流畅运行）")
         vocal_layout.addWidget(self.single_asr_model)
@@ -403,7 +390,7 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout()
         self.single_start_btn = QPushButton("开始处理")
         self.single_start_btn.setMinimumHeight(35)
-        self.single_start_btn.setStyleSheet("QPushButton{background-color:#0078d4;color:white;font-weight:bold;border-radius:5px;}")
+        self.single_start_btn.setStyleSheet("QPushButton{background-color:#0078d4;color:white;font-weight:bold;border:none;border-radius:5px;}")
         self.single_start_btn.clicked.connect(self.start_single)
         btn_layout.addWidget(self.single_start_btn)
 
@@ -599,13 +586,7 @@ class MainWindow(QMainWindow):
         model_layout.addSpacing(20)
         model_layout.addWidget(QLabel("分离模型:"))
         self.batch_vocal_model = QComboBox()
-        self.batch_vocal_model.addItems([
-            "htdemucs (默认，4轨道)",
-            "htdemucs_ft (微调版，效果更好)",
-            "htdemucs_6s (6轨道，含钢琴/人声)",
-            "mdx (MDX 模型)",
-            "mdx_extra (MDX Extra，兼容性好)",
-        ])
+        self._init_vocal_model_combo(self.batch_vocal_model)
         self.batch_vocal_model.setToolTip("人声分离使用的 Demucs 模型")
         model_layout.addWidget(self.batch_vocal_model)
         model_layout.addStretch()
@@ -679,7 +660,7 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout()
         self.batch_start_btn = QPushButton("开始批量处理")
         self.batch_start_btn.setMinimumHeight(35)
-        self.batch_start_btn.setStyleSheet("QPushButton{background-color:#107c10;color:white;font-weight:bold;border-radius:5px;}")
+        self.batch_start_btn.setStyleSheet("QPushButton{background-color:#107c10;color:white;font-weight:bold;border:none;border-radius:5px;}")
         self.batch_start_btn.clicked.connect(self.start_batch)
         btn_layout.addWidget(self.batch_start_btn)
 
@@ -695,6 +676,31 @@ class MainWindow(QMainWindow):
         self.on_batch_engine_changed("Edge-TTS")
 
         return widget
+
+    @staticmethod
+    def _init_vocal_model_combo(combo: QComboBox):
+        """初始化人声分离模型下拉框（使用 setItemData 存储实际值）"""
+        vocal_models = [
+            ("htdemucs", "htdemucs (默认，4轨道)"),
+            ("htdemucs_ft", "htdemucs_ft (微调版，效果更好)"),
+            ("htdemucs_6s", "htdemucs_6s (6轨道，含钢琴/人声)"),
+            ("mdx", "mdx (MDX 模型)"),
+            ("mdx_extra", "mdx_extra (MDX Extra，兼容性好)"),
+        ]
+        for value, label in vocal_models:
+            combo.addItem(label, userData=value)
+
+    @staticmethod
+    def _init_asr_model_combo(combo: QComboBox):
+        """初始化 ASR 识别模型下拉框（使用 setItemData 存储实际值）"""
+        asr_models = [
+            ("base", "base (快速，精度一般)"),
+            ("small", "small (中等速度和精度)"),
+            ("medium", "medium (较高精度)"),
+            ("large-v3", "large-v3 (最高精度，推荐ASMR)"),
+        ]
+        for value, label in asr_models:
+            combo.addItem(label, userData=value)
 
     def browse_single_file(self):
         """选择单文件"""
@@ -821,24 +827,9 @@ class MainWindow(QMainWindow):
         """获取单文件处理参数"""
         engine = "edge" if self.single_tts_engine.currentText() == "Edge-TTS" else "qwen3"
 
-        # 解析人声分离模型
-        model_map = {
-            "htdemucs (默认，4轨道)": "htdemucs",
-            "htdemucs_ft (微调版，效果更好)": "htdemucs_ft",
-            "htdemucs_6s (6轨道，含钢琴/人声)": "htdemucs_6s",
-            "mdx (MDX 模型)": "mdx",
-            "mdx_extra (MDX Extra，兼容性好)": "mdx_extra",
-        }
-        vocal_model = model_map.get(self.single_vocal_model.currentText(), "htdemucs")
-
-        # 解析 ASR 模型
-        asr_map = {
-            "base (快速，精度一般)": "base",
-            "small (中等速度和精度)": "small",
-            "medium (较高精度)": "medium",
-            "large-v3 (最高精度，推荐ASMR)": "large-v3",
-        }
-        asr_model = asr_map.get(self.single_asr_model.currentText(), "large-v3")
+        # 使用 setItemData 存储的模型名
+        vocal_model = self.single_vocal_model.currentData() or "htdemucs"
+        asr_model = self.single_asr_model.currentData() or "large-v3"
 
         # 获取音色信息 (根据引擎类型获取)
         tts_voice, voice_profile_id = self._get_voice_info(
@@ -868,21 +859,8 @@ class MainWindow(QMainWindow):
     def get_batch_params(self) -> dict:
         """获取批量处理参数"""
         engine = "edge" if self.batch_tts_engine.currentText() == "Edge-TTS" else "qwen3"
-        asr_map = {
-            "base (快速，精度一般)": "base",
-            "small (中等速度和精度)": "small",
-            "medium (较高精度)": "medium",
-            "large-v3 (最高精度，推荐ASMR)": "large-v3",
-        }
-        asr_model = asr_map.get(self.batch_asr_model.currentText(), "large-v3")
-        vocal_map = {
-            "htdemucs (默认，4轨道)": "htdemucs",
-            "htdemucs_ft (微调版，效果更好)": "htdemucs_ft",
-            "htdemucs_6s (6轨道，含钢琴/人声)": "htdemucs_6s",
-            "mdx (MDX 模型)": "mdx",
-            "mdx_extra (MDX Extra，兼容性好)": "mdx_extra",
-        }
-        vocal_model = vocal_map.get(self.batch_vocal_model.currentText(), "htdemucs")
+        asr_model = self.batch_asr_model.currentData() or "large-v3"
+        vocal_model = self.batch_vocal_model.currentData() or "htdemucs"
 
         # 获取音色信息 (根据引擎类型获取)
         tts_voice, voice_profile_id = self._get_voice_info(
@@ -957,7 +935,7 @@ class MainWindow(QMainWindow):
     def stop_single(self):
         """停止单文件处理"""
         if self.worker and self.worker.isRunning():
-            self.worker.terminate()
+            self.worker.cancel()  # 协作式取消（安全，允许清理资源）
             self.worker.wait()
         self.log("\n[已停止]")
         self.single_start_btn.setEnabled(True)
@@ -1022,7 +1000,7 @@ class MainWindow(QMainWindow):
     def stop_batch(self):
         """停止批量处理"""
         if self.batch_worker and self.batch_worker.isRunning():
-            self.batch_worker.terminate()
+            self.batch_worker.cancel()  # 协作式取消（安全，允许清理资源）
             self.batch_worker.wait()
         self.log("\n[已停止]")
         self.batch_start_btn.setEnabled(True)
@@ -1104,13 +1082,14 @@ class MainWindow(QMainWindow):
         if success:
             self.log(f"[试音] {message}")
             # 播放音频
-            import subprocess
             import platform
             if platform.system() == "Windows":
-                subprocess.Popen(["powershell", "-c", f"Start-Process '{output_path}'"])
+                os.startfile(output_path)
             elif platform.system() == "Darwin":
+                import subprocess
                 subprocess.Popen(["open", output_path])
             else:
+                import subprocess
                 subprocess.Popen(["xdg-open", output_path])
         else:
             self.log(f"[试音] 失败: {message}")
@@ -1212,7 +1191,7 @@ class MainWindow(QMainWindow):
         # 添加参考指南按钮
         self.workshop_guide_btn = QPushButton("参考指南")
         self.workshop_guide_btn.setFixedSize(80, 24)
-        self.workshop_guide_btn.setStyleSheet("QPushButton{background-color:#6c757d;color:white;border-radius:4px;padding:2px;}")
+        self.workshop_guide_btn.setStyleSheet("QPushButton{background-color:#6c757d;color:white;border:none;border-radius:4px;padding:2px;}")
         self.workshop_guide_btn.clicked.connect(self._open_voice_guide)
         desc_layout.addWidget(self.workshop_guide_btn)
         design_layout.addLayout(desc_layout)
@@ -1227,7 +1206,7 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout()
         self.workshop_design_btn = QPushButton("生成音色")
         self.workshop_design_btn.setStyleSheet(
-            "QPushButton{background-color:#0078d4;color:white;font-weight:bold;border-radius:5px;padding:8px;}"
+            "QPushButton{background-color:#0078d4;color:white;font-weight:bold;border:none;border-radius:5px;padding:8px;}"
         )
         self.workshop_design_btn.clicked.connect(self._start_voice_design)
         btn_layout.addWidget(self.workshop_design_btn)
@@ -1285,7 +1264,7 @@ class MainWindow(QMainWindow):
         clone_btn_layout = QHBoxLayout()
         self.workshop_clone_btn = QPushButton("克隆音色")
         self.workshop_clone_btn.setStyleSheet(
-            "QPushButton{background-color:#107c10;color:white;font-weight:bold;border-radius:5px;padding:8px;}"
+            "QPushButton{background-color:#107c10;color:white;font-weight:bold;border:none;border-radius:5px;padding:8px;}"
         )
         self.workshop_clone_btn.clicked.connect(self._start_voice_clone)
         clone_btn_layout.addWidget(self.workshop_clone_btn)
@@ -1332,7 +1311,7 @@ class MainWindow(QMainWindow):
         list_btn_layout.addWidget(self.workshop_preview_btn)
 
         self.workshop_delete_btn = QPushButton("删除")
-        self.workshop_delete_btn.setStyleSheet("QPushButton{background-color:#d13438;color:white;}")
+        self.workshop_delete_btn.setStyleSheet("QPushButton{background-color:#d13438;color:white;border:none;border-radius:4px;padding:2px 8px;}")
         self.workshop_delete_btn.clicked.connect(self._delete_workshop_voice)
         list_btn_layout.addWidget(self.workshop_delete_btn)
         list_btn_layout.addStretch()
@@ -1490,13 +1469,16 @@ class MainWindow(QMainWindow):
 
         self.log(f"[音色工坊] 开始克隆音色: {name}")
 
-        # 使用批量克隆Worker，支持字幕切分
-        from src.gui_workers import VoiceBatchCloneWorker
+        # 使用音色克隆Worker，集成 AudioPreprocessor
+        from src.gui_workers import VoiceCloneWorker
 
-        self.clone_worker = VoiceBatchCloneWorker(
+        self.clone_worker = VoiceCloneWorker(
             name=name,
             audio_path=audio_path,
             subtitle_path=subtitle_path if subtitle_path else None,
+            audio_language="ja",  # 默认日语 ASMR
+            separate_vocals=True,
+            use_progress_wrapper=True,  # 音色工坊使用进度映射模式
         )
         self.clone_worker.progress.connect(self._on_clone_progress)
         self.clone_worker.finished.connect(self._on_clone_finished)
@@ -1618,10 +1600,13 @@ class MainWindow(QMainWindow):
         self.single_clone_btn.setText("克隆中...")
 
         # 使用 VoiceCloneWorker 在后台线程中执行克隆
+        # 注意：单独的克隆功能不传递字幕路径，AudioPreprocessor 会使用基础模式
         self.clone_only_worker = VoiceCloneWorker(
             name=voice_name,
             audio_path=audio_path,
             separate_vocals=separate_vocals,
+            subtitle_path=None,  # 单独克隆不传字幕
+            audio_language="ja",  # 默认日语
         )
         self.clone_only_worker.progress.connect(self._on_clone_only_progress)
         self.clone_only_worker.finished.connect(self._on_clone_only_finished)
@@ -1634,7 +1619,7 @@ class MainWindow(QMainWindow):
     def _on_clone_only_finished(self, success: bool, message: str, profile_id: str):
         """克隆完成回调"""
         self.single_clone_btn.setEnabled(True)
-        self.single_clone_btn.setText("单独克隆音色")
+        self.single_clone_btn.setText("开始克隆音色")
 
         if success:
             self.log(f"[音色克隆] {message}")
@@ -1683,13 +1668,14 @@ class MainWindow(QMainWindow):
 
         if success:
             self.log(f"[音色工坊] {message}")
-            import subprocess
             import platform
             if platform.system() == "Windows":
-                subprocess.Popen(["powershell", "-c", f"Start-Process '{audio_path}'"])
+                os.startfile(audio_path)
             elif platform.system() == "Darwin":
+                import subprocess
                 subprocess.Popen(["open", audio_path])
             else:
+                import subprocess
                 subprocess.Popen(["xdg-open", audio_path])
         else:
             self.log(f"[音色工坊] 试音失败: {message}")
@@ -1743,7 +1729,7 @@ class MainWindow(QMainWindow):
                 mem_total = props.total_memory / 1024**3
                 return f"{props.name} ({mem_total:.1f}GB)"
             return "无 GPU (CPU 模式)"
-        except:
+        except Exception:
             return "未知"
 
 

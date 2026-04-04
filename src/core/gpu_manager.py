@@ -55,6 +55,11 @@ class GPUManager:
             max_concurrent: 最大并发 GPU 操作数（默认 1，避免 OOM）
         """
         if self._initialized:
+            # 单例已初始化，如果参数不同则更新信号量
+            if max_concurrent != self._max_concurrent:
+                print(f"[GPU Manager] 更新最大并发: {self._max_concurrent} -> {max_concurrent}")
+                self._max_concurrent = max_concurrent
+                self._semaphore = threading.Semaphore(max_concurrent)
             return
         self._initialized = True
 

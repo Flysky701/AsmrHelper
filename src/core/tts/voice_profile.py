@@ -271,9 +271,21 @@ class VoiceProfileManager:
         return True
 
     def get_all(self) -> List[VoiceProfile]:
-        """获取所有音色（线程安全）"""
+        """获取所有音色（线程安全，返回浅拷贝列表）"""
         with self._profiles_lock:
             return list(self._profiles.values())
+
+    def add_profile(self, profile: "VoiceProfile"):
+        """
+        添加音色到管理器（线程安全）
+
+        Args:
+            profile: VoiceProfile 实例
+        """
+        with self._profiles_lock:
+            self._profiles[profile.id] = profile
+        self.save()
+        print(f"[VoiceProfileManager] 已添加音色: {profile.name} ({profile.id})")
 
 
 def get_voice_manager() -> VoiceProfileManager:

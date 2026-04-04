@@ -7,6 +7,7 @@
 
 import os
 import json
+import threading
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 
@@ -21,12 +22,15 @@ class Config:
     """配置管理器"""
 
     _instance = None
+    _lock = threading.Lock()
     _config: Dict[str, Any] = {}
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._load_config()
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._load_config()
         return cls._instance
 
     def _load_config(self):
