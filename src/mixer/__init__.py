@@ -291,8 +291,15 @@ class Mixer:
         synthesized_count = 0
         failed_count = 0
         for i, seg in enumerate(segments):
+            # 安全的文本获取
             translation = seg.get("translation", "")
+            if translation is None:
+                translation = ""
+            elif not isinstance(translation, str):
+                translation = str(translation)
+            
             # 清理文本
+            original_text = translation
             translation = _clean_text_for_tts(translation)
             if not translation.strip():
                 continue
@@ -315,12 +322,19 @@ class Mixer:
                         break
                 except Exception as e:
                     last_error = e
+                    # 打印详细错误信息
+                    error_msg = str(e)
                     if retry < 2:  # 不是最后一次，重试
+                        print(f"  [DEBUG] 第 {i+1} 句重试 {retry+1}: {error_msg[:80]}")
                         time.sleep(0.5)  # 短暂等待
 
             if not success:
                 failed_count += 1
+                # 打印导致失败的文本（截断过长部分）
+                display_text = (original_text[:50] + "...") if len(original_text) > 50 else original_text
                 print(f"  [WARN] 第 {i+1} 句 TTS 失败: {last_error}")
+                print(f"         原文: {display_text!r}")
+                print(f"         清理后: {translation!r}")
                 continue
 
             # 2. 读取 TTS 音频
