@@ -241,17 +241,12 @@ dependencies = [
     { name = "edge-tts" },
     { name = "faster-whisper" },
     { name = "httpx" },
-    { name = "huggingface-hub" },
     { name = "imageio-ffmpeg" },
     { name = "numpy" },
     { name = "openai" },
-    { name = "pydub" },
     { name = "pyside6" },
     { name = "pytsmod" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "soundfile" },
-    { name = "tqdm" },
 ]
 
 [package.optional-dependencies]
@@ -266,12 +261,6 @@ qwen3 = [
     { name = "qwen-tts" },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
@@ -281,28 +270,18 @@ requires-dist = [
     { name = "faster-whisper", specifier = ">=1.0.0" },
     { name = "flash-attn", marker = "extra == 'qwen3'", specifier = ">=2.7.0" },
     { name = "httpx", specifier = ">=0.25.0" },
-    { name = "huggingface-hub", specifier = ">=0.34.0" },
     { name = "imageio-ffmpeg", specifier = ">=0.4.0" },
     { name = "numpy", specifier = ">=1.24.0,<2.0.0" },
     { name = "openai", specifier = ">=1.0.0" },
-    { name = "pydub", specifier = ">=0.25.0" },
     { name = "pyside6", specifier = ">=6.5.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
     { name = "pytsmod", specifier = ">=0.3.0,<1.0.0" },
     { name = "qwen-tts", marker = "extra == 'qwen3'", specifier = ">=0.1.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-    { name = "scipy", specifier = ">=1.11.0" },
     { name = "soundfile", specifier = ">=0.12.0" },
-    { name = "tqdm", specifier = ">=4.65.0" },
 ]
 provides-extras = ["qwen3", "dev"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=7.4.0" },
-    { name = "pytest-asyncio", specifier = ">=0.21.0" },
-]
 
 [[package]]
 name = "async-timeout"

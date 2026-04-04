@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "_comment": "音色配置模板。克隆音色 (B1-B4) 的 ref_audio/prompt_cache 请使用 models/voice_profiles/ 下的相对路径",
   "profiles": [
     {
       "id": "A1",
@@ -91,58 +92,6 @@
       "ref_audio": "",
       "prompt_cache": "",
       "generated": false
-    },
-    {
-      "id": "B1",
-      "name": "治愈大姐姐",
-      "category": "custom",
-      "engine": "qwen3_clone",
-      "description": "温柔成熟的大姐姐，治愈系 ASMR 专用",
-      "speaker": "",
-      "instruct": "",
-      "design_instruct": "温柔成熟的大姐姐声线，音调偏低，语速舒缓，带有让人安心的气息感",
-      "ref_audio": "D:\\WorkSpace\\AsmrHelper\\models\\voice_profiles\\B1_ref.wav",
-      "prompt_cache": "D:\\WorkSpace\\AsmrHelper\\models\\voice_profiles\\B1_prompt.pt",
-      "generated": true
-    },
-    {
-      "id": "B2",
-      "name": "娇小萝莉",
-      "category": "custom",
-      "engine": "qwen3_clone",
-      "description": "撒娇卖萌的萝莉少女声线",
-      "speaker": "",
-      "instruct": "",
-      "design_instruct": "撒娇稚嫩的少女声线，音调偏高且起伏明显，语气黏人可爱，带有做作卖萌感",
-      "ref_audio": "D:\\WorkSpace\\AsmrHelper\\models\\voice_profiles\\B2_ref.wav",
-      "prompt_cache": "D:\\WorkSpace\\AsmrHelper\\models\\voice_profiles\\B2_prompt.pt",
-      "generated": true
-    },
-    {
-      "id": "B3",
-      "name": "冷艳女王",
-      "category": "custom",
-      "engine": "qwen3_clone",
-      "description": "高贵冷艳的女王声线",
-      "speaker": "",
-      "instruct": "",
-      "design_instruct": "冷静优雅的女性声线，音调平稳，语速偏慢，带有压迫感和掌控力",
-      "ref_audio": "D:\\WorkSpace\\AsmrHelper\\models\\voice_profiles\\B3_ref.wav",
-      "prompt_cache": "D:\\WorkSpace\\AsmrHelper\\models\\voice_profiles\\B3_prompt.pt",
-      "generated": true
-    },
-    {
-      "id": "B4",
-      "name": "温柔暖男",
-      "category": "custom",
-      "engine": "qwen3_clone",
-      "description": "温暖包容的成熟男性声线",
-      "speaker": "",
-      "instruct": "",
-      "design_instruct": "温暖低沉的男性声线，音色圆润厚实，语速舒缓，带有包容感",
-      "ref_audio": "D:\\WorkSpace\\AsmrHelper\\models\\voice_profiles\\B4_ref.wav",
-      "prompt_cache": "D:\\WorkSpace\\AsmrHelper\\models\\voice_profiles\\B4_prompt.pt",
-      "generated": true
     }
   ]
 }

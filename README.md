@@ -1,61 +1,176 @@
-# ASMR Helper - ASMR 音频汉化工具
+# ASMR Helper
 
-## 项目概述
+ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、语音合成和智能混音，输出双语双轨音频。
 
-基于 pyvideotrans 的改进版 ASMR 音频处理工具，支持：
-- 人声分离（Demucs）
-- 自动语音识别（Faster-Whisper）
-- 多语言翻译（DeepSeek / OpenAI）
-- 语音合成（Edge-TTS / Qwen3-TTS）
-- 智能混音（双语双轨）
+## 功能特性
+
+- **人声分离** - 基于 Demucs 从背景音中提取纯净人声
+- **语音识别** - Faster-Whisper 高精度日文 ASR，支持 VTT 字幕跳过优化
+- **翻译引擎** - DeepSeek / OpenAI API，批量翻译 + 质量检测 + 翻译缓存
+- **语音合成** - Edge-TTS (免费) / Qwen3-TTS (高质量) / GPT-SoVITS (声音克隆)
+- **智能混音** - 时间轴对齐 + 音量平衡，输出原声+中文配音双轨
+- **GUI 界面** - PySide6 桌面应用，支持单文件/批量处理
+
+## 系统要求
+
+- **OS**: Windows 10/11
+- **Python**: 3.10+
+- **GPU**: NVIDIA (可选，Qwen3-TTS 需要 CUDA)
+- **包管理器**: [uv](https://docs.astral.sh/uv/)
+
+## 快速开始
+
+### 1. 一键配置环境
+
+```powershell
+# 克隆项目
+git clone https://github.com/your-username/AsmrHelper.git
+cd AsmrHelper
+
+# 基础安装 (ASR + Edge-TTS + Demucs)
+.\setup.ps1
+
+# 完整安装 (含 Qwen3-TTS，需要 NVIDIA GPU)
+.\setup.ps1 -Full
+```
+
+### 2. 配置 API Key
+
+编辑 `config/config.json` 填入翻译 API Key，或设置环境变量：
+
+```powershell
+$env:DEEPSEEK_API_KEY = "your-deepseek-api-key"
+```
+
+也可以在 GUI 的 **设置 > API 配置** 中填写。
+
+### 3. 运行
+
+```powershell
+# 启动 GUI
+.\run.bat
+
+# 或命令行处理单文件
+uv run python scripts/asmr_bilingual.py --input "path/to/audio.wav"
+
+# 批量处理
+uv run python scripts/batch_process.py --input-dir "D:/ASMR"
+```
 
 ## 项目结构
 
 ```
 AsmrHelper/
-├── src/                    # 核心源代码
-│   ├── core/              # 核心处理模块
-│   │   ├── asr/          # ASR 语音识别
-│   │   ├── translate/     # 翻译引擎
-│   │   ├── tts/          # TTS 语音合成
-│   │   ├── vocal_separator/  # 人声分离
-│   │   └── pipeline/     # 流水线调度
-│   ├── mixer/            # 混音处理
-│   ├── models/            # 模型管理
-│   └── utils/             # 工具函数
-├── scripts/              # 独立脚本
-├── assets/               # 资源文件
-│   ├── f5-tts/          # F5-TTS 参考音频
-│   └── voices/           # 预置音色
-├── tests/                # 测试文件
-└── docs/                 # 文档
+├── src/                          # 核心源代码
+│   ├── core/
+│   │   ├── asr/                  # Faster-Whisper ASR 语音识别
+│   │   ├── translate/            # 翻译引擎 + 缓存 + 术语库
+│   │   ├── tts/                  # TTS (Edge/Qwen3/GPT-SoVITS)
+│   │   ├── vocal_separator/      # Demucs 人声分离
+│   │   └── pipeline/             # 统一流水线调度
+│   ├── mixer/                    # 智能混音 + 时间轴对齐
+│   ├── config.py                 # 配置管理
+│   ├── cli.py                    # Click CLI 入口
+│   ├── gui.py                    # PySide6 GUI 界面
+│   ├── gui_workers.py            # GUI 后台工作线程
+│   └── gui_services.py           # GUI 服务层
+├── config/                       # 配置文件
+│   ├── config.example.json       # 配置模板 (复制为 config.json)
+│   ├── config.json               # 用户配置 (git ignored)
+│   ├── asmr_terms.json           # ASMR 术语库
+│   └── voice_profiles.json       # 音色配置 (git ignored)
+├── scripts/                      # 独立脚本
+│   ├── asmr_bilingual.py         # 双语双轨完整流程
+│   ├── batch_process.py          # 批量处理
+│   ├── verify_env.py             # 环境验证
+│   └── verify_models.py          # 模型验证
+├── models/                       # 模型文件 (git ignored, 首次运行自动下载)
+├── tests/                        # 测试
+├── setup.ps1                     # 一键环境配置
+├── run.bat                       # Windows 启动器
+└── pyproject.toml                # 项目依赖
 ```
 
-## 快速开始
+## 配置说明
+
+### config.json
+
+从模板创建配置文件：
 
 ```powershell
-# 安装依赖
-cd d:\WorkSpace\AsmrHelper
-uv sync
-
-# 运行 ASMR 双语双轨流程
-$env:DEEPSEEK_API_KEY = "your-api-key"
-uv run python scripts/asmr_bilingual.py --input "path/to/audio.wav"
+cp config/config.example.json config/config.json
 ```
 
-## 核心流程
+主要配置项：
 
-1. **Demucs 人声分离** - 从音频中分离出人声
-2. **Whisper ASR** - 识别日文语音为文字
-3. **DeepSeek 翻译** - 将日文翻译为中文
-4. **Qwen3-TTS 合成** - 生成中文配音
-5. **ffmpeg 混音** - 合并原音与配音
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `api.provider` | 翻译服务 (deepseek/openai) | `deepseek` |
+| `api.deepseek_api_key` | DeepSeek API Key | |
+| `tts.engine` | TTS 引擎 (edge/qwen3/gptsovits) | `edge` |
+| `tts.voice` | Edge-TTS 音色 | `zh-CN-XiaoxiaoNeural` |
+| `processing.vocal_model` | 人声分离模型 | `htdemucs` |
+| `processing.asr_model` | ASR 模型大小 (tiny/base/medium/large-v3) | `base` |
 
-## 配置
+### 环境变量
 
-环境变量：
-- `DEEPSEEK_API_KEY` - DeepSeek API 密钥
-- `OPENAI_API_KEY` - OpenAI API 密钥
+| 变量 | 说明 |
+|------|------|
+| `DEEPSEEK_API_KEY` | DeepSeek API 密钥 |
+| `OPENAI_API_KEY` | OpenAI API 密钥 |
+
+环境变量优先级高于配置文件。
+
+## TTS 引擎对比
+
+| 引擎 | 质量 | 速度 | GPU | 说明 |
+|------|------|------|-----|------|
+| `edge` | 一般 | 快 | 不需要 | 微软免费 TTS，适合快速体验 |
+| `qwen3` | 高 | 慢 | 需要 CUDA | Qwen3-TTS，支持音色设计/克隆 |
+| `gptsovits` | 高 | 快 | 需要 | GPT-SoVITS，需单独部署服务 |
+
+## 核心处理流程
+
+```
+输入音频 (.wav/.mp3/.flac)
+    |
+    v
+[1] VTT 字幕检测 (有则跳过人声分离)
+    |
+    v
+[2] Demucs 人声分离
+    |
+    v
+[3] Faster-Whisper ASR (日文 -> 文字)
+    |
+    v
+[4] LLM 翻译 (日文 -> 中文)
+    |
+    v
+[5] TTS 合成 (中文文字 -> 语音)
+    |
+    v
+[6] 时间轴对齐 + 智能混音
+    |
+    v
+输出: 双语双轨音频 + SRT 字幕
+```
+
+## 开发
+
+```powershell
+# 安装开发工具
+.\setup.ps1 -DevOnly
+
+# 运行测试
+uv run pytest
+
+# 运行环境验证
+uv run python scripts/verify_env.py
+
+# 验证 Qwen3-TTS 模型
+uv run python scripts/verify_models.py
+```
 
 ## 许可证
 

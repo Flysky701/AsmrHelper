@@ -24,22 +24,18 @@ dependencies = [
     "edge-tts>=6.1.0",
     "openai>=1.0.0",
     "httpx>=0.25.0",
-    "huggingface-hub>=0.34.0",
 
     # 音频处理
     "demucs>=4.0.0",
     "soundfile>=0.12.0",
-    "pydub>=0.25.0",
     "imageio-ffmpeg>=0.4.0",
     "pytsmod>=0.3.0,<1.0.0",
     "numpy>=1.24.0,<2.0.0",
-    "scipy>=1.11.0",
 
     # GUI (可选)
     "PySide6>=6.5.0",
 
     # 工具
-    "tqdm>=4.65.0",
     "click>=8.1.0",
 ]
 
@@ -56,7 +52,7 @@ dev = [
 ]
 
 [project.scripts]
-asmr-helper = "src.cli:main"
+asmr-helper = "src.cli:cli"
 
 [build-system]
 requires = ["hatchling"]
@@ -66,10 +62,6 @@ build-backend = "hatchling.build"
 packages = ["src"]
 
 [dependency-groups]
-dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.0",
-]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
