@@ -290,12 +290,30 @@ class Translator:
                 content = response.choices[0].message.content.strip()
                 results = json.loads(content)
 
+                # DEBUG: 打印 API 返回的字段
+                if results and isinstance(results, list):
+                    first_result = results[0]
+                    print(f"[DEBUG] API 返回字段: {list(first_result.keys())}")
+                    print(f"[DEBUG] 示例数据: {first_result}")
+
                 # 确保返回的是列表
                 if isinstance(results, list):
                     # 按 id 排序
                     results_dict = {r["id"]: r for r in results}
+                    
+                    # 确定翻译字段名（支持多种格式）
+                    trans_key = None
+                    for key in ["dst", "translation", "translated", "tgt", "result"]:
+                        if key in results_dict.get(0, {}):
+                            trans_key = key
+                            break
+                    
+                    if trans_key is None:
+                        print(f"[ERROR] API 返回缺少翻译字段，尝试使用 src（原文）")
+                        trans_key = "src"
+                    
                     return [
-                        (batch_indices[i], results_dict[i]["src"] if i in results_dict else batch[i], True)
+                        (batch_indices[i], results_dict[i].get(trans_key, batch[i]) if i in results_dict else batch[i], True)
                         for i in range(len(batch))
                     ]
                 else:
@@ -455,9 +473,18 @@ class Translator:
         texts: Optional[List[str]] = None,
     ) -> str:
         """构建带 GPT 字典的系统提示词"""
+        base_prompt = f"你是一个专业的{source_lang}翻译。请将{source_lang}翻译成{target_lang}，保持自然流畅，口语化。"
+        
+        # 批量翻译需要指定返回格式
+        format_hint = (
+            "\n\n重要：批量翻译请返回 JSON 数组格式，每项包含 id、src（原文）、dst（译文）。"
+            '例如：[{"id": 0, "src": "你好", "dst": "你好"}, {"id": 1, "src": "谢谢", "dst": "谢谢"}]'
+        )
+        
         if self.term_db and hasattr(self.term_db, 'build_system_prompt'):
-            return self.term_db.build_system_prompt(source_lang, target_lang)
-        return f"你是一个专业的{source_lang}翻译。请将{source_lang}翻译成{target_lang}，保持自然流畅，口语化。"
+            term_hint = self.term_db.build_system_prompt(source_lang, target_lang)
+            return base_prompt + format_hint + "\n\n" + term_hint
+        return base_prompt + format_hint
 
     def _translate_batch_mode(
         self,
