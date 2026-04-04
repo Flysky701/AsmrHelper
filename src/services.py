@@ -158,25 +158,23 @@ class AppService:
         params: Dict[str, Any],
         vtt_path: str = None,
         progress_callback: Callable[[str], None] = None,
-        mix_output_dir: str = None,
     ) -> Dict[str, Any]:
         """
         单文件处理
 
         Args:
             input_path: 输入音频路径
-            output_dir: 输出目录（中间文件放这里）
+            output_dir: 输出目录（Pipeline 内部会在此目录下创建 {name}/ 子目录）
             params: 处理参数
             vtt_path: 字幕文件路径
             progress_callback: 进度回调
-            mix_output_dir: 成品混音输出目录（默认同 output_dir）
 
         Returns:
             处理结果
         """
         # 构建流水线配置
         pipeline_config = self._build_pipeline_config(
-            input_path, output_dir, params, vtt_path, mix_output_dir
+            input_path, output_dir, params, vtt_path
         )
 
         # 创建流水线
@@ -194,7 +192,6 @@ class AppService:
         output_dir: str,
         params: Dict[str, Any],
         vtt_path: str = None,
-        mix_output_dir: str = None,
     ) -> PipelineConfig:
         """从参数构建流水线配置"""
         engine = params.get("tts_engine", "Edge-TTS")
@@ -206,9 +203,8 @@ class AppService:
         # 构建配置
         return PipelineConfig(
             input_path=str(input_path),
-            output_dir=str(output_dir),
+            output_dir=str(output_dir) if output_dir else "",
             vtt_path=str(vtt_path) if vtt_path else None,
-            mix_output_dir=str(mix_output_dir) if mix_output_dir else None,
 
             # 人声分离
             use_vocal_separator=params.get("use_vocal_separator", True),
@@ -280,11 +276,10 @@ class AppService:
         """
         批量处理
 
-        输出结构:
+        输出结构（Pipeline 统一管理）:
         - output_dir/
-          - product/           # 所有成品混音文件
-          - <name1>_outcome/   # 中间文件（人声、翻译、TTS等）
-          - <name2>_outcome/
+          - {name1}/           # 任务1目录（成品 + 中间文件）
+          - {name2}/           # 任务2目录
           - ...
 
         Args:
@@ -297,10 +292,6 @@ class AppService:
         Returns:
             批量处理结果
         """
-        # 成品输出目录
-        product_dir = Path(output_dir) / "product"
-        ensure_dir(product_dir)
-
         results = []
         total = len(input_paths)
 
@@ -315,16 +306,13 @@ class AppService:
                 if progress_callback:
                     progress_callback(f"  找到字幕: {vtt_path.name}")
 
-            # 处理单个文件
-            # 中间文件放在 output_dir/<name>_outcome/
-            # 成品放在 output_dir/product/
+            # 处理单个文件（Pipeline 内部创建 {name}/ 子目录）
             try:
                 result = self.process_single(
                     input_path=input_path,
-                    output_dir=output_dir,  # 中间文件的根目录
+                    output_dir=output_dir,
                     params=params,
                     vtt_path=str(vtt_path) if vtt_path else None,
-                    mix_output_dir=str(product_dir),  # 成品放这里
                 )
                 results.append({
                     "input": input_path,
