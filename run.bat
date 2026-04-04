@@ -2,9 +2,8 @@
 chcp 65001 >nul
 title ASMR Helper
 
-set PROJECT_ROOT=d:\WorkSpace\AsmrHelper
-set VENV_PYTHON=%PROJECT_ROOT%\.venv\Scripts\python.exe
-set DEEPSEEK_API_KEY=REDACTED_API_KEY
+set PROJECT_ROOT=%~dp0
+set VENV_PYTHON=%PROJECT_ROOT%.venv\Scripts\python.exe
 
 cd /d "%PROJECT_ROOT%"
 

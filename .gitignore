@@ -1,4 +1,6 @@
+# =====================
 # Python
+# =====================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,38 +22,88 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
+# =====================
+# Virtual Environments
+# =====================
 .venv/
 venv/
 ENV/
 env/
+env.bak/
+venv.bak/
 
-# IDE
+# =====================
+# IDE & Editor
+# =====================
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
+# =====================
 # Testing
+# =====================
 .pytest_cache/
 .coverage
 htmlcov/
+tests/reports/
 
-# Output
+# =====================
+# Output & Media
+# =====================
 output/
 *.wav
 *.mp3
 *.flac
+*.m4a
+*.ogg
+*.aac
 
-# Model cache
+# =====================
+# Models (large files, download on demand)
+# =====================
 models/
+
+# =====================
+# Cache
+# =====================
 .cache/
 .huggingface/
-
-# Logs
 *.log
 
-# OS
+# =====================
+# OS Files
+# =====================
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# =====================
+# Environment Variables
+# =====================
+.env
+.env.*
+*.env
+secrets.ini
+
+# =====================
+# Sensitive Config (user-specific)
+# =====================
+config/config.json
+config/voice_profiles.json
+
+# =====================
+# WorkBuddy (IDE workspace data)
+# =====================
+.workbuddy/
+
+# =====================
+# Development Reports
+# =====================
+Report/
+
+# =====================
+# Translation Cache
+# =====================
+translation_cache/
