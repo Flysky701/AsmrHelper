@@ -2,6 +2,11 @@
 ASR 语音识别模块 - 使用 Faster-Whisper
 
 功能：将语音转换为文字，支持日语等多种语言
+
+后处理（Report #14）：
+- 文本规范化：去除重复标点、全角半角混用、空格、幻觉标记
+- 片段合并：合并间隔<0.3s 且单段<1s 的极短片段
+- 置信度过滤：利用 log_prob 过滤低质量片段
 """
 
 import time
@@ -10,6 +15,8 @@ from typing import Optional, List, Literal
 
 import numpy as np
 from faster_whisper import WhisperModel
+
+from .postprocess import ASRPostProcessor, PostProcessConfig
 
 
 class ASRRecognizer:
@@ -34,6 +41,7 @@ class ASRRecognizer:
         language: Optional[str] = None,
         compute_type: str = "float16",
         disable_vad: bool = True,
+        postprocess_config: Optional[PostProcessConfig] = None,
     ):
         """
         初始化 ASR 识别器
@@ -44,6 +52,7 @@ class ASRRecognizer:
             language: 语言代码 (ja/zh/en/auto)
             compute_type: 计算精度
             disable_vad: 是否禁用 VAD（ASMR 需要保留轻声）
+            postprocess_config: 后处理配置，为 None 时使用默认配置
         """
         self.model_size = model_size
         # 自动检测 CUDA 支持
@@ -58,11 +67,14 @@ class ASRRecognizer:
                 self.device = "cpu"
         else:
             self.device = device if device == "cuda" else "cpu"
-        
+
         self.language = self.LANG_CODES.get(language, language)
         self.disable_vad = disable_vad
         # CPU 使用 int8 加速
         self.compute_type = compute_type if self.device == "cuda" else "int8"
+
+        # 后处理器
+        self.postprocessor = ASRPostProcessor(postprocess_config or PostProcessConfig())
 
         # 加载模型，优先使用本地 models 目录
         t0 = time.time()
@@ -121,7 +133,7 @@ class ASRRecognizer:
             no_speech_threshold=0.9,  # 高阈值保留 ASMR 轻声，让模型更难将轻声判断为无语音
         )
 
-        # 收集结果
+        # 收集结果（保留 log_prob 用于置信度过滤）
         results = []
         for seg in segments:
             if seg.end - seg.start < min_segment_duration:
@@ -131,8 +143,12 @@ class ASRRecognizer:
                 "start": round(seg.start, 2),
                 "end": round(seg.end, 2),
                 "text": seg.text.strip(),
+                "log_prob": seg.avg_log_prob,  # 保留置信度
             }
             results.append(result)
+
+        # 后处理：文本规范化 + 片段合并 + 置信度过滤
+        results = self.postprocessor.process(results)
 
         # 保存结果
         if output_path:
