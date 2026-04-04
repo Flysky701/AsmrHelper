@@ -103,30 +103,30 @@ class TranslationCache:
             Dict[str, CacheEntry]: 缓存字典
         """
         cache_file = self._get_cache_file(namespace)
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self._memory_cache = {
+                    k: CacheEntry(**v) for k, v in data.items()
+                }
+                print(f"[Cache] 加载缓存: {len(self._memory_cache)} 条 (命名空间: {namespace})")
+            except Exception as e:
+                print(f"[Cache] 加载缓存失败: {e}")
+                self._memory_cache = {}
+        else:
+            self._memory_cache = {}
+        return self._memory_cache
 
-        if not cache_file.exists():
-            return {}
+    def load_if_empty(self, namespace: str = "default"):
+        """
+        如果内存缓存为空，从文件加载
 
-        try:
-            data = json.loads(cache_file.read_text(encoding="utf-8"))
-            entries = {}
-
-            for key, value in data.items():
-                try:
-                    entry = CacheEntry.from_dict(value)
-                    # 检查过期
-                    if self._is_expired(entry.timestamp):
-                        continue
-                    entries[key] = entry
-                except (KeyError, TypeError):
-                    continue
-
-            print(f"[TranslationCache] 加载缓存 {len(entries)} 条: {cache_file.name}")
-            return entries
-
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"[TranslationCache] 缓存加载失败: {e}")
-            return {}
+        Args:
+            namespace: 命名空间
+        """
+        if not self._memory_cache:
+            self.load(namespace)
 
     def save(
         self,

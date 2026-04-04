@@ -162,13 +162,10 @@ class VoiceDesigner:
             )
 
             # 添加到管理器
-            with manager._profiles_lock:
-                manager._profiles[new_id] = profile
-            manager.save()
+            manager.add_profile(profile)
 
-            self._report_progress(progress_callback, "音色创建完成!", 100)
-
-            print(f"[VoiceDesigner] 音色 '{name}' ({new_id}) 创建成功!")
+            self._report_progress(progress_callback, "音色设计完成!", 100)
+            print(f"[VoiceDesigner] 自定义音色 '{name}' ({new_id}) 创建成功!")
             return profile
 
         except Exception as e:
@@ -250,9 +247,7 @@ class VoiceDesigner:
                 generated=True,
             )
 
-            with manager._profiles_lock:
-                manager._profiles[new_id] = profile
-            manager.save()
+            manager.add_profile(profile)
 
             self._report_progress(progress_callback, "音色克隆完成!", 100)
 
@@ -270,6 +265,7 @@ class VoiceDesigner:
         profile,
         text: str = DEFAULT_REF_TEXT,
         output_path: str = None,
+        speed: float = 1.0,
     ) -> str:
         """
         试听音色效果
@@ -278,26 +274,19 @@ class VoiceDesigner:
             profile: VoiceProfile 实例
             text: 试听文本
             output_path: 输出文件路径 (可选，默认临时文件)
+            speed: 语速 (默认 1.0)
 
         Returns:
             生成的音频文件路径
         """
-        from src.core.tts.qwen3_manager import Qwen3ModelManager
         from src.core.tts import Qwen3TTSEngine
 
         if output_path is None:
             output_path = self.output_dir / f"preview_{profile.id}.wav"
 
         try:
-            # 根据音色类型选择模型
-            if profile.category == "preset":
-                # 预设音色使用 CustomVoice 模型
-                engine = Qwen3TTSEngine(voice_profile_id=profile.id)
-            else:
-                # custom/clone 使用 Base 模型
-                engine = Qwen3TTSEngine(voice_profile_id=profile.id)
-
-            # 合成音频
+            # 统一使用 Qwen3TTSEngine 合成音频
+            engine = Qwen3TTSEngine(voice_profile_id=profile.id, speed=speed)
             audio_path = engine.synthesize(text, str(output_path))
 
             return audio_path

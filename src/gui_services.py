@@ -8,8 +8,7 @@ GUI 服务模块
 from pathlib import Path
 from typing import List
 
-# 支持的音频格式
-AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac"}
+from src.utils.constants import AUDIO_EXTENSIONS
 
 
 def scan_audio_files(directory: str) -> List[str]:

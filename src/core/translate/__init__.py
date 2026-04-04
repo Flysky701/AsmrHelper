@@ -115,8 +115,7 @@ class Translator:
                 from .cache import get_cache
                 self._cache = get_cache()
                 # 自动加载已有缓存
-                if not self._cache._memory_cache:
-                    self._cache._memory_cache = self._cache.load(self.cache_namespace)
+                self._cache.load_if_empty(self.cache_namespace)
             except Exception as e:
                 print(f"[Translator] 缓存加载失败: {e}")
                 self._cache = None
@@ -321,25 +320,16 @@ class Translator:
                     raise ValueError(f"Expected list, got {type(results)}")
 
             except (json.JSONDecodeError, KeyError, ValueError) as e:
-                if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
-                    print(f"  [WARN] 批量 JSON 解析失败 (尝试 {attempt+1}/{max_retries}): {e}, 降级为逐条翻译...")
-                    # JSON 解析失败，降级为逐条翻译
-                    if attempt == max_retries - 2:
-                        # 最后一次机会，降级
-                        return [
-                            (idx, text, False)  # 标记为需要重试
-                            for idx, text in zip(batch_indices, batch)
-                        ]
-                else:
-                    print(f"  [ERROR] 批量翻译最终失败，降级为逐条翻译: {e}")
-                    return [
-                        (idx, text, False)
-                        for idx, text in zip(batch_indices, batch)
-                    ]
+                wait_time = 2 ** attempt
+                print(f"  [WARN] 批量 JSON 解析失败 (尝试 {attempt+1}/{max_retries}): {e}")
+                import time
+                time.sleep(wait_time)
+                # 继续重试，温度递增
 
+        # 所有批量重试均失败，降级为逐条翻译
+        print(f"  [WARN] 批量翻译失败，降级为逐条翻译")
         return [
-            (idx, text, False)
+            (idx, text, False)  # 标记为需要逐条重试
             for idx, text in zip(batch_indices, batch)
         ]
 
@@ -1036,14 +1026,24 @@ def load_lrc_with_timestamps(lrc_path: str) -> List[dict]:
 
                 if text:
                     start_sec = mm * 60 + ss + xx / 100.0
-                    # 估算结束时间（使用下一条开始时间或加 3 秒）
-                    end_sec = start_sec + 3.0
+                    # 使用下一条开始时间作为结束时间（更准确）
+                    # 暂存 entry，等下一条来时回填 end_sec
                     entries.append({
                         "start": start_sec,
-                        "end": end_sec,
+                        "end": start_sec + 3.0,  # 默认值，后面修正
                         "text": text,
                     })
                     prev_end = start_sec
+
+        # 修正 end_sec：使用下一条的 start_sec 作为当前条的 end_sec
+        for i in range(len(entries)):
+            if i + 1 < len(entries):
+                next_start = entries[i + 1]["start"]
+                if next_start > entries[i]["start"]:
+                    entries[i]["end"] = next_start
+            else:
+                # 最后一条：保持默认 3s
+                entries[i]["end"] = entries[i]["start"] + 3.0
 
         print(f"[LRC Loader] 加载了 {len(entries)} 条带时间戳翻译: {lrc_path}")
 

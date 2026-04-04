@@ -324,52 +324,7 @@ class Pipeline:
             results["vocal_path"] = str(input_path)
             _report(f"[{current_step}/{total_steps}] [跳过] 人声分离 (直接使用输入文件)")
 
-        # ===== 音色克隆 (人声分离后自动执行) =====
-        results["cloned_profile_id"] = None
-        if config.clone_voice_after_separation:
-            _report("")
-            _report(f"[音色克隆] 使用分离出的人声克隆音色...")
-            t_clone = time.time()
-
-            try:
-                from ..tts.voice_designer import VoiceDesigner
-                from ..tts.voice_profile import get_voice_manager
-
-                designer = VoiceDesigner()
-
-                # 自动生成音色名称
-                clone_name = config.clone_voice_name
-                if not clone_name:
-                    import datetime
-                    clone_name = f"克隆音色_{datetime.datetime.now().strftime('%m%d%H%M')}"
-
-                # 调用克隆
-                profile = designer.clone_from_audio(
-                    audio_path=results["vocal_path"],
-                    name=clone_name,
-                    ref_text="你好，这是一段测试语音。",
-                    progress_callback=lambda msg, p=0: _report(f"  {msg}"),
-                )
-
-                results["cloned_profile_id"] = profile.id
-                results["steps"]["voice_clone"] = {
-                    "duration": time.time() - t_clone,
-                    "profile_id": profile.id,
-                    "profile_name": profile.name,
-                    "audio_source": results["vocal_path"],
-                }
-                _report(f"[音色克隆] 完成: {profile.name} ({profile.id})")
-
-            except Exception as e:
-                _report(f"[WARN] 音色克隆失败（不影响主流程）: {e}")
-                import traceback
-                traceback.print_exc()
-                results["steps"]["voice_clone"] = {
-                    "error": str(e),
-                    "recoverable": True,
-                }
-
-        # ===== Step 2: 时间戳获取 (ASR 或字幕) =====
+        # ===== Step 2: 时间戳获取 (ASR 或字幕) - 音色克隆需要 ASR 结果 =====
         asr_text_path = by_product_dir / "asr_result.txt"
         asr_results = []
         timestamped_segments = []  # [{start, end, text, translation}, ...] 贯穿整个流程
@@ -394,7 +349,19 @@ class Pipeline:
                 for e in subtitle_entries
             ]
             results["steps"]["asr"] = {"duration": 0, "skipped": True, "source": subtitle_type.lower(), "segments": len(timestamped_segments), "cleaned": config.clean_subtitle}
-        elif config.use_asr:
+
+            # 如果启用了音色克隆但字幕语言与音频语言不匹配，需要先做 ASR 获取音频语言的文本
+            audio_lang = config.asr_language  # 音频语言（如 "ja"）
+            if config.clone_voice_after_separation and subtitle_lang not in (audio_lang, "mixed"):
+                _report(f"[音色克隆] 字幕语言({subtitle_lang}) != 音频语言({audio_lang})，先做 ASR 获取日语文本...")
+                asr_done = False
+            else:
+                asr_done = True
+        else:
+            asr_done = True  # 没有字幕，正常进入 ASR 流程
+
+        # 如果还没做 ASR 且需要做
+        if not asr_done or (config.use_asr and not has_subtitle):
             current_step += 1
             if config.skip_existing and asr_text_path.exists():
                 _report(f"[{current_step}/{total_steps}] [跳过] ASR 已存在: {asr_text_path.name}")
@@ -442,12 +409,83 @@ class Pipeline:
                         del recognizer
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-        else:
-            if asr_text_path.exists():
-                text = asr_text_path.read_text(encoding="utf-8")
-                asr_results = [{"text": line} for line in text.split("\n") if line.strip()]
+
         results["asr_results"] = asr_results
         results["timestamped_segments"] = timestamped_segments
+
+        # ===== 音色克隆 (report_18: AudioPreprocessor) - 使用 ASR 结果 =====
+        results["cloned_profile_id"] = None
+        if config.clone_voice_after_separation:
+            _report("")
+            _report(f"[音色克隆] 准备参考音频...")
+            t_clone = time.time()
+
+            try:
+                from ..tts.voice_designer import VoiceDesigner
+                from ..tts.voice_profile import get_voice_manager
+                from ..tts.audio_preprocessor import AudioPreprocessor
+
+                # 使用 AudioPreprocessor 准备合规的克隆音频
+                # 传入 ASR 结果（包含日语文本和时间轴）
+                preprocessor = AudioPreprocessor()
+                clone_result = preprocessor.prepare_clone_audio(
+                    audio_path=results["vocal_path"],
+                    subtitle_path=subtitle_path if has_subtitle else None,
+                    audio_language=config.asr_language,
+                    asr_segments=timestamped_segments,  # 传入 ASR 结果！
+                    progress_callback=lambda msg, p=0: _report(f"  {msg}"),
+                )
+
+                # 显示模式信息
+                if clone_result.mode == "matched":
+                    _report(f"[音色克隆] 匹配模式: ref_text 与音频内容完全匹配")
+                else:
+                    _report(f"[音色克隆] 基础模式: ref_text 使用默认文本")
+
+                if clone_result.warnings:
+                    for warn in clone_result.warnings:
+                        _report(f"  [警告] {warn}")
+
+                _report(f"[音色克隆] 片段: {clone_result.segments_used}, "
+                       f"总时长: {clone_result.total_duration:.1f}s")
+
+                # 调用克隆
+                designer = VoiceDesigner()
+
+                # 自动生成音色名称
+                clone_name = config.clone_voice_name
+                if not clone_name:
+                    import datetime
+                    clone_name = f"Clone_{datetime.datetime.now().strftime('%m%d%H%M')}"
+
+                # 使用处理后的音频和真实匹配的 ref_text
+                profile = designer.clone_from_audio(
+                    audio_path=clone_result.ref_audio_path,
+                    name=clone_name,
+                    ref_text=clone_result.ref_text,  # 真实匹配的文本！
+                    progress_callback=lambda msg, p=0: _report(f"  {msg}"),
+                )
+
+                results["cloned_profile_id"] = profile.id
+                results["steps"]["voice_clone"] = {
+                    "duration": time.time() - t_clone,
+                    "profile_id": profile.id,
+                    "profile_name": profile.name,
+                    "audio_source": results["vocal_path"],
+                    "mode": clone_result.mode,
+                    "segments_used": clone_result.segments_used,
+                    "total_duration": clone_result.total_duration,
+                }
+                _report(f"[音色克隆] 完成: {profile.name} ({profile.id})")
+
+            except Exception as e:
+                _report(f"[WARN] 音色克隆失败（不影响主流程）: {e}")
+                import traceback
+                traceback.print_exc()
+                results["steps"]["voice_clone"] = {
+                    "error": str(e),
+                    "recoverable": True,
+                }
 
         # ===== Step 3: 翻译 (保留时间戳) =====
         translated_path = by_product_dir / "translated.txt"
@@ -503,7 +541,7 @@ class Pipeline:
                     "error": str(e),
                     "recoverable": True,
                 }
-                translations = vtt_translations  # 降级：使用原文
+                translations = subtitle_translations  # 降级：使用原文
 
             # 为 timestamped_segments 填充 translation 字段
             for seg, trans in zip(timestamped_segments, translations):
@@ -642,11 +680,15 @@ class Pipeline:
                 t1 = time.time()
 
                 try:
-                    mixer = Mixer(
-                        original_volume=config.original_volume,
-                        tts_volume_ratio=config.tts_volume_ratio,
-                        tts_delay_ms=config.tts_delay_ms,
-                    )
+                    # 使用注入的混音器或创建新实例
+                    if self._injected_mixer is not None:
+                        mixer = self._injected_mixer
+                    else:
+                        mixer = Mixer(
+                            original_volume=config.original_volume,
+                            tts_volume_ratio=config.tts_volume_ratio,
+                            tts_delay_ms=config.tts_delay_ms,
+                        )
                     mixer.mix(
                         original_for_mix,
                         results["tts_path"],

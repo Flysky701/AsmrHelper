@@ -376,17 +376,20 @@ class Mixer:
                 except ImportError:
                     # 没有 librosa，使用 soundfile 重采样
                     _temp_wav = output_path.parent / f"_resample_temp_{i}.wav"
-                    sf.write(str(_temp_wav), tts_data, tts_sr)
-                    # 用 ffmpeg 重采样
-                    import subprocess
-                    ffmpeg_path = get_ffmpeg()
-                    subprocess.run(
-                        [ffmpeg_path, "-i", str(_temp_wav), "-ar", str(sample_rate), "-ac", "2", str(_temp_wav.with_suffix(".48k.wav"))],
-                        capture_output=True, check=True,
-                    )
-                    tts_data, tts_sr = sf.read(str(_temp_wav.with_suffix(".48k.wav")))
-                    _temp_wav.unlink(missing_ok=True)
-                    _temp_wav.with_suffix(".48k.wav").unlink(missing_ok=True)
+                    _temp_48k = _temp_wav.with_suffix(".48k.wav")
+                    try:
+                        sf.write(str(_temp_wav), tts_data, tts_sr)
+                        # 用 ffmpeg 重采样
+                        import subprocess
+                        ffmpeg_path = get_ffmpeg()
+                        subprocess.run(
+                            [ffmpeg_path, "-i", str(_temp_wav), "-ar", str(sample_rate), "-ac", "2", str(_temp_48k)],
+                            capture_output=True, check=True,
+                        )
+                        tts_data, tts_sr = sf.read(str(_temp_48k))
+                    finally:
+                        _temp_wav.unlink(missing_ok=True)
+                        _temp_48k.unlink(missing_ok=True)
 
             tts_duration = len(tts_data) / sample_rate
 

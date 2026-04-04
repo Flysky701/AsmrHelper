@@ -13,8 +13,7 @@ from typing import Optional, List
 
 from PySide6.QtCore import QThread, Signal
 
-# 支持的音频格式
-AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac"}
+from src.utils.constants import AUDIO_EXTENSIONS
 
 
 class SingleWorkerThread(QThread):
@@ -28,6 +27,11 @@ class SingleWorkerThread(QThread):
         self.output_dir = output_dir
         self.params = params
         self.vtt_path = vtt_path
+        self._cancel_event = threading.Event()
+
+    def cancel(self):
+        """请求取消（协作式，安全替代 terminate()）"""
+        self._cancel_event.set()
 
     def _find_subtitle_file(self) -> Optional[str]:
         """查找字幕文件（支持 VTT / SRT / LRC）"""
@@ -183,6 +187,11 @@ class BatchWorkerThread(QThread):
         self.max_workers = max_workers  # 并行度
         self.results = []
         self._results_lock = threading.Lock()  # 保护 results 列表
+        self._cancel_event = threading.Event()  # 协作式取消
+
+    def cancel(self):
+        """请求取消（协作式，安全替代 terminate()）"""
+        self._cancel_event.set()
 
     def _find_subtitle_file(self, input_path: Path) -> Optional[str]:
         """查找字幕文件（支持 VTT / SRT / LRC）"""
@@ -375,37 +384,69 @@ class VoiceDesignWorker(QThread):
 
 class VoiceCloneWorker(QThread):
     """
-    音色克隆 Worker - 在后台执行 Base clone
+    音色克隆 Worker - 在后台执行 Base clone (集成 AudioPreprocessor)
 
     信号:
         progress(str, int): 进度消息, 百分比
         finished(bool, str, str): (success, message, profile_id)
+
+    支持两种模式:
+    - 普通模式: 直接发送进度 (0-100)
+    - 映射模式: 通过 progress_wrapper 映射子范围
     """
 
     progress = Signal(str, int)
     finished = Signal(bool, str, str)
 
-    def __init__(self, name: str, audio_path: str, ref_text: str = None, separate_vocals: bool = True):
+    def __init__(self, name: str, audio_path: str, subtitle_path: str = None,
+                 audio_language: str = "ja", separate_vocals: bool = True,
+                 use_progress_wrapper: bool = False):
+        """
+        初始化音色克隆 Worker
+
+        Args:
+            name: 音色名称
+            audio_path: 参考音频路径
+            subtitle_path: 字幕文件路径 (可选)
+            audio_language: 音频语言 (默认日语)
+            separate_vocals: 是否分离人声后再克隆
+            use_progress_wrapper: 是否使用进度映射模式 (用于音色工坊)
+        """
         super().__init__()
         self.name = name
         self.audio_path = audio_path
-        self.ref_text = ref_text or "你好，今天辛苦了，让我来帮你放松一下吧。"
+        self.subtitle_path = subtitle_path
+        self.audio_language = audio_language
         self.separate_vocals = separate_vocals
+        self.use_progress_wrapper = use_progress_wrapper
+
+    def _progress_wrapper(self, start_pct: int, end_pct: int):
+        """进度回调包装器：将 0-100 映射到 start_pct-end_pct"""
+        def wrapper(msg: str, pct: int):
+            scaled_pct = start_pct + int(pct / 100.0 * (end_pct - start_pct))
+            self.progress.emit(msg, scaled_pct)
+        return wrapper
+
+    def _get_progress_callback(self, start_pct: int = None, end_pct: int = None):
+        """获取进度回调函数"""
+        if self.use_progress_wrapper and start_pct is not None and end_pct is not None:
+            return self._progress_wrapper(start_pct, end_pct)
+        return lambda msg, pct: self.progress.emit(msg, pct)
 
     def run(self):
         try:
-            from src.core.tts.voice_designer import VoiceDesigner
-            from src.core.vocal_separator import separate_vocals as do_separate_vocals
             import tempfile
+            from pathlib import Path
+            from src.core.tts.voice_designer import VoiceDesigner
+            from src.core.tts.audio_preprocessor import AudioPreprocessor
+            from src.core.vocal_separator import separate_vocals as do_separate_vocals
 
-            def progress_callback(msg: str, percent: int):
-                self.progress.emit(msg, percent)
+            audio_to_process = self.audio_path
 
-            audio_to_clone = self.audio_path
-
-            # 如果需要分离人声
+            # ===== Step 1: 分离人声 =====
             if self.separate_vocals:
-                self.progress.emit("分离人声中...", 10)
+                progress_cb = self._get_progress_callback()
+                progress_cb("分离人声中...", 5)
                 try:
                     temp_dir = Path(tempfile.gettempdir()) / "asmr_voice_clone"
                     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -414,106 +455,53 @@ class VoiceCloneWorker(QThread):
                         output_dir=str(temp_dir),
                     )
                     if vocal_path and Path(vocal_path).exists():
-                        audio_to_clone = vocal_path
-                        self.progress.emit("人声分离完成，开始克隆...", 30)
+                        audio_to_process = vocal_path
+                        progress_cb("人声分离完成!", 10)
                     else:
-                        self.progress.emit("人声分离失败，使用原音频克隆...", 30)
+                        progress_cb("人声分离失败，使用原音频", 10)
                 except Exception as sep_err:
-                    self.progress.emit(f"人声分离失败，使用原音频: {sep_err}", 30)
-                    audio_to_clone = self.audio_path
+                    progress_cb(f"人声分离失败: {sep_err}", 10)
+                    audio_to_process = self.audio_path
+            else:
+                progress_cb = self._get_progress_callback()
+                progress_cb("准备克隆音频...", 10)
 
-            designer = VoiceDesigner()
-            profile = designer.clone_from_audio(
-                audio_path=audio_to_clone,
-                name=self.name,
-                ref_text=self.ref_text,
-                progress_callback=progress_callback,
+            # ===== Step 2: 使用 AudioPreprocessor 准备克隆音频 =====
+            preprocessor_cb = self._get_progress_callback(15, 75)
+            self.progress.emit("准备克隆音频 (规格转换/字幕切割/拼接)...", 15)
+            preprocessor = AudioPreprocessor()
+
+            clone_result = preprocessor.prepare_clone_audio(
+                audio_path=audio_to_process,
+                subtitle_path=self.subtitle_path,
+                audio_language=self.audio_language,
+                progress_callback=preprocessor_cb,
             )
 
-            self.finished.emit(True, f"音色 '{profile.name}' 克隆成功!", profile.id)
-
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            self.finished.emit(False, f"音色克隆失败: {e}", "")
-
-
-class VoiceBatchCloneWorker(QThread):
-    """
-    音色批量克隆 Worker - 支持字幕切分
-
-    信号:
-        progress(str, int): 进度消息, 百分比
-        finished(bool, str, str): (success, message, profile_id)
-    """
-
-    progress = Signal(str, int)
-    finished = Signal(bool, str, str)
-
-    def __init__(self, name: str, audio_path: str, subtitle_path: str = None):
-        super().__init__()
-        self.name = name
-        self.audio_path = audio_path
-        self.subtitle_path = subtitle_path
-
-    def run(self):
-        try:
-            import tempfile
-            import os
-            from pathlib import Path
-            from src.core.tts.voice_designer import VoiceDesigner
-            from src.core.translate import load_subtitle_with_timestamps
-            from src.utils import cut_audio_by_subtitle
-
-            audio_segments = []
-
-            # Step 1: 如果有字幕，先切分音频
-            if self.subtitle_path and Path(self.subtitle_path).exists():
-                self.progress.emit("加载字幕文件...", 5)
-
-                # 加载字幕
-                subtitle_entries = load_subtitle_with_timestamps(self.subtitle_path)
-                if not subtitle_entries:
-                    raise ValueError(f"字幕文件为空或格式不支持: {self.subtitle_path}")
-
-                self.progress.emit(f"字幕包含 {len(subtitle_entries)} 条记录，开始切分音频...", 10)
-
-                # 切分音频
-                temp_dir = Path(tempfile.gettempdir()) / "asmr_voice_clone_batch"
-                temp_dir.mkdir(parents=True, exist_ok=True)
-
-                audio_segments = cut_audio_by_subtitle(
-                    audio_path=self.audio_path,
-                    subtitle_entries=subtitle_entries,
-                    output_dir=str(temp_dir),
-                    prefix="clone_seg",
-                )
-
-                self.progress.emit(f"音频已切分为 {len(audio_segments)} 个片段", 20)
+            # 显示模式信息
+            if clone_result.mode == "matched":
+                self.progress.emit("匹配模式: ref_text 与音频内容完全匹配", 80)
             else:
-                # 没有字幕，使用整个音频文件
-                audio_segments = [{
-                    "path": self.audio_path,
-                    "index": 1,
-                }]
-                self.progress.emit("使用完整音频文件克隆...", 10)
+                self.progress.emit("基础模式: ref_text 使用默认文本", 80)
 
-            # Step 2: 对第一个片段克隆音色
+            # ===== Step 3: 调用克隆 =====
+            clone_cb = self._get_progress_callback(85, 95)
+            self.progress.emit("执行音色克隆...", 85)
             designer = VoiceDesigner()
-            ref_text = "你好，今天辛苦了，让我来帮你放松一下吧。"
-
-            self.progress.emit(f"对第 1/{len(audio_segments)} 个片段进行音色克隆...", 30)
-
-            first_segment = audio_segments[0]
             profile = designer.clone_from_audio(
-                audio_path=first_segment["path"],
+                audio_path=clone_result.ref_audio_path,
                 name=self.name,
-                ref_text=ref_text,
-                progress_callback=lambda msg, p=0: self.progress.emit(f"  {msg}", 30 + p * 0.5),
+                ref_text=clone_result.ref_text,
+                progress_callback=clone_cb,
             )
 
             self.progress.emit(f"音色 '{self.name}' 克隆完成!", 100)
-            self.finished.emit(True, f"音色 '{self.name}' 克隆成功! (共处理 {len(audio_segments)} 个片段)", profile.id)
+            self.finished.emit(
+                True,
+                f"音色 '{profile.name}' 克隆成功! (模式: {clone_result.mode}, "
+                f"片段: {clone_result.segments_used}, 时长: {clone_result.total_duration:.1f}s)",
+                profile.id
+            )
 
         except Exception as e:
             import traceback
@@ -523,7 +511,7 @@ class VoiceBatchCloneWorker(QThread):
 
 class VoicePreviewWorker(QThread):
     """
-    音色试音 Worker - 支持所有音色类型
+    音色试音 Worker - 支持所有音色类型和语速调节
 
     信号:
         finished(bool, str, str): (success, message, audio_path)
@@ -531,10 +519,11 @@ class VoicePreviewWorker(QThread):
 
     finished = Signal(bool, str, str)
 
-    def __init__(self, profile_id: str, test_text: str = None):
+    def __init__(self, profile_id: str, test_text: str = None, speed: float = 1.0):
         super().__init__()
         self.profile_id = profile_id
         self.test_text = test_text or "你好，这是一段测试语音。"
+        self.speed = speed
 
     def run(self):
         try:
@@ -559,6 +548,7 @@ class VoicePreviewWorker(QThread):
                 profile=profile,
                 text=self.test_text,
                 output_path=str(output_path),
+                speed=self.speed,
             )
 
             self.finished.emit(True, "播放中...", audio_path)
