@@ -412,6 +412,18 @@ class Translator:
         # Step 7: 后处理（修正 LLM 顽固错误）
         results = self._postprocess_texts(results)
 
+        # Step 7.5: 检测未翻译的文本（日文残留）
+        untranslated = []
+        for i, (orig, trans) in enumerate(zip(texts, results)):
+            if orig == trans and orig.strip():  # 原文 == 译文，说明没有翻译
+                untranslated.append((i, orig[:50]))
+        if untranslated:
+            print(f"[Translator] 警告: {len(untranslated)} 句未翻译（原样返回）:")
+            for idx, text in untranslated[:5]:  # 只打印前5条
+                print(f"    [{idx}] {text!r}")
+            if len(untranslated) > 5:
+                print(f"    ... 还有 {len(untranslated) - 5} 句")
+
         # 输出统计信息
         cache = self._get_cache()
         if cache:
