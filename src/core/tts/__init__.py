@@ -65,6 +65,9 @@ class EdgeTTSEngine:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Edge-TTS 默认输出 MP3（有损），先用临时文件存储再转为 WAV
+        temp_mp3 = output_path.with_suffix(".mp3")
+
         communicate = edge_tts.Communicate(
             text,
             self.voice,
@@ -73,9 +76,38 @@ class EdgeTTSEngine:
             pitch=self.pitch,
         )
 
-        await communicate.save(str(output_path))
+        await communicate.save(str(temp_mp3))
+
+        # 转换为 WAV 无损格式
+        self._convert_to_wav(temp_mp3, output_path)
+        temp_mp3.unlink(missing_ok=True)
 
         return str(output_path)
+
+    def _convert_to_wav(self, input_path: Path, output_path: Path):
+        """将音频转换为 WAV 无损格式"""
+        import imageio_ffmpeg
+        import subprocess
+
+        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        cmd = [
+            ffmpeg_path,
+            "-i", str(input_path),
+            "-acodec", "pcm_f32le",  # 32-bit float WAV
+            "-ar", "44100",
+            "-ac", "2",
+            str(output_path),
+            "-y",
+        ]
+
+        subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
 
     def synthesize(self, text: str, output_path: str) -> str:
         """同步合成语音"""
@@ -102,8 +134,8 @@ class EdgeTTSEngine:
         if not sentences:
             return str(output_path)
 
-        # 生成临时文件列表
-        temp_files = [output_path.parent / f"temp_tts_{i}.mp3" for i in range(len(sentences))]
+        # 生成临时文件列表（WAV 格式避免有损压缩）
+        temp_files = [output_path.parent / f"temp_tts_{i}.wav" for i in range(len(sentences))]
 
         # 用单个事件循环并发合成所有句子
         asyncio.run(self._synthesize_all_async(sentences, temp_files))
@@ -286,7 +318,8 @@ class Qwen3TTSEngine:
         # wavs 是 List[np.ndarray]，取第一个
         if wavs and len(wavs) > 0:
             audio = wavs[0].astype(np.float32)
-            sf.write(str(output_path), audio, sr)
+            # 使用 FLOAT subtype 避免量化失真
+            sf.write(str(output_path), audio, sr, subtype="FLOAT")
         else:
             raise RuntimeError("Qwen3-TTS 返回空音频")
 
@@ -311,7 +344,8 @@ class Qwen3TTSEngine:
         )
         if wavs and len(wavs) > 0:
             audio = wavs[0].astype(np.float32)
-            sf.write(str(output_path), audio, sr)
+            # 使用 FLOAT subtype 避免量化失真
+            sf.write(str(output_path), audio, sr, subtype="FLOAT")
         else:
             raise RuntimeError("Qwen3-TTS 返回空音频")
 

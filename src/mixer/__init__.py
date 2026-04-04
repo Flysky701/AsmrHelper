@@ -161,17 +161,34 @@ class Mixer:
         t0 = time.time()
 
         # 构建 ffmpeg 命令
-        delay_ms = max(0, self.tts_delay_ms)
+        # 延迟：负值表示TTS提前（需要在TTS前端padding）；正值表示TTS延后
+        delay_ms = self.tts_delay_ms
         orig_vol = self.original_volume
         tts_vol_db = tts_gain_db
+
+        # 准备 pad/echo 滤镜实现负延迟（提前）
+        tts_filter = f"volume={tts_vol_db}dB"
+        if delay_ms < 0:
+            # 负延迟：TTS提前，先padding静音再输出
+            abs_delay_ms = abs(delay_ms)
+            # 使用apad在TTS前面添加静音，atrim限制总时长
+            tts_filter += f",apad=whole_dur={info.duration + abs_delay_ms/1000}s,atrim=start={abs_delay_ms/1000}:end={info.duration}"
+            orig_filter = f"volume={orig_vol},adelay=0|0"
+        elif delay_ms > 0:
+            # 正延迟：TTS延后，使用adelay
+            tts_filter += f",adelay={delay_ms}|{delay_ms}"
+            orig_filter = f"volume={orig_vol}"
+        else:
+            orig_filter = f"volume={orig_vol}"
 
         cmd = [
             get_ffmpeg(),
             "-i", str(original_path),
             "-i", str(tts_path),
             "-filter_complex",
-            f"[0:a]volume={orig_vol}[orig];[1:a]volume={tts_vol_db}dB,adelay={delay_ms}|{delay_ms}[tts];[orig][tts]amix=inputs=2:duration=first[mixed]",
+            f"[0:a]{orig_filter}[orig];[1:a]{tts_filter}[tts];[orig][tts]amix=inputs=2:duration=first[mixed]",
             "-map", "[mixed]",
+            "-acodec", "pcm_f32le",  # 32-bit float WAV 无损输出
             "-ar", "44100",
             "-ac", "2",
             str(output_path),
@@ -424,8 +441,8 @@ class Mixer:
             timeline = timeline * 0.95 / max_val
             print(f"[Mixer] 归一化: {max_val:.2f} -> 0.95")
 
-        # 7. 保存为 WAV
-        sf.write(str(output_path), timeline, sample_rate)
+        # 7. 保存为 WAV（使用无损float格式避免量化失真）
+        sf.write(str(output_path), timeline, sample_rate, subtype="FLOAT")
 
         # 清理临时目录
         shutil.rmtree(temp_dir, ignore_errors=True)

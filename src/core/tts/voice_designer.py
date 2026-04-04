@@ -306,6 +306,67 @@ class VoiceDesigner:
             print(f"[VoiceDesigner] 试音失败: {e}")
             raise
 
+    def clone_and_preview(
+        self,
+        audio_path: str,
+        text: str = DEFAULT_REF_TEXT,
+        output_path: str = None,
+        ref_text: str = DEFAULT_REF_TEXT,
+    ) -> str:
+        """
+        直接从音频文件克隆音色并生成试音音频（不保存音色配置）
+
+        Args:
+            audio_path: 参考音频路径
+            text: 待合成文本
+            output_path: 输出文件路径
+            ref_text: 参考音频对应的文本
+
+        Returns:
+            生成的音频文件路径
+        """
+        from src.core.tts.qwen3_manager import Qwen3ModelManager
+
+        if output_path is None:
+            import tempfile
+            temp_dir = Path(tempfile.gettempdir())
+            output_path = temp_dir / "clone_preview.wav"
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            # Step 1: 加载 Base 模型
+            print(f"[VoiceDesigner] 加载 Base 模型...")
+            base_model = Qwen3ModelManager.get_base_model()
+
+            # Step 2: 创建 voice_clone_prompt
+            print(f"[VoiceDesigner] 分析音频: {Path(audio_path).name}")
+            voice_clone_prompt = base_model.create_voice_clone_prompt(
+                ref_audio=str(audio_path),
+                ref_text=ref_text,
+            )
+
+            # Step 3: 合成音频
+            print(f"[VoiceDesigner] 生成试音音频...")
+            wavs, sr = base_model.generate_voice_clone(
+                text,
+                language="chinese",
+                voice_clone_prompt=voice_clone_prompt,
+            )
+
+            if wavs and len(wavs) > 0:
+                audio = wavs[0].astype(np.float32)
+                sf.write(str(output_path), audio, sr)
+                print(f"[VoiceDesigner] 试音音频已保存: {output_path}")
+                return str(output_path)
+            else:
+                raise RuntimeError("Qwen3-TTS 返回空音频")
+
+        except Exception as e:
+            print(f"[VoiceDesigner] 克隆试音失败: {e}")
+            raise
+
 
 def get_voice_designer() -> VoiceDesigner:
     """获取 VoiceDesigner 单例"""
