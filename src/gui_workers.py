@@ -178,23 +178,12 @@ class BatchWorkerThread(QThread):
         }
 
         try:
-            # 创建输出目录
-            safe_name = "".join(
-                c if c.isalnum() or c in " _-()" else "_" for c in Path(input_path).stem
-            )
-            out_dir = (
-                Path(self.output_dir) / safe_name
+            # 基准输出目录（Pipeline 内部会创建 task_dir）
+            output_dir = (
+                self.output_dir
                 if self.output_dir
-                else Path(input_path).parent / f"{safe_name}_output"
+                else str(Path(input_path).parent / "output")
             )
-            out_dir.mkdir(parents=True, exist_ok=True)
-
-            # 检查是否跳过
-            final_mix = out_dir / "final_mix.wav"
-            if self.params.get("skip_existing", True) and final_mix.exists():
-                result["status"] = "skipped"
-                result["output"] = str(final_mix)
-                return result
 
             # 自动查找 VTT
             vtt_file = self._find_vtt_file(Path(input_path))
@@ -202,7 +191,7 @@ class BatchWorkerThread(QThread):
             # 构建 Pipeline 配置
             cfg = PipelineConfig(
                 input_path=input_path,
-                output_dir=str(out_dir),
+                output_dir=output_dir,
                 vtt_path=vtt_file if vtt_file and Path(vtt_file).exists() else None,
                 vocal_model=self.params.get("vocal_model", "htdemucs"),
                 asr_model=self.params.get("asr_model", "large-v3"),

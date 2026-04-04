@@ -64,7 +64,6 @@ class PipelineConfig:
 
     # 高级
     skip_existing: bool = False
-    mix_output_dir: Optional[str] = None  # 成品混音输出目录（默认同 output_dir）
 
 
 class Pipeline:
@@ -108,6 +107,37 @@ class Pipeline:
         """工厂方法，从配置创建（保持向后兼容）"""
         return cls(config=config)
 
+    def _resolve_output_dirs(self) -> tuple:
+        """
+        统一解析输出目录（消除多处重复计算）
+
+        目录结构:
+        - base_dir: 用户指定的基准目录（默认: 输入文件同级 output/）
+        - task_dir: 任务输出目录（base_dir/task_name/）
+          - 成品: task_dir/{task_name}_mix.wav
+          - 中间文件: task_dir/{中间文件}
+
+        Returns:
+            (base_dir, task_dir)
+        """
+        config = self.config
+        input_path = Path(config.input_path)
+        task_name = input_path.stem
+
+        # 基准目录: 用户指定 output_dir（默认: 输入文件同级 output/）
+        if config.output_dir:
+            base_dir = Path(config.output_dir)
+        else:
+            base_dir = input_path.parent / "output"
+
+        # 任务目录: base_dir/{task_name}/
+        task_dir = base_dir / task_name
+
+        ensure_dir(base_dir)
+        ensure_dir(task_dir)
+
+        return base_dir, task_dir
+
     def run(
         self,
         preset: Optional[str] = None,
@@ -134,18 +164,10 @@ class Pipeline:
 
         config = self.config
         input_path = Path(config.input_path)
-        output_dir = Path(config.output_dir or input_path.parent / "output")
-        ensure_dir(output_dir)
 
-        # 创建任务名
+        # 统一解析输出目录
+        base_dir, task_dir = self._resolve_output_dirs()
         task_name = input_path.stem
-        # 中间文件放在 remaining_item/<name>_outcome/ 文件夹
-        task_dir = output_dir / "remaining_item" / f"{task_name}_outcome"
-        ensure_dir(task_dir)
-
-        # 成品混音文件输出目录
-        mix_output_dir = Path(config.mix_output_dir) if config.mix_output_dir else output_dir
-        ensure_dir(mix_output_dir)
 
         def _report(msg: str):
             """内部进度报告（打印 + 回调）"""
@@ -497,9 +519,9 @@ class Pipeline:
 
         # ===== Step 5: 混音 (带错误处理) =====
         current_step += 1
-        # 成品命名: <name>_mix.<ext>
+        # 成品命名: <name>_mix.<ext>，放在 task_dir 中
         mix_ext = "wav"
-        mix_path = mix_output_dir / f"{task_name}_mix.{mix_ext}"
+        mix_path = task_dir / f"{task_name}_mix.{mix_ext}"
 
         # 确定混音用的原音频（有 VTT 时用原音频，否则用人声分离的结果）
         use_vocal = results.get("steps", {}).get("vocal_separator", {}).get("source") != "original"
