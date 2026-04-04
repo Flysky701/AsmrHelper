@@ -306,3 +306,133 @@ class BatchWorkerThread(QThread):
                         )
 
         self.finished.emit(self.results)
+
+
+class VoiceDesignWorker(QThread):
+    """
+    音色设计 Worker - 在后台执行 VoiceDesign + Base clone
+
+    信号:
+        progress(str): 进度消息
+        finished(bool, str, str): (success, message, profile_id)
+    """
+
+    progress = Signal(str, int)  # message, percent
+    finished = Signal(bool, str, str)  # success, message, profile_id
+
+    def __init__(self, name: str, description: str, ref_text: str = None):
+        super().__init__()
+        self.name = name
+        self.description = description
+        self.ref_text = ref_text or "你好，今天辛苦了，让我来帮你放松一下吧。"
+
+    def run(self):
+        try:
+            from src.core.tts.voice_designer import VoiceDesigner
+
+            def progress_callback(msg: str, percent: int):
+                self.progress.emit(msg, percent)
+
+            designer = VoiceDesigner()
+            profile = designer.design_and_generate(
+                description=self.description,
+                name=self.name,
+                ref_text=self.ref_text,
+                progress_callback=progress_callback,
+            )
+
+            self.finished.emit(True, f"音色 '{profile.name}' 创建成功!", profile.id)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(False, f"音色设计失败: {e}", "")
+
+
+class VoiceCloneWorker(QThread):
+    """
+    音色克隆 Worker - 在后台执行 Base clone
+
+    信号:
+        progress(str, int): 进度消息, 百分比
+        finished(bool, str, str): (success, message, profile_id)
+    """
+
+    progress = Signal(str, int)
+    finished = Signal(bool, str, str)
+
+    def __init__(self, name: str, audio_path: str, ref_text: str = None):
+        super().__init__()
+        self.name = name
+        self.audio_path = audio_path
+        self.ref_text = ref_text or "你好，今天辛苦了，让我来帮你放松一下吧。"
+
+    def run(self):
+        try:
+            from src.core.tts.voice_designer import VoiceDesigner
+
+            def progress_callback(msg: str, percent: int):
+                self.progress.emit(msg, percent)
+
+            designer = VoiceDesigner()
+            profile = designer.clone_from_audio(
+                audio_path=self.audio_path,
+                name=self.name,
+                ref_text=self.ref_text,
+                progress_callback=progress_callback,
+            )
+
+            self.finished.emit(True, f"音色 '{profile.name}' 克隆成功!", profile.id)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(False, f"音色克隆失败: {e}", "")
+
+
+class VoicePreviewWorker(QThread):
+    """
+    音色试音 Worker - 支持所有音色类型
+
+    信号:
+        finished(bool, str, str): (success, message, audio_path)
+    """
+
+    finished = Signal(bool, str, str)
+
+    def __init__(self, profile_id: str, test_text: str = None):
+        super().__init__()
+        self.profile_id = profile_id
+        self.test_text = test_text or "你好，这是一段测试语音。"
+
+    def run(self):
+        try:
+            import tempfile
+            from src.core.tts.voice_designer import VoiceDesigner
+            from src.core.tts.voice_profile import get_voice_manager
+
+            temp_dir = Path(tempfile.gettempdir())
+            output_path = temp_dir / f"voice_preview_{self.profile_id}.wav"
+
+            # 获取音色配置
+            manager = get_voice_manager()
+            profile = manager.get_by_id(self.profile_id)
+
+            if not profile:
+                self.finished.emit(False, f"音色不存在: {self.profile_id}", "")
+                return
+
+            # 试音
+            designer = VoiceDesigner()
+            audio_path = designer.preview_profile(
+                profile=profile,
+                text=self.test_text,
+                output_path=str(output_path),
+            )
+
+            self.finished.emit(True, "播放中...", audio_path)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(False, f"试音失败: {e}", "")
