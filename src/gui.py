@@ -164,6 +164,24 @@ class MainWindow(QMainWindow):
         vocal_group.setLayout(vocal_layout)
         layout.addWidget(vocal_group)
 
+        # ===== 音色克隆设置 (report_17) =====
+        clone_group = QGroupBox("音色克隆 (人声分离后自动克隆)")
+        clone_layout = QHBoxLayout()
+        self.single_clone_voice_check = QCheckBox("分离后人声用于音色克隆")
+        self.single_clone_voice_check.setToolTip(
+            "勾选后，在人声分离完成后自动用人声作为参考音频克隆音色\n"
+            "克隆的音色可在「音色工坊」中查看和管理"
+        )
+        clone_layout.addWidget(self.single_clone_voice_check)
+        clone_layout.addWidget(QLabel("音色名称:"))
+        self.single_clone_voice_name = QLineEdit()
+        self.single_clone_voice_name.setPlaceholderText("留空自动生成")
+        self.single_clone_voice_name.setMaximumWidth(150)
+        clone_layout.addWidget(self.single_clone_voice_name)
+        clone_layout.addStretch()
+        clone_group.setLayout(clone_layout)
+        layout.addWidget(clone_group)
+
         # ===== TTS 设置 =====
         tts_group = QGroupBox("TTS 设置")
         tts_layout = QVBoxLayout()
@@ -834,6 +852,9 @@ class MainWindow(QMainWindow):
             "tts_delay": self.single_delay.value(),
             "vocal_model": vocal_model,
             "asr_model": asr_model,
+            # 音色克隆 (report_17)
+            "clone_voice_after_separation": self.single_clone_voice_check.isChecked(),
+            "clone_voice_name": self.single_clone_voice_name.text().strip() or "",
         }
 
     def get_batch_params(self) -> dict:
