@@ -65,6 +65,10 @@ class PipelineConfig:
     # 高级
     skip_existing: bool = False
 
+    # 输出模式 (报告 report_16)
+    output_mode: str = "single"  # "single" | "batch"
+    batch_root_dir: str = ""     # 批量模式下的根目录（Main_Product/ 和 BY_Product/ 在此目录下）
+
 
 class Pipeline:
     """处理流水线"""
@@ -109,34 +113,52 @@ class Pipeline:
 
     def _resolve_output_dirs(self) -> tuple:
         """
-        统一解析输出目录（消除多处重复计算）
+        统一解析输出目录（按 report_16 修复）
 
-        目录结构:
-        - base_dir: 用户指定的基准目录（默认: 输入文件同级 output/）
-        - task_dir: 任务输出目录（base_dir/task_name/）
-          - 成品: task_dir/{task_name}_mix.wav
-          - 中间文件: task_dir/{中间文件}
+        单文件模式结构:
+            {name}_output/
+            ├── {name}_mix.{ext}      # 成品
+            └── BY_Product/           # 中间文件
+                ├── vocal.wav
+                └── ...
+
+        批量模式结构:
+            root_output/
+            ├── Main_Product/         # 所有成品
+            │   └── {name}_mix.{ext}
+            └── BY_Product/           # 中间文件
+                └── {name}_by/
+                    └── ...
 
         Returns:
-            (base_dir, task_dir)
+            (mix_path, by_product_dir, task_name)
         """
         config = self.config
         input_path = Path(config.input_path)
         task_name = input_path.stem
+        input_ext = input_path.suffix  # 保留原始音频后缀
 
-        # 基准目录: 用户指定 output_dir（默认: 输入文件同级 output/）
-        if config.output_dir:
-            base_dir = Path(config.output_dir)
+        if config.output_mode == "batch" and config.batch_root_dir:
+            # 批量模式
+            root_dir = Path(config.batch_root_dir)
+            main_product_dir = root_dir / "Main_Product"
+            by_product_dir = root_dir / "BY_Product" / f"{task_name}_by"
         else:
-            base_dir = input_path.parent / "output"
+            # 单文件模式
+            if config.output_dir:
+                base_dir = Path(config.output_dir)
+            else:
+                base_dir = input_path.parent / f"{task_name}_output"
+            main_product_dir = base_dir
+            by_product_dir = base_dir / "BY_Product"
 
-        # 任务目录: base_dir/{task_name}/
-        task_dir = base_dir / task_name
+        # 成品路径: <name>_mix.<ext>
+        mix_path = main_product_dir / f"{task_name}_mix{input_ext}"
 
-        ensure_dir(base_dir)
-        ensure_dir(task_dir)
+        ensure_dir(main_product_dir)
+        ensure_dir(by_product_dir)
 
-        return base_dir, task_dir
+        return mix_path, by_product_dir, task_name
 
     def run(
         self,
@@ -165,9 +187,8 @@ class Pipeline:
         config = self.config
         input_path = Path(config.input_path)
 
-        # 统一解析输出目录
-        base_dir, task_dir = self._resolve_output_dirs()
-        task_name = input_path.stem
+        # 统一解析输出目录（按 report_16 修复）
+        mix_path, by_product_dir, task_name = self._resolve_output_dirs()
 
         def _report(msg: str):
             """内部进度报告（打印 + 回调）"""
@@ -202,7 +223,8 @@ class Pipeline:
         _report(f"ASMR Helper 流水线")
         _report(f"预设: {preset or 'custom'}")
         _report(f"输入: {input_path}")
-        _report(f"输出: {task_dir}")
+        _report(f"成品: {mix_path.parent}/{mix_path.name}")
+        _report(f"中间: {by_product_dir}/")
         if has_vtt:
             _report(f"VTT字幕: {Path(vtt_path).name} (语言: {vtt_lang})")
         _report(f"流程: {total_steps} 步" + (" (智能跳过优化)" if has_vtt else ""))
@@ -210,7 +232,8 @@ class Pipeline:
 
         results = {
             "input": str(input_path),
-            "output_dir": str(task_dir),
+            "output_dir": str(by_product_dir),
+            "mix_path": str(mix_path),
             "steps": {},
             "vtt_lang": vtt_lang,
             "total_steps": total_steps,
@@ -226,7 +249,7 @@ class Pipeline:
             _report(f"[{current_step}/{total_steps}] [跳过] 人声分离 (有VTT字幕，直接使用原音频)")
             results["steps"]["vocal_separator"] = {"duration": 0, "skipped": True, "source": "original"}
         elif config.use_vocal_separator:
-            vocal_path = task_dir / "vocal.wav"
+            vocal_path = by_product_dir / "vocal.wav"
             current_step += 1
             if config.skip_existing and vocal_path.exists():
                 _report(f"[{current_step}/{total_steps}] [跳过] 人声分离已存在: {vocal_path.name}")
@@ -244,7 +267,7 @@ class Pipeline:
 
                     sep_results = separator.separate(
                         str(input_path),
-                        str(task_dir),
+                        str(by_product_dir),
                         stems=["vocals"],
                     )
                     vocal_path = Path(sep_results.get("vocals", ""))
@@ -275,7 +298,7 @@ class Pipeline:
             _report(f"[{current_step}/{total_steps}] [跳过] 人声分离 (直接使用输入文件)")
 
         # ===== Step 2: 时间戳获取 (ASR 或 VTT) =====
-        asr_text_path = task_dir / "asr_result.txt"
+        asr_text_path = by_product_dir / "asr_result.txt"
         asr_results = []
         timestamped_segments = []  # [{start, end, text, translation}, ...] 贯穿整个流程
 
@@ -345,7 +368,7 @@ class Pipeline:
         results["timestamped_segments"] = timestamped_segments
 
         # ===== Step 3: 翻译 (保留时间戳) =====
-        translated_path = task_dir / "translated.txt"
+        translated_path = by_product_dir / "translated.txt"
         translations = []
 
         if is_chinese_vtt:
@@ -455,8 +478,8 @@ class Pipeline:
         # ===== Step 4: TTS 合成 + 时间轴对齐 (带错误处理) =====
         current_step += 1
         tts_ext = "wav" if config.tts_engine == "qwen3" else "mp3"
-        tts_aligned_path = task_dir / "tts_aligned.wav"
-        tts_path = task_dir / f"tts_output.{tts_ext}"
+        tts_aligned_path = by_product_dir / "tts_aligned.wav"
+        tts_path = by_product_dir / f"tts_output.{tts_ext}"
 
         if config.use_tts and timestamped_segments:
             _report("")
@@ -520,9 +543,7 @@ class Pipeline:
 
         # ===== Step 5: 混音 (带错误处理) =====
         current_step += 1
-        # 成品命名: <name>_mix.<ext>，放在 task_dir 中
-        mix_ext = "wav"
-        mix_path = task_dir / f"{task_name}_mix.{mix_ext}"
+        # 成品命名: <name>_mix.<ext>（已经在 _resolve_output_dirs 中计算好）
 
         # 确定混音用的原音频（有 VTT 时用原音频，否则用人声分离的结果）
         use_vocal = results.get("steps", {}).get("vocal_separator", {}).get("source") != "original"
@@ -535,7 +556,7 @@ class Pipeline:
             else:
                 _report("")
                 _report(f"[{current_step}/{total_steps}] 混音 -> {mix_path.name}")
-                _report(f"  (原音: {mix_source_note}, 中间文件: {task_dir.name}/)")
+                _report(f"  (原音: {mix_source_note}, 中间文件: {by_product_dir.name}/)")
                 t1 = time.time()
 
                 try:
@@ -590,7 +611,7 @@ class Pipeline:
         _report("")
         _report("输出文件:")
         _report(f"  [成品] {mix_path}")
-        _report(f"  [中间] {task_dir.name}/ (人声、翻译、TTS等)")
+        _report(f"  [中间] {by_product_dir}/")
         # 显示关键中间文件
         if results.get("translations"):
             _report(f"          - 翻译: {translated_path.name}")

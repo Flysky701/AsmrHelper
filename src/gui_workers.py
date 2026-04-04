@@ -178,8 +178,8 @@ class BatchWorkerThread(QThread):
         }
 
         try:
-            # 基准输出目录（Pipeline 内部会创建 task_dir）
-            output_dir = (
+            # 批量模式：使用 batch_root_dir，Pipeline 内部会分离 Main_Product 和 BY_Product
+            batch_root = (
                 self.output_dir
                 if self.output_dir
                 else str(Path(input_path).parent / "output")
@@ -191,7 +191,8 @@ class BatchWorkerThread(QThread):
             # 构建 Pipeline 配置
             cfg = PipelineConfig(
                 input_path=input_path,
-                output_dir=output_dir,
+                output_mode="batch",
+                batch_root_dir=batch_root,
                 vtt_path=vtt_file if vtt_file and Path(vtt_file).exists() else None,
                 vocal_model=self.params.get("vocal_model", "htdemucs"),
                 asr_model=self.params.get("asr_model", "large-v3"),
