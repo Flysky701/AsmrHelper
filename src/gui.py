@@ -1209,6 +1209,12 @@ class MainWindow(QMainWindow):
         desc_layout = QHBoxLayout()
         desc_layout.addWidget(QLabel("音色描述:"))
         desc_layout.addWidget(QLabel("(用自然语言描述你想要的音色)"))
+        # 添加参考指南按钮
+        self.workshop_guide_btn = QPushButton("参考指南")
+        self.workshop_guide_btn.setFixedSize(80, 24)
+        self.workshop_guide_btn.setStyleSheet("QPushButton{background-color:#6c757d;color:white;border-radius:4px;padding:2px;}")
+        self.workshop_guide_btn.clicked.connect(self._open_voice_guide)
+        desc_layout.addWidget(self.workshop_guide_btn)
         design_layout.addLayout(desc_layout)
         self.workshop_description = QTextEdit()
         self.workshop_description.setPlaceholderText(
@@ -1347,6 +1353,21 @@ class MainWindow(QMainWindow):
         self._refresh_my_voices()
 
         return widget
+
+    def _open_voice_guide(self):
+        """打开音色描述词指南文档"""
+        import os
+        import subprocess
+        from pathlib import Path
+
+        guide_path = Path(__file__).parent.parent / "音色描述词指南.md"
+        if guide_path.exists():
+            try:
+                os.startfile(str(guide_path))
+            except Exception:
+                self.log(f"[音色工坊] 无法打开指南: {guide_path}")
+        else:
+            self.log(f"[音色工坊] 指南文件不存在: {guide_path}")
 
     def _on_template_changed(self, text: str):
         """选择预设模板时自动填入描述"""
