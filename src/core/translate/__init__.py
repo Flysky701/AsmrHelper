@@ -2,11 +2,18 @@
 翻译模块 - 支持 DeepSeek / OpenAI
 
 功能：将日文等外语翻译为中文
+
+升级功能（Report #13 Phase 1）：
+1. 批量翻译（10句/批）
+2. 重试机制（温度切换 + 指数退避）
+3. 质量检测（残日检测等）
 """
 
 import os
 import time
-from typing import List, Optional, Literal
+import json
+import re
+from typing import List, Optional, Literal, Tuple
 
 from openai import OpenAI
 
@@ -29,6 +36,11 @@ class Translator:
         "openai": ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
     }
 
+    # 批量翻译配置
+    DEFAULT_BATCH_SIZE = 10  # 默认每批 10 句
+    DEFAULT_MAX_RETRIES = 3  # 默认最大重试次数
+    DEFAULT_TEMPERATURES = (0.1, 0.3, 0.5)  # 重试温度序列
+
     def __init__(
         self,
         provider: Literal["deepseek", "openai"] = "deepseek",
@@ -36,6 +48,10 @@ class Translator:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         use_terminology: bool = True,
+        use_batch: bool = True,
+        batch_size: int = DEFAULT_BATCH_SIZE,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        use_quality_check: bool = True,
     ):
         """
         初始化翻译器
@@ -46,6 +62,10 @@ class Translator:
             api_key: API 密钥（默认从环境变量读取，支持热更新）
             base_url: 自定义 API 地址
             use_terminology: 是否启用 ASMR 术语库
+            use_batch: 是否启用批量翻译（10句/批）
+            batch_size: 批量大小
+            max_retries: 最大重试次数
+            use_quality_check: 是否启用质量检测
         """
         self.provider = provider
         self.model = model
@@ -57,6 +77,15 @@ class Translator:
         else:
             self.base_url = self.PROVIDERS.get(provider, "")
 
+        # 批量翻译配置
+        self.use_batch = use_batch
+        self.batch_size = batch_size
+        self.max_retries = max_retries
+
+        # 质量检测
+        self.use_quality_check = use_quality_check
+        self._quality_checker = None
+
         # 术语库（延迟加载）
         self.term_db = None
         if use_terminology:
@@ -67,6 +96,7 @@ class Translator:
                 pass  # 术语库不可用时静默降级
 
         print(f"[Translator] 提供商: {provider}, 模型: {model}, 术语库: {'ON' if self.term_db else 'OFF'}")
+        print(f"[Translator] 批量翻译: {'ON' if use_batch else 'OFF'} (每批{batch_size}句), 重试: {max_retries}次, 质量检测: {'ON' if use_quality_check else 'OFF'}")
 
     @property
     def api_key(self) -> str:
@@ -126,6 +156,151 @@ class Translator:
             return self.term_db.build_system_prompt(source_lang, target_lang)
         return f"你是一个专业的{source_lang}翻译。请将{source_lang}翻译成{target_lang}，保持自然流畅，口语化。"
 
+    def _get_quality_checker(self):
+        """获取质量检测器（延迟加载）"""
+        if self._quality_checker is None and self.use_quality_check:
+            try:
+                from .quality import QualityChecker
+                self._quality_checker = QualityChecker()
+            except Exception as e:
+                print(f"[Translator] 质量检测器加载失败: {e}")
+                self._quality_checker = None
+        return self._quality_checker
+
+    def _translate_single_with_retry(
+        self,
+        text: str,
+        system_prompt: str,
+        max_retries: int = None,
+    ) -> Tuple[str, bool]:
+        """
+        带重试的单句翻译
+
+        Args:
+            text: 待翻译文本
+            system_prompt: 系统提示词
+            max_retries: 最大重试次数
+
+        Returns:
+            Tuple[str, bool]: (翻译结果, 是否成功)
+        """
+        if max_retries is None:
+            max_retries = self.max_retries
+
+        temperatures = self.DEFAULT_TEMPERATURES
+
+        for attempt in range(max_retries):
+            temperature = temperatures[attempt] if attempt < len(temperatures) else temperatures[-1]
+
+            try:
+                response = self._get_client().chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": text},
+                    ],
+                    max_tokens=500,
+                    temperature=temperature,
+                )
+
+                translated = response.choices[0].message.content.strip()
+                return translated, True
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    # 指数退避：1s, 2s, 4s...
+                    wait_time = 2 ** attempt
+                    print(f"  [WARN] 翻译失败 (尝试 {attempt+1}/{max_retries}): {e}, {wait_time}s 后重试...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"  [ERROR] 翻译最终失败: {e}")
+                    return text, False  # 降级：返回原文
+
+        return text, False
+
+    def _translate_batch_with_retry(
+        self,
+        batch: List[str],
+        batch_indices: List[int],
+        system_prompt: str,
+        max_retries: int = None,
+    ) -> List[Tuple[int, str, bool]]:
+        """
+        带重试的批量翻译
+
+        Args:
+            batch: 批次文本列表
+            batch_indices: 原始文本索引
+            system_prompt: 系统提示词
+            max_retries: 最大重试次数
+
+        Returns:
+            List[Tuple[int, str, bool]]: [(索引, 翻译结果, 是否成功), ...]
+        """
+        if max_retries is None:
+            max_retries = self.max_retries
+
+        temperatures = self.DEFAULT_TEMPERATURES
+
+        # 构建批量请求
+        batch_data = [
+            {"id": i, "idx": idx, "src": text}
+            for i, (idx, text) in enumerate(zip(batch_indices, batch))
+        ]
+
+        for attempt in range(max_retries):
+            temperature = temperatures[attempt] if attempt < len(temperatures) else temperatures[-1]
+
+            try:
+                # 批量请求
+                response = self._get_client().chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": json.dumps(batch_data, ensure_ascii=False)},
+                    ],
+                    max_tokens=2000,
+                    temperature=temperature,
+                )
+
+                # 解析 JSON 响应
+                content = response.choices[0].message.content.strip()
+                results = json.loads(content)
+
+                # 确保返回的是列表
+                if isinstance(results, list):
+                    # 按 id 排序
+                    results_dict = {r["id"]: r for r in results}
+                    return [
+                        (batch_indices[i], results_dict[i]["src"] if i in results_dict else batch[i - len(batch_indices)], True)
+                        for i in range(len(batch))
+                    ]
+                else:
+                    raise ValueError(f"Expected list, got {type(results)}")
+
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    print(f"  [WARN] 批量 JSON 解析失败 (尝试 {attempt+1}/{max_retries}): {e}, 降级为逐条翻译...")
+                    # JSON 解析失败，降级为逐条翻译
+                    if attempt == max_retries - 2:
+                        # 最后一次机会，降级
+                        return [
+                            (idx, text, False)  # 标记为需要重试
+                            for idx, text in zip(batch_indices, batch)
+                        ]
+                else:
+                    print(f"  [ERROR] 批量翻译最终失败，降级为逐条翻译: {e}")
+                    return [
+                        (idx, text, False)
+                        for idx, text in zip(batch_indices, batch)
+                    ]
+
+        return [
+            (idx, text, False)
+            for idx, text in zip(batch_indices, batch)
+        ]
+
     def translate_batch(
         self,
         texts: List[str],
@@ -135,14 +310,14 @@ class Translator:
         delay: float = 0.1,
     ) -> List[str]:
         """
-        批量翻译
+        批量翻译（支持批量请求 + 重试 + 质量检测）
 
         Args:
             texts: 文本列表
             source_lang: 源语言
             target_lang: 目标语言
             system_prompt: 自定义系统提示词
-            delay: 请求间隔（秒）
+            delay: 请求间隔（秒）- 已废弃，保留兼容性
 
         Returns:
             List[str]: 翻译结果列表
@@ -150,44 +325,134 @@ class Translator:
         if system_prompt is None:
             system_prompt = self._build_system_prompt(source_lang, target_lang)
 
-        results = []
         t0 = time.time()
 
+        # 空文本预处理
+        results = [""] * len(texts)
+        need_translate = []  # [(index, text), ...]
         for i, text in enumerate(texts):
-            if not text.strip():
-                results.append("")
-                continue
+            if text.strip():
+                need_translate.append((i, text))
+            else:
+                results[i] = ""
 
-            try:
-                # 每次动态获取客户端（保证 api_key 最新）
-                response = self._get_client().chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": text},
-                    ],
-                    max_tokens=500,
-                    temperature=0.3,
-                )
+        total_need = len(need_translate)
+        if total_need == 0:
+            print(f"[Translator] 批量翻译完成，0 段有效文本")
+            return results
 
-                translated = response.choices[0].message.content.strip()
-                results.append(translated)
+        # 启用批量翻译模式
+        if self.use_batch and total_need > 1:
+            results = self._translate_batch_mode(
+                need_translate, results, system_prompt, t0
+            )
+        else:
+            results = self._translate_single_mode(
+                need_translate, results, system_prompt, t0
+            )
 
-                # 进度显示
-                if (i + 1) % 10 == 0:
-                    elapsed = time.time() - t0
-                    print(f"  翻译进度: {i+1}/{len(texts)}, 耗时: {elapsed:.1f}s")
+        # 质量检测
+        if self.use_quality_check:
+            results = self._run_quality_check(results, texts)
 
-            except Exception as e:
-                print(f"  翻译失败 [{i+1}]: {e}")
-                # 降级：保留原文，避免空字符串导致 TTS 产出无声片段
-                results.append(text)
+        print(f"[Translator] 批量翻译完成，{total_need} 段，耗时: {time.time()-t0:.1f}s")
+        return results
 
-            # 请求间隔
-            if delay > 0:
-                time.sleep(delay)
+    def _translate_batch_mode(
+        self,
+        need_translate: List[Tuple[int, str]],
+        results: List[str],
+        system_prompt: str,
+        t0: float,
+    ) -> List[str]:
+        """批量翻译模式"""
+        batch_size = self.batch_size
+        total = len(need_translate)
 
-        print(f"[Translator] 批量翻译完成，{len(results)} 段，耗时: {time.time()-t0:.1f}s")
+        print(f"[Translator] 使用批量翻译模式 (每批 {batch_size} 句)...")
+
+        for batch_start in range(0, total, batch_size):
+            batch_end = min(batch_start + batch_size, total)
+            batch = need_translate[batch_start:batch_end]
+            batch_indices = [idx for idx, _ in batch]
+            batch_texts = [text for _, text in batch]
+
+            print(f"  翻译批次 {batch_start//batch_size + 1}: 句 {batch_start+1}-{batch_end}/{total}")
+
+            # 尝试批量翻译
+            batch_results = self._translate_batch_with_retry(
+                batch_texts, batch_indices, system_prompt
+            )
+
+            # 处理失败项（逐条重试）
+            for idx, text, success in batch_results:
+                if success:
+                    results[idx] = text
+                else:
+                    # 批量失败，降级为逐条翻译
+                    translated, ok = self._translate_single_with_retry(text, system_prompt)
+                    results[idx] = translated
+
+            # 进度显示
+            elapsed = time.time() - t0
+            print(f"    进度: {batch_end}/{total}, 耗时: {elapsed:.1f}s")
+
+        return results
+
+    def _translate_single_mode(
+        self,
+        need_translate: List[Tuple[int, str]],
+        results: List[str],
+        system_prompt: str,
+        t0: float,
+    ) -> List[str]:
+        """逐条翻译模式（备用）"""
+        total = len(need_translate)
+        print(f"[Translator] 使用逐条翻译模式...")
+
+        for i, (idx, text) in enumerate(need_translate):
+            translated, success = self._translate_single_with_retry(text, system_prompt)
+            results[idx] = translated
+
+            # 进度显示
+            if (i + 1) % 10 == 0 or (i + 1) == total:
+                elapsed = time.time() - t0
+                print(f"  翻译进度: {i+1}/{total}, 耗时: {elapsed:.1f}s")
+
+        return results
+
+    def _run_quality_check(
+        self,
+        results: List[str],
+        originals: List[str],
+    ) -> List[str]:
+        """运行质量检测（只检测实际翻译的句子，跳过降级保留原文的情况）"""
+        checker = self._get_quality_checker()
+        if checker is None:
+            return results
+
+        print("[Translator] 运行质量检测...")
+
+        qa_results = checker.check_batch(originals, results)
+        issues_found = 0
+
+        for result in qa_results:
+            if result.has_issues:
+                # 跳过原文本身（原文就是日文，会误判）
+                # 只有当译文和原文不同且译文有残日问题时才处理
+                if result.translation == result.original:
+                    continue
+
+                issues_found += 1
+                # 残日问题：保留原文而非有问题的翻译
+                if any(iss.value == "japanese_residue" for iss in result.issues):
+                    print(f"  [QA] 第{result.index+1}句残留日文，保留原文: {result.translation[:30]}...")
+                    results[result.index] = result.original
+
+        if issues_found > 0:
+            print(f"[Translator] 质量检测: 发现 {issues_found} 条问题（已自动处理）")
+        else:
+            print("[Translator] 质量检测: 全部通过")
 
         return results
 
