@@ -29,44 +29,23 @@ class SingleWorkerThread(QThread):
         self.params = params
         self.vtt_path = vtt_path
 
-    def _find_vtt_file(self) -> Optional[str]:
-        """查找VTT字幕文件"""
-        input_p = Path(self.input_path)
-
-        # 可能的VTT文件名
-        possible_vtt_names = [
-            f"{input_p.name}.vtt",   # audio.wav.vtt
-            f"{input_p.stem}.vtt",   # audio.vtt
-        ]
-
-        # 搜索目录
-        search_dirs = [
-            input_p.parent,                    # 同目录
-            input_p.parent / "ASMR_O",         # ASMR_O 子目录
-        ]
-
-        for search_dir in search_dirs:
-            if not search_dir.exists():
-                continue
-            for vtt_name in possible_vtt_names:
-                vtt_path = search_dir / vtt_name
-                if vtt_path.exists():
-                    return str(vtt_path)
-
-        return None
+    def _find_subtitle_file(self) -> Optional[str]:
+        """查找字幕文件（支持 VTT / SRT / LRC）"""
+        from src.utils import find_subtitle_file
+        return find_subtitle_file(Path(self.input_path), [Path(self.input_path).parent / "ASMR_O"])
 
     def run(self):
         try:
             from src.core.pipeline import Pipeline, PipelineConfig
 
-            # 确定 VTT 路径（用户指定优先，否则自动查找）
-            vtt_path = self.vtt_path or self._find_vtt_file()
+            # 确定字幕路径（用户指定优先，否则自动查找）
+            subtitle_path = self.vtt_path or self._find_subtitle_file()
 
             # 构建 Pipeline 配置
             cfg = PipelineConfig(
                 input_path=self.input_path,
                 output_dir=self.output_dir,
-                vtt_path=vtt_path,
+                vtt_path=subtitle_path,
                 vocal_model=self.params.get("vocal_model", "htdemucs"),
                 asr_model=self.params.get("asr_model", "large-v3"),
                 asr_language="ja",
@@ -158,24 +137,10 @@ class BatchWorkerThread(QThread):
         self.results = []
         self._results_lock = threading.Lock()  # 保护 results 列表
 
-    def _find_vtt_file(self, input_path: Path) -> Optional[str]:
-        """查找 VTT 字幕文件"""
-        possible_vtt_names = [
-            f"{input_path.name}.vtt",
-            f"{input_path.stem}.vtt",
-        ]
-        search_dirs = [
-            input_path.parent,
-            input_path.parent / "ASMR_O",
-        ]
-        for search_dir in search_dirs:
-            if not search_dir.exists():
-                continue
-            for vtt_name in possible_vtt_names:
-                vtt_path = search_dir / vtt_name
-                if vtt_path.exists():
-                    return str(vtt_path)
-        return None
+    def _find_subtitle_file(self, input_path: Path) -> Optional[str]:
+        """查找字幕文件（支持 VTT / SRT / LRC）"""
+        from src.utils import find_subtitle_file
+        return find_subtitle_file(input_path, [input_path.parent / "ASMR_O"])
 
     def _process_single_file(self, input_path: str) -> dict:
         """处理单个文件（线程安全，使用 GPU 锁）"""
@@ -197,15 +162,15 @@ class BatchWorkerThread(QThread):
                 else str(Path(input_path).parent / "output")
             )
 
-            # 自动查找 VTT
-            vtt_file = self._find_vtt_file(Path(input_path))
+            # 自动查找字幕
+            subtitle_file = self._find_subtitle_file(Path(input_path))
 
             # 构建 Pipeline 配置
             cfg = PipelineConfig(
                 input_path=input_path,
                 output_mode="batch",
                 batch_root_dir=batch_root,
-                vtt_path=vtt_file if vtt_file and Path(vtt_file).exists() else None,
+                vtt_path=subtitle_file,
                 vocal_model=self.params.get("vocal_model", "htdemucs"),
                 asr_model=self.params.get("asr_model", "large-v3"),
                 asr_language="ja",

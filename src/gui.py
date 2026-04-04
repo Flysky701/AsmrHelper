@@ -916,34 +916,23 @@ class MainWindow(QMainWindow):
 
         params = self.get_single_params()
         
-        # 查找 VTT 文件
-        vtt_path = None
+        # 查找字幕文件 (支持 VTT / SRT / LRC)
+        subtitle_path = None
         input_p = Path(input_file)
-        possible_vtt_names = [
-            f"{input_p.name}.vtt",
-            f"{input_p.stem}.vtt",
-        ]
         search_dirs = [
             input_p.parent,
             input_p.parent / "ASMR_O",
         ]
-        for search_dir in search_dirs:
-            if not search_dir.exists():
-                continue
-            for vtt_name in possible_vtt_names:
-                candidate = search_dir / vtt_name
-                if candidate.exists():
-                    vtt_path = str(candidate)
-                    break
-            if vtt_path:
-                break
+        from utils import find_subtitle_file
+        subtitle_path = find_subtitle_file(input_p, search_dirs)
         
         self.log(f"开始处理: {input_file}")
         self.log(f"输出目录: {output_dir}")
-        if vtt_path:
-            self.log(f"VTT字幕: {vtt_path}")
+        if subtitle_path:
+            sub_ext = Path(subtitle_path).suffix.upper().lstrip(".")
+            self.log(f"字幕: {Path(subtitle_path).name} ({sub_ext}格式)")
         else:
-            self.log(f"VTT字幕: 未找到（将使用API翻译）")
+            self.log(f"字幕: 未找到（将使用API翻译）")
         self.log(f"TTS引擎: {params['tts_engine']}, 音色: {params['tts_voice']}")
         self.log(f"原音音量: {params['original_volume']*100:.0f}%, 配音音量: {params['tts_ratio']*100:.0f}%")
         self.log(f"TTS延迟: {params['tts_delay']}ms\n")
@@ -952,7 +941,7 @@ class MainWindow(QMainWindow):
         self.single_stop_btn.setEnabled(True)
         self.progress_bar.setValue(0)
 
-        self.worker = SingleWorkerThread(input_file, output_dir, params, vtt_path)
+        self.worker = SingleWorkerThread(input_file, output_dir, params, subtitle_path)
         self.worker.progress.connect(self.on_single_progress)
         self.worker.finished.connect(self.on_single_finished)
         self.worker.start()
