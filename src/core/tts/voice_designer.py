@@ -14,6 +14,8 @@ import soundfile as sf
 from pathlib import Path
 from typing import Optional, Callable, List
 
+from src.config import PROJECT_ROOT  # 统一使用项目根目录
+
 # 默认参考文本（用于生成参考音频）
 DEFAULT_REF_TEXT = "你好，今天辛苦了，让我来帮你放松一下吧。"
 
@@ -50,8 +52,8 @@ class VoiceDesigner:
         if output_dir:
             self.output_dir = Path(output_dir)
         else:
-            project_root = Path(__file__).parent.parent.parent.parent
-            self.output_dir = project_root / "models" / "voice_profiles"
+            # 统一使用 PROJECT_ROOT
+            self.output_dir = PROJECT_ROOT / "models" / "voice_profiles"
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 

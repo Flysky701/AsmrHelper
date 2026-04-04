@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field, asdict
 
+from src.config import PROJECT_ROOT  # 统一使用项目根目录
+
 
 @dataclass
 class VoiceProfile:
@@ -59,9 +61,8 @@ class VoiceProfileManager:
         if config_path:
             self.config_path = Path(config_path)
         else:
-            # 默认使用项目 config 目录
-            project_root = Path(__file__).parent.parent.parent.parent
-            self.config_path = project_root / "config" / "voice_profiles.json"
+            # 统一使用 PROJECT_ROOT
+            self.config_path = PROJECT_ROOT / "config" / "voice_profiles.json"
 
         self._profiles: Dict[str, VoiceProfile] = {}
         self._load()
@@ -159,9 +160,8 @@ class VoiceProfileManager:
             clone_ids = [int(p.id[1:]) for p in self._profiles.values() if p.category == "clone"]
             new_id = f"C{max(clone_ids) + 1 if clone_ids else 1}"
 
-            # 音色目录
-            project_root = Path(__file__).parent.parent.parent.parent
-            voice_dir = project_root / "models" / "voice_profiles"
+            # 音色目录（统一使用 PROJECT_ROOT）
+            voice_dir = PROJECT_ROOT / "models" / "voice_profiles"
             voice_dir.mkdir(parents=True, exist_ok=True)
 
             profile = VoiceProfile(
@@ -207,9 +207,8 @@ class VoiceProfileManager:
                          if p.category == "custom"]
             new_id = f"B{max(custom_ids) + 1 if custom_ids else 1}"
 
-            # 音色目录
-            project_root = Path(__file__).parent.parent.parent.parent
-            voice_dir = project_root / "models" / "voice_profiles"
+            # 音色目录（统一使用 PROJECT_ROOT）
+            voice_dir = PROJECT_ROOT / "models" / "voice_profiles"
             voice_dir.mkdir(parents=True, exist_ok=True)
 
             profile = VoiceProfile(

@@ -13,9 +13,10 @@ from typing import Optional
 
 import click
 
-# 添加项目根目录到路径
+# 添加项目根目录到 sys.path（支持直接运行脚本）
 project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 from src.core import Pipeline, PipelineConfig
 

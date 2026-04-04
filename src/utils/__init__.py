@@ -152,3 +152,10 @@ def sanitize_filename(name: str) -> str:
         安全的文件名（只保留字母数字和常用符号）
     """
     return "".join(c if c.isalnum() or c in " _-()" else "_" for c in name)
+
+
+# 导出设计模式
+from src.utils.patterns import singleton
+
+# 导出 GPU 上下文管理器
+from src.utils.gpu_context import gpu_context, clear_gpu_memory

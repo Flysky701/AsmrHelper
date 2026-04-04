@@ -18,9 +18,10 @@ import os
 import torch
 from pathlib import Path
 
-# 添加项目根目录到 path
+# 添加项目根目录到 sys.path（支持直接运行脚本）
 project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 
 # 参考文本（用于生成音色参考音频）
