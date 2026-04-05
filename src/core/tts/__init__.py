@@ -313,6 +313,8 @@ class Qwen3TTSEngine:
         """获取 Base 模型（用于克隆）"""
         from .qwen3_manager import Qwen3ModelManager
         return Qwen3ModelManager.get_base_model()
+
+    def _synthesize_from_cache(self, text: str, output_path: str) -> str:
         """使用 prompt_cache 合成（自定义/克隆音色，qwen_tts 0.1.1 API）"""
         import torch
 
