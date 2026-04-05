@@ -24,7 +24,7 @@ ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、
 
 ```powershell
 # 克隆项目
-git clone https://github.com/your-username/AsmrHelper.git
+git clone https://github.com/Flysky701/AsmrHelper.git
 cd AsmrHelper
 
 # 基础安装 (ASR + Edge-TTS + Demucs)
