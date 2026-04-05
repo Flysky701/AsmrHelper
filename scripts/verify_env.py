@@ -38,19 +38,13 @@ results.append(check("GPU", lambda: (
     f"{__import__('torch').cuda.get_device_name(0)} ({__import__('torch').cuda.get_device_capability(0)})"
 )[-1]))
 
-# 4. Flash Attention
-results.append(check("flash-attn", lambda: (
+# 4. Flash Attention (可选，Windows 上通常不可用)
+results.append(check("flash-attn (optional)", lambda: (
     __import__("flash_attn"),
     f"flash_attn {__import__('flash_attn').__version__}"
 )[-1]))
 
-# 5. flash_attn_func
-results.append(check("flash_attn_func", lambda: (
-    __import__("flash_attn", fromlist=["flash_attn_func"]).flash_attn_func,
-    "imported"
-)[-1]))
-
-# 6. Demucs
+# 5. Demucs
 results.append(check("demucs", lambda: (
     __import__("demucs"),
     f"demucs {__import__('demucs').__version__}"
