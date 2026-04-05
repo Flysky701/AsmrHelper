@@ -40,6 +40,8 @@ cd AsmrHelper
 
 ### 2. 下载 AI 模型
 
+下载前**重启Powershell**
+
 ```powershell
 # 下载 Whisper base 模型 (约 74MB，推荐)
 .\setup.ps1 -Models
