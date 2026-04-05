@@ -36,7 +36,29 @@ cd AsmrHelper
 
 > 安装脚本会自动并发测速 pypi.org 官方源和国内镜像（清华、阿里），选择延迟最低的源进行安装，哪个快用哪个。如果首选源失败，会自动按延迟顺序回退。
 
-### 2. 配置 API Key
+### 2. 下载 AI 模型
+
+```powershell
+# 下载 Whisper base 模型 (约 74MB，推荐)
+.\setup.ps1 -Models
+
+# 下载全部模型 (Whisper + Qwen3-TTS，约 25GB+)
+.\setup.ps1 -Models -Full
+
+# 使用国内镜像加速
+.\setup.ps1 -Models -Mirror
+
+# 或直接使用 Python 脚本
+uv run python scripts/install_models.py                    # Whisper base
+uv run python scripts/install_models.py --whisper large-v3 # Whisper large-v3
+uv run python scripts/install_models.py --qwen3            # Qwen3 全部
+uv run python scripts/install_models.py --all              # 全部
+uv run python scripts/install_models.py --check            # 检查状态
+```
+
+> **注意**: Whisper 模型也可在首次使用时自动下载。Qwen3-TTS 模型需要手动下载（约 8.4GB/个）。
+
+### 3. 配置 API Key
 
 编辑 `config/config.json` 填入翻译 API Key，或设置环境变量：
 
@@ -46,7 +68,7 @@ $env:DEEPSEEK_API_KEY = "your-deepseek-api-key"
 
 也可以在 GUI 的 **设置 > API 配置** 中填写。
 
-### 3. 运行
+### 4. 运行
 
 ```powershell
 # 启动 GUI
@@ -84,6 +106,7 @@ AsmrHelper/
 ├── scripts/                      # 独立脚本
 │   ├── asmr_bilingual.py         # 双语双轨完整流程
 │   ├── batch_process.py          # 批量处理
+│   ├── install_models.py         # 模型下载工具
 │   ├── verify_env.py             # 环境验证
 │   └── verify_models.py          # 模型验证
 ├── models/                       # 模型文件 (git ignored, 首次运行自动下载)
@@ -173,8 +196,12 @@ uv run pytest tests/test_setup_integration.py -v
 # 运行环境验证
 uv run python scripts/verify_env.py
 
-# 验证 Qwen3-TTS 模型
-uv run python scripts/verify_models.py
+# 检查模型状态
+uv run python scripts/install_models.py --check
+
+# 下载模型
+uv run python scripts/install_models.py --whisper base
+uv run python scripts/install_models.py --qwen3
 ```
 
 ## 许可证
