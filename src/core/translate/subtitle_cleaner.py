@@ -29,6 +29,9 @@ class CleanerConfig:
     remove_sound_effects: bool = True       # 删除拟声词
     remove_speaker_names: bool = True       # 删除说话人名字
     remove_punctuation_only: bool = True    # 删除纯标点片段
+    remove_action_onomatopoeia: bool = True  # 删除动作拟声词（撸啊撸、搓啊搓等）
+    remove_moaning: bool = True              # 删除纯喘息/呻吟（啊~...、嗯...等）
+    remove_chapter_titles: bool = True       # 删除章节标题行
     min_text_length: int = 1                 # 最小文本长度
     custom_sound_words: Set[str] = field(default_factory=set)  # 自定义拟声词
 
@@ -78,6 +81,21 @@ class SoundEffectPatterns:
         "shh", "shhh", "hiss", "whisper", "murmur",
     }
 
+    # ASMR 动作拟声词（XX啊XX 格式的重复动作声）
+    # 例: 撸啊撸, 搓啊搓, 摸啊摸, 揉啊揉, 吞啊吞, 咕啊咕
+    # 支持加长版: 撸啊撸啊撸啊撸啊
+    # 支持后缀说话人: 撸啊撸 / 爱理：哦— (全角冒号 U+FF1A)
+    ACTION_ONOMATOPOEIA_PATTERN = re.compile(
+        r"^([\u4e00-\u9fff]{1,3}啊[\u4e00-\u9fff]{1,3})+(?:\s*/\s*[\u4e00-\u9fff\w]+[：:\s].*)?$"
+    )
+
+    # ASMR 喘息/呻吟模式（纯开口元音/鼻音 + 省略号）
+    # 例: 啊~..., 嗯...嗯, 呃——, 啊、啊、
+    # 不匹配: 唉…… (有语义的叹词), 嘿嘿 (笑声已有专门处理)
+    MOANING_PATTERN = re.compile(
+        r"^[啊嗯哈呃呜哼][…～~\-，。、\.~]+[啊嗯哈呃呜哼]{0,2}[…～~\-，。、\.~]*$"
+    )
+
     # 组合正则模式
     # 笑声重复模式: 嘻嘻嘻, 哈哈哈, wwwww
     LAUGHTER_REPEAT_PATTERN = re.compile(
@@ -103,13 +121,25 @@ class SoundEffectPatterns:
         (r"日语说话人", re.compile(r"^(話者|声優|ナレーター)[：:\-\s]*", re.IGNORECASE)),
         # 括号内名字: [小明], (小红)
         (r"括号名字", re.compile(r"^[\（\(【\[].*?[\)）\】\]]\s*", re.IGNORECASE)),
-        # 角色名 + 冒号: 张三: 李四: 佐藤:
+        # 角色名 + 冒号: 张三: 李四: 佐藤: 丽花： 爱理：
         (r"角色名", re.compile(r"^[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]{2,4}[：:]\s*", re.IGNORECASE)),
         # 英文名字: John: Mary:
         (r"英文名", re.compile(r"^[A-Za-z]{2,20}[：:]\s*")),
         # LRC格式时间标签后紧跟的说话人
         (r"LRC说话人", re.compile(r"^\d{2}:\d{2}[.:]\d{2}\][\s\-:]+([^\[\]]+):")),
     ]
+
+    # 章节标题模式（LRC 首行或 VTT 纯标题）
+    # 例: "5 舔耳手交", "10 双重舔耳手交", "03 洗澡"
+    # 特征: 数字开头 + 短标题（通常不含标点或只有句号/空格）
+    CHAPTER_TITLE_PATTERN = re.compile(
+        r"^\d{1,3}\s+[\u4e00-\u9fff\w][\u4e00-\u9fff\w\s/～~\-]+$"
+    )
+
+    # 倒计时模式（不应被当作章节标题）
+    COUNTDOWN_PATTERN = re.compile(
+        r"^[一二三四五六七八九十百千万零\d]+[…～~\-。.]+$"
+    )
 
 
 class SubtitleCleaner:
@@ -207,15 +237,33 @@ class SubtitleCleaner:
                     text = new_text
                     changed = True
 
-            # Step 4: 规范化空白
+            # Step 4: 删除动作拟声词（撸啊撸、搓啊搓等）
+            if self.config.remove_action_onomatopoeia:
+                new_text = self._remove_action_onomatopoeia(text)
+                if new_text != text:
+                    text = new_text
+                    changed = True
+
+            # Step 5: 删除纯喘息/呻吟（啊~...、嗯...等）
+            if self.config.remove_moaning:
+                new_text = self._remove_moaning(text)
+                if new_text != text:
+                    text = new_text
+                    changed = True
+
+            # Step 6: 规范化空白
             new_text = self._normalize_whitespace(text)
             if new_text != text:
                 text = new_text
                 changed = True
 
-        # Step 5: 删除纯标点或过短文本
+        # Step 7: 删除纯标点或过短文本
         if self.config.remove_punctuation_only:
             text = self._remove_punctuation_only(text)
+
+        # Step 8: 删除章节标题行
+        if self.config.remove_chapter_titles:
+            text = self._remove_chapter_titles(text)
 
         return text.strip()
 
@@ -258,14 +306,10 @@ class SubtitleCleaner:
 
     def _remove_sound_effects(self, text: str) -> str:
         """删除拟声词"""
-        # 跳过短文本（可能是单个字）
-        if len(text) <= 2:
-            return text
-
         # 检查是否是纯拟声词
         patterns = SoundEffectPatterns()
 
-        # 笑声重复模式（如 嘻嘻嘻、哈哈哈）
+        # 笑声重复模式（如 嘻嘻嘻、哈哈哈、嘻嘻、呵呵）— 不跳过短文本
         if patterns.LAUGHTER_REPEAT_PATTERN.match(text):
             return ""
 
@@ -345,6 +389,62 @@ class SubtitleCleaner:
 
         # 如果只剩空白或标点，删除
         if len(stripped) < self.config.min_text_length:
+            return ""
+
+        return text
+
+    def _remove_action_onomatopoeia(self, text: str) -> str:
+        """
+        删除动作拟声词（ASMR 特有）
+
+        匹配模式: 单字重复 + 啊 + 单字重复，如:
+        - 撸啊撸、搓啊搓、摸啊摸、揉啊揉
+        - 撸啊撸啊撸啊撸啊（加长版）
+        - 撸啊撸 / 爱理：哦—（带说话人的复合行）
+        """
+        patterns = SoundEffectPatterns()
+        if patterns.ACTION_ONOMATOPOEIA_PATTERN.match(text.strip()):
+            return ""
+        return text
+
+    def _remove_moaning(self, text: str) -> str:
+        """
+        删除纯喘息/呻吟行（非人声语义内容）
+
+        匹配模式: 单个汉字 + 标点/省略号重复，如:
+        - 啊~...
+        - 嗯...嗯
+        - 呃——
+        - 啊、啊、
+        - 啊……啊……
+        但不匹配: "啊…真的吗"（有实际语言内容）
+        """
+        patterns = SoundEffectPatterns()
+        if patterns.MOANING_PATTERN.match(text.strip()):
+            return ""
+        return text
+
+    def _remove_chapter_titles(self, text: str) -> str:
+        """
+        删除章节标题行（LRC/VTT 中常见）
+
+        匹配模式:
+        - 纯数字 + 标题: "5 舔耳手交", "10 双重舔耳手交", "03 洗澡"
+        - 但排除倒计时: "五……", "一……"
+        - 但排除正常对话: 不以数字开头的句子
+        """
+        patterns = SoundEffectPatterns()
+        stripped = text.strip()
+
+        if not stripped:
+            return text
+
+        # 先检查是否是倒计时（不应删除）
+        if patterns.COUNTDOWN_PATTERN.match(stripped):
+            return text
+
+        # 纯数字 + 标题格式
+        if patterns.CHAPTER_TITLE_PATTERN.match(stripped):
             return ""
 
         return text
