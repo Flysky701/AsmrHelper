@@ -42,7 +42,6 @@ dependencies = [
 [project.optional-dependencies]
 qwen3 = [
     "qwen-tts>=0.1.0",
-    "flash-attn>=2.7.0",
 ]
 dev = [
     "pytest>=7.4.0",
@@ -84,10 +83,6 @@ override-dependencies = [
     "torch==2.11.0+cu126",
     "torchaudio==2.11.0+cu126",
 ]
-
-# flash-attn 编译时需要 torch，但其 setup.py 未声明
-[tool.uv.extra-build-dependencies]
-flash-attn = ["torch"]
 
 # PyTorch CUDA 源：确保 uv sync / uv run 安装 CUDA 版本而非 CPU 版本
 [[tool.uv.index]]

@@ -257,7 +257,6 @@ dev = [
     { name = "ruff" },
 ]
 qwen3 = [
-    { name = "flash-attn" },
     { name = "qwen-tts" },
 ]
 
@@ -268,7 +267,6 @@ requires-dist = [
     { name = "demucs", specifier = ">=4.0.0" },
     { name = "edge-tts", specifier = ">=6.1.0" },
     { name = "faster-whisper", specifier = ">=1.0.0" },
-    { name = "flash-attn", marker = "extra == 'qwen3'", specifier = ">=2.7.0" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "imageio-ffmpeg", specifier = ">=0.4.0" },
     { name = "numpy", specifier = ">=1.24.0" },
@@ -990,16 +988,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/94/b8/00651a0f559862f3b
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a4/a5/842ae8f0c08b61d6484b52f99a03510a3a72d23141942d216ebe81fefbce/filelock-3.25.2-py3-none-any.whl", hash = "sha256:ca8afb0da15f229774c9ad1b455ed96e85a81373065fb10446672f64444ddf70", size = 26759, upload-time = "2026-03-11T20:45:37.437Z" },
 ]
-
-[[package]]
-name = "flash-attn"
-version = "2.8.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "einops" },
-    { name = "torch" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3b/b2/8d76c41ad7974ee264754709c22963447f7f8134613fd9ce80984ed0dab7/flash_attn-2.8.3.tar.gz", hash = "sha256:1e71dd64a9e0280e0447b8a0c2541bad4bf6ac65bdeaa2f90e51a9e57de0370d", size = 8447812, upload-time = "2025-08-15T08:28:12.911Z" }
 
 [[package]]
 name = "flatbuffers"
