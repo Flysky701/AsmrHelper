@@ -47,7 +47,7 @@ QWEN3_MODELS = {
     "CustomVoice": {
         "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
         "local_subdir": "models--Qwen--Qwen3-TTS-12Hz-1.7B-CustomVoice",
-        "size_mb": "~8400",
+        "size_mb": "~4300",
         "desc": "预设音色合成（9 个内置 speaker）",
         "required_files": ["model.safetensors", "config.json", "vocab.json"],
         "required_dirs": ["speech_tokenizer"],
@@ -55,7 +55,7 @@ QWEN3_MODELS = {
     "VoiceDesign": {
         "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
         "local_subdir": "models--Qwen--Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-        "size_mb": "~8400",
+        "size_mb": "~4300",
         "desc": "自然语言音色生成",
         "required_files": ["model.safetensors", "config.json", "vocab.json"],
         "required_dirs": ["speech_tokenizer"],
@@ -63,7 +63,7 @@ QWEN3_MODELS = {
     "Base": {
         "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
         "local_subdir": "models--Qwen--Qwen3-TTS-12Hz-1.7B-Base",
-        "size_mb": "~8400",
+        "size_mb": "~4300",
         "desc": "音色克隆（voice_clone）",
         "required_files": ["model.safetensors", "config.json", "vocab.json"],
         "required_dirs": ["speech_tokenizer"],
