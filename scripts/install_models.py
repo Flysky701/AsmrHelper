@@ -35,11 +35,11 @@ if str(project_root) not in sys.path:
 
 # Faster-Whisper 模型（HuggingFace 仓库 -> 本地目录）
 WHISPER_MODELS = {
-    "tiny":      {"repo": "guillaumeln/rft-tiny",    "size_mb": 39,   "desc": "最快，精度低"},
-    "base":      {"repo": "guillaumeln/rft-base",    "size_mb": 74,   "desc": "速度与精度的平衡（推荐）"},
-    "small":     {"repo": "guillaumeln/rft-small",   "size_mb": 244,  "desc": "较高精度"},
-    "medium":    {"repo": "guillaumeln/rft-medium",  "size_mb": 769,  "desc": "高精度"},
-    "large-v3":  {"repo": "guillaumeln/rft-large-v3", "size_mb": 1550, "desc": "最高精度（需要 10GB+ 显存）"},
+    "tiny":      {"repo": "Systran/faster-whisper-tiny",     "size_mb": 39,   "desc": "最快，精度低"},
+    "base":      {"repo": "Systran/faster-whisper-base",     "size_mb": 74,   "desc": "速度与精度的平衡（推荐）"},
+    "small":     {"repo": "Systran/faster-whisper-small",    "size_mb": 244,  "desc": "较高精度"},
+    "medium":    {"repo": "Systran/faster-whisper-medium",   "size_mb": 769,  "desc": "高精度"},
+    "large-v3":  {"repo": "Systran/faster-whisper-large-v3", "size_mb": 1550, "desc": "最高精度（需要 10GB+ 显存）"},
 }
 
 # Qwen3-TTS 模型
@@ -178,7 +178,8 @@ def download_whisper_model(model_name: str, mirror: Optional[str] = None, force:
     cmd = [
         sys.executable, "-c",
         "import os, sys\n"
-        "sys.stderr = open(os.devnull, 'w')\n"
+        "os.environ['PYTHONUTF8'] = '1'\n"
+        "os.environ['PYTHONIOENCODING'] = 'utf-8'\n"
         f"from faster_whisper import download_model\n"
         f"path = download_model({repr(info['repo'])}, output_dir={repr(str(target_dir))})\n"
         "print(path)\n"
@@ -217,7 +218,12 @@ def download_whisper_model(model_name: str, mirror: Optional[str] = None, force:
             return False
         else:
             error = result.stderr.strip() if result.stderr else result.stdout.strip()
-            print_fail(f"Whisper {model_name} 下载失败: {error}")
+            # 截取最后几行关键错误信息
+            if error:
+                lines = error.split('\n')
+                last_lines = [l for l in lines if l.strip()][-5:]
+                error = '\n        '.join(last_lines)
+            print_fail(f"Whisper {model_name} 下载失败:\n        {error}")
             return False
     except subprocess.TimeoutExpired:
         print_fail(f"Whisper {model_name} 下载超时（10 分钟）")
@@ -261,14 +267,24 @@ def download_qwen3_model(model_name: str, mirror: Optional[str] = None, force: b
     env = os.environ.copy()
     if mirror:
         env["HF_ENDPOINT"] = mirror
+        os.environ["HF_ENDPOINT"] = mirror
         print_step(f"使用镜像: {mirror}")
 
     import subprocess
     try:
-        cmd = [sys.executable, "-m", "huggingface_hub.commands.huggingface_cli",
-               "download", info["repo"],
-               "--local-dir", str(target_dir),
-               "--local-dir-use-symlinks", "False"]
+        # 使用 Python API 直接下载，避免 CLI 的 GBK 编码问题和废弃命令警告
+        download_script = f"""
+import os, sys
+os.environ["PYTHONUTF8"] = "1"
+os.environ["PYTHONIOENCODING"] = "utf-8"
+from huggingface_hub import snapshot_download
+path = snapshot_download(
+    {repr(info["repo"])},
+    local_dir={repr(str(target_dir))},
+)
+print(path)
+"""
+        cmd = [sys.executable, "-c", download_script]
 
         result = subprocess.run(
             cmd,
@@ -289,15 +305,16 @@ def download_qwen3_model(model_name: str, mirror: Optional[str] = None, force: b
                 return False
         else:
             error = result.stderr.strip() if result.stderr else result.stdout.strip()
-            print_fail(f"Qwen3 {model_name} 下载失败: {error}")
+            # 截取最后几行关键错误信息
+            if error:
+                lines = error.split('\n')
+                last_lines = [l for l in lines if l.strip()][-5:]
+                error = '\n        '.join(last_lines)
+            print_fail(f"Qwen3 {model_name} 下载失败:\n        {error}")
             return False
 
     except subprocess.TimeoutExpired:
         print_fail(f"Qwen3 {model_name} 下载超时（60 分钟）")
-        return False
-    except FileNotFoundError:
-        print_fail("huggingface-cli 未找到，请确保已安装 huggingface_hub")
-        print_step("运行: uv add huggingface_hub")
         return False
     except Exception as e:
         print_fail(f"Qwen3 {model_name} 下载异常: {e}")
@@ -322,9 +339,9 @@ def check_status():
     whisper_total = len(WHISPER_MODELS)
 
     for name, info in WHISPER_MODELS.items():
-        # faster_whisper 会下载到 models/whisper/<model_name>/ 或 models/whisper/models--guillaumeln--rft-<model>/
+        # faster_whisper 会下载到 models/whisper/<model_name>/ 或 models/whisper/models--Systran--faster-whisper-<model>/
         model_dir = whisper_dir / name
-        alt_dir = whisper_dir / f"models--guillaumeln--rft-{name}"
+        alt_dir = whisper_dir / f"models--Systran--faster-whisper-{name}"
 
         found = False
         found_path = None

@@ -59,7 +59,7 @@ print("=" * 65)
 for name, size_desc in whisper_models.items():
     # faster_whisper 下载到 models/whisper/<name>/ 或 models/whisper/models--guillaumeln--rft-<name>/
     model_dir = whisper_base / name
-    alt_dir = whisper_base / f"models--guillaumeln--rft-{name}"
+    alt_dir = whisper_base / f"models--Systran--faster-whisper-{name}"
 
     found = False
     found_dir = None
