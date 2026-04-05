@@ -350,9 +350,6 @@ class TestConfigInitialization:
         dirs = [
             "models/voice_profiles",
             "models/qwen3tts",
-            "output",
-            ".workbuddy/memory",
-            ".workbuddy/translation_cache",
         ]
         for d in dirs:
             full = tmp_path / d

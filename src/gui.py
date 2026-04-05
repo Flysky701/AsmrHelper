@@ -16,7 +16,8 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QFileDialog, QProgressBar,
     QTextEdit, QSlider, QGroupBox, QComboBox, QSpinBox, QDoubleSpinBox,
     QMessageBox, QStyleFactory, QTabWidget, QCheckBox, QListWidget,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QStackedWidget
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QStackedWidget,
+    QScrollArea
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFont, QAction
@@ -44,7 +45,7 @@ class MainWindow(QMainWindow):
     def setup_ui(self):
         """设置UI"""
         self.setWindowTitle("ASMR Helper - 双语双轨处理工具")
-        self.setMinimumSize(1000, 750)
+        self.setMinimumSize(800, 600)
 
         # 菜单栏
         menubar = self.menuBar()
@@ -66,7 +67,7 @@ class MainWindow(QMainWindow):
         # ===== 标题 =====
         title_label = QLabel("ASMR Helper - 双语双轨处理工具")
         title_font = QFont()
-        title_font.setPointSize(16)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title_label.setFont(title_font)
         title_label.setAlignment(Qt.AlignCenter)
@@ -74,9 +75,9 @@ class MainWindow(QMainWindow):
 
         # ===== 标签页 =====
         self.tabs = QTabWidget()
-        self.tabs.addTab(self.create_single_tab(), "单文件处理")
-        self.tabs.addTab(self.create_batch_tab(), "批量处理")
-        self.tabs.addTab(self.create_voice_workshop_tab(), "音色工坊")
+        self.tabs.addTab(self._wrap_scroll(self.create_single_tab()), "单文件处理")
+        self.tabs.addTab(self._wrap_scroll(self.create_batch_tab()), "批量处理")
+        self.tabs.addTab(self._wrap_scroll(self.create_voice_workshop_tab()), "音色工坊")
         main_layout.addWidget(self.tabs)
 
         # ===== 进度显示 =====
@@ -86,7 +87,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setFormat("%p%")  # 在addWidget之后设置，避免QPainter警告
 
         self.progress_text = QTextEdit()
-        self.progress_text.setMaximumHeight(120)
+        self.progress_text.setMaximumHeight(80)
         self.progress_text.setReadOnly(True)
         self.progress_text.setStyleSheet("""
             QTextEdit {
@@ -285,8 +286,7 @@ class MainWindow(QMainWindow):
         qwen3_voice_layout.addWidget(self.single_qwen3_voice_stack, 1)  # 拉伸因子=1
         qwen3_voice_widget = QWidget()
         qwen3_voice_widget.setLayout(qwen3_voice_layout)
-        # 设置容器最小高度（适应下拉框+标签+输入行的组合）
-        qwen3_voice_widget.setMinimumHeight(100)
+        # 不设固定最小高度，让布局自然决定大小，滚动区域负责溢出处理
         self.single_voice_container.addWidget(qwen3_voice_widget)
         # 添加拉伸因子让容器能够正常显示
         tts_layout.addWidget(self.single_voice_container, stretch=1)
@@ -389,13 +389,13 @@ class MainWindow(QMainWindow):
         # ===== 按钮 =====
         btn_layout = QHBoxLayout()
         self.single_start_btn = QPushButton("开始处理")
-        self.single_start_btn.setMinimumHeight(35)
+        self.single_start_btn.setMinimumHeight(30)
         self.single_start_btn.setStyleSheet("QPushButton{background-color:#0078d4;color:white;font-weight:bold;border:none;border-radius:5px;}")
         self.single_start_btn.clicked.connect(self.start_single)
         btn_layout.addWidget(self.single_start_btn)
 
         self.single_stop_btn = QPushButton("停止")
-        self.single_stop_btn.setMinimumHeight(35)
+        self.single_stop_btn.setMinimumHeight(30)
         self.single_stop_btn.setEnabled(False)
         self.single_stop_btn.clicked.connect(self.stop_single)
         btn_layout.addWidget(self.single_stop_btn)
@@ -441,7 +441,7 @@ class MainWindow(QMainWindow):
 
         # 文件列表
         self.batch_file_list = QListWidget()
-        self.batch_file_list.setMaximumHeight(150)
+        self.batch_file_list.setMaximumHeight(100)
         input_layout.addWidget(QLabel("待处理文件:"))
         input_layout.addWidget(self.batch_file_list)
 
@@ -547,8 +547,7 @@ class MainWindow(QMainWindow):
         qwen3_voice_layout.addWidget(self.batch_qwen3_voice_stack, 1)  # 拉伸因子=1
         qwen3_voice_widget = QWidget()
         qwen3_voice_widget.setLayout(qwen3_voice_layout)
-        # 设置容器最小高度（适应下拉框+标签+输入行的组合）
-        qwen3_voice_widget.setMinimumHeight(100)
+        # 不设固定最小高度，让布局自然决定大小
         self.batch_voice_container.addWidget(qwen3_voice_widget)
         # 添加拉伸因子让容器能够正常显示
         tts_layout.addWidget(self.batch_voice_container, stretch=1)
@@ -659,13 +658,13 @@ class MainWindow(QMainWindow):
         # ===== 按钮 =====
         btn_layout = QHBoxLayout()
         self.batch_start_btn = QPushButton("开始批量处理")
-        self.batch_start_btn.setMinimumHeight(35)
+        self.batch_start_btn.setMinimumHeight(30)
         self.batch_start_btn.setStyleSheet("QPushButton{background-color:#107c10;color:white;font-weight:bold;border:none;border-radius:5px;}")
         self.batch_start_btn.clicked.connect(self.start_batch)
         btn_layout.addWidget(self.batch_start_btn)
 
         self.batch_stop_btn = QPushButton("停止")
-        self.batch_stop_btn.setMinimumHeight(35)
+        self.batch_stop_btn.setMinimumHeight(30)
         self.batch_stop_btn.setEnabled(False)
         self.batch_stop_btn.clicked.connect(self.stop_batch)
         btn_layout.addWidget(self.batch_stop_btn)
@@ -676,6 +675,15 @@ class MainWindow(QMainWindow):
         self.on_batch_engine_changed("Edge-TTS")
 
         return widget
+
+    @staticmethod
+    def _wrap_scroll(widget: QWidget) -> QScrollArea:
+        """将 widget 包裹在 QScrollArea 中，支持小屏幕/高缩放比例下滚动"""
+        scroll = QScrollArea()
+        scroll.setWidget(widget)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        return scroll
 
     @staticmethod
     def _init_vocal_model_combo(combo: QComboBox):
@@ -935,11 +943,14 @@ class MainWindow(QMainWindow):
     def stop_single(self):
         """停止单文件处理"""
         if self.worker and self.worker.isRunning():
-            self.worker.cancel()  # 协作式取消（安全，允许清理资源）
-            self.worker.wait()
-        self.log("\n[已停止]")
-        self.single_start_btn.setEnabled(True)
-        self.single_stop_btn.setEnabled(False)
+            self.worker.cancel()
+            # 不调用 wait()：worker 的 finished 信号会自然触发 on_single_finished 回调
+            # wait() 会阻塞主线程且可能与 finished 信号回调产生竞态
+        else:
+            # worker 已结束或为 None，手动恢复按钮状态
+            self.log("\n[已停止]")
+            self.single_start_btn.setEnabled(True)
+            self.single_stop_btn.setEnabled(False)
 
     def on_single_progress(self, msg: str):
         """单文件进度更新（支持动态步骤数）"""
@@ -962,6 +973,11 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(100 if success else 0)
         self.single_start_btn.setEnabled(True)
         self.single_stop_btn.setEnabled(False)
+
+        # 如果是用户主动取消，不弹窗
+        if self.worker and self.worker._cancel_event.is_set():
+            self.log("\n[已停止]")
+            return
 
         if success:
             self.log(f"\n处理完成!\n输出: {message}")
@@ -1000,11 +1016,12 @@ class MainWindow(QMainWindow):
     def stop_batch(self):
         """停止批量处理"""
         if self.batch_worker and self.batch_worker.isRunning():
-            self.batch_worker.cancel()  # 协作式取消（安全，允许清理资源）
-            self.batch_worker.wait()
-        self.log("\n[已停止]")
-        self.batch_start_btn.setEnabled(True)
-        self.batch_stop_btn.setEnabled(False)
+            self.batch_worker.cancel()
+            # 不调用 wait()：worker 的 finished 信号会自然触发 on_batch_finished 回调
+        else:
+            self.log("\n[已停止]")
+            self.batch_start_btn.setEnabled(True)
+            self.batch_stop_btn.setEnabled(False)
 
     def on_batch_file_progress(self, current: int, total: int, filename: str):
         """批量处理文件进度"""
@@ -1015,6 +1032,11 @@ class MainWindow(QMainWindow):
         """批量处理完成"""
         self.batch_start_btn.setEnabled(True)
         self.batch_stop_btn.setEnabled(False)
+
+        # 如果是用户主动取消，不弹窗
+        if self.batch_worker and self.batch_worker._cancel_event.is_set():
+            self.log("\n[已停止]")
+            return
 
         success = sum(1 for r in results if r["status"] == "success")
         skipped = sum(1 for r in results if r["status"] == "skipped")
@@ -1293,7 +1315,7 @@ class MainWindow(QMainWindow):
 
         # 音色列表
         self.workshop_voice_list = QListWidget()
-        self.workshop_voice_list.setMaximumHeight(150)
+        self.workshop_voice_list.setMaximumHeight(100)
         my_voices_layout.addWidget(self.workshop_voice_list)
 
         # 试音文本
