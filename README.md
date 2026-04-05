@@ -5,11 +5,11 @@ ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、
 ## 功能特性
 
 - **人声分离** - 基于 Demucs 从背景音中提取纯净人声
-- **语音识别** - Faster-Whisper 高精度日文 ASR，支持 VTT 字幕跳过优化
+- **语音识别** - Faster-Whisper 高精度日文 ASR，支持 存在字幕文件时跳过优化
 - **翻译引擎** - DeepSeek / OpenAI API，批量翻译 + 质量检测 + 翻译缓存
-- **语音合成** - Edge-TTS (免费) / Qwen3-TTS (高质量) / GPT-SoVITS (声音克隆)
+- **语音合成** - Edge-TTS (免费) / Qwen3-TTS (高质量) / GPT-SoVITS (暂不支持)
 - **智能混音** - 时间轴对齐 + 音量平衡，输出原声+中文配音双轨
-- **GUI 界面** - PySide6 桌面应用，支持单文件/批量处理
+- **GUI 界面** - PySide6 桌面应用，支持单文件/批量处理/音色工坊 (仅Qwen3TTS)
 
 ## 系统要求
 
@@ -22,6 +22,8 @@ ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、
 
 ### 1. 一键配置环境
 
+注意使用**Powershell**
+
 ```powershell
 # 克隆项目
 git clone https://github.com/Flysky701/AsmrHelper.git
@@ -30,7 +32,7 @@ cd AsmrHelper
 # 基础安装 (ASR + Edge-TTS + Demucs)
 .\setup.ps1
 
-# 完整安装 (含 Qwen3-TTS，需要 NVIDIA GPU)
+# 完整安装 (含 Qwen3-TTS依赖，需要 NVIDIA GPU)
 .\setup.ps1 -Full
 ```
 
@@ -152,7 +154,6 @@ cp config/config.example.json config/config.json
 |------|------|------|-----|------|
 | `edge` | 一般 | 快 | 不需要 | 微软免费 TTS，适合快速体验 |
 | `qwen3` | 高 | 慢 | 需要 CUDA | Qwen3-TTS，支持音色设计/克隆 |
-| `gptsovits` | 高 | 快 | 需要 | GPT-SoVITS，需单独部署服务 |
 
 ## 核心处理流程
 
@@ -166,7 +167,7 @@ cp config/config.example.json config/config.json
 [2] Demucs 人声分离
     |
     v
-[3] Faster-Whisper ASR (日文 -> 文字)
+[3] Faster-Whisper ASR (日文 -> 日语文字)
     |
     v
 [4] LLM 翻译 (日文 -> 中文)
