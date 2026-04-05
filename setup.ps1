@@ -10,13 +10,17 @@
     3. 安装核心依赖
     4. (可选) 安装 Qwen3-TTS 依赖
     5. 初始化配置文件
-    6. 验证环境
+    6. (可选) 下载 AI 模型
+    7. 验证环境
 
 .EXAMPLE
     .\setup.ps1                  # 基础安装 (ASR + Edge-TTS + Demucs)
     .\setup.ps1 -Full            # 完整安装 (含 Qwen3-TTS)
-    .\setup.ps1 -SkipInstall     # 跳过依赖安装，仅初始化配置并验证
-    .\setup.ps1 -DevOnly         # 仅安装开发工具
+    .\setup.ps1 -Models           # 下载 Whisper base 模型
+    .\setup.ps1 -Models -Full     # 下载全部模型 (Whisper + Qwen3)
+    .\setup.ps1 -Models -Mirror   # 使用镜像加速下载
+    .\setup.ps1 -SkipInstall      # 跳过依赖安装，仅初始化配置并验证
+    .\setup.ps1 -DevOnly          # 仅安装开发工具
 
 .NOTES
     需要的运行时:
@@ -27,7 +31,9 @@
 param(
     [switch]$Full,           # 包含 Qwen3-TTS (需要 CUDA GPU)
     [switch]$SkipInstall,    # 跳过依赖安装
-    [switch]$DevOnly         # 仅安装开发工具
+    [switch]$DevOnly,        # 仅安装开发工具
+    [switch]$Models,         # 下载模型（基础模式: Whisper base）
+    [switch]$Mirror          # 使用 HuggingFace 镜像加速下载
 )
 
 $ErrorActionPreference = "Stop"
@@ -414,9 +420,59 @@ foreach ($dir in $dirs) {
 }
 
 # ============================================================
-# Step 5: 环境验证
+# Step 5: 下载模型（-Models 参数）
 # ============================================================
-Write-Step "Step 5: 环境验证"
+$installModelsScript = Join-Path $ProjectRoot "scripts\install_models.py"
+
+if ($Models) {
+    Write-Step "Step 5: 下载模型"
+
+    if (-not (Test-Path $installModelsScript)) {
+        Write-Fail "install_models.py 不存在: $installModelsScript"
+        exit 1
+    }
+
+    # 确保模型目录存在
+    $modelDirs = @("models/whisper", "models/qwen3tts", "models/voice_profiles")
+    foreach ($dir in $modelDirs) {
+        $fullPath = Join-Path $ProjectRoot $dir
+        if (-not (Test-Path $fullPath)) {
+            New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
+        }
+    }
+
+    # 构建下载参数
+    $modelArgs = @($installModelsScript)
+
+    if ($Full) {
+        $modelArgs += "--all"
+    } else {
+        $modelArgs += "--whisper"
+        $modelArgs += "base"
+    }
+
+    if ($Mirror) {
+        $modelArgs += "--mirror"
+        $modelArgs += "https://hf-mirror.com"
+    }
+
+    Write-Host "  下载参数: $($modelArgs -join ' ')" -ForegroundColor DarkGray
+
+    & uv run python @modelArgs
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "部分模型下载失败，可稍后重试"
+    } else {
+        Write-OK "模型下载完成"
+    }
+
+    Write-Host ""
+}
+
+# ============================================================
+# Step 6: 环境验证
+# ============================================================
+Write-Step "环境验证"
 
 # numpy MINGW 警告抑制参数（Python 3.13 + numpy 会产生大量无害 stderr 警告）
 $PyWarnArgs = @("-W", "ignore::RuntimeWarning", "-W", "ignore::Warning")
@@ -461,6 +517,28 @@ foreach ($check in $checks) {
 }
 
 # ============================================================
+# Step 7: 模型状态
+# ============================================================
+Write-Step "Step 7: 模型状态"
+
+# 检查 install_models.py 是否存在
+$installModelsScript = Join-Path $ProjectRoot "scripts\install_models.py"
+if (Test-Path $installModelsScript) {
+    # 检查模型状态
+    & uv run python $installModelsScript --check 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "部分模型未下载"
+        Write-Host ""
+        Write-Host "  下载命令:" -ForegroundColor White
+        Write-Host "    .\setup.ps1 -Models              # 下载 Whisper base 模型" -ForegroundColor White
+        Write-Host "    .\setup.ps1 -Models -Full         # 下载全部模型 (Whisper + Qwen3)" -ForegroundColor White
+        Write-Host "    .\setup.ps1 -Models -Mirror       # 使用镜像加速下载" -ForegroundColor White
+    }
+} else {
+    Write-Warn "install_models.py 不存在，跳过模型检查"
+}
+
+# ============================================================
 # 结果汇总
 # ============================================================
 Write-Step "配置完成"
@@ -474,6 +552,7 @@ if ($failed -eq 0) {
 Write-Host ""
 Write-Host "  后续步骤:" -ForegroundColor White
 Write-Host "    1. 配置 API Key (编辑 config/config.json 或设置环境变量)" -ForegroundColor White
-Write-Host "    2. 运行 GUI:     .\run.bat" -ForegroundColor White
-Write-Host "    3. 命令行处理:  uv run python scripts/asmr_bilingual.py --input audio.wav" -ForegroundColor White
+Write-Host "    2. 下载模型:     .\setup.ps1 -Models" -ForegroundColor White
+Write-Host "    3. 运行 GUI:     .\run.bat" -ForegroundColor White
+Write-Host "    4. 命令行处理:  uv run python scripts/asmr_bilingual.py --input audio.wav" -ForegroundColor White
 Write-Host ""
