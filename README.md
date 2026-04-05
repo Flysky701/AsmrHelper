@@ -34,6 +34,8 @@ cd AsmrHelper
 .\setup.ps1 -Full
 ```
 
+> 安装脚本会自动并发测速 pypi.org 官方源和国内镜像（清华、阿里），选择延迟最低的源进行安装，哪个快用哪个。如果首选源失败，会自动按延迟顺序回退。
+
 ### 2. 配置 API Key
 
 编辑 `config/config.json` 填入翻译 API Key，或设置环境变量：
@@ -164,6 +166,9 @@ cp config/config.example.json config/config.json
 
 # 运行测试
 uv run pytest
+
+# 运行安装脚本集成测试
+uv run pytest tests/test_setup_integration.py -v
 
 # 运行环境验证
 uv run python scripts/verify_env.py

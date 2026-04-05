@@ -78,10 +78,14 @@ target-version = "py310"
 [tool.uv]
 # PyTorch CUDA 版本覆盖（防止 uv 从 PyPI 拉取 CPU 版本）
 override-dependencies = [
-    "onnxruntime>=1.16.0,<1.20.0",
+    "onnxruntime>=1.20.0",
     "torch==2.11.0+cu126",
     "torchaudio==2.11.0+cu126",
 ]
+
+# flash-attn 编译时需要 torch，但其 setup.py 未声明
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch"]
 
 # PyTorch CUDA 源：确保 uv sync / uv run 安装 CUDA 版本而非 CPU 版本
 [[tool.uv.index]]
