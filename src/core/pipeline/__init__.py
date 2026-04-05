@@ -54,7 +54,9 @@ class PipelineConfig:
     tts_voice: str = "zh-CN-XiaoxiaoNeural"
     qwen3_voice: str = "Vivian"
     voice_profile_id: Optional[str] = None  # 音色配置 ID
-    tts_speed: float = 1.0  # Qwen3 语速
+    tts_speed: float = 1.0  # Qwen3 语速（注：当前 qwen_tts 0.1.1 不支持 speed 参数，保留供未来使用）
+    max_tts_ratio: float = 1.2  # TTS 超过原音频此时长的比例阈值（超过则压缩）
+    compress_ratio: float = 0.75  # 固定压缩 stretch_factor（1/0.75 = 1.33x 压缩）
 
     # 混音
     use_mixer: bool = True
@@ -642,6 +644,8 @@ class Pipeline:
                         output_path=str(tts_aligned_path),
                         reference_duration=ref_duration,
                         sample_rate=sample_rate,
+                        max_tts_ratio=config.max_tts_ratio,
+                        compress_ratio=config.compress_ratio,
                     )
 
                     results["steps"]["tts"] = {
