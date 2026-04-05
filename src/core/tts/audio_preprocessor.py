@@ -636,7 +636,7 @@ class AudioPreprocessor:
             # 拼接
             merged_data = np.concatenate(all_data)
             ensure_dir(str(merged_path.parent))
-            sf.write(str(merged_path), merged_data, sample_rate)
+            sf.write(str(merged_path), merged_data, sample_rate, subtype="FLOAT")
 
             # 计算 RMS
             if len(merged_data.shape) > 1:
@@ -684,7 +684,7 @@ class AudioPreprocessor:
 
         # 保存
         trimmed_path = str(Path(path).with_suffix(".trimmed.wav"))
-        sf.write(trimmed_path, trimmed_data, sr)
+        sf.write(trimmed_path, trimmed_data, sr, subtype="FLOAT")
 
         return {
             **segment,
@@ -813,7 +813,7 @@ class AudioPreprocessor:
                 all_data = data
 
         # 保存
-        sf.write(str(output_path), all_data, sample_rate)
+        sf.write(str(output_path), all_data, sample_rate, subtype="FLOAT")
         return str(output_path)
 
     def _build_ref_text(self, segments: List[dict]) -> str:

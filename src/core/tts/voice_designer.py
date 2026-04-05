@@ -121,7 +121,7 @@ class VoiceDesigner:
 
             # 保存参考音频
             self._report_progress(progress_callback, "保存参考音频...", 50)
-            sf.write(str(ref_audio), audios[0], sample_rate)
+            sf.write(str(ref_audio), audios[0], sample_rate, subtype="FLOAT")
             print(f"[VoiceDesigner] 参考音频已保存: {ref_audio}")
 
             # ===== Step 3: 卸载 VoiceDesign，释放显存 =====

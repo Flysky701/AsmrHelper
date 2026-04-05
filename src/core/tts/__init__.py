@@ -250,6 +250,8 @@ class Qwen3TTSEngine:
         Args:
             voice: 音色名称（兼容旧 API）
             speed: 语速 (0.5-2.0, 1.0=正常)
+                  注：qwen_tts 0.1.1 不支持 speed 参数，此字段保留供未来版本使用。
+                  当前通过 mixer 的时域压缩/拉伸来对齐时长。
             voice_profile_id: 音色配置 ID（优先级高于 voice）
         """
         self.voice = voice
@@ -306,24 +308,11 @@ class Qwen3TTSEngine:
         Qwen3ModelManager.unload_all()
         print("[Qwen3TTS] 模型已卸载")
 
-    def _synthesize_custom_voice(self, text: str, output_path: Path):
-        """使用 CustomVoice 预设音色合成（qwen_tts 0.1.1 API）"""
-        model = self._get_custom_model()
-        wavs, sr = model.generate_custom_voice(
-            text,
-            speaker=self.voice,
-            language="chinese",
-            instruct=self.instruct or None,
-        )
-        # wavs 是 List[np.ndarray]，取第一个
-        if wavs and len(wavs) > 0:
-            audio = wavs[0].astype(np.float32)
-            # 使用 FLOAT subtype 避免量化失真
-            sf.write(str(output_path), audio, sr, subtype="FLOAT")
-        else:
-            raise RuntimeError("Qwen3-TTS 返回空音频")
-
-    def _synthesize_from_cache(self, text: str, output_path: Path):
+    @classmethod
+    def _get_base_model(cls):
+        """获取 Base 模型（用于克隆）"""
+        from .qwen3_manager import Qwen3ModelManager
+        return Qwen3ModelManager.get_base_model()
         """使用 prompt_cache 合成（自定义/克隆音色，qwen_tts 0.1.1 API）"""
         import torch
 
@@ -360,6 +349,26 @@ class Qwen3TTSEngine:
         Returns:
             str: 输出文件路径
         """
+        return self._synthesize(text, output_path, instruct=self.instruct or None)
+
+    def synthesize_with_instruct(self, text: str, output_path: str, instruct: str) -> str:
+        """
+        使用自定义 instruct 提示词合成语音
+
+        用于 mixer 时域压缩场景：通过 instruct 控制语速来缩短时长，而非后处理压缩。
+
+        Args:
+            text: 待合成文本
+            output_path: 输出文件路径
+            instruct: 自然语言提示词，如 "语速加快"、"用稍快的语速说"
+
+        Returns:
+            str: 输出文件路径
+        """
+        return self._synthesize(text, output_path, instruct=instruct)
+
+    def _synthesize(self, text: str, output_path: str, instruct: str = None) -> str:
+        """内部合成方法，支持自定义 instruct"""
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -369,11 +378,24 @@ class Qwen3TTSEngine:
         if self.profile and self.profile.category in ("custom", "clone"):
             if not self.profile.generated:
                 raise ValueError(f"音色 {self.profile.name} 尚未生成，请先运行预生成脚本")
+            # 克隆音色：instruct 不支持（API 不接受），回退到后处理
             self._synthesize_from_cache(text, output_path)
             print(f"[Qwen3TTS] 自定义音色合成完成，耗时: {time.time()-t0:.1f}s")
         else:
-            self._synthesize_custom_voice(text, output_path)
-            print(f"[Qwen3TTS] 预设音色合成完成，耗时: {time.time()-t0:.1f}s")
+            # 预设音色：支持 instruct 参数
+            model = self._get_custom_model()
+            wavs, sr = model.generate_custom_voice(
+                text,
+                speaker=self.voice,
+                language="chinese",
+                instruct=instruct,
+            )
+            if wavs and len(wavs) > 0:
+                audio = wavs[0].astype(np.float32)
+                sf.write(str(output_path), audio, sr, subtype="FLOAT")
+            else:
+                raise RuntimeError("Qwen3-TTS 返回空音频")
+            print(f"[Qwen3TTS] 预设音色合成完成(instruct: {instruct!r})，耗时: {time.time()-t0:.1f}s")
 
         return str(output_path)
 

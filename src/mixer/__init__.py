@@ -110,6 +110,33 @@ class Mixer:
         else:
             return float(np.sqrt(np.mean(data**2)) / 32768)
 
+    @staticmethod
+    def _qwen3_speed_instruct(tts_duration: float, target_duration: float) -> str:
+        """
+        根据 TTS 超出目标的程度，生成对应的自然语言速度提示词
+
+        Args:
+            tts_duration: TTS 实际时长
+            target_duration: 目标时长（原音频时长）
+
+        Returns:
+            str: instruct 提示词，如果超出不大则返回空字符串（不值得重合成）
+        """
+        if target_duration <= 0:
+            return ""
+        ratio = tts_duration / target_duration
+        if ratio <= 1.2:
+            # 超出不明显，不重合成
+            return ""
+        elif ratio <= 1.5:
+            return "语速稍快"
+        elif ratio <= 2.0:
+            return "语速加快"
+        elif ratio <= 3.0:
+            return "用比较快的语速说"
+        else:
+            return "用非常快的语速说"
+
     def mix(
         self,
         original_path: str,
@@ -274,7 +301,8 @@ class Mixer:
         output_path: str,
         reference_duration: float,
         sample_rate: int = 44100,
-        tts_speed_range: tuple = (0.8, 1.2),
+        max_tts_ratio: float = 1.2,
+        compress_ratio: float = 0.75,
         fade_in_ms: int = 30,
         fade_out_ms: int = 50,
     ) -> str:
@@ -284,15 +312,18 @@ class Mixer:
         核心逻辑：
         1. 对每句翻译单独合成 TTS
         2. 按原音时间戳将 TTS 放置到正确位置
-        3. 段间填充静音或自动拉伸
+        3. TTS 超过原音频时长时的压缩策略取决于引擎类型：
+           - Edge-TTS: 使用 pytsmod.ola() 时域压缩（后处理）
+           - Qwen3-TTS: 使用自然语言提示词（如"语速加快"）重新合成
 
         Args:
             segments: 带时间戳的段落 [{start, end, text, translation}, ...]
-            tts_engine: TTS 引擎实例
+            tts_engine: TTS 引擎实例（EdgeTTSEngine / Qwen3TTSEngine）
             output_path: 输出文件路径
             reference_duration: 参考音频总时长（秒）
             sample_rate: 采样率
-            tts_speed_range: TTS 语速允许范围 (min, max)
+            max_tts_ratio: TTS 超过原音频此时长的比例阈值（超过则压缩）
+            compress_ratio: 固定压缩 stretch_factor（仅 Edge-TTS OLA 使用）
             fade_in_ms: 淡入时长（毫秒）
             fade_out_ms: 淡出时长（毫秒）
 
@@ -311,6 +342,18 @@ class Mixer:
         temp_dir.mkdir(exist_ok=True)
 
         print(f"[Mixer] 逐句合成 TTS ({len(segments)} 句)...")
+
+        # 检测引擎类型，选择压缩策略
+        engine_type = "edge"  # 默认
+        try:
+            from ..core.tts import EdgeTTSEngine, Qwen3TTSEngine
+            if isinstance(tts_engine, Qwen3TTSEngine):
+                engine_type = "qwen3"
+            elif isinstance(tts_engine, EdgeTTSEngine):
+                engine_type = "edge"
+        except ImportError:
+            pass
+        print(f"[Mixer] 引擎: {engine_type}, 压缩策略: {'OLA 时域压缩' if engine_type == 'edge' else 'instruct 提示词重合成'}")
 
         synthesized_count = 0
         failed_count = 0
@@ -378,7 +421,7 @@ class Mixer:
                     _temp_wav = output_path.parent / f"_resample_temp_{i}.wav"
                     _temp_48k = _temp_wav.with_suffix(".48k.wav")
                     try:
-                        sf.write(str(_temp_wav), tts_data, tts_sr)
+                        sf.write(str(_temp_wav), tts_data, tts_sr, subtype="FLOAT")
                         # 用 ffmpeg 重采样
                         import subprocess
                         ffmpeg_path = get_ffmpeg()
@@ -391,29 +434,68 @@ class Mixer:
                         _temp_wav.unlink(missing_ok=True)
                         _temp_48k.unlink(missing_ok=True)
 
+            # 确保单声道（Edge-TTS 输出立体声，Qwen3-TTS 输出单声道，timeline 是单声道）
+            if tts_data.ndim > 1:
+                tts_data = np.mean(tts_data, axis=1)
+
             tts_duration = len(tts_data) / sample_rate
 
-            # 3. 处理时长差异（TTS 过长时加速）
-            if tts_duration > original_duration * tts_speed_range[1]:
-                target_duration = original_duration * tts_speed_range[1]
+            # 3. 处理时长差异（TTS 过长时压缩，不拉伸）
+            if tts_duration > original_duration * max_tts_ratio:
+                if engine_type == "qwen3":
+                    # === Qwen3-TTS: 使用 instruct 提示词重新合成 ===
+                    # 不使用 OLA 后处理，而是通过自然语言控制语速
+                    original_tts_duration = tts_duration
+                    instruct = self._qwen3_speed_instruct(tts_duration, original_duration)
+                    if instruct and hasattr(tts_engine, 'synthesize_with_instruct'):
+                        try:
+                            temp_tts_fast = temp_dir / f"tts_{i:04d}_fast.wav"
+                            tts_engine.synthesize_with_instruct(translation, str(temp_tts_fast), instruct=instruct)
 
-                try:
-                    import pytsmod
-                    # pytsmod.ola(audio, s): s = 目标长度 / 原始长度
-                    # s < 1 表示压缩，s > 1 表示拉伸
-                    current_samples = len(tts_data)
-                    target_samples = int(target_duration * sample_rate)
-                    stretch_factor = target_samples / current_samples
+                            if temp_tts_fast.exists() and temp_tts_fast.stat().st_size > 0:
+                                tts_data_new, tts_sr_new = sf.read(str(temp_tts_fast))
+                                # 重采样 + 单声道处理
+                                if tts_sr_new != sample_rate:
+                                    try:
+                                        import librosa
+                                        tts_data_new = librosa.resample(tts_data_new, orig_sr=tts_sr_new, target_sr=sample_rate)
+                                    except ImportError:
+                                        tts_data_new = tts_data_new  # 放弃重采样
+                                if tts_data_new.ndim > 1:
+                                    tts_data_new = np.mean(tts_data_new, axis=1)
+                                tts_duration_new = len(tts_data_new) / sample_rate
 
-                    tts_data = pytsmod.ola(tts_data, stretch_factor)
-                    tts_duration = len(tts_data) / sample_rate
-                    print(f"  [{i+1}] 压缩 {1/stretch_factor:.2f}x: {tts_duration/target_duration*target_duration:.1f}s -> {target_duration:.1f}s")
-                except ImportError:
-                    print(f"  [WARN] 第 {i+1} 句 TTS 过长 ({tts_duration:.1f}s > {original_duration:.1f}s)，需要安装 pytsmod")
-                    # 截断到原音长度
-                    max_samples = int(original_duration * sample_rate)
-                    tts_data = tts_data[:max_samples]
-                    tts_duration = len(tts_data) / sample_rate
+                                if tts_duration_new < original_tts_duration:
+                                    # 重新合成确实缩短了，使用新结果
+                                    tts_data = tts_data_new
+                                    tts_duration = tts_duration_new
+                                    temp_tts_fast.unlink(missing_ok=True)
+                                    print(f"  [{i+1}] Qwen3 instruct 重合成: {original_tts_duration:.1f}s -> {tts_duration:.1f}s (instruct: {instruct!r})")
+                                else:
+                                    # 重合成没缩短，保留原始结果
+                                    temp_tts_fast.unlink(missing_ok=True)
+                                    print(f"  [{i+1}] Qwen3 instruct 未缩短 ({tts_duration_new:.1f}s >= {original_tts_duration:.1f}s)，保留原始")
+                            else:
+                                print(f"  [{i+1}] Qwen3 instruct 重合成失败，保留原始")
+                        except Exception as e:
+                            print(f"  [{i+1}] Qwen3 instruct 重合成异常: {e}，保留原始")
+                    # 如果 instruct 重合成失败或不可用，不降级到 OLA
+                else:
+                    # === Edge-TTS: 使用 OLA 时域压缩 ===
+                    original_tts_duration = tts_duration
+                    try:
+                        import pytsmod
+                        win_size = int(sample_rate * 0.100)
+                        syn_hop_size = int(sample_rate * 0.025)
+                        tts_data = pytsmod.ola(tts_data, compress_ratio, win_size=win_size, syn_hop_size=syn_hop_size)
+                        tts_duration = len(tts_data) / sample_rate
+                        print(f"  [{i+1}] OLA 压缩 {1/compress_ratio:.2f}x: {original_tts_duration:.1f}s -> {tts_duration:.1f}s")
+                    except ImportError:
+                        print(f"  [WARN] 第 {i+1} 句 TTS 过长 ({tts_duration:.1f}s > {original_duration:.1f}s)，需要安装 pytsmod")
+                        max_samples = int(original_duration * sample_rate)
+                        tts_data = tts_data[:max_samples]
+                        tts_duration = len(tts_data) / sample_rate
+            # TTS 短于原音频时不做任何处理
 
             # 4. 应用淡入淡出
             tts_data = _apply_fade(tts_data.astype(np.float32), sample_rate, fade_in_ms, fade_out_ms)
