@@ -400,10 +400,7 @@ Write-Step "Step 4: 创建必要目录"
 
 $dirs = @(
     "models/voice_profiles",
-    "models/qwen3tts",
-    "output",
-    ".workbuddy/memory",
-    ".workbuddy/translation_cache"
+    "models/qwen3tts"
 )
 
 foreach ($dir in $dirs) {
@@ -421,14 +418,17 @@ foreach ($dir in $dirs) {
 # ============================================================
 Write-Step "Step 5: 环境验证"
 
+# numpy MINGW 警告抑制参数（Python 3.13 + numpy 会产生大量无害 stderr 警告）
+$PyWarnArgs = @("-W", "ignore::RuntimeWarning", "-W", "ignore::Warning")
+
 $checks = @(
-    @{ Name = "Python"; Script = { & uv run python --version 2>&1 } },
-    @{ Name = "faster-whisper"; Script = { & uv run python -c "import faster_whisper; print(faster_whisper.__version__)" 2>&1 } },
-    @{ Name = "edge-tts"; Script = { & uv run python -c "import edge_tts; print('OK')" 2>&1 } },
-    @{ Name = "demucs"; Script = { & uv run python -c "import demucs; print(demucs.__version__)" 2>&1 } },
-    @{ Name = "PySide6 (GUI)"; Script = { & uv run python -c "import PySide6; print(PySide6.__version__)" 2>&1 } },
+    @{ Name = "Python"; Script = { & uv run python --version } },
+    @{ Name = "faster-whisper"; Script = { & uv run python @PyWarnArgs -c "import faster_whisper; print(faster_whisper.__version__)" } },
+    @{ Name = "edge-tts"; Script = { & uv run python -c "import edge_tts; print('OK')" } },
+    @{ Name = "demucs"; Script = { & uv run python @PyWarnArgs -c "import demucs; print(demucs.__version__)" } },
+    @{ Name = "PySide6 (GUI)"; Script = { & uv run python -c "import PySide6; print(PySide6.__version__)" } },
     @{ Name = "PyTorch + CUDA"; Script = {
-        & uv run python -c "import torch; print(f'torch={torch.__version__}, cuda={torch.cuda.is_available()}, gpu={torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')" 2>&1
+        & uv run python @PyWarnArgs -c "import torch; print(f'torch={torch.__version__}, cuda={torch.cuda.is_available()}, gpu={torch.cuda.get_device_name(0) if torch.cuda.is_available() else chr(78)+chr(65)}')"
     }}
 )
 
@@ -444,13 +444,14 @@ $failed = 0
 
 foreach ($check in $checks) {
     try {
-        $result = & $check.Script
+        $result = & $check.Script 2>$null
         if ($LASTEXITCODE -eq 0) {
             $resultStr = ($result | Where-Object { $_ -is [string] }) -join ""
+            $resultStr = $resultStr.Trim()
             Write-OK "$($check.Name): $resultStr"
             $passed++
         } else {
-            Write-Fail "$($check.Name): 执行失败"
+            Write-Fail "$($check.Name): 执行失败 (exit code: $LASTEXITCODE)"
             $failed++
         }
     } catch {
