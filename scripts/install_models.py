@@ -177,13 +177,11 @@ def download_whisper_model(model_name: str, mirror: Optional[str] = None, force:
     # 使用 faster_whisper 的 download_model 函数下载
     cmd = [
         sys.executable, "-c",
-        f"""
-import sys
-sys.stderr = open(os.devnull, 'w')
-from faster_whisper import download_model
-path = download_model("{info['repo']}", output_dir="{str(target_dir)}")
-print(path)
-"""
+        "import os, sys\n"
+        "sys.stderr = open(os.devnull, 'w')\n"
+        f"from faster_whisper import download_model\n"
+        f"path = download_model({repr(info['repo'])}, output_dir={repr(str(target_dir))})\n"
+        "print(path)\n"
     ]
 
     import subprocess

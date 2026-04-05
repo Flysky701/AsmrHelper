@@ -323,6 +323,34 @@ if (-not $SkipInstall -and -not $DevOnly) {
         Write-Fail "依赖安装失败"
         exit 1
     }
+
+    # Qwen3-TTS 需要 SoX 命令行工具
+    if ($Full -and -not (Test-Command "sox")) {
+        Write-Host ""
+        Write-Host "  [INFO] Qwen3-TTS 依赖 SoX 音频处理工具，正在安装..." -ForegroundColor Yellow
+        try {
+            winget install ChrisBagwell.SoX --accept-source-agreements --accept-package-agreements 2>$null
+            # 刷新 PATH（winget 安装后可能需要）
+            $soxPaths = @(
+                "C:\Program Files\SoX",
+                "C:\Program Files (x86)\SoX",
+                "${env:ProgramFiles}\SoX"
+            )
+            foreach ($p in $soxPaths) {
+                if (Test-Path $p) {
+                    $env:PATH = "$p;$env:PATH"
+                    break
+                }
+            }
+            if (Test-Command "sox") {
+                Write-OK "SoX 安装成功"
+            } else {
+                Write-Warn "SoX 安装后未找到，请重启终端后重试"
+            }
+        } catch {
+            Write-Warn "SoX 自动安装失败，请手动安装: winget install ChrisBagwell.SoX"
+        }
+    }
 }
 
 if ($DevOnly) {
@@ -491,7 +519,15 @@ $checks = @(
 if ($Full) {
     $checks += @(
         @{ Name = "qwen-tts"; Script = { & uv run python -c "import qwen_tts; print(qwen_tts.__version__)" 2>&1 } },
-        @{ Name = "flash-attn"; Script = { & uv run python -c "import flash_attn; print(flash_attn.__version__)" 2>&1 } }
+        @{ Name = "SoX (qwen-tts 依赖)"; Script = {
+            if (Test-Command "sox") {
+                & sox --version 2>&1 | Select-Object -First 1
+            } else {
+                Write-Warn "SoX 未安装 — qwen-tts 可能无法正常工作"
+                Write-Host "  安装方法: winget install sox" -ForegroundColor DarkGray
+                $false
+            }
+        }}
     )
 }
 
