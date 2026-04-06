@@ -204,6 +204,9 @@ def cut_audio_by_subtitle(
         # 提取片段
         segment = data[start_sample:end_sample]
 
+        # 计算实际时长（基于采样点数）
+        actual_duration = len(segment) / sr
+
         # 生成输出文件名
         safe_text = sanitize_filename(text[:20]) if text else f"seg{i+1}"
         output_file = output_path / f"{prefix}_{i+1:03d}_{safe_text}.wav"
@@ -217,6 +220,7 @@ def cut_audio_by_subtitle(
             "end": end_sec,
             "text": text,
             "index": i + 1,
+            "duration": actual_duration,
         })
 
     return results

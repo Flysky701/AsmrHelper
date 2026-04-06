@@ -57,7 +57,7 @@ class EdgeTTSEngine:
 
         Args:
             text: 待合成文本
-            output_path: 输出文件路径
+            output_path: 输出文件路径（必须是 .wav 格式）
 
         Returns:
             str: 输出文件路径
@@ -78,9 +78,12 @@ class EdgeTTSEngine:
 
         await communicate.save(str(temp_mp3))
 
-        # 转换为 WAV 无损格式
-        self._convert_to_wav(temp_mp3, output_path)
-        temp_mp3.unlink(missing_ok=True)
+        # 转换为 WAV 无损格式（强制 WAV 输出）
+        try:
+            self._convert_to_wav(temp_mp3, output_path)
+        finally:
+            # 确保清理临时 mp3 文件（无论转换成功与否）
+            temp_mp3.unlink(missing_ok=True)
 
         return str(output_path)
 

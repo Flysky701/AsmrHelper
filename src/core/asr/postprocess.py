@@ -76,6 +76,13 @@ class NormalizeRules:
         # 不移除中文括号（），保留其内容
     ]
 
+    # Whisper 误识别标记（ASMR 音频中常见的误识别前缀）
+    # 如 "2.全て元通り" 中的 "2." 是把语气/标点误识别为数字序号
+    MISRECOGNITION_PATTERNS = [
+        (r'^\d+\.\s*', ''),   # 行首数字序号: "2.文本" → "文本"
+        (r'^\d+\s+', ''),     # 行首纯数字: "3 文本" → "文本"
+    ]
+
 
 @dataclass
 class MergeConfig:
@@ -162,6 +169,10 @@ class ASRPostProcessor:
         # Step 2: 去除幻觉标记
         for pattern in self._rules.HALLUCINATION_PATTERNS:
             text = re.sub(pattern, '', text)
+
+        # Step 2.5: 去除误识别标记（如行首数字序号 "2.文本" → "文本"）
+        for pattern, replacement in self._rules.MISRECOGNITION_PATTERNS:
+            text = re.sub(pattern, replacement, text)
 
         # Step 3: 重复标点
         for pattern, replacement in self._rules.PUNCTUATION_RULES:

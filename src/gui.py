@@ -8,6 +8,7 @@ ASMR Helper GUI - PySide6 主界面 (支持单文件和批量处理)
 
 import sys
 import os
+import subprocess
 from pathlib import Path
 from typing import Optional, List
 
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
     QScrollArea
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QFont, QAction
+from PySide6.QtGui import QFont, QAction, QColor
 
 # 添加项目根目录到 sys.path（支持直接运行脚本）
 project_root = Path(__file__).parent.parent
@@ -1292,8 +1293,8 @@ class MainWindow(QMainWindow):
         clone_name_layout.addWidget(self.workshop_clone_name)
         clone_layout.addLayout(clone_name_layout)
 
-        # ===== 手动输入参考文本（高级选项）=====
-        self.manual_ref_text_group = QGroupBox("高级: 手动输入参考文本（可选）")
+        # ===== 手动输入参考文本（高级选项，折叠）=====
+        self.manual_ref_text_group = QGroupBox("高级: 手动覆盖 ref_text（可选）")
         self.manual_ref_text_group.setCheckable(True)
         self.manual_ref_text_group.setChecked(False)
         self.manual_ref_text_group.setStyleSheet("""
@@ -1311,29 +1312,102 @@ class MainWindow(QMainWindow):
             }
         """)
         manual_text_layout = QVBoxLayout()
-
         manual_hint = QLabel(
-            "提示: 如果 ASR 识别不准确，可手动粘贴参考音频对应的原始字幕文本，"
-            "将跳过 ASR 直接用于音色克隆。"
+            "勾选后将使用此文本覆盖片段拼合后的 ref_text（慎用，需确保文本与音频对应）"
         )
         manual_hint.setStyleSheet("color: gray; font-size: 10px;")
         manual_hint.setWordWrap(True)
         manual_text_layout.addWidget(manual_hint)
-
         self.workshop_manual_ref_text = QTextEdit()
         self.workshop_manual_ref_text.setPlaceholderText(
             "在此粘贴参考音频对应的原始文本（日语）...\n"
-            "例如: こんにちは、お元気ですか？"
+            "留空则使用片段拼合的文本"
         )
-        self.workshop_manual_ref_text.setMaximumHeight(60)
+        self.workshop_manual_ref_text.setMaximumHeight(50)
         manual_text_layout.addWidget(self.workshop_manual_ref_text)
-
         self.manual_ref_text_group.setLayout(manual_text_layout)
         clone_layout.addWidget(self.manual_ref_text_group)
 
+        # ===== 分析音频按钮 =====
+        analyze_layout = QHBoxLayout()
+        self.workshop_analyze_btn = QPushButton("分析音频片段")
+        self.workshop_analyze_btn.setStyleSheet(
+            "QPushButton{background-color:#6c757d;color:white;font-weight:bold;border:none;border-radius:5px;padding:8px;}"
+        )
+        self.workshop_analyze_btn.clicked.connect(self._start_segment_analysis)
+        analyze_layout.addWidget(self.workshop_analyze_btn)
+
+        self.workshop_analyze_progress = QProgressBar()
+        self.workshop_analyze_progress.setMinimumHeight(18)
+        self.workshop_analyze_progress.setVisible(False)
+        analyze_layout.addWidget(self.workshop_analyze_progress, stretch=1)
+        self.workshop_analyze_progress.setFormat("%p%")
+        clone_layout.addLayout(analyze_layout)
+
+        # ===== 片段分析结果（初始隐藏）=====
+        self.segment_result_group = QGroupBox("片段分析结果")
+        self.segment_result_group.setVisible(False)
+        segment_result_layout = QVBoxLayout()
+
+        # 信息标签
+        self.segment_info_label = QLabel()
+        self.segment_info_label.setStyleSheet("color: #333; font-size: 11px;")
+        segment_result_layout.addWidget(self.segment_info_label)
+
+        # 片段表格
+        self.segment_table = QTableWidget()
+        self.segment_table.setColumnCount(5)
+        self.segment_table.setHorizontalHeaderLabels(["选择", "#", "时长", "音质", "参考文本"])
+        self.segment_table.horizontalHeader().setStretchLastSection(True)
+        self.segment_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.segment_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.segment_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.segment_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.segment_table.setColumnWidth(0, 35)
+        self.segment_table.setColumnWidth(1, 30)
+        self.segment_table.setColumnWidth(2, 55)
+        self.segment_table.setColumnWidth(3, 70)
+        self.segment_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.segment_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed)
+        self.segment_table.verticalHeader().setVisible(False)
+        self.segment_table.setMaximumHeight(200)
+        self.segment_table.itemChanged.connect(self._on_segment_table_changed)
+        self._updating_table = False  # 防止信号循环
+        segment_result_layout.addWidget(self.segment_table)
+
+        # 合成预览
+        preview_label = QLabel("合成 ref_text 预览:")
+        preview_label.setStyleSheet("font-weight: bold; font-size: 11px;")
+        segment_result_layout.addWidget(preview_label)
+        self.segment_ref_text_preview = QTextEdit()
+        self.segment_ref_text_preview.setReadOnly(True)
+        self.segment_ref_text_preview.setMaximumHeight(50)
+        self.segment_ref_text_preview.setStyleSheet(
+            "QTextEdit { background-color: #f5f5f5; border: 1px solid #ccc; font-size: 12px; }"
+        )
+        segment_result_layout.addWidget(self.segment_ref_text_preview)
+
+        # 操作按钮行
+        seg_btn_layout = QHBoxLayout()
+        seg_play_btn = QPushButton("播放选中")
+        seg_play_btn.clicked.connect(self._play_selected_segments)
+        seg_btn_layout.addWidget(seg_play_btn)
+        seg_select_rec_btn = QPushButton("选择推荐")
+        seg_select_rec_btn.setToolTip("自动选择质量最高的片段组合")
+        seg_select_rec_btn.clicked.connect(self._select_recommended_segments)
+        seg_btn_layout.addWidget(seg_select_rec_btn)
+        seg_clear_btn = QPushButton("清除选择")
+        seg_clear_btn.clicked.connect(self._clear_segment_selection)
+        seg_btn_layout.addWidget(seg_clear_btn)
+        seg_btn_layout.addStretch()
+        segment_result_layout.addLayout(seg_btn_layout)
+
+        self.segment_result_group.setLayout(segment_result_layout)
+        clone_layout.addWidget(self.segment_result_group)
+
         # 克隆按钮和进度
         clone_btn_layout = QHBoxLayout()
-        self.workshop_clone_btn = QPushButton("克隆音色")
+        self.workshop_clone_btn = QPushButton("开始克隆")
         self.workshop_clone_btn.setStyleSheet(
             "QPushButton{background-color:#107c10;color:white;font-weight:bold;border:none;border-radius:5px;padding:8px;}"
         )
@@ -1344,7 +1418,7 @@ class MainWindow(QMainWindow):
         self.workshop_clone_progress.setMinimumHeight(20)
         self.workshop_clone_progress.setVisible(False)
         clone_btn_layout.addWidget(self.workshop_clone_progress, stretch=1)
-        self.workshop_clone_progress.setFormat("%p%")  # 在addWidget之后
+        self.workshop_clone_progress.setFormat("%p%")
         clone_layout.addLayout(clone_btn_layout)
 
         clone_group.setLayout(clone_layout)
@@ -1503,6 +1577,267 @@ class MainWindow(QMainWindow):
                 name = os.path.splitext(os.path.basename(file_path))[0]
                 self.workshop_clone_name.setText(f"克隆_{name[:20]}")
 
+    def _start_segment_analysis(self):
+        """开始分析音频片段"""
+        audio_path = self.workshop_clone_audio.text().strip()
+        subtitle_path = self.workshop_subtitle.text().strip()
+
+        if not audio_path:
+            QMessageBox.warning(self, "警告", "请先选择参考音频!")
+            return
+        if not Path(audio_path).exists():
+            QMessageBox.critical(self, "错误", f"参考音频不存在:\n{audio_path}")
+            return
+
+        self.workshop_analyze_btn.setEnabled(False)
+        self.workshop_analyze_btn.setText("分析中...")
+        self.workshop_analyze_progress.setVisible(True)
+        self.workshop_analyze_progress.setValue(0)
+        self.segment_result_group.setVisible(False)
+        self.workshop_clone_btn.setEnabled(False)
+
+        self.log(f"[音色工坊] 开始分析音频片段: {Path(audio_path).name}")
+
+        from src.gui_workers import SegmentAnalysisWorker
+        self.segment_analysis_worker = SegmentAnalysisWorker(
+            audio_path=audio_path,
+            subtitle_path=subtitle_path if subtitle_path else None,
+            audio_language="ja",
+            separate_vocals=True,
+        )
+        self.segment_analysis_worker.progress.connect(self._on_segment_analysis_progress)
+        self.segment_analysis_worker.finished.connect(self._on_segment_analysis_finished)
+        self.segment_analysis_worker.start()
+
+    def _on_segment_analysis_progress(self, msg: str, percent: int):
+        """片段分析进度回调"""
+        self.workshop_analyze_progress.setValue(percent)
+        self.log(f"[音色工坊] {msg}")
+
+    def _on_segment_analysis_finished(self, success: bool, message: str, result: dict):
+        """片段分析完成回调"""
+        self.workshop_analyze_btn.setEnabled(True)
+        self.workshop_analyze_btn.setText("重新分析")
+        self.workshop_analyze_progress.setVisible(False)
+
+        if not success:
+            self.log(f"[音色工坊] 分析失败: {message}")
+            QMessageBox.critical(self, "分析失败", message)
+            return
+
+        # 保存分析结果
+        self._analysis_result = result
+        self._segment_table_data = [dict(s) for s in result["segments"]]  # 深拷贝
+
+        # 更新信息标签
+        mode_label = "字幕匹配" if result["mode"] == "matched" else "ASR 识别"
+        self.segment_info_label.setText(
+            f"模式: {mode_label} | "
+            f"原始片段: {result['total_raw']} | "
+            f"有效: {result['valid_count']} | "
+            f"推荐: {len(result['recommended_indices'])} | "
+            f"音频时长: {result['audio_info']['original_duration']:.1f}s"
+        )
+
+        # 填充表格
+        self._populate_segment_table(result["segments"], result["recommended_indices"])
+
+        # 显示片段组
+        self.segment_result_group.setVisible(True)
+        self.workshop_clone_btn.setEnabled(True)
+
+        self.log(f"[音色工坊] {message}")
+
+        # 警告提示
+        for w in result.get("warnings", []):
+            self.log(f"[音色工坊] 警告: {w}")
+
+    def _populate_segment_table(self, segments: list, recommended_indices: list):
+        """填充片段表格"""
+        self._updating_table = True
+        self.segment_table.setRowCount(len(segments))
+
+        for i, seg in enumerate(segments):
+            duration = seg.get("duration", 0)
+            score = seg.get("quality_score", 0)
+            label = seg.get("quality_label", "")
+            text = seg.get("text", "")
+            rms = seg.get("rms", 0)
+
+            # 列0: 选择复选框
+            check_item = QTableWidgetItem()
+            check_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            check_item.setCheckState(Qt.CheckState.Checked if i in recommended_indices else Qt.CheckState.Unchecked)
+            self.segment_table.setItem(i, 0, check_item)
+
+            # 列1: 序号
+            idx_item = QTableWidgetItem(f"#{i + 1}")
+            idx_item.setFlags(idx_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            idx_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.segment_table.setItem(i, 1, idx_item)
+
+            # 列2: 时长
+            dur_item = QTableWidgetItem(f"{duration:.1f}s")
+            dur_item.setFlags(dur_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            dur_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.segment_table.setItem(i, 2, dur_item)
+
+            # 列3: 音质评分（带颜色）
+            qual_item = QTableWidgetItem(f"{score} {label}")
+            qual_item.setFlags(qual_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            qual_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if score >= 90:
+                qual_item.setBackground(QColor(200, 255, 200))  # 浅绿
+            elif score >= 75:
+                qual_item.setBackground(QColor(200, 230, 255))  # 浅蓝
+            elif score >= 60:
+                qual_item.setBackground(QColor(255, 255, 200))  # 浅黄
+            else:
+                qual_item.setBackground(QColor(255, 210, 210))  # 浅红
+            self.segment_table.setItem(i, 3, qual_item)
+
+            # 列4: 参考文本（可编辑）
+            text_item = QTableWidgetItem(text)
+            text_item.setToolTip(f"RMS: {rms:.4f} | 双击可编辑")
+            self.segment_table.setItem(i, 4, text_item)
+
+        self._updating_table = False
+        self._update_ref_text_preview()
+
+    def _on_segment_table_changed(self, item):
+        """表格内容变化时更新预览"""
+        if self._updating_table:
+            return
+
+        row = item.row()
+        col = item.column()
+
+        # 更新数据
+        if row < len(self._segment_table_data):
+            if col == 0:
+                # 复选框变化
+                pass
+            elif col == 4:
+                # 文本编辑
+                self._segment_table_data[row]["text"] = item.text()
+
+        self._update_ref_text_preview()
+
+    def _update_ref_text_preview(self):
+        """更新 ref_text 合成预览"""
+        if not hasattr(self, '_segment_table_data'):
+            return
+
+        selected_texts = []
+        for i in range(self.segment_table.rowCount()):
+            if i >= len(self._segment_table_data):
+                break
+            check_item = self.segment_table.item(i, 0)
+            if check_item and check_item.checkState() == Qt.CheckState.Checked:
+                text_item = self.segment_table.item(i, 4)
+                if text_item:
+                    text = text_item.text().strip()
+                    if text:
+                        selected_texts.append(text)
+
+        selected_count = sum(
+            1 for i in range(self.segment_table.rowCount())
+            if self.segment_table.item(i, 0)
+            and self.segment_table.item(i, 0).checkState() == Qt.CheckState.Checked
+        )
+        total_duration = sum(
+            self._segment_table_data[i].get("duration", 0)
+            for i in range(min(selected_count, len(self._segment_table_data)))
+            if self.segment_table.item(i, 0)
+            and self.segment_table.item(i, 0).checkState() == Qt.CheckState.Checked
+        ) if hasattr(self, '_segment_table_data') else 0
+
+        # 计算选中片段的真实总时长
+        real_total = 0.0
+        for i in range(self.segment_table.rowCount()):
+            if i < len(self._segment_table_data):
+                check_item = self.segment_table.item(i, 0)
+                if check_item and check_item.checkState() == Qt.CheckState.Checked:
+                    real_total += self._segment_table_data[i].get("duration", 0)
+
+        preview_text = " ".join(selected_texts) if selected_texts else "(未选择任何片段)"
+        self.segment_ref_text_preview.setPlainText(preview_text)
+
+    def _get_selected_segments(self) -> list:
+        """获取用户选中的片段列表"""
+        if not hasattr(self, '_segment_table_data'):
+            return []
+
+        selected = []
+        for i in range(self.segment_table.rowCount()):
+            if i >= len(self._segment_table_data):
+                break
+            check_item = self.segment_table.item(i, 0)
+            if check_item and check_item.checkState() == Qt.CheckState.Checked:
+                seg = dict(self._segment_table_data[i])
+                # 更新表格中编辑过的文本
+                text_item = self.segment_table.item(i, 4)
+                if text_item:
+                    seg["text"] = text_item.text().strip()
+                selected.append(seg)
+        return selected
+
+    def _select_recommended_segments(self):
+        """选择推荐的片段"""
+        if not hasattr(self, '_analysis_result'):
+            return
+
+        self._updating_table = True
+        recommended = self._analysis_result.get("recommended_indices", [])
+        for i in range(self.segment_table.rowCount()):
+            item = self.segment_table.item(i, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Checked if i in recommended else Qt.CheckState.Unchecked)
+        self._updating_table = False
+        self._update_ref_text_preview()
+        self.log(f"[音色工坊] 已选择 {len(recommended)} 个推荐片段")
+
+    def _clear_segment_selection(self):
+        """清除所有选择"""
+        self._updating_table = True
+        for i in range(self.segment_table.rowCount()):
+            item = self.segment_table.item(i, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Unchecked)
+        self._updating_table = False
+        self._update_ref_text_preview()
+
+    def _play_selected_segments(self):
+        """播放选中片段的合成音频"""
+        selected = self._get_selected_segments()
+        if not selected:
+            QMessageBox.warning(self, "警告", "请先选择要播放的片段!")
+            return
+
+        self.log(f"[音色工坊] 拼合 {len(selected)} 个片段用于预览...")
+
+        try:
+            from src.core.tts.audio_preprocessor import AudioPreprocessor
+            import tempfile
+
+            preprocessor = AudioPreprocessor()
+            result = preprocessor.build_from_segments(selected)
+            self.log(f"[音色工坊] 预览音频: {result.total_duration:.1f}s")
+
+            # 用系统播放器打开
+            import platform
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(result.ref_audio_path)
+            elif system == "Darwin":
+                subprocess.Popen(["open", result.ref_audio_path])
+            else:
+                subprocess.Popen(["xdg-open", result.ref_audio_path])
+
+        except Exception as e:
+            self.log(f"[音色工坊] 播放失败: {e}")
+            QMessageBox.critical(self, "错误", f"播放失败: {e}")
+
     def _browse_workshop_subtitle(self):
         """浏览音色工坊的字幕文件"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1515,29 +1850,40 @@ class MainWindow(QMainWindow):
             self.workshop_subtitle.setText(file_path)
 
     def _start_voice_clone(self):
-        """开始音色克隆（支持字幕切分批量克隆）"""
+        """开始音色克隆（支持预选片段模式）"""
         audio_path = self.workshop_clone_audio.text().strip()
-        subtitle_path = self.workshop_subtitle.text().strip()
         name = self.workshop_clone_name.text().strip()
-
-        # 检查是否启用手动输入 ref_text
-        manual_ref_text = None
-        if self.manual_ref_text_group.isChecked():
-            manual_ref_text = self.workshop_manual_ref_text.toPlainText().strip()
-            if manual_ref_text:
-                self.log(f"[音色工坊] 使用手动输入的参考文本 ({len(manual_ref_text)} 字符)")
 
         if not audio_path:
             QMessageBox.warning(self, "警告", "请选择参考音频!")
             return
-
         if not name:
             QMessageBox.warning(self, "警告", "请输入音色名称!")
             return
-
         if not Path(audio_path).exists():
             QMessageBox.critical(self, "错误", f"参考音频不存在:\n{audio_path}")
             return
+
+        # 检查是否有分析结果（预选模式）
+        pre_selected_segments = None
+        manual_ref_text = None
+
+        if hasattr(self, '_analysis_result') and self._analysis_result:
+            pre_selected_segments = self._get_selected_segments()
+            if not pre_selected_segments:
+                QMessageBox.warning(self, "警告", "请至少选择一个音频片段!")
+                return
+
+            # 检查是否启用手动覆盖 ref_text
+            if self.manual_ref_text_group.isChecked():
+                manual_ref_text = self.workshop_manual_ref_text.toPlainText().strip()
+                if manual_ref_text:
+                    self.log(f"[音色工坊] 使用手动覆盖的 ref_text ({len(manual_ref_text)} 字符)")
+        else:
+            # 未分析模式：使用旧的直接克隆流程
+            subtitle_path = self.workshop_subtitle.text().strip()
+            if self.manual_ref_text_group.isChecked():
+                manual_ref_text = self.workshop_manual_ref_text.toPlainText().strip()
 
         # 禁用按钮
         self.workshop_clone_btn.setEnabled(False)
@@ -1546,19 +1892,35 @@ class MainWindow(QMainWindow):
         self.workshop_clone_progress.setValue(0)
 
         self.log(f"[音色工坊] 开始克隆音色: {name}")
+        if pre_selected_segments:
+            self.log(f"[音色工坊] 预选模式: {len(pre_selected_segments)} 个片段")
 
-        # 使用音色克隆Worker，集成 AudioPreprocessor
         from src.gui_workers import VoiceCloneWorker
 
-        self.clone_worker = VoiceCloneWorker(
-            name=name,
-            audio_path=audio_path,
-            subtitle_path=subtitle_path if subtitle_path else None,
-            audio_language="ja",  # 默认日语 ASMR
-            separate_vocals=True,
-            use_progress_wrapper=True,  # 音色工坊使用进度映射模式
-            manual_ref_text=manual_ref_text,  # 手动输入的参考文本（可选）
-        )
+        # 根据是否有预选片段选择不同的参数
+        if pre_selected_segments:
+            # 预选模式：跳过分析和分离（已在分析步骤完成）
+            self.clone_worker = VoiceCloneWorker(
+                name=name,
+                audio_path=audio_path,
+                separate_vocals=False,  # 分析时已分离
+                use_progress_wrapper=True,
+                pre_selected_segments=pre_selected_segments,
+                manual_ref_text=manual_ref_text,
+            )
+        else:
+            # 传统模式
+            subtitle_path = self.workshop_subtitle.text().strip()
+            self.clone_worker = VoiceCloneWorker(
+                name=name,
+                audio_path=audio_path,
+                subtitle_path=subtitle_path if subtitle_path else None,
+                audio_language="ja",
+                separate_vocals=True,
+                use_progress_wrapper=True,
+                manual_ref_text=manual_ref_text,
+            )
+
         self.clone_worker.progress.connect(self._on_clone_progress)
         self.clone_worker.finished.connect(self._on_clone_finished)
         self.clone_worker.start()
