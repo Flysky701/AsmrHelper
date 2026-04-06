@@ -97,6 +97,8 @@ config/voice_profiles.json
 # WorkBuddy (IDE workspace data)
 # =====================
 .workbuddy/
+.codebuddy/
+CODEBUDDY.md
 
 # =====================
 # Development Reports

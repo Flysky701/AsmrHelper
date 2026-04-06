@@ -147,7 +147,7 @@ class AudioPreprocessor:
         """
         warnings = []
 
-        # ===== Step 1: 加载并转换音频 ======
+        # ===== Step 1: 加载并转换音频 =====
         self._report(progress_callback, "检查音频规格...", 5)
 
         audio_path = Path(audio_path)
@@ -198,13 +198,15 @@ class AudioPreprocessor:
             from src.core.translate import load_subtitle_with_timestamps, detect_subtitle_language
             subtitle_entries = load_subtitle_with_timestamps(subtitle_path)
 
-            if subtitle_entries:
+                if subtitle_entries:
                 # 检测字幕语言
                 texts = [e.get("text", "") for e in subtitle_entries]
                 subtitle_lang = detect_subtitle_language(texts)
 
-                # 判断模式
-                audio_lang_normalized = "ja" if audio_language.lower().startswith("j") else audio_language.lower()
+                # 判断模式 - 标准化语言代码
+                lang_map = {"j": "ja", "z": "zh", "e": "en"}
+                first_char = audio_language.lower()[0] if audio_language else ""
+                audio_lang_normalized = lang_map.get(first_char, audio_language.lower())
 
                 if subtitle_lang == audio_lang_normalized:
                     # 字幕语言匹配音频语言 → 使用字幕（匹配模式）
@@ -341,13 +343,20 @@ class AudioPreprocessor:
         Returns:
             List[dict]: ASR 结果 [{start, end, text}, ...]
         """
-        self._report(progress_callback, f"ASR 识别中 (语言: {language})...", 32)
+        # 从配置读取 ASR 模型，默认 large-v3（最佳质量）
+        try:
+            from src.config import config
+            model_size = config.get("processing.asr_model", "large-v3")
+        except Exception:
+            model_size = "large-v3"
+
+        self._report(progress_callback, f"ASR 识别中 (模型: {model_size}, 语言: {language})...", 32)
 
         try:
             from src.core.asr import ASRRecognizer
 
-            # 创建 ASR 识别器
-            asr = ASRRecognizer(model_size="large-v3", language=language)
+            # 创建 ASR 识别器（使用配置中的模型）
+            asr = ASRRecognizer(model_size=model_size, language=language)
 
             # ASR 识别
             segments = asr.recognize(
@@ -633,8 +642,22 @@ class AudioPreprocessor:
             if not all_data:
                 return None
 
-            # 拼接
-            merged_data = np.concatenate(all_data)
+            # 拼接（带交叉淡入淡出）
+            if len(all_data) == 1:
+                merged_data = all_data[0]
+            else:
+                merged_data = all_data[0]
+                for i in range(1, len(all_data)):
+                    crossfade_samples = int(CROSSFADE_DURATION * sample_rate)
+                    fade_out = merged_data[-crossfade_samples:] if len(merged_data) >= crossfade_samples else merged_data
+                    fade_in = all_data[i][:crossfade_samples] if len(all_data[i]) >= crossfade_samples else all_data[i]
+                    if len(fade_out) == len(fade_in):
+                        fade_out_weight = np.linspace(1.0, 0.0, len(fade_out))
+                        fade_in_weight = np.linspace(0.0, 1.0, len(fade_in))
+                        crossfade = fade_out * fade_out_weight + fade_in * fade_in_weight
+                        merged_data = np.concatenate([merged_data[:-crossfade_samples], crossfade, all_data[i][crossfade_samples:]])
+                    else:
+                        merged_data = np.concatenate([merged_data, all_data[i]])
             ensure_dir(str(merged_path.parent))
             sf.write(str(merged_path), merged_data, sample_rate, subtype="FLOAT")
 
@@ -696,31 +719,35 @@ class AudioPreprocessor:
 
     def _select_best_segments(self, segments: List[dict]) -> List[dict]:
         """
-        智能选择最佳片段用于克隆
+        智能选择最佳片段用于克隆 - 改进版：单段最优选策略
+
+        关键改进：
+        - 优先选择单个最佳片段（5-10s），避免多段拼接导致的音文对齐问题
+        - 只有当单片段时长不足时，才考虑多段拼接
 
         优先级:
-        1. 时长 5-10s 的片段（效果最稳定）
-        2. 时长 3-5s 的片段（勉强可用）
-        3. 时长 10-30s 的片段（过长，已截断）
+        1. 时长 5-10s 的单个片段（效果最稳定，优先单段）
+        2. 时长 3-5s 的单个片段（次优单段）
+        3. 多段拼接（仅当单段不足时使用）
 
         总时长控制:
         - 最少: 5s
-        - 推荐: 10-20s
-        - 最多: 60s
+        - 推荐: 5-10s（单段最优）
+        - 最多: 30s
 
         Args:
             segments: 有效片段列表
 
         Returns:
-            List[dict]: 选中的片段列表
+            List[dict]: 选中的片段列表（优先返回单段）
         """
         if not segments:
             return []
 
         # 按优先级分类
-        optimal = []  # 5-10s
-        acceptable = []  # 3-5s
-        long = []  # >10s (已截断的)
+        optimal = []  # 5-10s（最优单段范围）
+        acceptable = []  # 3-5s（次优单段范围）
+        long_segments = []  # >10s
 
         for seg in segments:
             duration = seg.get("duration", 0)
@@ -729,30 +756,26 @@ class AudioPreprocessor:
             elif CLONE_MIN_DURATION <= duration < CLONE_OPTIMAL_MIN:
                 acceptable.append(seg)
             else:
-                long.append(seg)
+                long_segments.append(seg)
 
-        selected = []
-        total_duration = 0.0
+        # ===== 策略1: 优先选择单个最佳片段 =====
+        # 选择 RMS 最高的 5-10s 片段（音质最好）
+        if optimal:
+            best_seg = max(optimal, key=lambda x: x.get("rms", 0))
+            return [best_seg]
 
-        # 优先选择 5-10s 的片段
-        for seg in sorted(optimal, key=lambda x: -x["duration"]):
-            if total_duration + seg["duration"] > CLONE_TOTAL_MAX:
-                break
-            selected.append(seg)
-            total_duration += seg["duration"]
+        # 策略2: 选择 RMS 最高的 3-5s 片段
+        if acceptable:
+            best_seg = max(acceptable, key=lambda x: x.get("rms", 0))
+            return [best_seg]
 
-        # 补充 3-5s 的片段
-        if total_duration < CLONE_TOTAL_MIN:
-            for seg in sorted(acceptable, key=lambda x: -x["duration"]):
-                if total_duration + seg["duration"] > CLONE_TOTAL_MAX:
-                    break
-                selected.append(seg)
-                total_duration += seg["duration"]
+        # 策略3: 选择时长最接近 10s 的长片段（截断后使用）
+        if long_segments:
+            # 按接近 10s 的程度排序
+            best_seg = min(long_segments, key=lambda x: abs(x.get("duration", 0) - CLONE_OPTIMAL_MAX))
+            return [best_seg]
 
-        # 按时间顺序排序
-        selected.sort(key=lambda x: x["start"])
-
-        return selected
+        return []
 
     def _concatenate_audio_segments(
         self,
@@ -799,9 +822,9 @@ class AudioPreprocessor:
                 fade_out = all_data[-crossfade_samples:] if len(all_data) >= crossfade_samples else all_data
                 fade_in = data[:crossfade_samples] if len(data) >= crossfade_samples else data
 
-                # 淡出曲线
-                fade_out_weight = np.linspace(1.0, 0.5, len(fade_out))
-                fade_in_weight = np.linspace(0.5, 1.0, len(fade_in))
+                # 淡出曲线 (标准交叉淡入淡出: 1.0→0.0, 0.0→1.0)
+                fade_out_weight = np.linspace(1.0, 0.0, len(fade_out))
+                fade_in_weight = np.linspace(0.0, 1.0, len(fade_in))
 
                 # 交叉淡入淡出
                 if len(fade_out) == len(fade_in):

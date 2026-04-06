@@ -170,6 +170,12 @@ class PreviewWorkerThread(QThread):
         except Exception as e:
             import traceback
             traceback.print_exc()
+            # 清理可能已创建的临时文件
+            if output_path.exists():
+                try:
+                    output_path.unlink()
+                except Exception:
+                    pass
             self.finished.emit(False, str(e), "")
 
 
@@ -400,7 +406,7 @@ class VoiceCloneWorker(QThread):
 
     def __init__(self, name: str, audio_path: str, subtitle_path: str = None,
                  audio_language: str = "ja", separate_vocals: bool = True,
-                 use_progress_wrapper: bool = False):
+                 use_progress_wrapper: bool = False, manual_ref_text: str = None):
         """
         初始化音色克隆 Worker
 
@@ -411,6 +417,7 @@ class VoiceCloneWorker(QThread):
             audio_language: 音频语言 (默认日语)
             separate_vocals: 是否分离人声后再克隆
             use_progress_wrapper: 是否使用进度映射模式 (用于音色工坊)
+            manual_ref_text: 手动输入的参考文本 (可选，覆盖 ASR/字幕识别)
         """
         super().__init__()
         self.name = name
@@ -419,6 +426,7 @@ class VoiceCloneWorker(QThread):
         self.audio_language = audio_language
         self.separate_vocals = separate_vocals
         self.use_progress_wrapper = use_progress_wrapper
+        self.manual_ref_text = manual_ref_text
 
     def _progress_wrapper(self, start_pct: int, end_pct: int):
         """进度回调包装器：将 0-100 映射到 start_pct-end_pct"""
@@ -467,31 +475,56 @@ class VoiceCloneWorker(QThread):
                 progress_cb("准备克隆音频...", 10)
 
             # ===== Step 2: 使用 AudioPreprocessor 准备克隆音频 =====
-            preprocessor_cb = self._get_progress_callback(15, 75)
-            self.progress.emit("准备克隆音频 (规格转换/字幕切割/拼接)...", 15)
-            preprocessor = AudioPreprocessor()
+            ref_text_to_use = None
+            ref_audio_path_to_use = None
 
-            clone_result = preprocessor.prepare_clone_audio(
-                audio_path=audio_to_process,
-                subtitle_path=self.subtitle_path,
-                audio_language=self.audio_language,
-                progress_callback=preprocessor_cb,
-            )
+            if self.manual_ref_text:
+                # 使用手动输入的 ref_text，跳过 AudioPreprocessor 的文本提取
+                self.progress.emit("使用手动输入的参考文本，跳过 ASR...", 15)
+                preprocessor_cb = self._get_progress_callback(15, 75)
+                preprocessor = AudioPreprocessor()
 
-            # 显示模式信息
-            if clone_result.mode == "matched":
-                self.progress.emit("匹配模式: ref_text 与音频内容完全匹配", 80)
+                # 仅进行音频规格转换和片段选择，不使用 ASR
+                clone_result = preprocessor.prepare_clone_audio(
+                    audio_path=audio_to_process,
+                    subtitle_path=self.subtitle_path,  # 如果有字幕，仍可用于音频切割
+                    audio_language=self.audio_language,
+                    progress_callback=preprocessor_cb,
+                )
+
+                ref_text_to_use = self.manual_ref_text
+                ref_audio_path_to_use = clone_result.ref_audio_path
+                self.progress.emit("手动模式: 使用用户提供的参考文本", 80)
             else:
-                self.progress.emit("基础模式: ref_text 使用默认文本", 80)
+                # 正常流程：使用 AudioPreprocessor 提取 ref_text
+                preprocessor_cb = self._get_progress_callback(15, 75)
+                self.progress.emit("准备克隆音频 (规格转换/字幕切割/ASR)...", 15)
+                preprocessor = AudioPreprocessor()
+
+                clone_result = preprocessor.prepare_clone_audio(
+                    audio_path=audio_to_process,
+                    subtitle_path=self.subtitle_path,
+                    audio_language=self.audio_language,
+                    progress_callback=preprocessor_cb,
+                )
+
+                ref_text_to_use = clone_result.ref_text
+                ref_audio_path_to_use = clone_result.ref_audio_path
+
+                # 显示模式信息
+                if clone_result.mode == "matched":
+                    self.progress.emit("匹配模式: ref_text 与音频内容完全匹配", 80)
+                else:
+                    self.progress.emit("ASR 模式: ref_text 使用 ASR 识别结果", 80)
 
             # ===== Step 3: 调用克隆 =====
             clone_cb = self._get_progress_callback(85, 95)
             self.progress.emit("执行音色克隆...", 85)
             designer = VoiceDesigner()
             profile = designer.clone_from_audio(
-                audio_path=clone_result.ref_audio_path,
+                audio_path=ref_audio_path_to_use,
                 name=self.name,
-                ref_text=clone_result.ref_text,
+                ref_text=ref_text_to_use,
                 progress_callback=clone_cb,
             )
 
