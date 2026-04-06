@@ -55,6 +55,10 @@ class MainWindow(QMainWindow):
         api_action.triggered.connect(self.show_api_config)
         settings_menu.addAction(api_action)
 
+        asr_action = QAction("ASR 模型配置", self)
+        asr_action.triggered.connect(self.show_asr_config)
+        settings_menu.addAction(asr_action)
+
         # 中央部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -245,37 +249,7 @@ class MainWindow(QMainWindow):
         custom_widget.setLayout(custom_layout)
         self.single_qwen3_voice_stack.addWidget(custom_widget)
 
-        # Tab 3: 克隆音色
-        clone_layout = QVBoxLayout()
-        self.single_clone_audio = QLineEdit()
-        self.single_clone_audio.setPlaceholderText("选择参考音频...")
-        clone_audio_layout = QHBoxLayout()
-        clone_audio_layout.addWidget(self.single_clone_audio)
-        clone_browse_btn = QPushButton("浏览")
-        clone_browse_btn.clicked.connect(lambda: self._browse_clone_audio(self.single_clone_audio))
-        clone_audio_layout.addWidget(clone_browse_btn)
-        clone_layout.addLayout(clone_audio_layout)
-
-        # 自动分离人声选项
-        self.single_clone_separate_check = QCheckBox("自动分离人声后克隆")
-        self.single_clone_separate_check.setChecked(True)  # 默认勾选
-        self.single_clone_separate_check.setToolTip(
-            "勾选后，将自动分离人声并使用纯净人声进行音色克隆"
-        )
-        clone_layout.addWidget(self.single_clone_separate_check)
-
-        # 克隆按钮
-        self.single_clone_btn = QPushButton("开始克隆音色")
-        self.single_clone_btn.clicked.connect(self._clone_voice_only)
-        clone_layout.addWidget(self.single_clone_btn)
-
-        clone_layout.addWidget(QLabel("提示: 推荐使用纯净人声音频进行克隆，效果更佳"))
-        clone_layout.addStretch()
-        clone_widget = QWidget()
-        clone_widget.setLayout(clone_layout)
-        self.single_qwen3_voice_stack.addWidget(clone_widget)
-
-        # 音色类型选择器 + QStackedWidget（移除克隆音色Tab，C系列已合并到自定义音色下拉框）
+        # 音色类型选择器 + QStackedWidget（克隆音色功能已移至"音色工坊"页面）
         self.single_voice_type = QComboBox()
         self.single_voice_type.addItems(["预设音色", "自定义音色"])
         self.single_voice_type.currentIndexChanged.connect(
@@ -352,7 +326,7 @@ class MainWindow(QMainWindow):
         self.single_delay.setRange(-3000, 3000)
         self.single_delay.setValue(0)
         self.single_delay.setSuffix(" ms")
-        self.single_delay.setToolTip("TTS 相对于原音的时间偏移\n正数：TTS 稍慢（晚播放）\n负数：TTS 稍快（早播放）")
+        self.single_delay.setToolTip("TTS 相对于原音的时间偏移\n正数：TTS 延后播放\n负数：TTS 提前播放")
         delay_layout.addWidget(self.single_delay)
 
         # 偏移调整按钮 (增量模式) - 交换位置并加上提示
@@ -520,23 +494,7 @@ class MainWindow(QMainWindow):
         custom_widget.setLayout(custom_layout)
         self.batch_qwen3_voice_stack.addWidget(custom_widget)
 
-        # Tab 3: 克隆音色
-        clone_layout = QVBoxLayout()
-        self.batch_clone_audio = QLineEdit()
-        self.batch_clone_audio.setPlaceholderText("选择参考音频...")
-        clone_audio_layout = QHBoxLayout()
-        clone_audio_layout.addWidget(self.batch_clone_audio)
-        clone_browse_btn = QPushButton("浏览")
-        clone_browse_btn.clicked.connect(lambda: self._browse_clone_audio(self.batch_clone_audio))
-        clone_audio_layout.addWidget(clone_browse_btn)
-        clone_layout.addLayout(clone_audio_layout)
-        clone_layout.addWidget(QLabel("（需要先使用 Base 模型生成 prompt）"))
-        clone_layout.addStretch()
-        clone_widget = QWidget()
-        clone_widget.setLayout(clone_layout)
-        self.batch_qwen3_voice_stack.addWidget(clone_widget)
-
-        # 音色类型选择器 + QStackedWidget（移除克隆音色Tab，C系列已合并到自定义音色下拉框）
+        # 音色类型选择器 + QStackedWidget（克隆音色功能已移至"音色工坊"页面）
         self.batch_voice_type = QComboBox()
         self.batch_voice_type.addItems(["预设音色", "自定义音色"])
         self.batch_voice_type.currentIndexChanged.connect(
@@ -628,6 +586,7 @@ class MainWindow(QMainWindow):
         self.batch_delay.setRange(-3000, 3000)
         self.batch_delay.setValue(0)
         self.batch_delay.setSuffix(" ms")
+        self.batch_delay.setToolTip("TTS 相对于原音的时间偏移\n正数：TTS 延后播放\n负数：TTS 提前播放")
         delay_layout.addWidget(self.batch_delay)
         delay_layout.addStretch()
         mix_layout.addLayout(delay_layout)
@@ -845,7 +804,6 @@ class MainWindow(QMainWindow):
             voice_tabs=self.single_voice_type,
             preset_combo=self.single_preset_voice,
             custom_combo=self.single_custom_voice,
-            clone_line=self.single_clone_audio,
             edge_combo=self.single_edge_voice
         )
 
@@ -876,7 +834,6 @@ class MainWindow(QMainWindow):
             voice_tabs=self.batch_voice_type,
             preset_combo=self.batch_preset_voice,
             custom_combo=self.batch_custom_voice,
-            clone_line=self.batch_clone_audio,
             edge_combo=self.batch_edge_voice
         )
 
@@ -1060,7 +1017,7 @@ class MainWindow(QMainWindow):
     def preview_voice(self):
         """试音功能（使用线程避免阻塞）"""
         # 防止重复点击
-        if hasattr(self, 'preview_thread') and self.preview_thread.isRunning():
+        if getattr(self, 'preview_thread', None) and self.preview_thread.isRunning():
             return
 
         engine = "edge" if self.single_tts_engine.currentText() == "Edge-TTS" else "qwen3"
@@ -1071,7 +1028,6 @@ class MainWindow(QMainWindow):
             voice_tabs=self.single_voice_type,
             preset_combo=self.single_preset_voice,
             custom_combo=self.single_custom_voice,
-            clone_line=self.single_clone_audio,
             edge_combo=self.single_edge_voice
         )
 
@@ -1105,9 +1061,10 @@ class MainWindow(QMainWindow):
             self.log(f"[试音] {message}")
             # 播放音频
             import platform
-            if platform.system() == "Windows":
+            system = platform.system()
+            if system == "Windows":
                 os.startfile(output_path)
-            elif platform.system() == "Darwin":
+            elif system == "Darwin":
                 import subprocess
                 subprocess.Popen(["open", output_path])
             else:
@@ -1170,6 +1127,59 @@ class MainWindow(QMainWindow):
             config.set("api.openai_api_key", openai_key.text())
             config.save()
             QMessageBox.information(self, "保存成功", "API 配置已保存！")
+
+    def show_asr_config(self):
+        """显示 ASR 模型配置对话框"""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QComboBox, QDialogButtonBox, QLabel
+        from src.config import config
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("ASR 模型配置")
+        dialog.setMinimumWidth(400)
+
+        layout = QVBoxLayout(dialog)
+
+        form = QFormLayout()
+        layout.addLayout(form)
+
+        # ASR 模型选择
+        asr_model = QComboBox()
+        asr_model.addItems([
+            "tiny",      # 最快，质量一般
+            "base",      # 快，质量较好
+            "small",     # 中等速度，质量好
+            "medium",    # 较慢，质量很好
+            "large-v1",  # 慢，最佳质量
+            "large-v2",
+            "large-v3",  # 默认，最佳质量（推荐）
+        ])
+        current_model = config.get("processing.asr_model", "large-v3")
+        asr_model.setCurrentText(current_model)
+        form.addRow("ASR 模型:", asr_model)
+
+        # 说明
+        info = QLabel(
+            "模型说明:\n"
+            "• tiny/base/small: 速度快但识别准确度较低\n"
+            "• medium: 平衡速度和质量\n"
+            "• large-v3: 最佳准确度（默认，推荐用于音色克隆）\n\n"
+            "注意: 更改后下次处理时生效"
+        )
+        info.setStyleSheet("color: gray; font-size: 11px;")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        # 按钮
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec():
+            # 保存配置
+            config.set("processing.asr_model", asr_model.currentText())
+            config.save()
+            QMessageBox.information(self, "保存成功", "ASR 模型配置已保存！")
 
     def create_voice_workshop_tab(self) -> QWidget:
         """创建音色工坊标签页"""
@@ -1281,6 +1291,45 @@ class MainWindow(QMainWindow):
         self.workshop_clone_name.setPlaceholderText("给克隆音色起个名字...")
         clone_name_layout.addWidget(self.workshop_clone_name)
         clone_layout.addLayout(clone_name_layout)
+
+        # ===== 手动输入参考文本（高级选项）=====
+        self.manual_ref_text_group = QGroupBox("高级: 手动输入参考文本（可选）")
+        self.manual_ref_text_group.setCheckable(True)
+        self.manual_ref_text_group.setChecked(False)
+        self.manual_ref_text_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 11px;
+                border: 1px solid #666;
+                border-radius: 4px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        manual_text_layout = QVBoxLayout()
+
+        manual_hint = QLabel(
+            "提示: 如果 ASR 识别不准确，可手动粘贴参考音频对应的原始字幕文本，"
+            "将跳过 ASR 直接用于音色克隆。"
+        )
+        manual_hint.setStyleSheet("color: gray; font-size: 10px;")
+        manual_hint.setWordWrap(True)
+        manual_text_layout.addWidget(manual_hint)
+
+        self.workshop_manual_ref_text = QTextEdit()
+        self.workshop_manual_ref_text.setPlaceholderText(
+            "在此粘贴参考音频对应的原始文本（日语）...\n"
+            "例如: こんにちは、お元気ですか？"
+        )
+        self.workshop_manual_ref_text.setMaximumHeight(60)
+        manual_text_layout.addWidget(self.workshop_manual_ref_text)
+
+        self.manual_ref_text_group.setLayout(manual_text_layout)
+        clone_layout.addWidget(self.manual_ref_text_group)
 
         # 克隆按钮和进度
         clone_btn_layout = QHBoxLayout()
@@ -1471,6 +1520,13 @@ class MainWindow(QMainWindow):
         subtitle_path = self.workshop_subtitle.text().strip()
         name = self.workshop_clone_name.text().strip()
 
+        # 检查是否启用手动输入 ref_text
+        manual_ref_text = None
+        if self.manual_ref_text_group.isChecked():
+            manual_ref_text = self.workshop_manual_ref_text.toPlainText().strip()
+            if manual_ref_text:
+                self.log(f"[音色工坊] 使用手动输入的参考文本 ({len(manual_ref_text)} 字符)")
+
         if not audio_path:
             QMessageBox.warning(self, "警告", "请选择参考音频!")
             return
@@ -1501,6 +1557,7 @@ class MainWindow(QMainWindow):
             audio_language="ja",  # 默认日语 ASMR
             separate_vocals=True,
             use_progress_wrapper=True,  # 音色工坊使用进度映射模式
+            manual_ref_text=manual_ref_text,  # 手动输入的参考文本（可选）
         )
         self.clone_worker.progress.connect(self._on_clone_progress)
         self.clone_worker.finished.connect(self._on_clone_finished)
@@ -1593,63 +1650,6 @@ class MainWindow(QMainWindow):
             self.single_custom_voice.setCurrentText(current_single)
         if current_batch and self.batch_custom_voice.findText(current_batch) >= 0:
             self.batch_custom_voice.setCurrentText(current_batch)
-
-    def _clone_voice_only(self):
-        """单独克隆音色（不进行后续处理）"""
-        audio_path = self.single_clone_audio.text().strip()
-        if not audio_path:
-            QMessageBox.warning(self, "警告", "请先选择参考音频文件!")
-            return
-
-        audio_file = Path(audio_path)
-        if not audio_file.exists():
-            QMessageBox.warning(self, "警告", f"参考音频不存在:\n{audio_path}")
-            return
-
-        # 获取音色名称
-        voice_name = self.single_clone_voice_name.text().strip()
-        if not voice_name:
-            voice_name = f"克隆_{audio_file.stem}"
-
-        # 检查是否需要分离人声
-        separate_vocals = self.single_clone_separate_check.isChecked()
-
-        self.log(f"[音色克隆] 开始克隆: {voice_name}")
-        self.log(f"[音色克隆] 参考音频: {audio_path}")
-        if separate_vocals:
-            self.log(f"[音色克隆] 将自动分离人声后克隆")
-        self.single_clone_btn.setEnabled(False)
-        self.single_clone_btn.setText("克隆中...")
-
-        # 使用 VoiceCloneWorker 在后台线程中执行克隆
-        # 注意：单独的克隆功能不传递字幕路径，AudioPreprocessor 会使用基础模式
-        self.clone_only_worker = VoiceCloneWorker(
-            name=voice_name,
-            audio_path=audio_path,
-            separate_vocals=separate_vocals,
-            subtitle_path=None,  # 单独克隆不传字幕
-            audio_language="ja",  # 默认日语
-        )
-        self.clone_only_worker.progress.connect(self._on_clone_only_progress)
-        self.clone_only_worker.finished.connect(self._on_clone_only_finished)
-        self.clone_only_worker.start()
-
-    def _on_clone_only_progress(self, msg: str, percent: int):
-        """克隆进度回调"""
-        self.log(f"[音色克隆] {msg}")
-
-    def _on_clone_only_finished(self, success: bool, message: str, profile_id: str):
-        """克隆完成回调"""
-        self.single_clone_btn.setEnabled(True)
-        self.single_clone_btn.setText("开始克隆音色")
-
-        if success:
-            self.log(f"[音色克隆] {message}")
-            self._refresh_my_voices()  # 刷新音色列表
-            QMessageBox.information(self, "成功", message)
-        else:
-            self.log(f"[音色克隆] 失败: {message}")
-            QMessageBox.critical(self, "克隆失败", f"音色克隆失败:\n{message}")
 
     def _preview_workshop_voice(self):
         """试音我的音色"""

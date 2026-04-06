@@ -28,16 +28,85 @@ class VoiceProfile:
     speaker: str = ""                 # CustomVoice speaker 名称
     instruct: str = ""                # CustomVoice instruct 语气控制
     design_instruct: str = ""         # VoiceDesign 自然语言描述
-    ref_audio: str = ""               # 克隆参考音频路径
-    prompt_cache: str = ""            # voice_clone_prompt 缓存路径
+    ref_audio: str = ""               # 克隆参考音频路径（支持相对路径 ${PROJECT_ROOT}）
+    prompt_cache: str = ""            # voice_clone_prompt 缓存路径（支持相对路径 ${PROJECT_ROOT}）
     generated: bool = False           # 是否已生成
+
+    def _resolve_path(self, path: str) -> str:
+        """
+        解析路径，支持 ${PROJECT_ROOT} 占位符
+
+        Args:
+            path: 原始路径（可能包含 ${PROJECT_ROOT}）
+
+        Returns:
+            str: 解析后的绝对路径
+        """
+        if not path:
+            return path
+
+        # 支持 ${PROJECT_ROOT} 占位符
+        if path.startswith("${PROJECT_ROOT}"):
+            return str(PROJECT_ROOT) + path[len("${PROJECT_ROOT}"):]
+
+        # 如果已经是绝对路径，保持不变（兼容旧数据）
+        if Path(path).is_absolute():
+            return path
+
+        # 相对路径，基于项目根目录解析
+        return str(PROJECT_ROOT / path)
+
+    def _make_relative_path(self, path: str) -> str:
+        """
+        将绝对路径转换为相对路径（使用 ${PROJECT_ROOT} 占位符）
+
+        Args:
+            path: 绝对路径
+
+        Returns:
+            str: 相对路径（含 ${PROJECT_ROOT}）
+        """
+        if not path:
+            return path
+
+        try:
+            path_obj = Path(path).resolve()
+            project_root = PROJECT_ROOT.resolve()
+
+            # 检查是否是项目内的路径
+            if path_obj.is_relative_to(project_root):
+                relative = path_obj.relative_to(project_root)
+                return f"${{PROJECT_ROOT}}/{relative.as_posix()}"
+        except (ValueError, TypeError):
+            pass
+
+        # 无法相对化，保持原样
+        return path
+
+    def get_ref_audio_path(self) -> str:
+        """获取解析后的参考音频路径"""
+        return self._resolve_path(self.ref_audio)
+
+    def get_prompt_cache_path(self) -> str:
+        """获取解析后的 prompt 缓存路径"""
+        return self._resolve_path(self.prompt_cache)
+
+    def set_ref_audio_path(self, path: str):
+        """设置参考音频路径（自动转换为相对路径）"""
+        self.ref_audio = self._make_relative_path(path)
+
+    def set_prompt_cache_path(self, path: str):
+        """设置 prompt 缓存路径（自动转换为相对路径）"""
+        self.prompt_cache = self._make_relative_path(path)
 
     def is_available(self) -> bool:
         """检查音色是否可用"""
         if self.category == "preset":
             return bool(self.speaker)
         elif self.category in ("custom", "clone"):
-            return self.generated and bool(self.prompt_cache)
+            # 检查解析后的路径是否存在
+            prompt_path = self.get_prompt_cache_path()
+            return self.generated and bool(prompt_path) and Path(prompt_path).exists()
         return False
 
 
@@ -130,18 +199,19 @@ class VoiceProfileManager:
         Args:
             profile_id: 音色 ID
             generated: 是否已生成
-            ref_audio: 参考音频路径（可选）
-            prompt_cache: prompt 缓存路径（可选）
+            ref_audio: 参考音频路径（可选，自动转换为相对路径）
+            prompt_cache: prompt 缓存路径（可选，自动转换为相对路径）
         """
         with self._profiles_lock:
             profile = self._profiles.get(profile_id)
             if profile:
                 profile.generated = generated
                 if ref_audio:
-                    profile.ref_audio = ref_audio
+                    profile.set_ref_audio_path(ref_audio)
                 if prompt_cache:
-                    profile.prompt_cache = prompt_cache
-        self.save()
+                    profile.set_prompt_cache_path(prompt_cache)
+            # 在同一锁内保存，避免竞态条件
+            self.save()
 
     def add_clone_profile(self, name: str, ref_audio: str, description: str = "") -> str:
         """
@@ -149,7 +219,7 @@ class VoiceProfileManager:
 
         Args:
             name: 音色名称
-            ref_audio: 参考音频路径
+            ref_audio: 参考音频路径（自动转换为相对路径）
             description: 描述
 
         Returns:
@@ -158,7 +228,8 @@ class VoiceProfileManager:
         with self._profiles_lock:
             # 生成新 ID
             clone_ids = [int(p.id[1:]) for p in self._profiles.values() if p.category == "clone"]
-            new_id = f"C{max(clone_ids) + 1 if clone_ids else 1}"
+            next_num = max(clone_ids) + 1 if clone_ids else 1
+            new_id = f"C{next_num}"
 
             # 音色目录（统一使用 PROJECT_ROOT）
             voice_dir = PROJECT_ROOT / "models" / "voice_profiles"
@@ -170,10 +241,14 @@ class VoiceProfileManager:
                 category="clone",
                 engine="qwen3_clone",
                 description=description,
-                ref_audio=ref_audio,
-                prompt_cache=str(voice_dir / f"{new_id}_prompt.pt"),
+                ref_audio="",  # 稍后设置
+                prompt_cache="",  # 稍后设置
                 generated=False,
             )
+
+            # 使用相对路径设置
+            profile.set_ref_audio_path(ref_audio)
+            profile.set_prompt_cache_path(str(voice_dir / f"{new_id}_prompt.pt"))
 
             self._profiles[new_id] = profile
 
@@ -195,8 +270,8 @@ class VoiceProfileManager:
             name: 音色名称
             description: 描述
             design_instruct: VoiceDesign 自然语言描述
-            ref_audio: 参考音频路径
-            prompt_cache: prompt 缓存路径
+            ref_audio: 参考音频路径（自动转换为相对路径）
+            prompt_cache: prompt 缓存路径（自动转换为相对路径）
 
         Returns:
             新音色 ID (B 系列)
@@ -218,10 +293,16 @@ class VoiceProfileManager:
                 engine="qwen3_clone",
                 description=description,
                 design_instruct=design_instruct,
-                ref_audio=ref_audio,
-                prompt_cache=prompt_cache,
+                ref_audio="",  # 稍后设置
+                prompt_cache="",  # 稍后设置
                 generated=bool(prompt_cache),
             )
+
+            # 使用相对路径设置
+            if ref_audio:
+                profile.set_ref_audio_path(ref_audio)
+            if prompt_cache:
+                profile.set_prompt_cache_path(prompt_cache)
 
             self._profiles[new_id] = profile
 
@@ -250,16 +331,18 @@ class VoiceProfileManager:
                 return False
 
             # 删除 prompt 文件（如果存在）
-            if profile.prompt_cache:
-                prompt_path = Path(profile.prompt_cache)
+            prompt_path_str = profile.get_prompt_cache_path()
+            if prompt_path_str:
+                prompt_path = Path(prompt_path_str)
                 if prompt_path.exists():
                     prompt_path.unlink()
                     print(f"[VoiceProfileManager] 已删除 prompt: {prompt_path}")
 
             # 删除参考音频（如果是 custom 类型自己生成的）
-            if profile.ref_audio and profile.category == "custom":
-                ref_path = Path(profile.ref_audio)
-                if ref_path.exists() and "_ref.wav" in profile.ref_audio:
+            ref_path_str = profile.get_ref_audio_path()
+            if ref_path_str and profile.category == "custom":
+                ref_path = Path(ref_path_str)
+                if ref_path.exists() and "_ref.wav" in str(ref_path):
                     ref_path.unlink()
                     print(f"[VoiceProfileManager] 已删除参考音频: {ref_path}")
 
