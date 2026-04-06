@@ -187,6 +187,25 @@ class Mixer:
 
         t0 = time.time()
 
+        # 获取输入文件格式，输出与输入格式一致
+        input_ext = original_path.suffix.lower()
+        output_ext = output_path.suffix.lower() if output_path.suffix else input_ext
+
+        # 根据输出格式选择编码器
+        if output_ext == ".mp3":
+            acodec = "libmp3lame"
+            ar = "44100"
+        elif output_ext in (".m4a", ".aac"):
+            acodec = "aac"
+            ar = "44100"
+        elif output_ext == ".flac":
+            acodec = "flac"
+            ar = str(info.samplerate)
+        else:
+            # 默认 WAV 输出：使用 32-bit float 无损
+            acodec = "pcm_f32le"
+            ar = "44100"
+
         # 构建 ffmpeg 命令
         # 延迟：负值表示TTS提前（需要在TTS前端padding）；正值表示TTS延后
         delay_ms = self.tts_delay_ms
@@ -208,6 +227,14 @@ class Mixer:
         else:
             orig_filter = f"volume={orig_vol}"
 
+        # 如果输出格式需要特定采样率，应用转换
+        final_ar = ar
+        if output_ext in (".mp3", ".m4a", ".aac"):
+            # 有损格式使用 44100Hz
+            final_ar = "44100"
+        elif output_ext == ".flac":
+            final_ar = str(info.samplerate)  # FLAC 保持原采样率
+
         cmd = [
             get_ffmpeg(),
             "-i", str(original_path),
@@ -215,8 +242,8 @@ class Mixer:
             "-filter_complex",
             f"[0:a]{orig_filter}[orig];[1:a]{tts_filter}[tts];[orig][tts]amix=inputs=2:duration=first[mixed]",
             "-map", "[mixed]",
-            "-acodec", "pcm_f32le",  # 32-bit float WAV 无损输出
-            "-ar", "44100",
+            "-acodec", acodec,
+            "-ar", final_ar,
             "-ac", "2",
             str(output_path),
             "-y",

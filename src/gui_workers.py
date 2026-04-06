@@ -388,6 +388,73 @@ class VoiceDesignWorker(QThread):
             self.finished.emit(False, f"音色设计失败: {e}", "")
 
 
+class SegmentAnalysisWorker(QThread):
+    """
+    片段分析 Worker - 分析音频并返回所有有效片段（用于 GUI 预览选择模式）
+
+    信号:
+        progress(str, int): 进度消息, 百分比
+        finished(bool, str, dict): (success, message, analysis_result)
+            analysis_result 结构见 AudioPreprocessor.analyze_segments()
+    """
+
+    progress = Signal(str, int)
+    finished = Signal(bool, str, dict)  # success, message, result_dict
+
+    def __init__(self, audio_path: str, subtitle_path: str = None,
+                 audio_language: str = "ja", separate_vocals: bool = True):
+        super().__init__()
+        self.audio_path = audio_path
+        self.subtitle_path = subtitle_path
+        self.audio_language = audio_language
+        self.separate_vocals = separate_vocals
+
+    def run(self):
+        try:
+            import tempfile
+            from src.core.tts.audio_preprocessor import AudioPreprocessor
+            from src.core.vocal_separator import separate_vocals as do_separate_vocals
+
+            audio_to_process = self.audio_path
+
+            # Step 1: 分离人声
+            if self.separate_vocals:
+                self.progress.emit("分离人声中...", 5)
+                try:
+                    temp_dir = Path(tempfile.gettempdir()) / "asmr_voice_clone"
+                    temp_dir.mkdir(parents=True, exist_ok=True)
+                    vocal_path = do_separate_vocals(
+                        audio_path=self.audio_path,
+                        output_dir=str(temp_dir),
+                    )
+                    if vocal_path and Path(vocal_path).exists():
+                        audio_to_process = vocal_path
+                        self.progress.emit("人声分离完成!", 15)
+                    else:
+                        self.progress.emit("人声分离失败，使用原音频", 15)
+                except Exception as sep_err:
+                    self.progress.emit(f"人声分离失败: {sep_err}，使用原音频", 15)
+
+            # Step 2: 分析片段
+            self.progress.emit("分析音频片段...", 20)
+            preprocessor = AudioPreprocessor()
+            result = preprocessor.analyze_segments(
+                audio_path=audio_to_process,
+                subtitle_path=self.subtitle_path,
+                audio_language=self.audio_language,
+                progress_callback=lambda msg, pct: self.progress.emit(msg, 20 + int(pct * 0.75)),
+            )
+
+            result["vocal_separated_path"] = audio_to_process
+            self.progress.emit(f"分析完成: {result['valid_count']} 个有效片段", 100)
+            self.finished.emit(True, f"分析完成: {result['valid_count']} 个有效片段", result)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(False, f"分析失败: {e}", {})
+
+
 class VoiceCloneWorker(QThread):
     """
     音色克隆 Worker - 在后台执行 Base clone (集成 AudioPreprocessor)
@@ -396,9 +463,10 @@ class VoiceCloneWorker(QThread):
         progress(str, int): 进度消息, 百分比
         finished(bool, str, str): (success, message, profile_id)
 
-    支持两种模式:
-    - 普通模式: 直接发送进度 (0-100)
-    - 映射模式: 通过 progress_wrapper 映射子范围
+    支持三种模式:
+    - 自动模式: 分离人声 + 自动分析选择片段 + 克隆
+    - 预选模式: 使用 GUI 分析后用户选中的片段 + 克隆
+    - 手动文本模式: 分离人声 + 自动选择 + 使用手动 ref_text
     """
 
     progress = Signal(str, int)
@@ -406,7 +474,8 @@ class VoiceCloneWorker(QThread):
 
     def __init__(self, name: str, audio_path: str, subtitle_path: str = None,
                  audio_language: str = "ja", separate_vocals: bool = True,
-                 use_progress_wrapper: bool = False, manual_ref_text: str = None):
+                 use_progress_wrapper: bool = False, manual_ref_text: str = None,
+                 pre_selected_segments: list = None):
         """
         初始化音色克隆 Worker
 
@@ -416,8 +485,9 @@ class VoiceCloneWorker(QThread):
             subtitle_path: 字幕文件路径 (可选)
             audio_language: 音频语言 (默认日语)
             separate_vocals: 是否分离人声后再克隆
-            use_progress_wrapper: 是否使用进度映射模式 (用于音色工坊)
+            use_progress_wrapper: 是否使用进度映射模式
             manual_ref_text: 手动输入的参考文本 (可选，覆盖 ASR/字幕识别)
+            pre_selected_segments: GUI 分析后用户选中的片段列表 (可选，跳过分析)
         """
         super().__init__()
         self.name = name
@@ -427,6 +497,7 @@ class VoiceCloneWorker(QThread):
         self.separate_vocals = separate_vocals
         self.use_progress_wrapper = use_progress_wrapper
         self.manual_ref_text = manual_ref_text
+        self.pre_selected_segments = pre_selected_segments
 
     def _progress_wrapper(self, start_pct: int, end_pct: int):
         """进度回调包装器：将 0-100 映射到 start_pct-end_pct"""
@@ -449,73 +520,79 @@ class VoiceCloneWorker(QThread):
             from src.core.tts.audio_preprocessor import AudioPreprocessor
             from src.core.vocal_separator import separate_vocals as do_separate_vocals
 
-            audio_to_process = self.audio_path
-
-            # ===== Step 1: 分离人声 =====
-            if self.separate_vocals:
-                progress_cb = self._get_progress_callback()
-                progress_cb("分离人声中...", 5)
-                try:
-                    temp_dir = Path(tempfile.gettempdir()) / "asmr_voice_clone"
-                    temp_dir.mkdir(parents=True, exist_ok=True)
-                    vocal_path = do_separate_vocals(
-                        audio_path=self.audio_path,
-                        output_dir=str(temp_dir),
-                    )
-                    if vocal_path and Path(vocal_path).exists():
-                        audio_to_process = vocal_path
-                        progress_cb("人声分离完成!", 10)
-                    else:
-                        progress_cb("人声分离失败，使用原音频", 10)
-                except Exception as sep_err:
-                    progress_cb(f"人声分离失败: {sep_err}", 10)
-                    audio_to_process = self.audio_path
-            else:
-                progress_cb = self._get_progress_callback()
-                progress_cb("准备克隆音频...", 10)
-
-            # ===== Step 2: 使用 AudioPreprocessor 准备克隆音频 =====
-            ref_text_to_use = None
-            ref_audio_path_to_use = None
-
-            if self.manual_ref_text:
-                # 使用手动输入的 ref_text，跳过 AudioPreprocessor 的文本提取
-                self.progress.emit("使用手动输入的参考文本，跳过 ASR...", 15)
-                preprocessor_cb = self._get_progress_callback(15, 75)
+            # ===== 预选模式: 使用 GUI 分析后的选中片段 =====
+            if self.pre_selected_segments:
+                self.progress.emit("从选中片段构建克隆音频...", 10)
                 preprocessor = AudioPreprocessor()
-
-                # 仅进行音频规格转换和片段选择，不使用 ASR
-                clone_result = preprocessor.prepare_clone_audio(
-                    audio_path=audio_to_process,
-                    subtitle_path=self.subtitle_path,  # 如果有字幕，仍可用于音频切割
-                    audio_language=self.audio_language,
-                    progress_callback=preprocessor_cb,
-                )
-
-                ref_text_to_use = self.manual_ref_text
-                ref_audio_path_to_use = clone_result.ref_audio_path
-                self.progress.emit("手动模式: 使用用户提供的参考文本", 80)
-            else:
-                # 正常流程：使用 AudioPreprocessor 提取 ref_text
-                preprocessor_cb = self._get_progress_callback(15, 75)
-                self.progress.emit("准备克隆音频 (规格转换/字幕切割/ASR)...", 15)
-                preprocessor = AudioPreprocessor()
-
-                clone_result = preprocessor.prepare_clone_audio(
-                    audio_path=audio_to_process,
-                    subtitle_path=self.subtitle_path,
-                    audio_language=self.audio_language,
-                    progress_callback=preprocessor_cb,
-                )
-
+                clone_result = preprocessor.build_from_segments(self.pre_selected_segments)
                 ref_text_to_use = clone_result.ref_text
                 ref_audio_path_to_use = clone_result.ref_audio_path
 
-                # 显示模式信息
-                if clone_result.mode == "matched":
-                    self.progress.emit("匹配模式: ref_text 与音频内容完全匹配", 80)
+                if clone_result.warnings:
+                    for w in clone_result.warnings:
+                        self.progress.emit(f"警告: {w}", 70)
+                self.progress.emit(
+                    f"音频构建完成: {clone_result.segments_used} 片段, "
+                    f"时长 {clone_result.total_duration:.1f}s", 80)
+
+            else:
+                # ===== 自动/手动模式 =====
+                audio_to_process = self.audio_path
+
+                # Step 1: 分离人声
+                if self.separate_vocals:
+                    progress_cb = self._get_progress_callback()
+                    progress_cb("分离人声中...", 5)
+                    try:
+                        temp_dir = Path(tempfile.gettempdir()) / "asmr_voice_clone"
+                        temp_dir.mkdir(parents=True, exist_ok=True)
+                        vocal_path = do_separate_vocals(
+                            audio_path=self.audio_path,
+                            output_dir=str(temp_dir),
+                        )
+                        if vocal_path and Path(vocal_path).exists():
+                            audio_to_process = vocal_path
+                            progress_cb("人声分离完成!", 10)
+                        else:
+                            progress_cb("人声分离失败，使用原音频", 10)
+                    except Exception as sep_err:
+                        progress_cb(f"人声分离失败: {sep_err}", 10)
+                        audio_to_process = self.audio_path
                 else:
-                    self.progress.emit("ASR 模式: ref_text 使用 ASR 识别结果", 80)
+                    progress_cb = self._get_progress_callback()
+                    progress_cb("准备克隆音频...", 10)
+
+                # Step 2: 准备克隆音频
+                ref_text_to_use = None
+                ref_audio_path_to_use = None
+
+                if self.manual_ref_text:
+                    self.progress.emit("使用手动输入的参考文本...", 15)
+                    preprocessor_cb = self._get_progress_callback(15, 75)
+                    preprocessor = AudioPreprocessor()
+                    clone_result = preprocessor.prepare_clone_audio(
+                        audio_path=audio_to_process,
+                        subtitle_path=self.subtitle_path,
+                        audio_language=self.audio_language,
+                        progress_callback=preprocessor_cb,
+                    )
+                    ref_text_to_use = self.manual_ref_text
+                    ref_audio_path_to_use = clone_result.ref_audio_path
+                    self.progress.emit("手动模式: 使用用户提供的参考文本", 80)
+                else:
+                    preprocessor_cb = self._get_progress_callback(15, 75)
+                    self.progress.emit("准备克隆音频 (规格转换/字幕切割/ASR)...", 15)
+                    preprocessor = AudioPreprocessor()
+                    clone_result = preprocessor.prepare_clone_audio(
+                        audio_path=audio_to_process,
+                        subtitle_path=self.subtitle_path,
+                        audio_language=self.audio_language,
+                        progress_callback=preprocessor_cb,
+                    )
+                    ref_text_to_use = clone_result.ref_text
+                    ref_audio_path_to_use = clone_result.ref_audio_path
+                    mode_label = "匹配模式" if clone_result.mode == "matched" else "ASR 模式"
+                    self.progress.emit(f"{mode_label}: ref_text 与音频内容对应", 80)
 
             # ===== Step 3: 调用克隆 =====
             clone_cb = self._get_progress_callback(85, 95)
@@ -531,8 +608,8 @@ class VoiceCloneWorker(QThread):
             self.progress.emit(f"音色 '{self.name}' 克隆完成!", 100)
             self.finished.emit(
                 True,
-                f"音色 '{profile.name}' 克隆成功! (模式: {clone_result.mode}, "
-                f"片段: {clone_result.segments_used}, 时长: {clone_result.total_duration:.1f}s)",
+                f"音色 '{profile.name}' 克隆成功! "
+                f"(片段: {clone_result.segments_used}, 时长: {clone_result.total_duration:.1f}s)",
                 profile.id
             )
 

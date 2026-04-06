@@ -198,7 +198,7 @@ class AudioPreprocessor:
             from src.core.translate import load_subtitle_with_timestamps, detect_subtitle_language
             subtitle_entries = load_subtitle_with_timestamps(subtitle_path)
 
-                if subtitle_entries:
+            if subtitle_entries:
                 # 检测字幕语言
                 texts = [e.get("text", "") for e in subtitle_entries]
                 subtitle_lang = detect_subtitle_language(texts)
@@ -452,12 +452,25 @@ class AudioPreprocessor:
         """
         self._report(progress_callback, "使用时间轴切割音频...", 48)
 
-        # 准备切割参数（添加安全区）
+        # 获取音频实际时长，防止末尾截断
+        audio_info = get_audio_info(audio_path)
+        audio_duration = audio_info["duration"]
+        total = len(entries)
+
+        # 准备切割参数（添加安全区，首尾特殊处理）
         cut_entries = []
-        for entry in entries:
-            # 添加安全区，但不超过音频边界
-            start = max(0, entry["start"] - SAFE_MARGIN)
-            end = entry["end"] + SAFE_MARGIN
+        for i, entry in enumerate(entries):
+            # 首个片段：不减安全区，避免丢失开头内容
+            if i == 0:
+                start = entry["start"]
+            else:
+                start = max(0, entry["start"] - SAFE_MARGIN)
+
+            # 末尾片段：使用实际音频长度，防止提前截断
+            if i == total - 1:
+                end = max(entry["end"], audio_duration)
+            else:
+                end = entry["end"] + SAFE_MARGIN
 
             cut_entries.append({
                 "start": start,
@@ -666,12 +679,15 @@ class AudioPreprocessor:
                 merged_data = merged_data[:, 0]
             rms = float(np.sqrt(np.mean(merged_data ** 2)))
 
+            # 基于实际音频数据计算时长
+            actual_duration = len(merged_data) / sample_rate
+
             return {
                 "path": str(merged_path),
                 "start": start,
                 "end": end,
                 "text": " ".join(merged_texts),  # 合并文本
-                "duration": duration,
+                "duration": actual_duration,
                 "rms": rms,
             }
         except Exception:
@@ -953,6 +969,262 @@ class AudioPreprocessor:
             )
 
         return preview
+
+
+    # ===== 交互式预览模式方法 =====
+
+    def analyze_segments(
+        self,
+        audio_path: str,
+        subtitle_path: str = None,
+        audio_language: str = "ja",
+        progress_callback: Optional[Callable] = None,
+    ) -> dict:
+        """
+        分析音频片段（不自动选择，用于 GUI 预览模式）
+
+        与 prepare_clone_audio 的区别：
+        - 不自动选择最佳片段
+        - 返回所有有效片段及其质量评分
+        - 用于 GUI 展示和用户手动选择
+
+        Returns:
+            dict: {
+                "segments": List[dict],
+                "mode": str,
+                "total_raw": int,
+                "valid_count": int,
+                "recommended_indices": List[int],
+                "audio_info": dict,
+                "warnings": List[str],
+                "converted_audio_path": str,
+            }
+        """
+        warnings = []
+
+        # Step 1: 加载并转换音频
+        self._report(progress_callback, "检查音频规格...", 5)
+        audio_path = Path(audio_path)
+        if not audio_path.exists():
+            raise FileNotFoundError(f"音频文件不存在: {audio_path}")
+
+        original_info = get_audio_info(str(audio_path))
+        self._report(progress_callback,
+            f"原始音频: {original_info['sample_rate']}Hz, "
+            f"{original_info['channels']}ch, "
+            f"{original_info['duration']:.1f}s", 10)
+
+        # Step 2: 转换音频规格
+        self._report(progress_callback, "转换音频规格 (16kHz/Mono/16-bit)...", 15)
+        converted_path = self._convert_to_clone_spec(
+            str(audio_path),
+            str(self.output_dir / f"{audio_path.stem}_16k.wav")
+        )
+
+        # Step 3: 确定模式
+        subtitle_entries = []
+        mode = "asr"
+        if subtitle_path and Path(subtitle_path).exists():
+            self._report(progress_callback, f"加载字幕: {Path(subtitle_path).name}", 20)
+            from src.core.translate import load_subtitle_with_timestamps, detect_subtitle_language
+            subtitle_entries = load_subtitle_with_timestamps(subtitle_path)
+            if subtitle_entries:
+                texts = [e.get("text", "") for e in subtitle_entries]
+                subtitle_lang = detect_subtitle_language(texts)
+                lang_map = {"j": "ja", "z": "zh", "e": "en"}
+                first_char = audio_language.lower()[0] if audio_language else ""
+                audio_lang_normalized = lang_map.get(first_char, audio_language.lower())
+                if subtitle_lang == audio_lang_normalized:
+                    mode = "matched"
+                    self._report(progress_callback,
+                        f"匹配模式: 字幕语言({subtitle_lang}) == 音频语言({audio_lang_normalized})", 25)
+                else:
+                    self._report(progress_callback,
+                        f"字幕语言({subtitle_lang}) != 音频语言({audio_lang_normalized})，将使用 ASR", 25)
+                    warnings.append(f"字幕语言({subtitle_lang})与音频语言({audio_lang_normalized})不匹配")
+                    subtitle_entries = []
+            else:
+                warnings.append("字幕文件为空")
+                subtitle_entries = []
+        else:
+            self._report(progress_callback, "无字幕文件，将使用 ASR 识别", 25)
+
+        # Step 3.5: ASR
+        if mode == "asr" or not subtitle_entries:
+            self._report(progress_callback, "执行 ASR 识别...", 30)
+            try:
+                asr_segments = self._run_asr(converted_path, language="ja", progress_callback=progress_callback)
+                if asr_segments:
+                    mode = "asr"
+                    subtitle_entries = asr_segments
+                    self._report(progress_callback, f"ASR 识别完成: {len(asr_segments)} 条", 50)
+                else:
+                    raise ValueError("ASR 识别结果为空")
+            except Exception as asr_err:
+                self._report(progress_callback, f"ASR 识别失败: {asr_err}", 30)
+                warnings.append(f"ASR 识别失败: {asr_err}")
+                raise RuntimeError(f"无法获取音频文本内容: {asr_err}")
+
+        # Step 4: 切割音频
+        self._report(progress_callback, "切割音频为片段...", 55)
+        segments = self._cut_with_entries(converted_path, subtitle_entries, progress_callback)
+        if not segments:
+            raise ValueError("音频切割失败，无法获取有效片段")
+
+        # Step 5: 筛选合规片段
+        self._report(progress_callback, "筛选合规片段...", 70)
+        valid_segments = self._filter_valid_segments(segments, progress_callback)
+        if not valid_segments:
+            raise ValueError("没有找到符合时长要求的音频片段 (3-30s)")
+
+        # Step 6: 评估质量
+        self._report(progress_callback, "评估片段质量...", 85)
+        for i, seg in enumerate(valid_segments):
+            quality = self.evaluate_segment_quality(seg)
+            seg["quality_score"] = quality["score"]
+            seg["quality_label"] = quality["label"]
+            seg["index"] = i
+
+        # Step 7: 自动推荐
+        recommended = self._select_best_segments(valid_segments)
+        recommended_indices = []
+        for rec in recommended:
+            for i, seg in enumerate(valid_segments):
+                if seg is rec:
+                    recommended_indices.append(i)
+                    seg["selected"] = True
+                    break
+
+        self._report(progress_callback,
+            f"分析完成: {len(valid_segments)} 个有效片段, 推荐 {len(recommended_indices)} 个", 100)
+
+        return {
+            "segments": valid_segments,
+            "mode": mode,
+            "total_raw": len(segments),
+            "valid_count": len(valid_segments),
+            "recommended_indices": recommended_indices,
+            "audio_info": {
+                "original_sample_rate": original_info["sample_rate"],
+                "original_channels": original_info["channels"],
+                "original_duration": original_info["duration"],
+            },
+            "warnings": warnings,
+            "converted_audio_path": converted_path,
+        }
+
+    def evaluate_segment_quality(self, segment: dict) -> dict:
+        """
+        评估片段质量 (0-100)
+
+        评分维度:
+        - 时长 (40%): 5-10s 最优
+        - 音量 (30%): RMS 0.03-0.30 最佳
+        - 文本 (30%): 有文本且长度合适
+
+        Returns:
+            dict: {"score": int, "label": str, "details": dict}
+        """
+        duration = segment.get("duration", 0)
+        rms = segment.get("rms", 0)
+        text = segment.get("text", "").strip()
+
+        # 时长得分 (40%)
+        if CLONE_OPTIMAL_MIN <= duration <= CLONE_OPTIMAL_MAX:
+            duration_score = 100.0
+        elif CLONE_MIN_DURATION <= duration < CLONE_OPTIMAL_MIN:
+            duration_score = 60.0 + 40.0 * (duration - CLONE_MIN_DURATION) / (CLONE_OPTIMAL_MIN - CLONE_MIN_DURATION)
+        elif CLONE_OPTIMAL_MAX < duration <= CLONE_MAX_DURATION:
+            duration_score = 60.0 + 40.0 * (CLONE_MAX_DURATION - duration) / (CLONE_MAX_DURATION - CLONE_OPTIMAL_MAX)
+        else:
+            duration_score = 0.0
+
+        # 音量得分 (30%)
+        if 0.03 <= rms <= 0.30:
+            rms_score = 100.0
+        elif 0.01 <= rms < 0.03:
+            rms_score = 50.0 + 50.0 * (rms - 0.01) / 0.02
+        elif 0.30 < rms <= 0.50:
+            rms_score = 100.0 - 50.0 * (rms - 0.30) / 0.20
+        else:
+            rms_score = max(0.0, 30.0)
+
+        # 文本得分 (30%)
+        text_len = len(text)
+        if text_len >= 10:
+            text_score = 100.0
+        elif text_len >= 5:
+            text_score = 70.0 + 30.0 * (text_len - 5) / 5.0
+        elif text_len >= 1:
+            text_score = 40.0 + 30.0 * (text_len - 1) / 4.0
+        else:
+            text_score = 0.0
+
+        total = int(duration_score * 0.4 + rms_score * 0.3 + text_score * 0.3)
+
+        if total >= 90:
+            label = "最优"
+        elif total >= 75:
+            label = "良好"
+        elif total >= 60:
+            label = "可用"
+        else:
+            label = "较差"
+
+        return {
+            "score": total,
+            "label": label,
+            "details": {
+                "duration_score": int(duration_score),
+                "rms_score": int(rms_score),
+                "text_score": int(text_score),
+            },
+        }
+
+    def build_from_segments(
+        self,
+        segments: List[dict],
+        output_path: str = None,
+    ) -> CloneAudioResult:
+        """
+        从用户选中的片段构建最终克隆音频
+
+        Args:
+            segments: 用户选中的片段列表 (必须有 path 和 text)
+            output_path: 输出路径 (可选)
+
+        Returns:
+            CloneAudioResult
+        """
+        if not segments:
+            raise ValueError("没有选中的片段")
+
+        if output_path is None:
+            output_path = str(self.output_dir / "ref_audio_manual.wav")
+
+        # 拼接音频
+        ref_audio_path = self._concatenate_audio_segments(segments, output_path)
+
+        # 生成 ref_text
+        ref_text = self._build_ref_text(segments)
+
+        # 验证
+        final_info = get_audio_info(ref_audio_path)
+        warnings = []
+        if final_info['duration'] < CLONE_TOTAL_MIN:
+            warnings.append(f"总时长 ({final_info['duration']:.1f}s) 低于推荐值 ({CLONE_TOTAL_MIN}s)")
+        if final_info['duration'] > CLONE_TOTAL_MAX:
+            warnings.append(f"总时长 ({final_info['duration']:.1f}s) 超过最大值 ({CLONE_TOTAL_MAX}s)")
+
+        return CloneAudioResult(
+            ref_audio_path=ref_audio_path,
+            ref_text=ref_text,
+            mode="manual",
+            segments_used=len(segments),
+            total_duration=final_info['duration'],
+            segments_info=segments,
+            warnings=warnings,
+        )
 
 
 def get_audio_preprocessor() -> AudioPreprocessor:

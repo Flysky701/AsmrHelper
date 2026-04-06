@@ -163,8 +163,8 @@ class Pipeline:
             main_product_dir = base_dir
             by_product_dir = base_dir / "BY_Product"
 
-        # 成品路径: <name>_mix.wav (强制使用 WAV 无损格式，避免 MP3 有损压缩)
-        mix_path = main_product_dir / f"{task_name}_mix.wav"
+        # 成品路径: <name>_mix.<ext> (输出格式与输入格式一致)
+        mix_path = main_product_dir / f"{task_name}_mix{input_ext}"
 
         ensure_dir(main_product_dir)
         ensure_dir(by_product_dir)
@@ -599,9 +599,8 @@ class Pipeline:
 
         # ===== Step 4: TTS 合成 + 时间轴对齐 (带错误处理) =====
         current_step += 1
-        tts_ext = "wav" if config.tts_engine == "qwen3" else "mp3"
         tts_aligned_path = by_product_dir / "tts_aligned.wav"
-        tts_path = by_product_dir / f"tts_output.{tts_ext}"
+        # TTS 中间文件统一使用 .wav 格式，避免 mp3 残留问题
 
         if config.use_tts and timestamped_segments:
             _report("")
