@@ -5,6 +5,8 @@ GUI Worker 线程模块
 - SingleWorkerThread: 单文件处理
 - PreviewWorkerThread: 试音
 - BatchWorkerThread: 批量处理
+- StepWorkerThread: 步骤选择性执行
+- SubtitleExportWorkerThread: 字幕导出
 """
 
 import threading
@@ -16,17 +18,186 @@ from PySide6.QtCore import QThread, Signal
 from src.utils.constants import AUDIO_EXTENSIONS
 
 
+class StepWorkerThread(QThread):
+    """
+    步骤选择性执行线程 - 支持勾选执行和单步执行
+
+    信号:
+        progress(str): 进度消息
+        step_finished(str, dict): 步骤名 + 更新后的 state
+        finished(bool, str, dict): 成功/失败 + 消息 + 最终 state
+    """
+    progress = Signal(str)
+    step_finished = Signal(str, dict)  # step_name, state_dict
+    finished = Signal(bool, str, dict)  # success, message, results
+
+    def __init__(
+        self,
+        input_path: str,
+        output_dir: str,
+        params: dict,
+        selected_steps: List[str],
+        vtt_path: str = None,
+        initial_state_dict: dict = None,
+    ):
+        super().__init__()
+        self.input_path = input_path
+        self.output_dir = output_dir
+        self.params = params
+        self.selected_steps = selected_steps
+        self.vtt_path = vtt_path
+        self.initial_state_dict = initial_state_dict
+        self._cancel_event = threading.Event()
+
+    def cancel(self):
+        """请求取消"""
+        self._cancel_event.set()
+
+    def run(self):
+        try:
+            from src.core.pipeline import Pipeline, PipelineConfig, PipelineState
+            from src.core.checkpoint import get_checkpoint_manager
+
+            # 构建 Pipeline 配置
+            cfg = PipelineConfig(
+                input_path=self.input_path,
+                output_dir=self.output_dir,
+                vtt_path=self.vtt_path,
+                vocal_model=self.params.get("vocal_model", "htdemucs"),
+                asr_model=self.params.get("asr_model", "large-v3"),
+                asr_language="ja",
+                tts_engine=self.params.get("tts_engine", "edge"),
+                tts_voice=self.params.get("tts_voice", "zh-CN-XiaoxiaoNeural"),
+                qwen3_voice=self.params.get("tts_voice", "Vivian"),
+                voice_profile_id=self.params.get("voice_profile_id"),
+                tts_speed=self.params.get("tts_speed", 1.0),
+                original_volume=self.params.get("original_volume", 0.85),
+                tts_volume_ratio=self.params.get("tts_ratio", 0.5),
+                tts_delay_ms=self.params.get("tts_delay", 0),
+                skip_existing=True,  # 启用跳过已存在文件
+                clone_voice_after_separation=self.params.get("clone_voice_after_separation", False),
+                clone_voice_name=self.params.get("clone_voice_name", ""),
+            )
+
+            # 恢复初始状态
+            initial_state = None
+            if self.initial_state_dict:
+                initial_state = PipelineState.from_dict(self.initial_state_dict)
+
+            # 获取 Checkpoint 管理器
+            checkpoint_mgr = get_checkpoint_manager()
+
+            pipeline = Pipeline(cfg)
+
+            # 使用 run_steps 执行选中的步骤
+            results = pipeline.run_steps(
+                selected_steps=self.selected_steps,
+                progress_callback=self.progress.emit,
+                initial_state=initial_state,
+                checkpoint_manager=checkpoint_mgr,
+            )
+
+            # 发送完成信号
+            mix_path = results.get("mix_path", "")
+            msg_parts = [f"选中的 {len(self.selected_steps)} 个步骤执行完成"]
+
+            if mix_path:
+                msg_parts.append(f"成品: {mix_path}")
+
+            self.finished.emit(True, "\n".join(msg_parts), results)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(False, str(e), {})
+
+
+class SubtitleExportWorkerThread(QThread):
+    """
+    字幕导出线程
+
+    信号:
+        finished(bool, str, str): 成功 + 消息 + 输出路径
+    """
+    finished = Signal(bool, str, str)  # success, message, output_path
+
+    def __init__(
+        self,
+        segments: List[dict],
+        output_path: str,
+        format_type: str = "srt",
+        bilingual: bool = False,
+    ):
+        """
+        初始化字幕导出线程
+
+        Args:
+            segments: 字幕段落列表
+            output_path: 输出文件路径
+            format_type: 格式类型 (srt/vtt/lrc/auto)
+            bilingual: 是否双语模式
+        """
+        super().__init__()
+        self.segments = segments
+        self.output_path = output_path
+        self.format_type = format_type
+        self.bilingual = bilingual
+
+    def run(self):
+        try:
+            from src.core.subtitle_exporter import get_subtitle_exporter
+
+            exporter = get_subtitle_exporter()
+
+            # 验证并清理字幕段落
+            valid_segments = exporter.validate_segments(self.segments)
+
+            if not valid_segments:
+                self.finished.emit(False, "没有有效的字幕段落", "")
+                return
+
+            # 导出
+            success = exporter.export_auto(
+                segments=valid_segments,
+                output_path=self.output_path,
+                fmt=self.format_type,
+                bilingual=self.bilingual,
+            )
+
+            if success:
+                self.finished.emit(
+                    True,
+                    f"字幕导出成功: {len(valid_segments)} 条",
+                    self.output_path,
+                )
+            else:
+                self.finished.emit(False, "字幕导出失败", "")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(False, f"字幕导出失败: {e}", "")
+
+
 class SingleWorkerThread(QThread):
     """单个文件处理线程"""
     progress = Signal(str)
     finished = Signal(bool, str)
 
-    def __init__(self, input_path: str, output_dir: str, params: dict, vtt_path: str = None):
+    def __init__(
+        self,
+        input_path: str,
+        output_dir: str,
+        params: dict,
+        vtt_path: str = None,
+        selected_steps: List[str] = None,
+    ):
         super().__init__()
         self.input_path = input_path
         self.output_dir = output_dir
         self.params = params
         self.vtt_path = vtt_path
+        self.selected_steps = selected_steps or ["separation", "asr", "translate", "tts", "mix"]
         self._cancel_event = threading.Event()
 
     def cancel(self):
@@ -68,7 +239,21 @@ class SingleWorkerThread(QThread):
             )
 
             pipeline = Pipeline(cfg)
-            results = pipeline.run(progress_callback=self.progress.emit)
+
+            # 根据选中的步骤决定执行方式
+            all_steps = ["separation", "asr", "translate", "tts", "mix"]
+            if self.selected_steps == all_steps:
+                # 全选时使用原有的 run() 方法
+                results = pipeline.run(progress_callback=self.progress.emit)
+            else:
+                # 部分选择时使用 run_steps()
+                from src.core.pipeline import STEP_DISPLAY_NAMES
+                selected_display = [STEP_DISPLAY_NAMES.get(s, s) for s in self.selected_steps]
+                self.progress.emit(f"[步骤控制] 将执行: {', '.join(selected_display)}")
+                results = pipeline.run_steps(
+                    selected_steps=self.selected_steps,
+                    progress_callback=self.progress.emit,
+                )
 
             mix_path = results.get("mix_path", "")
             cloned_profile_id = results.get("cloned_profile_id")
@@ -185,12 +370,20 @@ class BatchWorkerThread(QThread):
     file_progress = Signal(int, int, str)  # current, total, filename
     finished = Signal(list)  # results list
 
-    def __init__(self, input_files: List[str], output_dir: str, params: dict, max_workers: int = 2):
+    def __init__(
+        self,
+        input_files: List[str],
+        output_dir: str,
+        params: dict,
+        max_workers: int = 2,
+        selected_steps: List[str] = None,
+    ):
         super().__init__()
         self.input_files = input_files
         self.output_dir = output_dir
         self.params = params
         self.max_workers = max_workers  # 并行度
+        self.selected_steps = selected_steps or ["separation", "asr", "translate", "tts", "mix"]
         self.results = []
         self._results_lock = threading.Lock()  # 保护 results 列表
         self._cancel_event = threading.Event()  # 协作式取消
@@ -252,7 +445,16 @@ class BatchWorkerThread(QThread):
             with gpu_lock:
                 pipeline = Pipeline(cfg)
                 # 无回调，避免线程安全问题
-                results = pipeline.run(progress_callback=None)
+                # 根据选中的步骤决定执行方式
+                all_steps = ["separation", "asr", "translate", "tts", "mix"]
+                if self.selected_steps == all_steps:
+                    results = pipeline.run(progress_callback=None)
+                else:
+                    # 部分选择时使用 run_steps()
+                    results = pipeline.run_steps(
+                        selected_steps=self.selected_steps,
+                        progress_callback=None,
+                    )
 
             mix_path = results.get("mix_path", "")
             if mix_path:

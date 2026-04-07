@@ -21,7 +21,8 @@ from PySide6.QtWidgets import (
     QScrollArea
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QFont, QAction, QColor
+from PySide6.QtGui import QFont, QAction, QColor, QKeySequence
+from PySide6.QtWidgets import QShortcut, QStatusBar
 
 # 添加项目根目录到 sys.path（支持直接运行脚本）
 project_root = Path(__file__).parent.parent
@@ -29,9 +30,15 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 # 导入拆分模块
-from src.gui_workers import SingleWorkerThread, PreviewWorkerThread, BatchWorkerThread
+from src.gui_workers import (
+    SingleWorkerThread, PreviewWorkerThread, BatchWorkerThread,
+    StepWorkerThread, SubtitleExportWorkerThread
+)
 from src.gui_services import scan_audio_files
 from src.utils.constants import AUDIO_EXTENSIONS
+
+# 步骤名称常量（从 pipeline 模块导入）
+from src.core.pipeline import STEP_NAMES, STEP_DISPLAY_NAMES, STEP_DEPENDENCIES
 
 
 class MainWindow(QMainWindow):
@@ -41,7 +48,53 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.worker = None
         self.batch_worker = None
+        self.step_worker = None  # 步骤执行 Worker
+        # 步骤状态
+        self._step_checkboxes = {}
+        self._step_buttons = {}
+        self._step_status_labels = {}
+        self._step_state = {}  # 各步骤的完成状态
+        # 字幕导出相关
+        self._subtitle_segments = []  # 保存 ASR + 翻译结果供导出
         self.setup_ui()
+
+    def create_button(
+        self,
+        text: str,
+        btn_class: str = "secondary",
+        icon: str = None,
+        min_width: int = 80,
+        min_height: int = 28,
+        enabled: bool = True,
+        tooltip: str = None
+    ) -> QPushButton:
+        """
+        创建统一样式的按钮（工厂方法）
+        
+        Args:
+            text: 按钮文本
+            btn_class: 按钮类型 (primary/success/danger/secondary/ghost/step-{name})
+            icon: 可选的图标字符
+            min_width: 最小宽度
+            min_height: 最小高度
+            enabled: 是否启用
+            tooltip: 提示文本
+            
+        Returns:
+            配置好的 QPushButton
+        """
+        btn = QPushButton(text)
+        btn.setMinimumSize(min_width, min_height)
+        btn.setProperty("class", btn_class)
+        btn.setEnabled(enabled)
+        
+        if icon:
+            btn.setText(f"{icon} {text}")
+        
+        if tooltip:
+            btn.setToolTip(tooltip)
+        
+        return btn
 
     def setup_ui(self):
         """设置UI"""
@@ -59,6 +112,25 @@ class MainWindow(QMainWindow):
         asr_action = QAction("ASR 模型配置", self)
         asr_action.triggered.connect(self.show_asr_config)
         settings_menu.addAction(asr_action)
+
+        # ===== 状态栏 =====
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        
+        # 左侧：当前状态
+        self.status_label = QLabel("就绪")
+        self.status_bar.addWidget(self.status_label)
+        
+        # 右侧：GPU信息和版本
+        gpu_info = self._get_gpu_info()
+        self.gpu_label = QLabel(f"GPU: {gpu_info}")
+        self.gpu_label.setProperty("class", "hint")
+        self.status_bar.addPermanentWidget(self.gpu_label)
+        
+        # 版本信息
+        version_label = QLabel("v1.0.0")
+        version_label.setProperty("class", "hint")
+        self.status_bar.addPermanentWidget(version_label)
 
         # 中央部件
         central_widget = QWidget()
@@ -94,16 +166,36 @@ class MainWindow(QMainWindow):
         self.progress_text = QTextEdit()
         self.progress_text.setMaximumHeight(80)
         self.progress_text.setReadOnly(True)
-        self.progress_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
-                color: #00ff00;
-                font-family: Consolas, monospace;
-                font-size: 11px;
-                border: 1px solid #333;
-            }
-        """)
+        self.progress_text.setProperty("class", "log")
         main_layout.addWidget(self.progress_text)
+
+        # ===== 键盘快捷键 =====
+        self._setup_shortcuts()
+
+    def _setup_shortcuts(self):
+        """设置键盘快捷键"""
+        # Ctrl+Enter: 开始处理（单文件）
+        shortcut_start = QShortcut(QKeySequence("Ctrl+Return"), self)
+        shortcut_start.activated.connect(self.start_single)
+        shortcut_start.setToolTip("Ctrl+Enter: 开始处理")
+        
+        # Ctrl+Shift+Enter: 开始批量处理
+        shortcut_batch = QShortcut(QKeySequence("Ctrl+Shift+Return"), self)
+        shortcut_batch.activated.connect(self.start_batch)
+        shortcut_batch.setToolTip("Ctrl+Shift+Enter: 批量处理")
+        
+        # Ctrl+. : 停止处理
+        shortcut_stop = QShortcut(QKeySequence("Ctrl+."), self)
+        shortcut_stop.activated.connect(self._stop_current)
+        shortcut_stop.setToolTip("Ctrl+.: 停止处理")
+
+    def _stop_current(self):
+        """停止当前处理（根据标签页）"""
+        current_tab = self.tabs.currentIndex()
+        if current_tab == 0:  # 单文件处理
+            self.stop_single()
+        elif current_tab == 1:  # 批量处理
+            self.stop_batch()
 
     def create_single_tab(self) -> QWidget:
         """创建单文件处理标签页"""
@@ -358,16 +450,28 @@ class MainWindow(QMainWindow):
         delay_layout.addStretch()
         settings_layout.addLayout(delay_layout)
 
+
         settings_group.setLayout(settings_layout)
         layout.addWidget(settings_group)
+
+        # ===== 步骤控制组 =====
+        self.step_control_group = self._create_step_control_group()
+        layout.addWidget(self.step_control_group)
 
         # ===== 按钮 =====
         btn_layout = QHBoxLayout()
         self.single_start_btn = QPushButton("开始处理")
         self.single_start_btn.setMinimumHeight(30)
-        self.single_start_btn.setStyleSheet("QPushButton{background-color:#0078d4;color:white;font-weight:bold;border:none;border-radius:5px;}")
+        self.single_start_btn.setProperty("class", "primary")
         self.single_start_btn.clicked.connect(self.start_single)
         btn_layout.addWidget(self.single_start_btn)
+
+        self.single_export_subtitle_btn = QPushButton("导出字幕")
+        self.single_export_subtitle_btn.setMinimumHeight(30)
+        self.single_export_subtitle_btn.setEnabled(False)
+        self.single_export_subtitle_btn.setProperty("class", "secondary")
+        self.single_export_subtitle_btn.clicked.connect(self.show_subtitle_export_dialog)
+        btn_layout.addWidget(self.single_export_subtitle_btn)
 
         self.single_stop_btn = QPushButton("停止")
         self.single_stop_btn.setMinimumHeight(30)
@@ -615,11 +719,15 @@ class MainWindow(QMainWindow):
         mix_group.setLayout(mix_layout)
         layout.addWidget(mix_group)
 
+        # ===== 批量处理步骤控制组 (简化版：仅复选框) =====
+        self.batch_step_control_group = self._create_batch_step_control_group()
+        layout.addWidget(self.batch_step_control_group)
+
         # ===== 按钮 =====
         btn_layout = QHBoxLayout()
         self.batch_start_btn = QPushButton("开始批量处理")
         self.batch_start_btn.setMinimumHeight(30)
-        self.batch_start_btn.setStyleSheet("QPushButton{background-color:#107c10;color:white;font-weight:bold;border:none;border-radius:5px;}")
+        self.batch_start_btn.setProperty("class", "success")
         self.batch_start_btn.clicked.connect(self.start_batch)
         btn_layout.addWidget(self.batch_start_btn)
 
@@ -669,6 +777,500 @@ class MainWindow(QMainWindow):
         ]
         for value, label in asr_models:
             combo.addItem(label, userData=value)
+
+    def _create_step_control_group(self, for_batch: bool = False) -> QGroupBox:
+        """
+        创建步骤控制组 UI
+
+        Args:
+            for_batch: 是否为批量处理标签页（简化版：无单步按钮）
+
+        Returns:
+            QGroupBox 控件
+        """
+        group = QGroupBox("步骤控制")
+        layout = QVBoxLayout()
+
+        # 第一行：5个步骤复选框
+        checkbox_layout = QHBoxLayout()
+
+        # 步骤图标
+        step_icons = {
+            "separation": "🎤",
+            "asr": "📝",
+            "translate": "🌐",
+            "tts": "🔊",
+            "mix": "🎵",
+        }
+
+        for step_name in STEP_NAMES:
+            cb = QCheckBox(f"{step_icons.get(step_name, '')} {STEP_DISPLAY_NAMES[step_name]}")
+            cb.setChecked(True)
+            cb.setObjectName(f"step_checkbox_{step_name}")
+            cb.stateChanged.connect(
+                lambda state, step=step_name: self._on_step_checkbox_changed(step, state)
+            )
+            checkbox_layout.addWidget(cb)
+            self._step_checkboxes[step_name] = cb
+
+        checkbox_layout.addStretch()
+        layout.addLayout(checkbox_layout)
+
+        if not for_batch:
+            # 单文件模式：添加单步执行按钮行
+            button_layout = QHBoxLayout()
+
+            for step_name in STEP_NAMES:
+                btn = QPushButton(STEP_DISPLAY_NAMES[step_name])
+                btn.setObjectName(f"step_button_{step_name}")
+                btn.clicked.connect(
+                    lambda checked, step=step_name: self._execute_single_step(step)
+                )
+                button_layout.addWidget(btn)
+                self._step_buttons[step_name] = btn
+
+            button_layout.addStretch()
+            layout.addLayout(button_layout)
+
+            # 更新单步按钮状态
+            self._update_step_button_states()
+
+        # 第三行：状态标签
+        status_layout = QHBoxLayout()
+        self._step_status_label = QLabel("就绪")
+        self._step_status_label.setProperty("class", "status")
+        status_layout.addWidget(self._step_status_label)
+        status_layout.addStretch()
+        layout.addLayout(status_layout)
+
+        group.setLayout(layout)
+        return group
+
+    def _create_batch_step_control_group(self) -> QGroupBox:
+        """
+        创建批量处理简化版步骤控制组
+
+        简化版：仅复选框 + 状态标签，不含单步按钮
+        """
+        group = QGroupBox("批量处理步骤控制")
+        layout = QVBoxLayout()
+
+        # 复选框行
+        checkbox_layout = QHBoxLayout()
+
+        # 步骤图标
+        step_icons = {
+            "separation": "🎤",
+            "asr": "📝",
+            "translate": "🌐",
+            "tts": "🔊",
+            "mix": "🎵",
+        }
+
+        # 批量处理的复选框使用单独的字典
+        self._batch_step_checkboxes = {}
+
+        for step_name in STEP_NAMES:
+            cb = QCheckBox(f"{step_icons.get(step_name, '')} {STEP_DISPLAY_NAMES[step_name]}")
+            cb.setChecked(True)
+            cb.setObjectName(f"batch_step_checkbox_{step_name}")
+            cb.stateChanged.connect(
+                lambda state, step=step_name: self._on_batch_step_checkbox_changed(step, state)
+            )
+            checkbox_layout.addWidget(cb)
+            self._batch_step_checkboxes[step_name] = cb
+
+        checkbox_layout.addStretch()
+        layout.addLayout(checkbox_layout)
+
+        # 状态标签
+        status_layout = QHBoxLayout()
+        self._batch_step_status_label = QLabel("就绪 (默认执行所有步骤)")
+        self._batch_step_status_label.setProperty("class", "status")
+        status_layout.addWidget(self._batch_step_status_label)
+        status_layout.addStretch()
+        layout.addLayout(status_layout)
+
+        # 说明提示
+        hint = QLabel("提示：取消勾选可跳过对应步骤（如已有中间文件时）")
+        hint.setProperty("class", "hint")
+        layout.addWidget(hint)
+
+        group.setLayout(layout)
+        return group
+
+    def _on_batch_step_checkbox_changed(self, step_name: str, state: int):
+        """
+        处理批量处理步骤复选框变化
+
+        联动规则与单文件处理相同
+        """
+        is_checked = (state == Qt.CheckState.Checked.value)
+
+        # 复选框变化时不递归触发
+        if hasattr(self, "_updating_batch_checkboxes") and self._updating_batch_checkboxes:
+            return
+        self._updating_batch_checkboxes = True
+
+        try:
+            if is_checked:
+                # 勾选时：级联勾选上游步骤
+                if step_name == "translate":
+                    self._batch_step_checkboxes["asr"].setChecked(True)
+                elif step_name == "tts":
+                    self._batch_step_checkboxes["translate"].setChecked(True)
+                    self._batch_step_checkboxes["asr"].setChecked(True)
+                elif step_name == "mix":
+                    self._batch_step_checkboxes["tts"].setChecked(True)
+                    self._batch_step_checkboxes["translate"].setChecked(True)
+                    self._batch_step_checkboxes["asr"].setChecked(True)
+            else:
+                # 取消勾选时：级联取消下游步骤
+                if step_name == "asr":
+                    self._batch_step_checkboxes["translate"].setChecked(False)
+                    self._batch_step_checkboxes["tts"].setChecked(False)
+                    self._batch_step_checkboxes["mix"].setChecked(False)
+                elif step_name == "translate":
+                    self._batch_step_checkboxes["tts"].setChecked(False)
+                    self._batch_step_checkboxes["mix"].setChecked(False)
+                elif step_name == "tts":
+                    self._batch_step_checkboxes["mix"].setChecked(False)
+
+            # 更新状态标签
+            self._update_batch_step_status()
+
+        finally:
+            self._updating_batch_checkboxes = False
+
+    def _update_batch_step_status(self):
+        """更新批量处理步骤状态标签"""
+        selected = [s for s in STEP_NAMES if self._batch_step_checkboxes[s].isChecked()]
+        if len(selected) == len(STEP_NAMES):
+            self._batch_step_status_label.setText("就绪 (执行所有步骤)")
+        else:
+            step_names = [STEP_DISPLAY_NAMES.get(s, s) for s in selected]
+            self._batch_step_status_label.setText(f"将执行: {', '.join(step_names)}")
+
+    def _get_batch_selected_steps(self) -> list:
+        """获取批量处理当前选中的步骤列表"""
+        return [s for s in STEP_NAMES if self._batch_step_checkboxes[s].isChecked()]
+
+    def _on_step_checkbox_changed(self, step_name: str, state: int):
+        """
+        处理步骤复选框变化，实现级联联动
+
+        联动规则：
+        - 勾选「翻译」时自动勾选「ASR」
+        - 勾选「TTS」时自动勾选「翻译」和「ASR」
+        - 勾选「混音」时自动勾选「TTS」「翻译」「ASR」
+        - 取消「ASR」时自动取消「翻译」「TTS」「混音」
+        - 取消「翻译」时自动取消「TTS」「混音」
+        """
+        is_checked = (state == Qt.CheckState.Checked.value)
+
+        # 复选框变化时不递归触发
+        self._updating_checkboxes = True
+
+        try:
+            if is_checked:
+                # 勾选时：级联勾选上游步骤
+                if step_name == "translate":
+                    self._step_checkboxes["asr"].setChecked(True)
+                elif step_name == "tts":
+                    self._step_checkboxes["translate"].setChecked(True)
+                    self._step_checkboxes["asr"].setChecked(True)
+                elif step_name == "mix":
+                    self._step_checkboxes["tts"].setChecked(True)
+                    self._step_checkboxes["translate"].setChecked(True)
+                    self._step_checkboxes["asr"].setChecked(True)
+            else:
+                # 取消勾选时：级联取消下游步骤
+                if step_name == "asr":
+                    self._step_checkboxes["translate"].setChecked(False)
+                    self._step_checkboxes["tts"].setChecked(False)
+                    self._step_checkboxes["mix"].setChecked(False)
+                elif step_name == "translate":
+                    self._step_checkboxes["tts"].setChecked(False)
+                    self._step_checkboxes["mix"].setChecked(False)
+                elif step_name == "tts":
+                    self._step_checkboxes["mix"].setChecked(False)
+
+            # 更新单步按钮状态
+            self._update_step_button_states()
+
+        finally:
+            self._updating_checkboxes = False
+
+    def _update_step_button_states(self):
+        """更新单步按钮的启用状态"""
+        for step_name, btn in self._step_buttons.items():
+            deps = STEP_DEPENDENCIES.get(step_name, [])
+            can_enable = True
+
+            # 检查前置依赖是否满足
+            for dep in deps:
+                if not self._step_checkboxes.get(dep, QCheckBox()).isChecked():
+                    can_enable = False
+                    break
+
+            # 检查是否有前置文件存在
+            # 这里简化处理：如果所有依赖都勾选了，就启用
+            btn.setEnabled(can_enable)
+
+            # 根据状态更新按钮样式
+            if can_enable:
+                btn.setStyleSheet("")
+            else:
+                btn.setStyleSheet("color: #888888; background-color: #2D2D30;")
+
+    def _execute_single_step(self, step_name: str):
+        """
+        执行单个步骤
+
+        Args:
+            step_name: 步骤名称
+        """
+        input_file = self.single_file_input.text().strip()
+        if not input_file or not Path(input_file).exists():
+            QMessageBox.warning(self, "警告", "请先选择有效的音频文件！")
+            return
+
+        output_dir = self.single_output_input.text().strip()
+        if not output_dir:
+            p = Path(input_file)
+            safe_name = "".join(c if c.isalnum() or c in " _-()" else "_" for c in p.stem)
+            output_dir = str(p.parent / f"{safe_name}_output")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        params = self.get_single_params()
+
+        # 获取选中的步骤（至少包含当前步骤）
+        selected_steps = [
+            s for s in STEP_NAMES
+            if self._step_checkboxes[s].isChecked()
+        ]
+
+        # 确保当前步骤在选中列表中
+        if step_name not in selected_steps:
+            # 找到当前步骤的位置，插入
+            step_idx = STEP_NAMES.index(step_name)
+            # 找到最后一个选中的比当前步骤早的步骤
+            for i in range(len(selected_steps) - 1, -1, -1):
+                if STEP_NAMES.index(selected_steps[i]) < step_idx:
+                    selected_steps.insert(i + 1, step_name)
+                    break
+            else:
+                selected_steps.insert(0, step_name)
+
+        self.log(f"[单步执行] {STEP_DISPLAY_NAMES[step_name]}")
+        self._step_status_label.setText(f"执行中: {STEP_DISPLAY_NAMES[step_name]}...")
+
+        # 禁用开始按钮和单步按钮
+        self.single_start_btn.setEnabled(False)
+        for btn in self._step_buttons.values():
+            btn.setEnabled(False)
+
+        # 创建步骤执行 Worker
+        self.step_worker = StepWorkerThread(
+            input_path=input_file,
+            output_dir=output_dir,
+            params=params,
+            selected_steps=[step_name],  # 只执行当前步骤
+        )
+        self.step_worker.progress.connect(self.log)
+        self.step_worker.step_finished.connect(self._on_step_finished)
+        self.step_worker.finished.connect(self._on_single_step_finished)
+        self.step_worker.start()
+
+    def _on_step_finished(self, step_name: str, state: dict):
+        """单步执行完成回调"""
+        self.log(f"[步骤完成] {STEP_DISPLAY_NAMES[step_name]}")
+        self._step_status_label.setText(f"已完成: {STEP_DISPLAY_NAMES[step_name]}")
+
+    def _on_single_step_finished(self, success: bool, message: str, results: dict):
+        """单步执行全部完成"""
+        # 恢复按钮状态
+        self.single_start_btn.setEnabled(True)
+        self._update_step_button_states()
+
+        # 保存结果供字幕导出使用
+        if results.get("timestamped_segments"):
+            self._subtitle_segments = results["timestamped_segments"]
+            self.single_export_subtitle_btn.setEnabled(True)
+
+        if success:
+            self.log(f"[完成] {message}")
+        else:
+            self.log(f"[失败] {message}")
+            QMessageBox.critical(self, "错误", message)
+
+    def _get_selected_steps(self) -> list:
+        """获取当前选中的步骤列表"""
+        return [s for s in STEP_NAMES if self._step_checkboxes[s].isChecked()]
+
+    def _restore_step_checkboxes_from_checkpoint(self, completed_steps: list, next_step: str):
+        """
+        从断点恢复时，自动勾选剩余步骤
+
+        Args:
+            completed_steps: 已完成的步骤列表
+            next_step: 下一步步骤名
+        """
+        # 取消已完成步骤的勾选
+        for step in completed_steps:
+            if step in self._step_checkboxes:
+                self._step_checkboxes[step].setChecked(False)
+
+        # 勾选下一步
+        if next_step and next_step in self._step_checkboxes:
+            self._step_checkboxes[next_step].setChecked(True)
+
+    def check_and_show_resume_state(self, output_dir: str):
+        """
+        检查并显示断点恢复状态
+
+        Args:
+            output_dir: 输出目录
+        """
+        from src.core.checkpoint import get_checkpoint_manager
+
+        by_product_dir = Path(output_dir) / "BY_Product"
+        if not by_product_dir.exists():
+            return
+
+        checkpoint_mgr = get_checkpoint_manager()
+        resume_info = checkpoint_mgr.get_resume_info(str(by_product_dir))
+
+        if not resume_info:
+            return
+
+        completed = resume_info.get("completed_steps", [])
+        next_step = resume_info.get("next_step", "")
+
+        # 显示恢复状态
+        completed_display = []
+        for step in completed:
+            completed_display.append(f"[{STEP_DISPLAY_NAMES.get(step, step)} ✓]")
+
+        self._step_status_label.setText(
+            f"<span style='color: #f90;'>检测到未完成任务: {' '.join(completed_display)} "
+            f"可从 [{STEP_DISPLAY_NAMES.get(next_step, next_step)}] 继续</span>"
+        )
+        self._step_status_label.setTextFormat(Qt.RichText)
+
+        # 添加恢复按钮
+        self._resume_info = resume_info
+        self._resume_btn = QPushButton("恢复")
+        self._resume_btn.clicked.connect(self._on_resume_clicked)
+        # 将按钮添加到状态行
+        status_layout = self._step_status_label.parentWidget().layout()
+        if status_layout:
+            # 找到状态标签的位置，在其后添加按钮
+            idx = status_layout.indexOf(self._step_status_label)
+            if idx >= 0:
+                # 移除旧的标签
+                status_layout.removeWidget(self._step_status_label)
+                # 创建水平布局包含标签和按钮
+                h_layout = QHBoxLayout()
+                h_layout.addWidget(self._step_status_label)
+                h_layout.addWidget(self._resume_btn)
+                h_layout.addStretch()
+                status_layout.addLayout(h_layout)
+
+    def _on_resume_clicked(self):
+        """点击恢复按钮"""
+        if hasattr(self, "_resume_info") and self._resume_info:
+            completed = self._resume_info.get("completed_steps", [])
+            next_step = self._resume_info.get("next_step", "")
+            self._restore_step_checkboxes_from_checkpoint(completed, next_step)
+            self.log("[恢复] 已勾选剩余步骤，可点击「开始处理」继续")
+
+            # 如果有恢复按钮，禁用它
+            if hasattr(self, "_resume_btn"):
+                self._resume_btn.setEnabled(False)
+                self._resume_btn.setText("已恢复")
+
+    def show_subtitle_export_dialog(self):
+        """显示字幕导出对话框"""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QComboBox, QCheckBox, QDialogButtonBox
+
+        # 检查是否有字幕数据
+        if not hasattr(self, "_subtitle_segments") or not self._subtitle_segments:
+            QMessageBox.warning(self, "警告", "没有可导出的字幕数据！\n请先执行翻译或处理步骤。")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("导出字幕")
+        dialog.setMinimumWidth(350)
+
+        layout = QVBoxLayout(dialog)
+
+        # 格式选择
+        format_layout = QHBoxLayout()
+        format_layout.addWidget(QLabel("格式:"))
+        format_combo = QComboBox()
+        format_combo.addItems(["SRT (通用播放器)", "VTT (网页字幕)", "LRC (歌词格式)"])
+        format_layout.addWidget(format_combo)
+        layout.addLayout(format_layout)
+
+        # 双语模式
+        bilingual_check = QCheckBox("双语字幕模式 (日文+中文)")
+        layout.addWidget(bilingual_check)
+
+        # 提示
+        hint = QLabel(f"共 {len(self._subtitle_segments)} 条字幕")
+        hint.setProperty("class", "hint")
+        layout.addWidget(hint)
+
+        # 按钮
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec():
+            # 获取选择
+            format_idx = format_combo.currentIndex()
+            format_types = ["srt", "vtt", "lrc"]
+            format_type = format_types[format_idx]
+            bilingual = bilingual_check.isChecked()
+
+            # 选择保存位置
+            default_ext = format_type
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "保存字幕文件",
+                f"subtitle.{default_ext}",
+                f"字幕文件 (*.{default_ext});;所有文件 (*.*)"
+            )
+
+            if file_path:
+                self._do_export_subtitle(file_path, format_type, bilingual)
+
+    def _do_export_subtitle(self, output_path: str, format_type: str, bilingual: bool):
+        """执行字幕导出"""
+        self.single_export_subtitle_btn.setEnabled(False)
+        self.log(f"[字幕导出] 格式: {format_type.upper()}, 双语: {bilingual}")
+
+        self.subtitle_export_worker = SubtitleExportWorkerThread(
+            segments=self._subtitle_segments,
+            output_path=output_path,
+            format_type=format_type,
+            bilingual=bilingual,
+        )
+        self.subtitle_export_worker.finished.connect(self._on_subtitle_export_finished)
+        self.subtitle_export_worker.start()
+
+    def _on_subtitle_export_finished(self, success: bool, message: str, output_path: str):
+        """字幕导出完成"""
+        self.single_export_subtitle_btn.setEnabled(True)
+
+        if success:
+            self.log(f"[字幕导出] 成功: {output_path}")
+            QMessageBox.information(self, "成功", message)
+        else:
+            self.log(f"[字幕导出] 失败: {message}")
+            QMessageBox.critical(self, "错误", message)
 
     def browse_single_file(self):
         """选择单文件"""
@@ -887,13 +1489,25 @@ class MainWindow(QMainWindow):
             self.log(f"字幕: 未找到（将使用API翻译）")
         self.log(f"TTS引擎: {params['tts_engine']}, 音色: {params['tts_voice']}")
         self.log(f"原音音量: {params['original_volume']*100:.0f}%, 配音音量: {params['tts_ratio']*100:.0f}%")
-        self.log(f"TTS延迟: {params['tts_delay']}ms\n")
+        self.log(f"TTS延迟: {params['tts_delay']}ms")
+
+        # 获取选中的步骤
+        selected_steps = self._get_selected_steps()
+        all_steps = ["separation", "asr", "translate", "tts", "mix"]
+        if selected_steps == all_steps:
+            self.log(f"步骤: 全部 (5/5)")
+        else:
+            from src.core.pipeline import STEP_DISPLAY_NAMES
+            step_names = [STEP_DISPLAY_NAMES.get(s, s) for s in selected_steps]
+            self.log(f"步骤: {', '.join(step_names)} ({len(selected_steps)}/{len(all_steps)})")
 
         self.single_start_btn.setEnabled(False)
         self.single_stop_btn.setEnabled(True)
         self.progress_bar.setValue(0)
 
-        self.worker = SingleWorkerThread(input_file, output_dir, params, subtitle_path)
+        self.worker = SingleWorkerThread(
+            input_file, output_dir, params, subtitle_path, selected_steps
+        )
         self.worker.progress.connect(self.on_single_progress)
         self.worker.finished.connect(self.on_single_finished)
         self.worker.start()
@@ -959,13 +1573,29 @@ class MainWindow(QMainWindow):
         self.log(f"开始批量处理 {file_count} 个文件")
         self.log(f"输出目录: {output_dir or '与源文件同目录'}")
         self.log(f"跳过已处理: {params['skip_existing']}")
-        self.log(f"并行度: {max_workers}\n")
+        self.log(f"并行度: {max_workers}")
+
+        # 获取选中的步骤
+        selected_steps = self._get_batch_selected_steps()
+        all_steps = ["separation", "asr", "translate", "tts", "mix"]
+        if selected_steps == all_steps:
+            self.log(f"步骤: 全部 (5/5)")
+        else:
+            from src.core.pipeline import STEP_DISPLAY_NAMES
+            step_names = [STEP_DISPLAY_NAMES.get(s, s) for s in selected_steps]
+            self.log(f"步骤: {', '.join(step_names)} ({len(selected_steps)}/{len(all_steps)})")
+
+        self.log("")
 
         self.batch_start_btn.setEnabled(False)
         self.batch_stop_btn.setEnabled(True)
         self.progress_bar.setValue(0)
 
-        self.batch_worker = BatchWorkerThread(input_files, output_dir, params, max_workers=max_workers)
+        self.batch_worker = BatchWorkerThread(
+            input_files, output_dir, params,
+            max_workers=max_workers,
+            selected_steps=selected_steps,
+        )
         self.batch_worker.progress.connect(self.log)
         self.batch_worker.file_progress.connect(self.on_batch_file_progress)
         self.batch_worker.finished.connect(self.on_batch_finished)
@@ -1113,7 +1743,7 @@ class MainWindow(QMainWindow):
         # 说明
         from PySide6.QtWidgets import QLabel
         info = QLabel("API Key 会保存在 config/config.json 文件中\n优先级: 环境变量 > 配置文件 > 空")
-        info.setStyleSheet("color: gray; font-size: 11px;")
+        info.setProperty("class", "hint")
         layout.addWidget(info)
 
         # 按钮
@@ -1166,7 +1796,7 @@ class MainWindow(QMainWindow):
             "• large-v3: 最佳准确度（默认，推荐用于音色克隆）\n\n"
             "注意: 更改后下次处理时生效"
         )
-        info.setStyleSheet("color: gray; font-size: 11px;")
+        info.setProperty("class", "hint")
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -1224,7 +1854,7 @@ class MainWindow(QMainWindow):
         # 添加参考指南按钮
         self.workshop_guide_btn = QPushButton("参考指南")
         self.workshop_guide_btn.setFixedSize(80, 24)
-        self.workshop_guide_btn.setStyleSheet("QPushButton{background-color:#6c757d;color:white;border:none;border-radius:4px;padding:2px;}")
+        self.workshop_guide_btn.setProperty("class", "secondary")
         self.workshop_guide_btn.clicked.connect(self._open_voice_guide)
         desc_layout.addWidget(self.workshop_guide_btn)
         design_layout.addLayout(desc_layout)
@@ -1238,9 +1868,7 @@ class MainWindow(QMainWindow):
         # 生成按钮和进度
         btn_layout = QHBoxLayout()
         self.workshop_design_btn = QPushButton("生成音色")
-        self.workshop_design_btn.setStyleSheet(
-            "QPushButton{background-color:#0078d4;color:white;font-weight:bold;border:none;border-radius:5px;padding:8px;}"
-        )
+        self.workshop_design_btn.setProperty("class", "primary")
         self.workshop_design_btn.clicked.connect(self._start_voice_design)
         btn_layout.addWidget(self.workshop_design_btn)
 
@@ -1260,7 +1888,7 @@ class MainWindow(QMainWindow):
 
         # 提示
         hint = QLabel("提示: 支持单音频克隆或多音频片段批量克隆")
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setProperty("class", "hint")
         clone_layout.addWidget(hint)
 
         # 字幕文件（用于切分音频）
@@ -1297,25 +1925,12 @@ class MainWindow(QMainWindow):
         self.manual_ref_text_group = QGroupBox("高级: 手动覆盖 ref_text（可选）")
         self.manual_ref_text_group.setCheckable(True)
         self.manual_ref_text_group.setChecked(False)
-        self.manual_ref_text_group.setStyleSheet("""
-            QGroupBox {
-                font-size: 11px;
-                border: 1px solid #666;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 8px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
+        self.manual_ref_text_group.setProperty("class", "advanced")
         manual_text_layout = QVBoxLayout()
         manual_hint = QLabel(
             "勾选后将使用此文本覆盖片段拼合后的 ref_text（慎用，需确保文本与音频对应）"
         )
-        manual_hint.setStyleSheet("color: gray; font-size: 10px;")
+        manual_hint.setProperty("class", "hint")
         manual_hint.setWordWrap(True)
         manual_text_layout.addWidget(manual_hint)
         self.workshop_manual_ref_text = QTextEdit()
@@ -1331,9 +1946,7 @@ class MainWindow(QMainWindow):
         # ===== 分析音频按钮 =====
         analyze_layout = QHBoxLayout()
         self.workshop_analyze_btn = QPushButton("分析音频片段")
-        self.workshop_analyze_btn.setStyleSheet(
-            "QPushButton{background-color:#6c757d;color:white;font-weight:bold;border:none;border-radius:5px;padding:8px;}"
-        )
+        self.workshop_analyze_btn.setProperty("class", "secondary")
         self.workshop_analyze_btn.clicked.connect(self._start_segment_analysis)
         analyze_layout.addWidget(self.workshop_analyze_btn)
 
@@ -1351,7 +1964,7 @@ class MainWindow(QMainWindow):
 
         # 信息标签
         self.segment_info_label = QLabel()
-        self.segment_info_label.setStyleSheet("color: #333; font-size: 11px;")
+        self.segment_info_label.setProperty("class", "hint")
         segment_result_layout.addWidget(self.segment_info_label)
 
         # 片段表格
@@ -1377,13 +1990,13 @@ class MainWindow(QMainWindow):
 
         # 合成预览
         preview_label = QLabel("合成 ref_text 预览:")
-        preview_label.setStyleSheet("font-weight: bold; font-size: 11px;")
+        preview_label.setStyleSheet("font-weight: bold;")
         segment_result_layout.addWidget(preview_label)
         self.segment_ref_text_preview = QTextEdit()
         self.segment_ref_text_preview.setReadOnly(True)
         self.segment_ref_text_preview.setMaximumHeight(50)
         self.segment_ref_text_preview.setStyleSheet(
-            "QTextEdit { background-color: #f5f5f5; border: 1px solid #ccc; font-size: 12px; }"
+            "QTextEdit { background-color: #2D2D30; border: 1px solid #3E3E42; font-size: 12px; }"
         )
         segment_result_layout.addWidget(self.segment_ref_text_preview)
 
@@ -1408,9 +2021,7 @@ class MainWindow(QMainWindow):
         # 克隆按钮和进度
         clone_btn_layout = QHBoxLayout()
         self.workshop_clone_btn = QPushButton("开始克隆")
-        self.workshop_clone_btn.setStyleSheet(
-            "QPushButton{background-color:#107c10;color:white;font-weight:bold;border:none;border-radius:5px;padding:8px;}"
-        )
+        self.workshop_clone_btn.setProperty("class", "success")
         self.workshop_clone_btn.clicked.connect(self._start_voice_clone)
         clone_btn_layout.addWidget(self.workshop_clone_btn)
 
@@ -1456,7 +2067,7 @@ class MainWindow(QMainWindow):
         list_btn_layout.addWidget(self.workshop_preview_btn)
 
         self.workshop_delete_btn = QPushButton("删除")
-        self.workshop_delete_btn.setStyleSheet("QPushButton{background-color:#d13438;color:white;border:none;border-radius:4px;padding:2px 8px;}")
+        self.workshop_delete_btn.setProperty("class", "danger")
         self.workshop_delete_btn.clicked.connect(self._delete_workshop_voice)
         list_btn_layout.addWidget(self.workshop_delete_btn)
         list_btn_layout.addStretch()
@@ -1468,7 +2079,7 @@ class MainWindow(QMainWindow):
         # ===== GPU 状态 =====
         gpu_info = self._get_gpu_info()
         gpu_label = QLabel(f"GPU: {gpu_info}")
-        gpu_label.setStyleSheet("color: gray; font-size: 11px;")
+        gpu_label.setProperty("class", "hint")
         layout.addWidget(gpu_label)
 
         layout.addStretch()
@@ -2115,16 +2726,30 @@ class MainWindow(QMainWindow):
             return "无 GPU (CPU 模式)"
         except Exception:
             return "未知"
+    
+    def closeEvent(self, event):
+        """窗口关闭时保存状态"""
+        from src.gui.window_state import save_window_state
+        save_window_state(self, self.tabs)
+        event.accept()
 
 
 def main():
     """入口函数"""
     app = QApplication(sys.argv)
-    app.setStyle(QStyleFactory.create("Fusion"))
-
+    
+    # 应用暗色主题
+    from src.gui.themes.theme_manager import ThemeManager
+    ThemeManager.instance().apply(app, "default_dark")
+    
     window = MainWindow()
+    
+    # 恢复窗口状态
+    from src.gui.window_state import restore_window_state
+    restore_window_state(window, window.tabs)
+    
     window.show()
-
+    
     sys.exit(app.exec())
 
 
