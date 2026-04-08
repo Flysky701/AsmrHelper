@@ -71,9 +71,14 @@ class PipelineConfig:
     output_mode: str = "single"  # "single" | "batch"
     batch_root_dir: str = ""     # 批量模式下的根目录（Main_Product/ 和 BY_Product/ 在此目录下）
 
-    # 音色克隆 (report_17)
-    clone_voice_after_separation: bool = False  # 人声分离后自动克隆音色
-    clone_voice_name: str = ""  # 克隆音色名称（留空则自动生成）
+    # ===== 步骤解耦输出模式 =====
+    # "full"          -> 完整 5 步 (默认, 向后兼容)
+    # "asr_only"      -> 仅 ASR (自动跳过翻译/TTS/混音)
+    # "subtitle_only" -> ASR + 翻译 + 导出字幕文件
+    # "tts_only"      -> ASR + 翻译 + TTS (不混音)
+    # "custom"        -> 严格按 use_* 布尔开关决定
+    pipeline_mode: str = "full"
+    export_subtitle_format: str = "srt"  # srt | vtt | lrc
 
     # 字幕清理 (report_18)
     clean_subtitle: bool = True  # 是否清理字幕（删除拟声词、说话人名字）
@@ -171,6 +176,185 @@ class Pipeline:
 
         return mix_path, by_product_dir, task_name
 
+    def _resolve_active_steps(self, has_subtitle: bool, is_chinese_subtitle: bool) -> List[str]:
+        """
+        根据配置和输入条件确定实际执行的步骤列表
+
+        Args:
+            has_subtitle: 是否有字幕文件
+            is_chinese_subtitle: 字幕是否为中文
+
+        Returns:
+            如 ["vocal_separator", "asr", "translate"]
+        """
+        config = self.config
+        mode = config.pipeline_mode
+
+        if mode == "full":
+            # 完整模式：与现在行为一致（智能跳过的步骤由字幕条件决定）
+            steps = ["vocal_separator", "asr", "translate", "tts", "mixer"]
+            return steps
+
+        elif mode == "asr_only":
+            # 仅 ASR：只做分离 + ASR
+            steps = []
+            if config.use_vocal_separator:
+                steps.append("vocal_separator")
+            if config.use_asr:
+                steps.append("asr")
+            return steps
+
+        elif mode == "subtitle_only":
+            # ASR + 翻译 + 导出字幕
+            steps = []
+            if config.use_vocal_separator:
+                steps.append("vocal_separator")
+            if config.use_asr:
+                steps.append("asr")
+            if config.use_translate and not is_chinese_subtitle:
+                steps.append("translate")
+            return steps
+
+        elif mode == "tts_only":
+            # ASR + 翻译 + TTS（不混音）
+            steps = []
+            if config.use_vocal_separator:
+                steps.append("vocal_separator")
+            steps.extend(["asr", "translate", "tts"])
+            return steps
+
+        elif mode == "custom":
+            # 严格按开关
+            steps = []
+            if config.use_vocal_separator:
+                steps.append("vocal_separator")
+            if config.use_asr:
+                steps.append("asr")
+            if config.use_translate:
+                steps.append("translate")
+            if config.use_tts:
+                steps.append("tts")
+            if config.use_mixer:
+                steps.append("mixer")
+            return steps
+
+        else:
+            # 未知模式，降级为 full
+            return ["vocal_separator", "asr", "translate", "tts", "mixer"]
+
+    def _export_subtitles(
+        self,
+        segments: List[Dict],
+        translations: Optional[List[str]],
+        output_dir: Path,
+        fmt: str,
+        task_name: str,
+        subtitle_lang: str = "ja",
+    ) -> Optional[Path]:
+        """
+        将 timestamped_segments 导出为结构化字幕文件
+
+        Args:
+            segments: 时间戳段落列表
+            translations: 翻译文本列表 (可选，为 None 时仅导出日语)
+            output_dir: 输出目录
+            fmt: 格式 (srt | vtt | lrc)
+            task_name: 任务名称 (用于文件名)
+            subtitle_lang: 字幕语言描述
+
+        Returns:
+            导出的文件路径，或 None (格式不支持)
+        """
+        if not segments:
+            return None
+
+        base_name = f"{task_name}_subtitle"
+
+        if fmt == "srt":
+            path = output_dir / f"{base_name}.srt"
+            content = self._build_srt(segments, translations)
+        elif fmt == "vtt":
+            path = output_dir / f"{base_name}.vtt"
+            content = self._build_vtt(segments, translations)
+        elif fmt == "lrc":
+            path = output_dir / f"{base_name}.lrc"
+            content = self._build_lrc(segments, translations)
+        else:
+            return None
+
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def _build_srt(self, segments: List[Dict], translations: Optional[List[str]]) -> str:
+        """构建 SRT 格式字幕"""
+        lines = []
+        for i, seg in enumerate(segments, 1):
+            start = self._format_timestamp(seg["start"], fmt="srt")
+            end = self._format_timestamp(seg["end"], fmt="srt")
+            text = seg.get("text", "")
+            translation = seg.get("translation", "") if translations else ""
+
+            lines.append(f"{i}")
+            lines.append(f"{start} --> {end}")
+            if translation:
+                lines.append(f"{text}")
+                lines.append(f"{translation}")
+            else:
+                lines.append(f"{text}")
+            lines.append("")
+        return "\n".join(lines)
+
+    def _build_vtt(self, segments: List[Dict], translations: Optional[List[str]]) -> str:
+        """构建 VTT 格式字幕"""
+        lines = ["WEBVTT", ""]
+        for seg in segments:
+            start = self._format_timestamp(seg["start"], fmt="vtt")
+            end = self._format_timestamp(seg["end"], fmt="vtt")
+            text = seg.get("text", "")
+            translation = seg.get("translation", "") if translations else ""
+
+            lines.append(f"{start} --> {end}")
+            if translation:
+                lines.append(f"{text}")
+                lines.append(f"{translation}")
+            else:
+                lines.append(f"{text}")
+            lines.append("")
+        return "\n".join(lines)
+
+    def _build_lrc(self, segments: List[Dict], translations: Optional[List[str]]) -> str:
+        """构建 LRC 格式字幕"""
+        lines = []
+        for seg in segments:
+            start_ms = int(seg["start"] * 1000)
+            minutes = start_ms // 60000
+            seconds = (start_ms % 60000) // 1000
+            centiseconds = start_ms % 1000
+            timestamp = f"[{minutes:02d}:{seconds:02d}.{centiseconds:02d}]"
+
+            text = seg.get("text", "")
+            translation = seg.get("translation", "") if translations else ""
+
+            if translation:
+                lines.append(f"{timestamp}{text}")
+                lines.append(f"{timestamp}{translation}")
+            else:
+                lines.append(f"{timestamp}{text}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_timestamp(seconds: float, fmt: str = "srt") -> str:
+        """格式化时间戳"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds - int(seconds)) * 1000)
+
+        if fmt == "srt":
+            return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+        else:  # vtt
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
+
     def run(
         self,
         preset: Optional[str] = None,
@@ -234,18 +418,26 @@ class Pipeline:
                 has_subtitle = True
                 is_chinese_subtitle = subtitle_lang == "zh"
 
-        # 确定实际步骤数（固定 5 步，跳过的步骤显示为 [跳过]）
-        # Step1: 分离 (始终)
-        # Step2: ASR (无字幕时执行)
-        # Step3: 翻译 (中文字幕跳过)
-        # Step4: TTS + 时间轴对齐 (始终)
-        # Step5: 混音 (始终)
-        total_steps = 5
-        current_step = 0
-
+        # ===== 步骤解析 (支持 pipeline_mode 解耦) =====
         # 获取字幕格式描述
         subtitle_ext = Path(subtitle_path).suffix.upper() if subtitle_path else ""
         subtitle_type = subtitle_ext.lstrip(".") or "VTT"
+
+        # 根据 pipeline_mode 解析实际执行的步骤
+        active_steps = self._resolve_active_steps(has_subtitle, is_chinese_subtitle)
+        total_steps = len(active_steps)
+        current_step = 0
+
+        # 为 full 模式注入智能跳过步骤（保持与原来一致的步骤显示逻辑）
+        if config.pipeline_mode == "full":
+            # full 模式下，字幕触发跳过但仍计入步骤数
+            display_steps = ["vocal_separator"]
+            if not has_subtitle:
+                display_steps.append("asr")
+            if not is_chinese_subtitle:
+                display_steps.append("translate")
+            display_steps.extend(["tts", "mixer"])
+            total_steps = len(display_steps)
 
         _report("=" * 60)
         _report(f"ASMR Helper 流水线")
@@ -255,7 +447,7 @@ class Pipeline:
         _report(f"中间: {by_product_dir}/")
         if has_subtitle:
             _report(f"字幕: {Path(subtitle_path).name} ({subtitle_type}格式, 语言: {subtitle_lang})")
-        _report(f"流程: {total_steps} 步" + (" (智能跳过优化)" if has_subtitle else ""))
+        _report(f"流程: {total_steps} 步 [{config.pipeline_mode}]" + (" (智能跳过优化)" if (has_subtitle and config.pipeline_mode == "full") else ""))
         _report("=" * 60)
 
         results = {
@@ -270,13 +462,15 @@ class Pipeline:
 
         t0 = time.time()
 
-        # ===== Step 1: 人声分离 (有字幕时跳过，直接使用原音频) =====
-        if has_subtitle:
-            # 有字幕，跳过人声分离，直接使用原音频
-            current_step += 1
+        # ===== Step 1: 人声分离 =====
+        if "vocal_separator" not in active_steps:
+            # 不执行分离，直接使用原音频
             results["vocal_path"] = str(input_path)
-            _report(f"[{current_step}/{total_steps}] [跳过] 人声分离 (有{subtitle_type}字幕，直接使用原音频)")
-            results["steps"]["vocal_separator"] = {"duration": 0, "skipped": True, "source": "original"}
+            if has_subtitle:
+                _report(f"[1/{total_steps}] [跳过] 人声分离 (有{subtitle_type}字幕，直接使用原音频)")
+                results["steps"]["vocal_separator"] = {"duration": 0, "skipped": True, "source": "original"}
+            else:
+                _report(f"[1/{total_steps}] [跳过] 人声分离 (直接使用输入文件)")
         elif config.use_vocal_separator:
             vocal_path = by_product_dir / "vocal.wav"
             current_step += 1
@@ -322,21 +516,39 @@ class Pipeline:
 
             results["vocal_path"] = str(vocal_path)
         else:
-            current_step += 1
             results["vocal_path"] = str(input_path)
-            _report(f"[{current_step}/{total_steps}] [跳过] 人声分离 (直接使用输入文件)")
 
-        # ===== Step 2: 时间戳获取 (ASR 或字幕) - 音色克隆需要 ASR 结果 =====
+        # ===== Step 2: 时间戳获取 (ASR 或字幕) =====
         asr_text_path = by_product_dir / "asr_result.txt"
         asr_results = []
         timestamped_segments = []  # [{start, end, text, translation}, ...] 贯穿整个流程
 
-        if has_subtitle:
-            # 使用字幕时间戳
-            current_step += 1  # 递增步骤计数
+        if "asr" not in active_steps:
+            # 不执行 ASR：从字幕加载时间戳
+            if has_subtitle:
+                current_step += 1
+                _report(f"[{current_step}/{total_steps}] [跳过] ASR (使用{subtitle_type}字幕时间戳)")
+
+                # 加载并清理字幕
+                if config.clean_subtitle:
+                    subtitle_entries = load_and_clean_subtitle(
+                        subtitle_path,
+                        clean_sound_effects=config.clean_sound_effects,
+                        clean_speaker_names=config.clean_speaker_names,
+                    )
+                else:
+                    subtitle_entries = load_subtitle_with_timestamps(subtitle_path)
+
+                timestamped_segments = [
+                    {"start": e["start"], "end": e["end"], "text": e["text"]}
+                    for e in subtitle_entries
+                ]
+                results["steps"]["asr"] = {"duration": 0, "skipped": True, "source": subtitle_type.lower(), "segments": len(timestamped_segments), "cleaned": config.clean_subtitle}
+        elif has_subtitle:
+            # 有字幕但需做 ASR（pipeline_mode != full 时）
+            current_step += 1
             _report(f"[{current_step}/{total_steps}] [跳过] ASR (使用{subtitle_type}字幕时间戳)")
 
-            # 加载并清理字幕
             if config.clean_subtitle:
                 subtitle_entries = load_and_clean_subtitle(
                     subtitle_path,
@@ -351,19 +563,8 @@ class Pipeline:
                 for e in subtitle_entries
             ]
             results["steps"]["asr"] = {"duration": 0, "skipped": True, "source": subtitle_type.lower(), "segments": len(timestamped_segments), "cleaned": config.clean_subtitle}
-
-            # 如果启用了音色克隆但字幕语言与音频语言不匹配，需要先做 ASR 获取音频语言的文本
-            audio_lang = config.asr_language  # 音频语言（如 "ja"）
-            if config.clone_voice_after_separation and subtitle_lang not in (audio_lang, "mixed"):
-                _report(f"[音色克隆] 字幕语言({subtitle_lang}) != 音频语言({audio_lang})，先做 ASR 获取日语文本...")
-                asr_done = False
-            else:
-                asr_done = True
         else:
-            asr_done = True  # 没有字幕，正常进入 ASR 流程
-
-        # 如果还没做 ASR 且需要做
-        if not asr_done or (config.use_asr and not has_subtitle):
+            # 无字幕，正常执行 ASR
             current_step += 1
             if config.skip_existing and asr_text_path.exists():
                 _report(f"[{current_step}/{total_steps}] [跳过] ASR 已存在: {asr_text_path.name}")
@@ -412,88 +613,45 @@ class Pipeline:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
 
+            # ===== ASR 后导出字幕 (非 full 模式) =====
+            if config.pipeline_mode != "full" and "translate" not in active_steps:
+                # asr_only 模式：ASR 后直接导出字幕
+                exported_path = self._export_subtitles(
+                    segments=timestamped_segments,
+                    translations=None,
+                    output_dir=by_product_dir,
+                    fmt=config.export_subtitle_format,
+                    task_name=task_name,
+                    subtitle_lang="ja",
+                )
+                if exported_path:
+                    _report(f"[导出] 字幕文件: {exported_path.name}")
+                    results["exported_subtitle"] = str(exported_path)
+
         results["asr_results"] = asr_results
         results["timestamped_segments"] = timestamped_segments
-
-        # ===== 音色克隆 (report_18: AudioPreprocessor) - 使用 ASR 结果 =====
-        results["cloned_profile_id"] = None
-        if config.clone_voice_after_separation:
-            _report("")
-            _report(f"[音色克隆] 准备参考音频...")
-            t_clone = time.time()
-
-            try:
-                from ..tts.voice_designer import VoiceDesigner
-                from ..tts.voice_profile import get_voice_manager
-                from ..tts.audio_preprocessor import AudioPreprocessor
-
-                # 使用 AudioPreprocessor 准备合规的克隆音频
-                # 传入 ASR 结果（包含日语文本和时间轴）
-                preprocessor = AudioPreprocessor()
-                clone_result = preprocessor.prepare_clone_audio(
-                    audio_path=results["vocal_path"],
-                    subtitle_path=subtitle_path if has_subtitle else None,
-                    audio_language=config.asr_language,
-                    asr_segments=timestamped_segments,  # 传入 ASR 结果！
-                    progress_callback=lambda msg, p=0: _report(f"  {msg}"),
-                )
-
-                # 显示模式信息
-                if clone_result.mode == "matched":
-                    _report(f"[音色克隆] 匹配模式: ref_text 与音频内容完全匹配")
-                else:
-                    _report(f"[音色克隆] 基础模式: ref_text 使用默认文本")
-
-                if clone_result.warnings:
-                    for warn in clone_result.warnings:
-                        _report(f"  [警告] {warn}")
-
-                _report(f"[音色克隆] 片段: {clone_result.segments_used}, "
-                       f"总时长: {clone_result.total_duration:.1f}s")
-
-                # 调用克隆
-                designer = VoiceDesigner()
-
-                # 自动生成音色名称
-                clone_name = config.clone_voice_name
-                if not clone_name:
-                    import datetime
-                    clone_name = f"Clone_{datetime.datetime.now().strftime('%m%d%H%M')}"
-
-                # 使用处理后的音频和真实匹配的 ref_text
-                profile = designer.clone_from_audio(
-                    audio_path=clone_result.ref_audio_path,
-                    name=clone_name,
-                    ref_text=clone_result.ref_text,  # 真实匹配的文本！
-                    progress_callback=lambda msg, p=0: _report(f"  {msg}"),
-                )
-
-                results["cloned_profile_id"] = profile.id
-                results["steps"]["voice_clone"] = {
-                    "duration": time.time() - t_clone,
-                    "profile_id": profile.id,
-                    "profile_name": profile.name,
-                    "audio_source": results["vocal_path"],
-                    "mode": clone_result.mode,
-                    "segments_used": clone_result.segments_used,
-                    "total_duration": clone_result.total_duration,
-                }
-                _report(f"[音色克隆] 完成: {profile.name} ({profile.id})")
-
-            except Exception as e:
-                _report(f"[WARN] 音色克隆失败（不影响主流程）: {e}")
-                import traceback
-                traceback.print_exc()
-                results["steps"]["voice_clone"] = {
-                    "error": str(e),
-                    "recoverable": True,
-                }
 
         # ===== Step 3: 翻译 (保留时间戳) =====
         translated_path = by_product_dir / "translated.txt"
         translations = []
 
-        if is_chinese_subtitle:
+        if "translate" not in active_steps:
+            # 不执行翻译（asr_only 模式或有中文字幕时）
+            if is_chinese_subtitle:
+                current_step += 1
+                translations = subtitle_translations
+                translated_path.write_text("\n".join(translations), encoding="utf-8")
+                _report(f"[{current_step}/{total_steps}] [跳过] 翻译 ({subtitle_type}字幕已是中文，{len(translations)} 条)")
+                for seg, trans in zip(timestamped_segments, translations):
+                    seg["translation"] = trans
+                results["steps"]["translate"] = {
+                    "duration": 0.0,
+                    "segments": len(translations),
+                    "source": f"{subtitle_type.lower()}_zh",
+                    "skipped": True,
+                    "output": str(translated_path),
+                }
+        elif is_chinese_subtitle:
             # 中文字幕：已是翻译结果，直接使用
             current_step += 1
             translations = subtitle_translations
@@ -508,9 +666,23 @@ class Pipeline:
                 "duration": 0.0,
                 "segments": len(translations),
                 "source": f"{subtitle_type.lower()}_zh",
-                "skipped": True,  # 跳过了翻译 API 调用
+                "skipped": True,
                 "output": str(translated_path),
             }
+
+            # ===== 翻译后导出字幕 (非 full 模式) =====
+            if config.pipeline_mode != "full" and "tts" not in active_steps:
+                exported_path = self._export_subtitles(
+                    segments=timestamped_segments,
+                    translations=translations,
+                    output_dir=by_product_dir,
+                    fmt=config.export_subtitle_format,
+                    task_name=task_name,
+                    subtitle_lang="zh",
+                )
+                if exported_path:
+                    _report(f"[导出] 字幕文件: {exported_path.name}")
+                    results["exported_subtitle"] = str(exported_path)
         elif has_subtitle and subtitle_lang in ("ja", "mixed"):
             # 日文/混合字幕：需要翻译
             current_step += 1
@@ -548,6 +720,20 @@ class Pipeline:
             # 为 timestamped_segments 填充 translation 字段
             for seg, trans in zip(timestamped_segments, translations):
                 seg["translation"] = trans
+
+            # ===== 翻译后导出字幕 (非 full 模式) =====
+            if config.pipeline_mode != "full" and "tts" not in active_steps:
+                exported_path = self._export_subtitles(
+                    segments=timestamped_segments,
+                    translations=translations,
+                    output_dir=by_product_dir,
+                    fmt=config.export_subtitle_format,
+                    task_name=task_name,
+                    subtitle_lang="ja",
+                )
+                if exported_path:
+                    _report(f"[导出] 字幕文件: {exported_path.name}")
+                    results["exported_subtitle"] = str(exported_path)
         elif config.use_translate and asr_results:
             # 无 VTT：正常 ASR + 翻译
             current_step += 1
@@ -595,18 +781,37 @@ class Pipeline:
             for seg, trans in zip(timestamped_segments, translations):
                 seg["translation"] = trans
 
+            # ===== 翻译后导出字幕 (非 full 模式) =====
+            if config.pipeline_mode != "full" and "tts" not in active_steps:
+                exported_path = self._export_subtitles(
+                    segments=timestamped_segments,
+                    translations=translations,
+                    output_dir=by_product_dir,
+                    fmt=config.export_subtitle_format,
+                    task_name=task_name,
+                    subtitle_lang="ja",
+                )
+                if exported_path:
+                    _report(f"[导出] 字幕文件: {exported_path.name}")
+                    results["exported_subtitle"] = str(exported_path)
+
         results["translations"] = translations
 
-        # ===== Step 4: TTS 合成 + 时间轴对齐 (带错误处理) =====
-        current_step += 1
+        # ===== Step 4: TTS 合成 + 时间轴对齐 =====
         tts_aligned_path = by_product_dir / "tts_aligned.wav"
         # TTS 中间文件统一使用 .wav 格式，避免 mp3 残留问题
 
-        if config.use_tts and timestamped_segments:
-            _report("")
+        if "tts" not in active_steps:
+            results["tts_path"] = ""
+            if timestamped_segments:
+                # 有时间轴但不在 active_steps 中，说明是 tts_only 前的步骤
+                pass
+        elif config.use_tts and timestamped_segments:
+            current_step += 1
             if config.skip_existing and tts_aligned_path.exists():
                 _report(f"[{current_step}/{total_steps}] [跳过] TTS 已存在: {tts_aligned_path.name}")
             else:
+                _report("")
                 _report(f"[{current_step}/{total_steps}] TTS 逐句合成 + 时间轴对齐...")
                 t1 = time.time()
 
@@ -664,8 +869,7 @@ class Pipeline:
         else:
             results["tts_path"] = ""
 
-        # ===== Step 5: 混音 (带错误处理) =====
-        current_step += 1
+        # ===== Step 5: 混音 =====
         # 成品命名: <name>_mix.<ext>（已经在 _resolve_output_dirs 中计算好）
 
         # 确定混音用的原音频（有 VTT 时用原音频，否则用人声分离的结果）
@@ -673,7 +877,10 @@ class Pipeline:
         original_for_mix = results["vocal_path"] if use_vocal else str(input_path)
         mix_source_note = "人声分离结果" if use_vocal else "原音频"
 
-        if config.use_mixer and results.get("tts_path"):
+        if "mixer" not in active_steps:
+            results["mix_path"] = ""
+        elif config.use_mixer and results.get("tts_path"):
+            current_step += 1
             if config.skip_existing and mix_path.exists():
                 _report(f"[{current_step}/{total_steps}] [跳过] 混音已存在: {mix_path.name}")
             else:
@@ -737,7 +944,10 @@ class Pipeline:
 
         _report("")
         _report("输出文件:")
-        _report(f"  [成品] {mix_path}")
+        if results.get("mix_path"):
+            _report(f"  [成品] {mix_path}")
+        if results.get("exported_subtitle"):
+            _report(f"  [字幕] {results['exported_subtitle']}")
         _report(f"  [中间] {by_product_dir}/")
         # 显示关键中间文件
         if results.get("translations"):

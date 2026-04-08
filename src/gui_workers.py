@@ -56,30 +56,26 @@ class SingleWorkerThread(QThread):
                 tts_engine=self.params.get("tts_engine", "edge"),
                 tts_voice=self.params.get("tts_voice", "zh-CN-XiaoxiaoNeural"),
                 qwen3_voice=self.params.get("tts_voice", "Vivian"),
-                voice_profile_id=self.params.get("voice_profile_id"),  # 传递音色配置 ID
+                voice_profile_id=self.params.get("voice_profile_id"),
                 tts_speed=self.params.get("tts_speed", 1.0),
                 original_volume=self.params.get("original_volume", 0.85),
                 tts_volume_ratio=self.params.get("tts_ratio", 0.5),
                 tts_delay_ms=self.params.get("tts_delay", 0),
                 skip_existing=False,
-                # 音色克隆 (report_17)
-                clone_voice_after_separation=self.params.get("clone_voice_after_separation", False),
-                clone_voice_name=self.params.get("clone_voice_name", ""),
             )
 
             pipeline = Pipeline(cfg)
             results = pipeline.run(progress_callback=self.progress.emit)
 
             mix_path = results.get("mix_path", "")
-            cloned_profile_id = results.get("cloned_profile_id")
+            exported_subtitle = results.get("exported_subtitle", "")
 
             # 构建完成消息
             msg_parts = []
             if mix_path:
                 msg_parts.append(f"成品: {mix_path}")
-            if cloned_profile_id:
-                msg_parts.append(f"克隆音色: {cloned_profile_id}")
-                msg_parts.append("(可在音色工坊中查看和管理)")
+            if exported_subtitle:
+                msg_parts.append(f"字幕: {exported_subtitle}")
 
             final_msg = "\n".join(msg_parts) if msg_parts else "处理完成"
 
@@ -667,3 +663,332 @@ class VoicePreviewWorker(QThread):
             import traceback
             traceback.print_exc()
             self.finished.emit(False, f"试音失败: {e}", "")
+
+
+class ToolsWorkerThread(QThread):
+    """
+    工具箱 Worker - 独立执行各工具模块的功能
+
+    支持的工具：
+    1. separate   - 音频分离 (Demucs)
+    2. split      - 音频切分 (按字幕时间轴)
+    3. subtitle_merge - 字幕合并
+    4. asr        - ASR 语音识别
+    5. convert    - 格式转换
+
+    信号:
+        progress(str): 进度消息
+        finished(bool, str): (success, message)
+    """
+
+    progress = Signal(str)
+    finished = Signal(bool, str)
+
+    def __init__(self, tool_id: int, params: dict):
+        """
+        Args:
+            tool_id: 工具 ID (1-5，对应 tools_combo 的索引)
+            params: 工具参数字典（由 GUI _collect_tool_params 收集）
+        """
+        super().__init__()
+        self.tool_id = tool_id
+        self.params = params
+        self._cancel_event = threading.Event()
+
+    def cancel(self):
+        self._cancel_event.set()
+
+    def run(self):
+        try:
+            tool_name = self.params.get("tool", "unknown")
+            self.progress.emit(f"[工具箱] 开始执行: {tool_name}")
+
+            if tool_name == "separate":
+                result_msg = self._run_separate()
+            elif tool_name == "split":
+                result_msg = self._run_split()
+            elif tool_name == "subtitle_merge":
+                result_msg = self._run_submerge()
+            elif tool_name == "asr":
+                result_msg = self._run_asr()
+            elif tool_name == "convert":
+                result_msg = self._run_convert()
+            else:
+                raise ValueError(f"未知工具: {tool_name}")
+
+            if self._cancel_event.is_set():
+                self.finished.emit(False, "已取消")
+            else:
+                self.progress.emit(f"[工具箱] 执行完成")
+                self.finished.emit(True, result_msg)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(False, str(e))
+
+    # ==================== 各工具实现 ====================
+
+    def _run_separate(self) -> str:
+        """音频分离"""
+        from src.core.vocal_separator import VocalSeparator
+        from pathlib import Path
+        import time
+
+        input_path = self.params["input_path"]
+        output_dir = self.params["output_dir"]
+        model = self.params["model"]
+        stem = self.params["stem"]
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        self.progress.emit("[工具箱] 加载 Demucs 分离模型...")
+        t0 = time.time()
+        separator = VocalSeparator(model_name=model)
+
+        self.progress.emit(f"[工具箱] 正在分离 (目标轨道: {stem})...")
+        results = separator.separate(input_path, output_dir, stems=[stem])
+
+        elapsed = time.time() - t0
+        output_file = results.get(stem, "")
+        if output_file and Path(output_file).exists():
+            size_mb = Path(output_file).stat().st_size / (1024 * 1024)
+            return f"分离完成！\n输出: {output_file}\n文件大小: {size_mb:.1f} MB\n耗时: {elapsed:.1f}s"
+        else:
+            raise RuntimeError(f"分离未生成预期输出，结果: {results}")
+
+    def _run_split(self) -> str:
+        """按字幕时间轴切分音频"""
+        from src.core.tts.audio_preprocessor import AudioPreprocessor
+        from pathlib import Path
+        import soundfile as sf
+        import time
+
+        audio_path = self.params["audio_path"]
+        subtitle_path = self.params["subtitle_path"]
+        output_dir = self.params["output_dir"]
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        # 加载字幕时间戳
+        self.progress.emit("[工具箱] 解析字幕时间戳...")
+        from ..translate import load_subtitle_with_timestamps
+        entries = load_subtitle_with_timestamps(subtitle_path)
+        if not entries:
+            raise RuntimeError("无法从字幕文件中解析出有效的时间戳条目")
+
+        # 读取音频信息
+        info = sf.info(audio_path)
+        sample_rate = info.samplerate
+
+        self.progress.emit(f"[工具箱] 切分 {len(entries)} 个片段...")
+        t0 = time.time()
+        data, sr = sf.read(audio_path, always_2d=False)
+
+        saved_count = 0
+        for i, entry in enumerate(entries):
+            if self._cancel_event.is_set():
+                break
+
+            start_sample = int(entry["start"] * sr)
+            end_sample = int(entry["end"] * sr)
+            segment_data = data[start_sample:end_sample]
+
+            out_path = Path(output_dir) / f"segment_{i+1:03d}.wav"
+            sf.write(str(out_path), segment_data, sr)
+            saved_count += 1
+            self.progress.emit(f"[{i+1}/{len(entries)}] {out_path.name} ({entry['text'][:20]}...)")
+
+        elapsed = time.time() - t0
+        return f"切分完成！\n保存片段数: {saved_count}\n输出目录: {output_dir}\n耗时: {elapsed:.1f}s"
+
+    def _run_submerge(self) -> str:
+        """合并多语言字幕文件"""
+        from ..translate import (
+            load_subtitle_with_timestamps,
+            detect_subtitle_language,
+            load_subtitle_translations,
+        )
+        from pathlib import Path
+        import time
+
+        files = self.params["files"]
+        output_path = self.params["output_path"]
+        fmt = self.params["format"]
+
+        if not output_path:
+            raise ValueError("请指定输出文件路径")
+
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+
+        self.progress.emit(f"[工具箱] 合并 {len(files)} 个字幕文件...")
+        t0 = time.time()
+
+        all_segments = []
+        for fp in files:
+            self.progress.emit(f"  读取: {Path(fp).name}")
+            entries = load_subtitle_with_timestamps(fp)
+            lang = detect_subtitle_language(load_subtitle_translations(fp))
+            for e in entries:
+                seg = dict(e)
+                seg["_source"] = Path(fp).name
+                seg["_lang"] = lang or "?"
+                all_segments.append(seg)
+
+        if not all_segments:
+            raise RuntimeError("所有字幕文件均无有效内容")
+
+        # 按起始时间排序
+        all_segments.sort(key=lambda x: x["start"])
+
+        # 构建输出内容
+        if fmt == "srt":
+            lines = []
+            for i, seg in enumerate(all_segments, 1):
+                start = self._fmt_ts(seg["start"], fmt="srt")
+                end = self._fmt_ts(seg["end"], fmt="srt")
+                lines.append(f"{i}")
+                lines.append(f"{start} --> {end}")
+                lines.append(seg["text"])
+                lines.append("")
+            content = "\n".join(lines)
+        elif fmt == "vtt":
+            lines = ["WEBVTT", ""]
+            for seg in all_segments:
+                start = self._fmt_ts(seg["start"], fmt="vtt")
+                end = self._fmt_ts(seg["end"], fmt="vtt")
+                lines.append(f"{start} --> {end}")
+                lines.append(seg["text"])
+                lines.append("")
+            content = "\n".join(lines)
+        elif fmt == "lrc":
+            lines = []
+            for seg in all_segments:
+                ms = int(seg["start"] * 1000)
+                m = ms // 60000
+                s = (ms % 60000) // 1000
+                cs = ms % 1000
+                ts = f"[{m:02d}:{s:02d}.{cs:02d}]"
+                lines.append(f"{ts}{seg['text']}")
+            content = "\n".join(lines)
+        else:
+            raise ValueError(f"不支持的格式: {fmt}")
+
+        out_p.write_text(content, encoding="utf-8")
+        elapsed = time.time() - t0
+        return f"合并完成！\n输出: {output_path}\n总条目: {len(all_segments)}\n耗时: {elapsed:.1f}s"
+
+    @staticmethod
+    def _fmt_ts(seconds: float, fmt: str = "srt") -> str:
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s_val = int(seconds % 60)
+        ms = int((seconds - int(seconds)) * 1000)
+        if fmt == "srt":
+            return f"{h:02d}:{m:02d}:{s_val:02d},{ms:03d}"
+        else:
+            return f"{h:02d}:{m:02d}:{s_val:02d}.{ms:03d}"
+
+    def _run_asr(self) -> str:
+        """ASR 语音识别"""
+        from src.core.asr import ASRRecognizer
+        from pathlib import Path
+        import time
+
+        input_path = self.params["input_path"]
+        output_path = self.params["output_path"]
+        model = self.params["model"]
+        language = self.params["language"]
+        export_sub = self.params.get("export_subtitle", False)
+
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+
+        self.progress.emit(f"[工具箱] 加载 Whisper 模型 ({model})...")
+        t0 = time.time()
+        recognizer = ASRRecognizer(model_size=model, language=language)
+
+        self.progress.emit("[工具箱] 正在识别...")
+        results = recognizer.recognize(input_path, output_path)
+
+        elapsed = time.time() - t0
+
+        msg_lines = [
+            f"识别完成！",
+            f"输出文本: {output_path}",
+            f"识别条目: {len(results)}",
+            f"耗时: {elapsed:.1f}s",
+        ]
+
+        if export_sub and results:
+            sub_path = out_p.with_suffix(".srt")
+            srt_lines = []
+            for i, r in enumerate(results, 1):
+                text = r.get("text", "")
+                start = r.get("start", 0)
+                end = r.get("end", start + 2)
+                srt_start = self._fmt_ts(start, "srt")
+                srt_end = self._fmt_ts(end, "srt")
+                srt_lines.append(f"{i}")
+                srt_lines.append(f"{srt_start} --> {srt_end}")
+                srt_lines.append(text)
+                srt_lines.append("")
+            sub_path.write_text("\n".join(srt_lines), encoding="utf-8")
+            msg_lines.append(f"字幕文件: {sub_path}")
+
+        return "\n".join(msg_lines)
+
+    def _run_convert(self) -> str:
+        """音频格式转换"""
+        from pathlib import Path
+        import subprocess
+        import time
+        import soundfile as sf
+
+        input_path = self.params["input_path"]
+        output_dir = self.params["output_dir"]
+        target_fmt = self.params["format"]
+        sample_rate = self.params.get("sample_rate")
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        inp_p = Path(input_path)
+        out_filename = f"{inp_p.stem}_converted.{target_fmt}"
+        out_path = Path(output_dir) / out_filename
+
+        self.progress.emit(f"[工具箱] 格式转换: {inp_p.suffix} -> .{target_fmt}")
+        t0 = time.time()
+
+        # 使用 soundfile 进行基础格式转换
+        data, sr = sf.read(input_path)
+        target_sr = sample_rate or sr
+
+        # 根据目标格式选择子类型
+        subtype_map = {
+            "wav": "PCM_16",
+            "mp3": "MPEG_LAYER_III",
+            "flac": "PCM_24",
+            "ogg": "VORBIS",
+            "m4a": None,  # m4a 需要 ffmpeg
+        }
+
+        if target_fmt == "m4a":
+            # m4a 不被 soundfile 直接支持，尝试 ffmpeg
+            try:
+                cmd = [
+                    "ffmpeg", "-y", "-i", input_path,
+                    "-ar", str(target_sr), "-ac", "2",
+                    "-c:a", "aac", "-b:a", "192k",
+                    str(out_path),
+                ]
+                subprocess.run(cmd, check=True, capture_output=True)
+            except FileNotFoundError:
+                raise RuntimeError("需要 ffmpeg 来转换为 M4A 格式。请确保 ffmpeg 已安装并添加到 PATH 中。")
+        else:
+            sf.write(str(out_path), data, target_sr, format=target_fmt,
+                     subtype=subtype_map.get(target_fmt))
+
+        elapsed = time.time() - t0
+        size_mb = out_path.stat().st_size / (1024 * 1024)
+        return f"转换完成！\n输出: {out_path}\n文件大小: {size_mb:.1f} MB\n采样率: {target_sr} Hz\n耗时: {elapsed:.1f}s"

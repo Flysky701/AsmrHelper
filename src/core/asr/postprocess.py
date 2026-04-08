@@ -98,6 +98,7 @@ class PostProcessConfig:
     enable_normalize: bool = True      # 启用文本规范化
     enable_merge: bool = True         # 启用片段合并
     enable_confidence_filter: bool = True  # 启用置信度过滤
+    enable_meaningless_filter: bool = True  # 启用无意义文本过滤（倒计时/纯数字等）
 
     normalize_rules: NormalizeRules = field(default_factory=NormalizeRules)
     merge_config: MergeConfig = field(default_factory=MergeConfig)
@@ -111,6 +112,15 @@ class ASRPostProcessor:
 
     # 直接引用类属性，避免实例化问题
     _rules = NormalizeRules()
+
+    # 有意义的语言字符：包含这些字符的文本不应被视为无意义（用于倒计时/纯数字过滤）
+    _MEANINGFUL_CHAR_RE = re.compile(r'''
+        [\u4e00-\u9fff]   # CJK 汉字（中日韩统一表意文字）
+      | [\u3040-\u309f]   # 日文平假名
+      | [\u30a0-\u30ff]   # 日文片假名
+      | [\uac00-\ud7af]   # 韩文音节
+      | [a-zA-Z]          # 拉丁字母
+    ''', re.VERBOSE)
 
     def __init__(self, config: Optional[PostProcessConfig] = None):
         self.config = config or PostProcessConfig()
@@ -145,6 +155,22 @@ class ASRPostProcessor:
 
         # Step 5: 过滤空片段
         segs = [s for s in segs if s.text.strip()]
+
+        # Step 5.5: 过滤无意义文本（倒计时/纯数字等，可配置开关）
+        if self.config.enable_meaningless_filter:
+            meaningful = []
+            filtered_out = 0
+            examples = []
+            for s in segs:
+                if ASRPostProcessor._is_meaningless_text(s.text):
+                    filtered_out += 1
+                    if len(examples) < 3:
+                        examples.append(s.text[:20])
+                    continue
+                meaningful.append(s)
+            segs = meaningful
+            if filtered_out > 0:
+                print(f"[ASRPostProcessor] 过滤无意义文本: {filtered_out} 个片段 (示例: {examples})")
 
         # Step 6: 转换回 dict
         return [s.to_dict() for s in segs]
@@ -251,6 +277,24 @@ class ASRPostProcessor:
         seg = Segment(start=0, end=0, text=text)
         result = self._normalize_segment(seg)
         return result.text
+
+    @staticmethod
+    def _is_meaningless_text(text: str) -> bool:
+        """检测文本是否为无意义内容（纯数字噪音/倒计时/分隔符数字等）
+
+        使用语义字符检测法：如果文本中包含任何有意义的语言字符
+        （CJK汉字、日文假名、韩文、拉丁字母），则视为有意义。
+        否则（纯数字、符号、空格等组合）视为无意义。
+
+        安全：不会误伤含文字的正常内容，如 "5分待って"、"3、2、1、スタート！"
+        """
+        s = text.strip()
+        if not s:
+            return True
+        # 含有意义语言字符 → 不是无意义文本
+        if ASRPostProcessor._MEANINGFUL_CHAR_RE.search(s):
+            return False
+        return True
 
 
 # 全角转半角（独立函数）
