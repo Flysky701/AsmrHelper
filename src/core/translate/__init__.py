@@ -21,6 +21,19 @@ from openai import OpenAI
 from src.config import config
 
 
+# 有意义的语言字符：用于无意义文本检测（与 ASRPostProcessor 逻辑一致）
+_MEANINGFUL_CHAR_RE = re.compile(r'''
+    [\u4e00-\u9fff]   # CJK 汉字
+  | [\u3040-\u309f]   # 日文平假名
+  | [\u30a0-\u30ff]   # 日文片假名
+  | [\uac00-\ud7af]   # 韩文音节
+  | [a-zA-Z]          # 拉丁字母
+''', re.VERBOSE)
+
+# 独立出现的数字 "0" 的替换正则（不匹配 10, 20, 101 等中的 0）
+_STANDALONE_ZERO_RE = re.compile(r'(?<![0-9])0(?![0-9])')
+
+
 class Translator:
     """翻译器（支持 DeepSeek / OpenAI，支持 Config 热更新 + ASMR 术语库）"""
 
@@ -363,20 +376,37 @@ class Translator:
         if system_prompt is None:
             system_prompt = self._build_system_prompt_with_dict(source_lang, target_lang, texts)
 
-        # Step 3: 空文本预处理
+        # Step 3: 空文本 + 无意义文本预处理
         results = [""] * len(texts)
         need_translate = []  # [(index, preprocessed_text), ...]
         cache_hits = {}  # {index: cached_translation}
 
         for i, (orig, pre) in enumerate(zip(texts, preprocessed)):
-            if pre.strip():
-                # 缓存命中检查（使用预处理后的文本作为 key）
-                cache = self._get_cache()
-                if cache:
-                    cached = cache.get(pre)
-                    if cached is not None:
-                        cache_hits[i] = cached
-                        continue
+            if not pre.strip():
+                results[i] = ""
+                continue
+
+            # 纯 "0" → 视为空值（LLM 对 "0" 的翻译输出也是 "0"，无意义）
+            s = pre.strip()
+            if s == '0':
+                results[i] = ""
+                continue
+
+            # 无意义文本检测（兜底：拦截 ASR 遗漏或字幕自带的垃圾数据）
+            if not _MEANINGFUL_CHAR_RE.search(pre):
+                results[i] = ""
+                continue
+
+            # 独立 "0" 字符同义词替换（如 "0時" → "ゼロ時"，避免 LLM 返回原样 "0"）
+            pre = self._replace_standalone_zero(pre)
+
+            # 缓存命中检查（使用预处理后的文本作为 key）
+            cache = self._get_cache()
+            if cache:
+                cached = cache.get(pre)
+                if cached is not None:
+                    cache_hits[i] = cached
+                    continue
                 need_translate.append((i, pre))
             else:
                 results[i] = ""
@@ -456,6 +486,15 @@ class Translator:
         if self.term_db and hasattr(self.term_db, 'postprocess_batch'):
             return self.term_db.postprocess_batch(texts)
         return texts
+
+    @staticmethod
+    def _replace_standalone_zero(text: str) -> str:
+        """将独立出现的数字 "0" 替换为日文 "ゼロ"
+
+        仅替换独立出现的 0（前后无其他数字），不影响 10, 20, 101 等。
+        这避免了 LLM 对含 "0" 文本返回 {"src":"0","dst":"0"} 的无意义结果。
+        """
+        return _STANDALONE_ZERO_RE.sub('ゼロ', text)
 
     def _build_system_prompt_with_dict(
         self,
