@@ -85,9 +85,6 @@ class Qwen3ModelManager:
                 device_map="cuda:0",
                 dtype=torch.bfloat16,
             )
-            
-            # 设置为评估模式，禁用 dropout 等训练特性，提高推理稳定性
-            model.eval()
 
             if t1:
                 t1.record()
@@ -117,8 +114,8 @@ class Qwen3ModelManager:
         """卸载指定模型释放显存"""
         if model_type in cls._instances:
             print(f"[Qwen3ModelManager] 卸载模型: {model_type}")
-            del cls._instances[model_type]
             cls._instances[model_type] = None
+            del cls._instances[model_type]
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

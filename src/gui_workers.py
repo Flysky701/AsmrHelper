@@ -167,7 +167,7 @@ class PreviewWorkerThread(QThread):
             import traceback
             traceback.print_exc()
             # 清理可能已创建的临时文件
-            if output_path.exists():
+            if output_path and output_path.exists():
                 try:
                     output_path.unlink()
                 except Exception:
@@ -509,6 +509,7 @@ class VoiceCloneWorker(QThread):
         return lambda msg, pct: self.progress.emit(msg, pct)
 
     def run(self):
+        clone_result = None
         try:
             import tempfile
             from pathlib import Path

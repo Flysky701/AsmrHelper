@@ -169,7 +169,7 @@ class Config:
             errors.append(f"tts.engine 必须是 'edge', 'qwen3', 或 'gptsovits'，当前: {tts_engine}")
 
         speed = self.get("tts.speed", 1.0)
-        if not isinstance(speed, (int, float)) or speed <= 0 or speed > 3.0:
+        if not isinstance(speed, (int, float)) or speed < 0.1 or speed > 3.0:
             errors.append(f"tts.speed 必须在 0.1-3.0 之间，当前: {speed}")
 
         # 验证音量配置
