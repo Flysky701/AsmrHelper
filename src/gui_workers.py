@@ -714,6 +714,8 @@ class ToolsWorkerThread(QThread):
                 result_msg = self._run_asr()
             elif tool_name == "convert":
                 result_msg = self._run_convert()
+            elif tool_name == "subtitle_gen":
+                result_msg = self._run_subtitle_gen()
             else:
                 raise ValueError(f"未知工具: {tool_name}")
 
@@ -740,6 +742,7 @@ class ToolsWorkerThread(QThread):
         output_dir = self.params["output_dir"]
         model = self.params["model"]
         stem = self.params["stem"]
+        export_all = self.params.get("export_all", False)
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -747,16 +750,36 @@ class ToolsWorkerThread(QThread):
         t0 = time.time()
         separator = VocalSeparator(model_name=model)
 
-        self.progress.emit(f"[工具箱] 正在分离 (目标轨道: {stem})...")
-        results = separator.separate(input_path, output_dir, stems=[stem])
+        # 全部轨道 or 单轨道
+        all_stems = ["vocals", "no_vocals", "drums", "bass", "piano", "other"]
+        target_stems = all_stems if export_all else [stem]
+
+        self.progress.emit(f"[工具箱] 正在分离 (目标轨道: {', '.join(target_stems)})...")
+        results = separator.separate(input_path, output_dir, stems=target_stems)
 
         elapsed = time.time() - t0
-        output_file = results.get(stem, "")
-        if output_file and Path(output_file).exists():
-            size_mb = Path(output_file).stat().st_size / (1024 * 1024)
-            return f"分离完成！\n输出: {output_file}\n文件大小: {size_mb:.1f} MB\n耗时: {elapsed:.1f}s"
-        else:
-            raise RuntimeError(f"分离未生成预期输出，结果: {results}")
+
+        # 构建结果报告：列出所有输出文件及大小
+        lines = [f"分离完成！", f"耗时: {elapsed:.1f}s", ""]
+        total_size = 0
+        for s in target_stems:
+            fpath = results.get(s, "")
+            if fpath and Path(fpath).exists():
+                size_mb = Path(fpath).stat().st_size / (1024 * 1024)
+                total_size += size_mb
+                size_str = f"{size_mb:.1f} MB"
+                # 简短名称映射
+                name_map = {
+                    "vocals": "人声", "no_vocals": "伴奏", "drums": "鼓声",
+                    "bass": "贝斯", "piano": "钢琴", "other": "其他",
+                }
+                lines.append(f"  [{name_map.get(s, s)}] {Path(fpath).name}  ({size_str})")
+            else:
+                lines.append(f"  [{s}] 未生成")
+        lines.append(f"\n总计大小: {total_size:.1f} MB")
+        lines.append(f"输出目录: {output_dir}")
+
+        return "\n".join(lines)
 
     def _run_split(self) -> str:
         """按字幕时间轴切分音频"""
@@ -902,13 +925,18 @@ class ToolsWorkerThread(QThread):
         model = self.params["model"]
         language = self.params["language"]
         export_sub = self.params.get("export_subtitle", False)
+        sub_fmt = self.params.get("sub_format", "srt")
+        disable_vad = self.params.get("disable_vad", True)
 
         out_p = Path(output_path)
         out_p.parent.mkdir(parents=True, exist_ok=True)
 
         self.progress.emit(f"[工具箱] 加载 Whisper 模型 ({model})...")
         t0 = time.time()
-        recognizer = ASRRecognizer(model_size=model, language=language)
+        recognizer = ASRRecognizer(
+            model_size=model, language=language,
+            disable_vad=disable_vad
+        )
 
         self.progress.emit("[工具箱] 正在识别...")
         results = recognizer.recognize(input_path, output_path)
@@ -923,22 +951,84 @@ class ToolsWorkerThread(QThread):
         ]
 
         if export_sub and results:
-            sub_path = out_p.with_suffix(".srt")
-            srt_lines = []
-            for i, r in enumerate(results, 1):
-                text = r.get("text", "")
-                start = r.get("start", 0)
-                end = r.get("end", start + 2)
-                srt_start = self._fmt_ts(start, "srt")
-                srt_end = self._fmt_ts(end, "srt")
-                srt_lines.append(f"{i}")
-                srt_lines.append(f"{srt_start} --> {srt_end}")
-                srt_lines.append(text)
-                srt_lines.append("")
-            sub_path.write_text("\n".join(srt_lines), encoding="utf-8")
+            sub_path = out_p.with_suffix(f".{sub_fmt}")
+            sub_lines = []
+            if sub_fmt == "srt":
+                for i, r in enumerate(results, 1):
+                    text = r.get("text", "")
+                    start = r.get("start", 0)
+                    end = r.get("end", start + 2)
+                    srt_start = self._fmt_ts(start, "srt")
+                    srt_end = self._fmt_ts(end, "srt")
+                    sub_lines.append(f"{i}\n{srt_start} --> {srt_end}\n{text}\n")
+            elif sub_fmt == "vtt":
+                sub_lines.append("WEBVTT\n")
+                for r in results:
+                    text = r.get("text", "")
+                    start = r.get("start", 0)
+                    end = r.get("end", start + 2)
+                    vtt_start = self._fmt_ts(start, "vtt")
+                    vtt_end = self._fmt_ts(end, "vtt")
+                    sub_lines.append(f"{vtt_start} --> {vtt_end}\n{text}\n")
+            elif sub_fmt == "lrc":
+                for r in results:
+                    text = r.get("text", "")
+                    start = r.get("start", 0)
+                    ms = int(start * 1000)
+                    m = ms // 60000
+                    s = (ms % 60000) // 1000
+                    cs = ms % 1000
+                    ts = f"[{m:02d}:{s:02d}.{cs:02d}]"
+                    sub_lines.append(f"{ts}{text}")
+            else:
+                # 默认 SRT
+                for i, r in enumerate(results, 1):
+                    text = r.get("text", "")
+                    start = r.get("start", 0)
+                    end = r.get("end", start + 2)
+                    srt_start = self._fmt_ts(start, "srt")
+                    srt_end = self._fmt_ts(end, "srt")
+                    sub_lines.append(f"{i}\n{srt_start} --> {srt_end}\n{text}\n")
+            sub_path.write_text("\n".join(sub_lines), encoding="utf-8")
             msg_lines.append(f"字幕文件: {sub_path}")
 
         return "\n".join(msg_lines)
+
+    def _run_subtitle_gen(self) -> str:
+        """字幕生成（文本/PDF → SRT/VTT/LRC）"""
+        from src.core.subtitle_generator import SubtitleGenerator
+        from pathlib import Path
+        import time
+
+        text = self.params["text"]
+        duration = self.params.get("duration", 600.0)
+        fmt = self.params.get("fmt", "srt")
+        output_path = self.params["output_path"]
+
+        out_p = Path(output_path)
+
+        self.progress.emit("[工具箱] 正在生成字幕...")
+        t0 = time.time()
+
+        entries = SubtitleGenerator.generate_from_text(
+            text=text,
+            total_duration=duration,
+            fmt=fmt,
+            lang="zh",
+        )
+
+        SubtitleGenerator.save(entries, output_path, fmt)
+
+        elapsed = time.time() - t0
+        size_kb = out_p.stat().st_size / 1024 if out_p.exists() else 0
+
+        return (
+            f"字幕生成完成！\n"
+            f"输出: {output_path}\n"
+            f"条目数: {len(entries)}\n"
+            f"文件大小: {size_kb:.1f} KB\n"
+            f"耗时: {elapsed:.1f}s"
+        )
 
     def _run_convert(self) -> str:
         """音频格式转换"""

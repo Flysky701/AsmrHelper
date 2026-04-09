@@ -86,6 +86,11 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._wrap_scroll(self.create_tools_tab()), "工具箱")
         main_layout.addWidget(self.tabs)
 
+        # ===== 内置音频播放器 =====
+        from src.utils.audio_player import AudioPlayerWidget
+        self.audio_player = AudioPlayerWidget()
+        main_layout.addWidget(self.audio_player)
+
         # ===== 进度显示 =====
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimumHeight(22)
@@ -1040,17 +1045,8 @@ class MainWindow(QMainWindow):
 
         if success:
             self.log(f"[试音] {message}")
-            # 播放音频
-            import platform
-            system = platform.system()
-            if system == "Windows":
-                os.startfile(output_path)
-            elif system == "Darwin":
-                import subprocess
-                subprocess.Popen(["open", output_path])
-            else:
-                import subprocess
-                subprocess.Popen(["xdg-open", output_path])
+            # 使用内置播放器
+            self.audio_player.load_and_play(output_path)
         else:
             self.log(f"[试音] 失败: {message}")
             QMessageBox.critical(self, "错误", f"试音失败:\n{message}")
@@ -1478,6 +1474,7 @@ class MainWindow(QMainWindow):
             "字幕合并 (合并多语言字幕文件)",
             "ASR 识别 (语音转文字)",
             "格式转换 (音频格式互转)",
+            "字幕生成 (文本/PDF → 带时间轴字幕)",
         ])
         self.tools_combo.currentIndexChanged.connect(self._on_tool_changed)
         select_row.addWidget(self.tools_combo, 1)
@@ -1525,6 +1522,10 @@ class MainWindow(QMainWindow):
         # --- Page 5: 格式转换 ---
         convert_page, self._convert_params = self._build_convert_tool_ui()
         self.tools_param_stack.addWidget(convert_page)  # Index 5
+
+        # --- Page 6: 字幕生成 ---
+        subgen_page, self._subgen_params = self._build_subtitle_gen_ui()
+        self.tools_param_stack.addWidget(subgen_page)  # Index 6
 
         self.tools_param_stack.setCurrentIndex(0)
         layout.addWidget(self.tools_param_stack, stretch=1)
@@ -1607,14 +1608,21 @@ class MainWindow(QMainWindow):
                                   "bass (贝斯)", "piano (钢琴)", "other (其他)"])
         form.addWidget(self.sep_stems, 3, 1, 1, 2)
 
+        # 全部导出选项
+        self.sep_export_all = QCheckBox("提取全部轨道（6轨全出）")
+        self.sep_export_all.setToolTip("勾选后忽略上方选择，一次性输出所有6个分离轨道")
+        self.sep_export_all.setChecked(False)
+        form.addWidget(self.sep_export_all, 4, 0, 1, 3)
+
         params = {
             "input": self.sep_input,
             "output": self.sep_output,
             "model": self.sep_model,
             "stems": self.sep_stems,
+            "export_all": self.sep_export_all,
         }
 
-        form.setRowStretch(4, 1)
+        form.setRowStretch(5, 1)
         return page, params
 
     def _build_split_tool_ui(self) -> tuple:
@@ -1739,13 +1747,31 @@ class MainWindow(QMainWindow):
 
         form.addWidget(QLabel("识别语言:"), 3, 0)
         self.asr_tool_lang = QComboBox()
-        self.asr_tool_lang.addItems(["ja (日语)", "zh (中文)", "en (英语)"])
+        self.asr_tool_lang.addItems(["ja (日语)", "zh (中文)", "en (英语)", "ko (韩语)", "auto (自动检测)"])
         form.addWidget(self.asr_tool_lang, 3, 1, 1, 2)
 
+        # VAD 开关（ASMR 场景建议关闭以保留轻声）
+        self.asr_disable_vad = QCheckBox("关闭 VAD (保留轻声/呼吸音)")
+        self.asr_disable_vad.setChecked(True)
+        self.asr_disable_vad.setToolTip(
+            "VAD (语音活动检测) 会过滤静音段。\n"
+            "对于 ASMR 内容，建议关闭 VAD 以保留轻微的呼吸声和低语。"
+        )
+        form.addWidget(self.asr_disable_vad, 4, 0, 1, 3)
+
         # 导出选项
-        self.asr_export_subtitle = QCheckBox("同时导出为字幕文件 (.srt)")
+        export_row = QHBoxLayout()
+        self.asr_export_subtitle = QCheckBox("同时导出字幕")
         self.asr_export_subtitle.setChecked(True)
-        form.addWidget(self.asr_export_subtitle, 4, 0, 1, 3)
+        export_row.addWidget(self.asr_export_subtitle)
+        export_row.addWidget(QLabel("格式:"))
+        self.asr_sub_format = QComboBox()
+        self.asr_sub_format.addItems(["SRT", "VTT", "LRC"])
+        self.asr_sub_format.setCurrentIndex(0)
+        self.asr_sub_format.setMaximumWidth(80)
+        export_row.addWidget(self.asr_sub_format)
+        export_row.addStretch()
+        form.addLayout(export_row, 5, 0, 1, 3)
 
         params = {
             "input": self.asr_tool_input,
@@ -1753,8 +1779,10 @@ class MainWindow(QMainWindow):
             "model": self.asr_tool_model,
             "lang": self.asr_tool_lang,
             "export_subtitle": self.asr_export_subtitle,
+            "sub_format": self.asr_sub_format,
+            "disable_vad": self.asr_disable_vad,
         }
-        form.setRowStretch(5, 1)
+        form.setRowStretch(6, 1)
         return page, params
 
     def _build_convert_tool_ui(self) -> tuple:
@@ -1796,6 +1824,71 @@ class MainWindow(QMainWindow):
         form.setRowStretch(4, 1)
         return page, params
 
+    def _build_subtitle_gen_ui(self) -> tuple:
+        """构建字幕生成工具的参数面板（文本/PDF → SRT/VTT/LRC）"""
+        page = QWidget()
+        form = QGridLayout(page)
+        form.setSpacing(10)
+
+        # 输入源选择：PDF 或 纯文本
+        form.addWidget(QLabel("输入源:"), 0, 0)
+        self.subgen_source = QComboBox()
+        self.subgen_source.addItems(["纯文本文件 (.txt)", "PDF 文档 (.pdf)"])
+        self.subgen_source.currentIndexChanged.connect(self._on_subgen_source_changed)
+        form.addWidget(self.subgen_source, 0, 1, 1, 2)
+
+        # 输入文件路径
+        r1, self.subgen_input = self._make_file_input_row(
+            "输入文件:", "选择文本或 PDF 文件...",
+            self._browse_subgen_input, self
+        )
+        form.addLayout(r1, 1, 0, 1, 3)
+
+        # 文本预览区（可编辑）
+        form.addWidget(QLabel("台词内容:"), 2, 0)
+        self.subgen_text_preview = QTextEdit()
+        self.subgen_text_preview.setPlaceholderText("粘贴或从文件加载台词内容...")
+        self.subgen_text_preview.setMaximumHeight(150)
+        form.addWidget(self.subgen_text_preview, 3, 0, 1, 3)
+
+        # 参数行
+        param_row = QHBoxLayout()
+
+        param_row.addWidget(QLabel("总时长:"))
+        self.subgen_duration = QDoubleSpinBox()
+        self.subgen_duration.setRange(10, 7200)  # 10秒~2小时
+        self.subgen_duration.setValue(600.0)  # 默认10分钟
+        self.subgen_duration.setSuffix(" 秒")
+        self.subgen_duration.setMinimumWidth(90)
+        param_row.addWidget(self.subgen_duration)
+
+        param_row.addWidget(QLabel("输出格式:"))
+        self.subgen_fmt = QComboBox()
+        self.subgen_fmt.addItems(["SRT", "VTT", "LRC"])
+        param_row.addWidget(self.subgen_fmt)
+
+        param_row.addStretch()
+        form.addLayout(param_row, 4, 0, 1, 3)
+
+        # 输出文件
+        r5, self.subgen_output = self._make_file_input_row(
+            "输出文件:", "生成的字幕保存位置...",
+            self._browse_subgen_output, self
+        )
+        form.addLayout(r5, 5, 0, 1, 3)
+
+        params = {
+            "source": self.subgen_source,
+            "input": self.subgen_input,
+            "text": self.subgen_text_preview,
+            "duration": self.subgen_duration,
+            "fmt": self.subgen_fmt,
+            "output": self.subgen_output,
+        }
+
+        form.setRowStretch(6, 1)
+        return page, params
+
     # ==================== 工具事件处理 ====================
 
     def _on_tool_changed(self, index: int):
@@ -1812,6 +1905,8 @@ class MainWindow(QMainWindow):
                 "\n支持导出为纯文本或带时间戳的字幕文件。",
             5: "在多种常见音频格式之间进行互相转换。"
                 "\n可调整采样率、比特率等参数。",
+            6: "从 PDF 文档或纯文本中提取台词，自动生成带时间轴的字幕文件。"
+                "\n支持 SRT/VTT/LRC 输出格式。",
         }
         desc = descriptions.get(index, "")
         self.tools_desc_label.setText(desc)
@@ -1889,9 +1984,10 @@ class MainWindow(QMainWindow):
                 "other (其他)": "other",
             }
             stem = stem_map.get(self.sep_stems.currentText(), "vocals")
+            export_all = self.sep_export_all.isChecked()
 
             return {"tool": "separate", "input_path": audio, "output_dir": output,
-                    "model": model, "stem": stem}
+                    "model": model, "stem": stem, "export_all": export_all}
 
         elif tool_index == 2:
             # 音频切分
@@ -1940,9 +2036,12 @@ class MainWindow(QMainWindow):
             model = self.asr_tool_model.currentData() or "large-v3"
             lang_code = self.asr_tool_lang.currentText().split(" ")[0]
             export_sub = self.asr_export_subtitle.isChecked()
+            sub_fmt = self.asr_sub_format.currentText().lower()
+            disable_vad = self.asr_disable_vad.isChecked()
 
             return {"tool": "asr", "input_path": audio, "output_path": output,
-                    "model": model, "language": lang_code, "export_subtitle": export_sub}
+                    "model": model, "language": lang_code, "export_subtitle": export_sub,
+                    "sub_format": sub_fmt, "disable_vad": disable_vad}
 
         elif tool_index == 5:
             # 格式转换
@@ -1964,6 +2063,29 @@ class MainWindow(QMainWindow):
 
             return {"tool": "convert", "input_path": inp, "output_dir": outdir,
                     "format": target_fmt, "sample_rate": sr}
+
+        elif tool_index == 6:
+            # 字幕生成
+            text_content = self.subgen_text_preview.toPlainText().strip()
+            if not text_content:
+                inp = self.subgen_input.text().strip()
+                if not inp:
+                    QMessageBox.warning(self, "警告", "请输入台词内容或选择输入文件！")
+                    return None
+
+            output = self.subgen_output.text().strip()
+            if not output:
+                QMessageBox.warning(self, "警告", "请指定输出文件路径！")
+                return None
+
+            duration = self.subgen_duration.value()
+            fmt = self.subgen_fmt.currentText().lower()
+
+            return {"tool": "subtitle_gen",
+                    "text": text_content,
+                    "duration": duration,
+                    "fmt": fmt,
+                    "output_path": output}
 
         return None
 
@@ -2047,6 +2169,56 @@ class MainWindow(QMainWindow):
         d = QFileDialog.getExistingDirectory(self, "选择输出目录")
         if d:
             self.conv_output_dir.setText(d)
+
+    def _browse_subgen_input(self):
+        source_idx = self.subgen_source.currentIndex()
+        if source_idx == 0:  # 纯文本
+            fp, _ = QFileDialog.getOpenFileName(
+                self, "选择文本文件", "",
+                "文本文件 (*.txt);;所有文件 (*)"
+            )
+        else:  # PDF
+            fp, _ = QFileDialog.getOpenFileName(
+                self, "选择 PDF 文件",
+                "", "PDF 文件 (*.pdf);;所有文件 (*)"
+            )
+        if fp:
+            self.subgen_input.setText(fp)
+            # 加载内容到预览区
+            try:
+                if fp.lower().endswith(".pdf"):
+                    from src.core.subtitle_generator import SubtitleGenerator
+                    text = SubtitleGenerator._extract_pdf_text(fp)
+                else:
+                    text = Path(fp).read_text(encoding="utf-8")
+                self.subgen_text_preview.setPlainText(text)
+            except Exception as e:
+                QMessageBox.warning(self, "警告", f"文件读取失败:\n{e}")
+            # 自动设置输出路径
+            if not self.subgen_output.text():
+                ext = self.subgen_fmt.currentText().lower()
+                out_name = Path(fp).stem + f"_subtitle.{ext}"
+                out_path = str(Path(fp).parent / out_name)
+                self.subgen_output.setText(out_path)
+
+    def _browse_subgen_output(self):
+        fmt = self.subgen_fmt.currentText().lower()
+        default_name = f"output.{fmt}"
+        fp, _ = QFileDialog.getSaveFileName(
+            self, "选择输出文件", default_name,
+            f"{fmt.upper()} 文件 (*.{fmt});;所有文件 (*)"
+        )
+        if fp:
+            self.subgen_output.setText(fp)
+            # 自动匹配格式下拉框
+            new_ext = Path(fp).suffix.lstrip(".").lower()
+            idx = self.subgen_fmt.findText(new_ext.upper())
+            if idx >= 0:
+                self.subgen_fmt.setCurrentIndex(idx)
+
+    def _on_subgen_source_changed(self, index: int):
+        """字幕生成输入源切换时更新文件选择器提示"""
+        pass  # 文件选择对话框的 filter 在 _browse_subgen_input 中动态处理
 
     def _open_voice_guide(self):
         import os
@@ -2393,15 +2565,8 @@ class MainWindow(QMainWindow):
             result = preprocessor.build_from_segments(selected)
             self.log(f"[音色工坊] 预览音频: {result.total_duration:.1f}s")
 
-            # 用系统播放器打开
-            import platform
-            system = platform.system()
-            if system == "Windows":
-                os.startfile(result.ref_audio_path)
-            elif system == "Darwin":
-                subprocess.Popen(["open", result.ref_audio_path])
-            else:
-                subprocess.Popen(["xdg-open", result.ref_audio_path])
+            # 使用内置播放器
+            self.audio_player.load_and_play(result.ref_audio_path)
 
         except Exception as e:
             self.log(f"[音色工坊] 播放失败: {e}")
@@ -2621,15 +2786,8 @@ class MainWindow(QMainWindow):
 
         if success:
             self.log(f"[音色工坊] {message}")
-            import platform
-            if platform.system() == "Windows":
-                os.startfile(audio_path)
-            elif platform.system() == "Darwin":
-                import subprocess
-                subprocess.Popen(["open", audio_path])
-            else:
-                import subprocess
-                subprocess.Popen(["xdg-open", audio_path])
+            # 使用内置播放器
+            self.audio_player.load_and_play(audio_path)
         else:
             self.log(f"[音色工坊] 试音失败: {message}")
             QMessageBox.critical(self, "错误", message)
