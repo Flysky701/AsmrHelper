@@ -85,6 +85,9 @@ class Qwen3ModelManager:
                 device_map="cuda:0",
                 dtype=torch.bfloat16,
             )
+            
+            # 设置为评估模式，禁用 dropout 等训练特性，提高推理稳定性
+            model.eval()
 
             if t1:
                 t1.record()

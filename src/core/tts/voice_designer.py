@@ -19,21 +19,6 @@ from src.config import PROJECT_ROOT  # 统一使用项目根目录
 # 默认参考文本（用于生成参考音频）
 DEFAULT_REF_TEXT = "你好，今天辛苦了，让我来帮你放松一下吧。"
 
-# 中文发音提示词（方案2：注入提示词改善克隆音色发音）
-# 这些提示会附加到 ref_text 后面，帮助模型理解中文发音规则
-CHINESE_PRONUNCIATION_HINTS = "注意：翘舌音 zh/ch/sh/r 要卷舌，元音 ü 要圆润，儿化音要轻巧。"
-
-# 中文拼音映射（用于 ref_text 注入）
-# 当文本包含难以发音的字时，可以标注拼音
-CHINESE_PINYIN_HINTS = {
-    # 常见翘舌音
-    "知": "zhī", "吃": "chī", "师": "shī", "日": "rì",
-    "是": "shì", "时": "shí", "事": "shì", "十": "shí",
-    # 特殊元音
-    "女": "nǚ", "绿": "lǜ", "雨": "yǔ", "鱼": "yú",
-    "局": "jú", "去": "qù", "徐": "xú",
-}
-
 # 预设音色描述模板
 VOICE_TEMPLATES = {
     "治愈大姐姐": "温柔成熟的大姐姐声线，音调偏低，语速舒缓，让人感到安心和放松",
@@ -42,32 +27,6 @@ VOICE_TEMPLATES = {
     "邻家女孩": "亲切自然的邻家女孩声线，音调适中，语速平常，如同好友聊天",
     "磁性低音": "低沉磁性的男性声线，音调偏低，嗓音沙哑，充满魅力",
 }
-
-
-def _inject_pronunciation_hints(text: str, use_pinyin: bool = False) -> str:
-    """
-    向 ref_text 注入中文发音提示，帮助 VoiceClone 模型正确发音。
-    
-    Args:
-        text: 原始中文文本
-        use_pinyin: 是否添加拼音标注
-    
-    Returns:
-        增强后的文本，包含发音提示
-    """
-    # 方案2A：附加发音提示词（最简单直接）
-    enhanced = text + " " + CHINESE_PRONUNCIATION_HINTS
-    
-    # 方案2B：标注难发音字的拼音（如果启用）
-    # 注意：Qwen3 可能不支持这种格式，作为探索性尝试
-    if use_pinyin:
-        for char, pinyin in CHINESE_PINYIN_HINTS.items():
-            if char in text:
-                # 格式：[字(拼音)] - 让模型知道正确发音
-                # enhanced = enhanced.replace(char, f"[{char}({pinyin})]")
-                pass  # 暂不启用，保持兼容性
-    
-    return enhanced
 
 
 class VoiceDesigner:
@@ -154,11 +113,12 @@ class VoiceDesigner:
             self._report_progress(progress_callback, f"生成参考音频 (描述: {description[:30]}...)", 10)
 
             # VoiceDesign API
-            audios, sample_rate = vd_model.generate_voice_design(
-                text=ref_text,
-                instruct=description,
-                language="chinese",
-            )
+            with torch.no_grad():
+                audios, sample_rate = vd_model.generate_voice_design(
+                    text=ref_text,
+                    instruct=description,
+                    language="chinese",
+                )
 
             # 保存参考音频
             self._report_progress(progress_callback, "保存参考音频...", 50)
@@ -178,10 +138,11 @@ class VoiceDesigner:
             self._report_progress(progress_callback, "创建音色克隆 prompt...", 70)
 
             # Base 模型创建 clone prompt
-            voice_clone_prompt = base_model.create_voice_clone_prompt(
-                ref_audio=str(ref_audio),
-                ref_text=ref_text,
-            )
+            with torch.no_grad():
+                voice_clone_prompt = base_model.create_voice_clone_prompt(
+                    ref_audio=str(ref_audio),
+                    ref_text=ref_text,
+                )
 
             # 保存 prompt
             torch.save(voice_clone_prompt, str(prompt_cache))
@@ -263,21 +224,18 @@ class VoiceDesigner:
             self._report_progress(progress_callback, "加载 Base 模型...", 10)
             base_model = Qwen3ModelManager.get_base_model()
 
-            # ===== Step 2: 注入中文发音提示到 ref_text =====
-            self._report_progress(progress_callback, f"分析音频 + 注入发音提示", 30)
-            
-            # 方案2：增强 ref_text 注入中文发音提示
-            enhanced_ref_text = _inject_pronunciation_hints(ref_text)
-            print(f"[VoiceDesigner] 原始文本: {ref_text}")
-            print(f"[VoiceDesigner] 增强文本: {enhanced_ref_text}")
+            # ===== Step 2: 分析音频 =====
+            self._report_progress(progress_callback, f"分析音频内容...", 30)
+            print(f"[VoiceDesigner] 参考文本: {ref_text}")
 
             # ===== Step 3: 创建 voice_clone_prompt =====
             self._report_progress(progress_callback, f"创建音色克隆 prompt...", 40)
 
-            voice_clone_prompt = base_model.create_voice_clone_prompt(
-                ref_audio=str(audio_path),
-                ref_text=enhanced_ref_text,
-            )
+            with torch.no_grad():
+                voice_clone_prompt = base_model.create_voice_clone_prompt(
+                    ref_audio=str(audio_path),
+                    ref_text=ref_text,
+                )
 
             # 保存 prompt
             self._report_progress(progress_callback, "保存音色配置...", 80)
@@ -380,18 +338,20 @@ class VoiceDesigner:
 
             # Step 2: 创建 voice_clone_prompt
             print(f"[VoiceDesigner] 分析音频: {Path(audio_path).name}")
-            voice_clone_prompt = base_model.create_voice_clone_prompt(
-                ref_audio=str(audio_path),
-                ref_text=ref_text,
-            )
+            with torch.no_grad():
+                voice_clone_prompt = base_model.create_voice_clone_prompt(
+                    ref_audio=str(audio_path),
+                    ref_text=ref_text,
+                )
 
             # Step 3: 合成音频
             print(f"[VoiceDesigner] 生成试音音频...")
-            wavs, sr = base_model.generate_voice_clone(
-                text,
-                language="chinese",
-                voice_clone_prompt=voice_clone_prompt,
-            )
+            with torch.no_grad():
+                wavs, sr = base_model.generate_voice_clone(
+                    text,
+                    language="chinese",
+                    voice_clone_prompt=voice_clone_prompt,
+                )
 
             if wavs and len(wavs) > 0:
                 audio = wavs[0].astype(np.float32)

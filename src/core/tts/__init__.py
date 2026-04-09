@@ -311,12 +311,6 @@ class Qwen3TTSEngine:
         Qwen3ModelManager.unload_all()
         print("[Qwen3TTS] 模型已卸载")
 
-    @classmethod
-    def _get_base_model(cls):
-        """获取 Base 模型（用于克隆）"""
-        from .qwen3_manager import Qwen3ModelManager
-        return Qwen3ModelManager.get_base_model()
-
     def _synthesize_from_cache(self, text: str, output_path: str) -> str:
         """使用 prompt_cache 合成（自定义/克隆音色，qwen_tts 0.1.1 API）"""
         import torch
@@ -331,11 +325,14 @@ class Qwen3TTSEngine:
 
         # 使用 Base 模型合成（voice_clone）
         model = self._get_base_model()
-        wavs, sr = model.generate_voice_clone(
-            text,
-            language="chinese",
-            voice_clone_prompt=prompt_cache,
-        )
+        
+        # 使用 torch.no_grad() 禁用梯度计算，提高推理速度并减少显存占用
+        with torch.no_grad():
+            wavs, sr = model.generate_voice_clone(
+                text,
+                language="chinese",
+                voice_clone_prompt=prompt_cache,
+            )
         if wavs and len(wavs) > 0:
             audio = wavs[0].astype(np.float32)
             # 使用 FLOAT subtype 避免量化失真
@@ -389,12 +386,15 @@ class Qwen3TTSEngine:
         else:
             # 预设音色：支持 instruct 参数
             model = self._get_custom_model()
-            wavs, sr = model.generate_custom_voice(
-                text,
-                speaker=self.voice,
-                language="chinese",
-                instruct=instruct,
-            )
+            
+            # 使用 torch.no_grad() 禁用梯度计算，提高推理速度并减少显存占用
+            with torch.no_grad():
+                wavs, sr = model.generate_custom_voice(
+                    text,
+                    speaker=self.voice,
+                    language="chinese",
+                    instruct=instruct,
+                )
             if wavs and len(wavs) > 0:
                 audio = wavs[0].astype(np.float32)
                 sf.write(str(output_path), audio, sr, subtype="FLOAT")
