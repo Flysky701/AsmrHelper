@@ -203,3 +203,84 @@ class SubtitleGenerator:
             return f"{h:02d}:{m:02d}:{s_val:02d},{ms:03d}"
         else:  # vtt
             return f"{h:02d}:{m:02d}:{s_val:02d}.{ms:03d}"
+
+    @staticmethod
+    def align_text_with_asr(
+        user_text: str,
+        asr_results: list,
+        total_duration: float,
+        fmt: str = "srt",
+        lang: str = "zh",
+    ) -> list:
+        """
+        ASR 对齐模式：将用户文本与 ASR 结果进行模糊匹配，生成带真实时间轴的字幕
+
+        Args:
+            user_text: 用户提供的台词文本（按行分隔）
+            asr_results: ASR 识别结果列表 [{"start": s, "end": e, "text": t}, ...]
+            total_duration: 总时长(秒) - 用于尾部填充
+            fmt: 输出格式
+            lang: 语言标识
+
+        Returns:
+            字幕条目列表
+        """
+        import difflib
+
+        # 将用户文本切分为句子列表
+        user_sentences = SubtitleGenerator.SENTENCE_DELIMITERS.split(user_text)
+        user_sentences = [s.strip() for s in user_sentences if s.strip()]
+
+        if not user_sentences or not asr_results:
+            # 回退到均分模式
+            return SubtitleGenerator.generate_from_text(
+                user_text, total_duration, fmt, lang
+            )
+
+        # 提取ASR文本用于匹配
+        asr_texts = [r.get("text", "").strip() for r in asr_results]
+
+        aligned_entries = []
+        used_asr_indices = set()
+
+        for i, sentence in enumerate(user_sentences):
+            # 模糊匹配：找到最相似的ASR片段
+            best_match_idx = -1
+            best_ratio = 0.0
+
+            for j, asr_text in enumerate(asr_texts):
+                if j in used_asr_indices:
+                    continue
+
+                ratio = difflib.SequenceMatcher(None, sentence.lower(), asr_text.lower()).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_match_idx = j
+
+            if best_match_idx >= 0 and best_ratio >= 0.3:
+                # 找到匹配的ASR片段，使用其时间戳
+                asr_entry = asr_results[best_match_idx]
+                start = asr_entry["start"]
+                end = max(asr_entry["end"], start + 0.5)
+                aligned_entries.append({
+                    "start": round(start, 3),
+                    "end": round(end, 3),
+                    "text": sentence,
+                })
+                used_asr_indices.add(best_match_idx)
+            else:
+                # 未找到匹配，使用前一条结束时间作为起点估算
+                prev_end = aligned_entries[-1]["end"] if aligned_entries else 0
+                char_count = len(sentence)
+                est_dur = max(char_count * 0.15, 0.8)
+                aligned_entries.append({
+                    "start": round(prev_end, 3),
+                    "end": round(prev_end + est_dur, 3),
+                    "text": sentence,
+                })
+
+        # 确保不超出总时长
+        if aligned_entries and aligned_entries[-1]["end"] > total_duration:
+            aligned_entries[-1]["end"] = total_duration
+
+        return aligned_entries

@@ -52,7 +52,7 @@ class SingleWorkerThread(QThread):
                 vtt_path=subtitle_path,
                 vocal_model=self.params.get("vocal_model", "htdemucs"),
                 asr_model=self.params.get("asr_model", "large-v3"),
-                asr_language="ja",
+                asr_language=self.params.get("asr_language", "ja"),
                 tts_engine=self.params.get("tts_engine", "edge"),
                 tts_voice=self.params.get("tts_voice", "zh-CN-XiaoxiaoNeural"),
                 qwen3_voice=self.params.get("tts_voice", "Vivian"),
@@ -231,7 +231,7 @@ class BatchWorkerThread(QThread):
                 vtt_path=subtitle_file,
                 vocal_model=self.params.get("vocal_model", "htdemucs"),
                 asr_model=self.params.get("asr_model", "large-v3"),
-                asr_language="ja",
+                asr_language=self.params.get("asr_language", "ja"),
                 tts_engine=self.params.get("tts_engine", "edge"),
                 tts_voice=self.params.get("tts_voice", "zh-CN-XiaoxiaoNeural"),
                 qwen3_voice=self.params.get("tts_voice", "Vivian"),
@@ -673,9 +673,10 @@ class ToolsWorkerThread(QThread):
     支持的工具：
     1. separate   - 音频分离 (Demucs)
     2. split      - 音频切分 (按字幕时间轴)
-    3. subtitle_merge - 字幕合并
-    4. asr        - ASR 语音识别
-    5. convert    - 格式转换
+    3. asr        - ASR 语音识别
+    4. convert    - 格式转换
+    5. subtitle_gen   - 字幕生成
+    6. subtitle_translate - 字幕翻译
 
     信号:
         progress(str): 进度消息
@@ -708,14 +709,14 @@ class ToolsWorkerThread(QThread):
                 result_msg = self._run_separate()
             elif tool_name == "split":
                 result_msg = self._run_split()
-            elif tool_name == "subtitle_merge":
-                result_msg = self._run_submerge()
             elif tool_name == "asr":
                 result_msg = self._run_asr()
             elif tool_name == "convert":
                 result_msg = self._run_convert()
             elif tool_name == "subtitle_gen":
                 result_msg = self._run_subtitle_gen()
+            elif tool_name == "subtitle_translate":
+                result_msg = self._run_subtitle_translate()
             else:
                 raise ValueError(f"未知工具: {tool_name}")
 
@@ -741,18 +742,13 @@ class ToolsWorkerThread(QThread):
         input_path = self.params["input_path"]
         output_dir = self.params["output_dir"]
         model = self.params["model"]
-        stem = self.params["stem"]
-        export_all = self.params.get("export_all", False)
+        target_stems = self.params.get("selected_stems", ["vocals"])
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         self.progress.emit("[工具箱] 加载 Demucs 分离模型...")
         t0 = time.time()
         separator = VocalSeparator(model_name=model)
-
-        # 全部轨道 or 单轨道
-        all_stems = ["vocals", "no_vocals", "drums", "bass", "piano", "other"]
-        target_stems = all_stems if export_all else [stem]
 
         self.progress.emit(f"[工具箱] 正在分离 (目标轨道: {', '.join(target_stems)})...")
         results = separator.separate(input_path, output_dir, stems=target_stems)
@@ -826,82 +822,6 @@ class ToolsWorkerThread(QThread):
         elapsed = time.time() - t0
         return f"切分完成！\n保存片段数: {saved_count}\n输出目录: {output_dir}\n耗时: {elapsed:.1f}s"
 
-    def _run_submerge(self) -> str:
-        """合并多语言字幕文件"""
-        from ..translate import (
-            load_subtitle_with_timestamps,
-            detect_subtitle_language,
-            load_subtitle_translations,
-        )
-        from pathlib import Path
-        import time
-
-        files = self.params["files"]
-        output_path = self.params["output_path"]
-        fmt = self.params["format"]
-
-        if not output_path:
-            raise ValueError("请指定输出文件路径")
-
-        out_p = Path(output_path)
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-
-        self.progress.emit(f"[工具箱] 合并 {len(files)} 个字幕文件...")
-        t0 = time.time()
-
-        all_segments = []
-        for fp in files:
-            self.progress.emit(f"  读取: {Path(fp).name}")
-            entries = load_subtitle_with_timestamps(fp)
-            lang = detect_subtitle_language(load_subtitle_translations(fp))
-            for e in entries:
-                seg = dict(e)
-                seg["_source"] = Path(fp).name
-                seg["_lang"] = lang or "?"
-                all_segments.append(seg)
-
-        if not all_segments:
-            raise RuntimeError("所有字幕文件均无有效内容")
-
-        # 按起始时间排序
-        all_segments.sort(key=lambda x: x["start"])
-
-        # 构建输出内容
-        if fmt == "srt":
-            lines = []
-            for i, seg in enumerate(all_segments, 1):
-                start = self._fmt_ts(seg["start"], fmt="srt")
-                end = self._fmt_ts(seg["end"], fmt="srt")
-                lines.append(f"{i}")
-                lines.append(f"{start} --> {end}")
-                lines.append(seg["text"])
-                lines.append("")
-            content = "\n".join(lines)
-        elif fmt == "vtt":
-            lines = ["WEBVTT", ""]
-            for seg in all_segments:
-                start = self._fmt_ts(seg["start"], fmt="vtt")
-                end = self._fmt_ts(seg["end"], fmt="vtt")
-                lines.append(f"{start} --> {end}")
-                lines.append(seg["text"])
-                lines.append("")
-            content = "\n".join(lines)
-        elif fmt == "lrc":
-            lines = []
-            for seg in all_segments:
-                ms = int(seg["start"] * 1000)
-                m = ms // 60000
-                s = (ms % 60000) // 1000
-                cs = ms % 1000
-                ts = f"[{m:02d}:{s:02d}.{cs:02d}]"
-                lines.append(f"{ts}{seg['text']}")
-            content = "\n".join(lines)
-        else:
-            raise ValueError(f"不支持的格式: {fmt}")
-
-        out_p.write_text(content, encoding="utf-8")
-        elapsed = time.time() - t0
-        return f"合并完成！\n输出: {output_path}\n总条目: {len(all_segments)}\n耗时: {elapsed:.1f}s"
 
     @staticmethod
     def _fmt_ts(seconds: float, fmt: str = "srt") -> str:
@@ -1004,28 +924,154 @@ class ToolsWorkerThread(QThread):
         duration = self.params.get("duration", 600.0)
         fmt = self.params.get("fmt", "srt")
         output_path = self.params["output_path"]
+        gen_mode = self.params.get("mode", "text")
+        lang = self.params.get("lang", "zh")
 
         out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
 
-        self.progress.emit("[工具箱] 正在生成字幕...")
         t0 = time.time()
 
-        entries = SubtitleGenerator.generate_from_text(
-            text=text,
-            total_duration=duration,
-            fmt=fmt,
-            lang="zh",
-        )
+        if gen_mode == "asr_align" and self.params.get("audio_path"):
+            # ASR 对齐模式：用音频做ASR获取真实时间轴，再将文本对齐
+            audio_path = self.params["audio_path"]
+            asr_lang = lang  # 使用用户选择的语言
+
+            self.progress.emit("[工具箱] ASR 对齐模式：正在识别音频...")
+            from src.core.asr import ASRRecognizer
+
+            recognizer = ASRRecognizer(
+                model_size="large-v3",
+                language=asr_lang,
+                disable_vad=False,
+            )
+            asr_results = recognizer.recognize(audio_path, None)
+
+            if not asr_results:
+                raise RuntimeError("ASR 未能从音频中识别出任何内容")
+
+            # 将ASR结果的时间戳与用户文本进行模糊匹配对齐
+            entries = SubtitleGenerator.align_text_with_asr(
+                user_text=text,
+                asr_results=asr_results,
+                total_duration=duration,
+                fmt=fmt,
+                lang=lang,
+            )
+        else:
+            # 纯文本模式：按字符比例均分
+            self.progress.emit("[工具箱] 纯文本模式：按字符比例分配时间轴...")
+            entries = SubtitleGenerator.generate_from_text(
+                text=text,
+                total_duration=duration,
+                fmt=fmt,
+                lang=lang,
+            )
 
         SubtitleGenerator.save(entries, output_path, fmt)
 
         elapsed = time.time() - t0
         size_kb = out_p.stat().st_size / 1024 if out_p.exists() else 0
+        mode_label = "ASR 对齐" if gen_mode == "asr_align" else "纯文本均分"
 
         return (
             f"字幕生成完成！\n"
+            f"模式: {mode_label}\n"
             f"输出: {output_path}\n"
             f"条目数: {len(entries)}\n"
+            f"文件大小: {size_kb:.1f} KB\n"
+            f"耗时: {elapsed:.1f}s"
+        )
+
+    def _run_subtitle_translate(self) -> str:
+        """字幕翻译"""
+        from src.core.translate import Translator
+        from ..translate import load_subtitle_with_timestamps
+        from pathlib import Path
+        import time
+
+        input_path = self.params["input_path"]
+        output_path = self.params["output_path"]
+        source_lang = self.params.get("source_lang", "ja")
+        target_lang = self.params.get("target_lang", "zh")
+        fmt = self.params.get("format", "srt")
+
+        out_p = Path(output_path)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+
+        t0 = time.time()
+        self.progress.emit(f"[工具箱] 加载字幕文件...")
+
+        # 解析原始字幕
+        entries = load_subtitle_with_timestamps(input_path)
+        if not entries:
+            raise RuntimeError(f"无法解析字幕文件: {input_path}")
+
+        source_texts = [e["text"] for e in entries if e["text"].strip()]
+        if not source_texts:
+            raise RuntimeError("字幕文件中没有有效文本内容")
+
+        self.progress.emit(f"[工具箱] 正在翻译 {len(source_texts)} 条文本...")
+        lang_labels = {"ja": "日语", "zh": "中文", "en": "英语"}
+
+        try:
+            translator = Translator(provider="deepseek")
+            translations = translator.translate_batch(
+                source_texts,
+                source_lang=lang_labels.get(source_lang, source_lang),
+                target_lang=lang_labels.get(target_lang, target_lang),
+            )
+        except Exception as e:
+            self.progress.emit(f"[工具箱] DeepSeek 翻译失败，尝试回退到 OpenAI: {e}")
+            translator = Translator(provider="openai")
+            translations = translator.translate_batch(
+                source_texts,
+                source_lang=lang_labels.get(source_lang, source_lang),
+                target_lang=lang_labels.get(target_lang, target_lang),
+            )
+
+        # 构建双语输出
+        lines = []
+        if fmt == "srt":
+            lines.append("")  # 预留位置给 WEBVTT header check
+            for i, (entry, trans) in enumerate(zip(entries, translations), 1):
+                start = ToolsWorkerThread._fmt_ts(entry["start"], "srt")
+                end = ToolsWorkerThread._fmt_ts(entry["end"], "srt")
+                lines.append(str(i))
+                lines.append(f"{start} --> {end}")
+                lines.append(entry["text"])
+                lines.append(trans)  # 翻译行
+                lines.append("")
+        elif fmt == "vtt":
+            lines.append("WEBVTT")
+            lines.append("")
+            for entry, trans in zip(entries, translations):
+                start = ToolsWorkerThread._fmt_ts(entry["start"], "vtt")
+                end = ToolsWorkerThread._fmt_ts(entry["end"], "vtt")
+                lines.append(f"{start} --> {end}")
+                lines.append(entry["text"])
+                lines.append(trans)
+                lines.append("")
+        elif fmt == "lrc":
+            for entry, trans in zip(entries, translations):
+                ms = int(entry["start"] * 1000)
+                m = ms // 60000
+                s = (ms % 60000) // 1000
+                cs = ms % 1000
+                ts = f"[{m:02d}:{s:02d}.{cs:02d}]"
+                lines.append(f"{ts}{entry['text']} / {trans}")
+
+        content = "\n".join(lines).strip()
+        out_p.write_text(content, encoding="utf-8")
+
+        elapsed = time.time() - t0
+        size_kb = out_p.stat().st_size / 1024 if out_p.exists() else 0
+
+        return (
+            f"字幕翻译完成！\n"
+            f"源语言: {source_lang} → 目标语言: {target_lang}\n"
+            f"输出: {output_path}\n"
+            f"翻译条目: {len(translations)}\n"
             f"文件大小: {size_kb:.1f} KB\n"
             f"耗时: {elapsed:.1f}s"
         )
