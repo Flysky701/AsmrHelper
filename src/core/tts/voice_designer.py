@@ -293,8 +293,10 @@ class VoiceDesigner:
 
         try:
             # 统一使用 Qwen3TTSEngine 合成音频
+            print(f"[VoiceDesigner] 试听音色: {profile.name}, 文本: {text[:50]}... (长度: {len(text)})")
             engine = Qwen3TTSEngine(voice_profile_id=profile.id, speed=speed)
             audio_path = engine.synthesize(text, str(output_path))
+            print(f"[VoiceDesigner] 试听音频已生成: {audio_path}")
 
             return audio_path
 
@@ -346,6 +348,7 @@ class VoiceDesigner:
 
             # Step 3: 合成音频
             print(f"[VoiceDesigner] 生成试音音频...")
+            print(f"[VoiceDesigner] 合成文本: {text[:50]}... (长度: {len(text)})")
             with torch.no_grad():
                 wavs, sr = base_model.generate_voice_clone(
                     text,
@@ -355,6 +358,8 @@ class VoiceDesigner:
 
             if wavs and len(wavs) > 0:
                 audio = wavs[0].astype(np.float32)
+                duration = len(audio) / sr
+                print(f"[VoiceDesigner] 生成音频时长: {duration:.1f}s, 采样率: {sr}Hz")
                 sf.write(str(output_path), audio, sr)
                 print(f"[VoiceDesigner] 试音音频已保存: {output_path}")
                 return str(output_path)

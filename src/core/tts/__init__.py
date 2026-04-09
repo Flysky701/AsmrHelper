@@ -326,6 +326,8 @@ class Qwen3TTSEngine:
         # 使用 Base 模型合成（voice_clone）
         model = self._get_base_model()
         
+        print(f"[Qwen3TTS] 使用 prompt_cache 合成，文本长度: {len(text)}")
+        
         # 使用 torch.no_grad() 禁用梯度计算，提高推理速度并减少显存占用
         with torch.no_grad():
             wavs, sr = model.generate_voice_clone(
@@ -335,6 +337,8 @@ class Qwen3TTSEngine:
             )
         if wavs and len(wavs) > 0:
             audio = wavs[0].astype(np.float32)
+            duration = len(audio) / sr
+            print(f"[Qwen3TTS] 生成音频时长: {duration:.1f}s")
             # 使用 FLOAT subtype 避免量化失真
             sf.write(str(output_path), audio, sr, subtype="FLOAT")
         else:
