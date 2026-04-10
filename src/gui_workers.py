@@ -681,10 +681,12 @@ class ToolsWorkerThread(QThread):
     信号:
         progress(str): 进度消息
         finished(bool, str): (success, message)
+        alignment_ready(list): ASR 对齐预览数据 (Q3)
     """
 
     progress = Signal(str)
     finished = Signal(bool, str)
+    alignment_ready = Signal(object)  # list[dict] - 对齐结果预览数据
 
     def __init__(self, tool_id: int, params: dict):
         """
@@ -915,13 +917,37 @@ class ToolsWorkerThread(QThread):
         return "\n".join(msg_lines)
 
     def _run_subtitle_gen(self) -> str:
-        """字幕生成（文本/PDF → SRT/VTT/LRC）"""
+        """字幕生成（文本/PDF → SRT/VTT/LRC）
+
+        Q3: ASR对齐返回详细匹配信息供GUI预览
+        """
         from src.core.subtitle_generator import SubtitleGenerator
         from pathlib import Path
         import time
 
-        text = self.params["text"]
-        duration = self.params.get("duration", 600.0)
+        # 从输入文件读取文本
+        input_path = self.params.get("input_path")
+        if not input_path:
+            raise ValueError("缺少输入文件路径")
+
+        if input_path.lower().endswith(".pdf"):
+            # PDF: 提取第一个脚本的文本
+            scripts = SubtitleGenerator.extract_pdf_scripts(input_path)
+            script_index = self.params.get("script_index", 0)
+            text = ""
+            for s in scripts:
+                if s["index"] == script_index:
+                    text = s["text"]
+                    break
+            if not text and scripts:
+                text = scripts[0]["text"]
+        else:
+            # 纯文本文件
+            text = Path(input_path).read_text(encoding="utf-8")
+
+        if not text.strip():
+            raise ValueError("输入文件内容为空")
+
         fmt = self.params.get("fmt", "srt")
         output_path = self.params["output_path"]
         gen_mode = self.params.get("mode", "text")
@@ -932,10 +958,19 @@ class ToolsWorkerThread(QThread):
 
         t0 = time.time()
 
-        if gen_mode == "asr_align" and self.params.get("audio_path"):
+        # 获取配对音频时长
+        audio_path = self.params.get("audio_path")
+        duration = None
+        if audio_path:
+            try:
+                import librosa
+                duration = librosa.get_audio_duration(audio_path)
+            except Exception:
+                pass
+
+        if gen_mode == "asr_align" and audio_path:
             # ASR 对齐模式：用音频做ASR获取真实时间轴，再将文本对齐
-            audio_path = self.params["audio_path"]
-            asr_lang = lang  # 使用用户选择的语言
+            asr_lang = lang
 
             self.progress.emit("[工具箱] ASR 对齐模式：正在识别音频...")
             from src.core.asr import ASRRecognizer
@@ -950,17 +985,43 @@ class ToolsWorkerThread(QThread):
             if not asr_results:
                 raise RuntimeError("ASR 未能从音频中识别出任何内容")
 
-            # 将ASR结果的时间戳与用户文本进行模糊匹配对齐
+            self.progress.emit(f"[工具箱] ASR 识别完成，共 {len(asr_results)} 条片段，正在对齐台词...")
+
+            # Q3: 使用增强的对齐算法 + 返回对齐详情
             entries = SubtitleGenerator.align_text_with_asr(
                 user_text=text,
                 asr_results=asr_results,
                 total_duration=duration,
+                filter_actions=False,
+                action_mode="keep",
                 fmt=fmt,
                 lang=lang,
+                return_alignment_info=True,
             )
+
+            # Q3: 发送对齐预览数据到GUI
+            align_preview = []
+            for idx, entry in enumerate(entries):
+                align_info = entry.get("_align", {})
+                align_preview.append({
+                    "index": idx + 1,
+                    "text": entry["text"],
+                    "asr_text": align_info.get("asr_text", ""),
+                    "confidence": align_info.get("confidence", ""),
+                    "score": align_info.get("score", 0),
+                    "start": entry["start"],
+                    "end": entry["end"],
+                    "method": align_info.get("method", ""),
+                })
+            self.alignment_ready.emit(align_preview)
+
         else:
-            # 纯文本模式：按字符比例均分
-            self.progress.emit("[工具箱] 纯文本模式：按字符比例分配时间轴...")
+            # 纯文本模式：使用音频时长或默认600秒
+            if not duration:
+                duration = 600.0
+                self.progress.emit(f"[工具箱] 纯文本模式：使用默认时长 {duration:.0f} 秒")
+            else:
+                self.progress.emit(f"[工具箱] 纯文本模式：按字符比例分配时间轴...")
             entries = SubtitleGenerator.generate_from_text(
                 text=text,
                 total_duration=duration,
