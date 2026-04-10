@@ -245,3 +245,14 @@ uv run python scripts/install_models.py --qwen3
 ## 许可证
 
 MIT License
+
+
+## 架构说明 (MVC-style Componentization)
+本项目采用组件化思想构建 PySide6 GUI 界面：
+- src/gui/app.py: 应用的主入口 (MainWindow)，负责串联各大组件、初始化配置。
+- src/gui/views/: 包含独立的 Tab 并进行组件化隔离。
+  - single_tab.py: 单文件处理视图
+  - atch_tab.py: 批量文件处理视图
+  - workshop_tab.py: 音色工坊 (语音克隆、预览) 视图
+  - 	ools_tab.py: 实用工具箱视图
+- src/gui/gui_workers.py: 处理耗时后台任务的工作线程 (如分离、语音识别、克隆等)，避免阻塞UI。
