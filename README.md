@@ -37,6 +37,9 @@ cd AsmrHelper
 
 # 完整安装 (含 Qwen3-TTS依赖，需要 NVIDIA GPU)
 .\setup.ps1 -Full
+
+# 环境完全重建
+.\setup.ps1 -CleanReinstall
 ```
 
 > 安装脚本会自动并发测速 pypi.org 官方源和国内镜像（清华、阿里），选择延迟最低的源进行安装，哪个快用哪个。如果首选源失败，会自动按延迟顺序回退。

@@ -638,13 +638,13 @@ class VoicePreviewWorker(QThread):
     def run(self):
         try:
             import tempfile
-            from src.core.tts.voice_designer import VoiceDesigner
             from src.core.tts.voice_profile import get_voice_manager
+            from src.core import TTSEngine
 
             temp_dir = Path(tempfile.gettempdir())
             output_path = temp_dir / f"voice_preview_{self.profile_id}.wav"
 
-            # 获取音色配置
+            # 获取音色配置以查找 voice name
             manager = get_voice_manager()
             profile = manager.get_by_id(self.profile_id)
 
@@ -652,14 +652,14 @@ class VoicePreviewWorker(QThread):
                 self.finished.emit(False, f"音色不存在: {self.profile_id}", "")
                 return
 
-            # 试音
-            designer = VoiceDesigner()
-            audio_path = designer.preview_profile(
-                profile=profile,
-                text=self.test_text,
-                output_path=str(output_path),
+            # 通过 TTSEngine 统一接口合成
+            tts_engine = TTSEngine(
+                engine="qwen3",
+                voice=profile.name,
+                voice_profile_id=self.profile_id,
                 speed=self.speed,
             )
+            audio_path = tts_engine.synthesize(self.test_text, str(output_path))
 
             self.finished.emit(True, "播放中...", audio_path)
 
@@ -667,6 +667,122 @@ class VoicePreviewWorker(QThread):
             import traceback
             traceback.print_exc()
             self.finished.emit(False, f"试音失败: {e}", "")
+
+
+class VolumePreviewWorker(QThread):
+    """
+    音量预览 Worker - 截取原音频前段（最多5分钟），与合成的测试语段循环混频
+    以便在 GUI 进行真实音量差异预览。
+
+    信号:
+        progress(str, int): 进度消息, 百分比
+        finished(bool, str, str): (success, message, output_path)
+    """
+    progress = Signal(str, int)
+    finished = Signal(bool, str, str)
+
+    def __init__(self, audio_path: str, params: dict):
+        super().__init__()
+        self.audio_path = audio_path
+        self.params = params
+
+    def run(self):
+        try:
+            import tempfile
+            import uuid
+            import subprocess
+            import time
+            from pathlib import Path
+            from src.utils import get_ffmpeg
+            from src.mixer import Mixer
+
+            temp_dir = Path(tempfile.gettempdir()) / "asmr_vol_preview"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            u_id = uuid.uuid4().hex[:8]
+            
+            tts_path = temp_dir / f"tts_{u_id}.wav"
+            orig_clip_path = temp_dir / f"orig_clip_{u_id}.wav"
+            mix_path = temp_dir / f"mix_{u_id}.wav"
+
+            # 1. 截取原音前 5 分钟 (300秒)
+            self.progress.emit("截取原音频段...", 10)
+            subprocess.run([
+                get_ffmpeg(), "-y", "-i", self.audio_path,
+                "-t", "300",
+                "-ac", "2", "-ar", "44100",  # 标准化到常见的 44.1kHz 双声道
+                str(orig_clip_path)
+            ], check=True, capture_output=True)
+
+            # 2. 合成包含 1-10 循环的测试文本
+            self.progress.emit("合成测试语音...", 30)
+            # 加句号产生停顿，像电台报时一样
+            test_text = "一。二。三。四。五。六。七。八。九。十。"
+            
+            engine = self.params.get("tts_engine", "edge")
+            voice = self.params.get("tts_voice", "zh-CN-XiaoxiaoNeural")
+            profile_id = self.params.get("voice_profile_id", "A1")
+            speed = self.params.get("tts_speed", 1.0)
+            
+            if engine == "edge":
+                from src.core import TTSEngine
+                tts_engine = TTSEngine(engine=engine, voice=voice, voice_profile_id=profile_id, speed=speed)
+                tts_engine.synthesize(test_text, str(tts_path))
+            else:
+                # Qwen3-TTS: 通过 TTSEngine 统一接口
+                from src.core import TTSEngine
+                tts_engine = TTSEngine(engine=engine, voice=voice, voice_profile_id=profile_id, speed=speed)
+                tts_engine.synthesize(test_text, str(tts_path))
+
+            # 3. 混频前检测音量计算增益
+            self.progress.emit("检测测试音量并混频...", 60)
+            mixer = Mixer(
+                original_volume=self.params.get("original_volume", 0.85),
+                tts_volume_ratio=self.params.get("tts_ratio", 0.5)
+            )
+            
+            # 使用自带的检测方法获取 RMS 取值
+            orig_peak = mixer.detect_volume(str(orig_clip_path))
+            tts_peak = mixer.detect_volume(str(tts_path))
+            
+            import numpy as np
+            if orig_peak > 0 and tts_peak > 0:
+                target_tts_vol = orig_peak * mixer.tts_volume_ratio
+                tts_gain_db = 20 * np.log10(target_tts_vol / tts_peak)
+            else:
+                tts_gain_db = 20 * np.log10(mixer.tts_volume_ratio) if mixer.tts_volume_ratio > 0 else -60
+                
+            orig_vol_scalar = mixer.original_volume
+
+            # 4. 执行 FFmpeg 循环与混合
+            self.progress.emit("执行循环覆盖处理...", 80)
+            cmd = [
+                get_ffmpeg(), "-y",
+                "-i", str(orig_clip_path),
+                "-stream_loop", "-1", "-i", str(tts_path),
+                "-filter_complex",
+                f"[0:a]volume={orig_vol_scalar}[orig];"
+                f"[1:a]volume={tts_gain_db}dB[tts];"
+                f"[orig][tts]amix=inputs=2:duration=first[mixed]",
+                "-map", "[mixed]",
+                "-ac", "2", "-ar", "44100",
+                str(mix_path)
+            ]
+            subprocess.run(cmd, check=True, capture_output=True)
+
+            # Cleanup temp files
+            try:
+                orig_clip_path.unlink()
+                tts_path.unlink()
+            except Exception:
+                pass
+
+            self.progress.emit("预览生成完成", 100)
+            self.finished.emit(True, "准备播放...", str(mix_path))
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.finished.emit(False, f"预览失败: {e}", "")
 
 
 class ToolsWorkerThread(QThread):

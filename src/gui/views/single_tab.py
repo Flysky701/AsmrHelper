@@ -1,7 +1,8 @@
 import os
+import re
 from pathlib import Path
 from typing import Optional, List, Dict
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QSlider, QDoubleSpinBox, QCheckBox, QStackedWidget, QSpinBox, QFileDialog
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QSlider, QDoubleSpinBox, QCheckBox, QStackedWidget, QSpinBox, QFileDialog, QMessageBox
 from PySide6.QtCore import Qt, QThread
 
 from src.gui.workers.pipeline_worker import SingleWorkerThread
@@ -222,6 +223,16 @@ class SingleTab(QWidget):
             tts_vol_layout.addWidget(self.single_tts_vol_label)
             self.single_tts_vol.valueChanged.connect(lambda v: self.single_tts_vol_label.setText(f"{v}%"))
             settings_layout.addLayout(tts_vol_layout)
+
+            # 音量预览按钮区域
+            vol_preview_layout = QHBoxLayout()
+            self.single_vol_preview_btn = QPushButton("预听合成音量")
+            self.single_vol_preview_btn.setMinimumWidth(100)
+            self.single_vol_preview_btn.setToolTip("截取原音频前段（最多5分钟），与合成的测试语段按当前设置循环混合，用于预览音量")
+            self.single_vol_preview_btn.clicked.connect(self.preview_volume_mix)
+            vol_preview_layout.addWidget(self.single_vol_preview_btn)
+            vol_preview_layout.addStretch()
+            settings_layout.addLayout(vol_preview_layout)
 
             # 时间轴偏移 (相对于原音)
             delay_layout = QHBoxLayout()
@@ -451,7 +462,7 @@ class SingleTab(QWidget):
         engine = "edge" if self.single_tts_engine.currentText() == "Edge-TTS" else "qwen3"
 
         # 使用 _get_voice_info 获取当前选中的音色
-        voice, voice_profile_id = self.main_window._get_voice_info(
+        voice, voice_profile_id = self._get_voice_info(
             engine,
             voice_tabs=self.single_voice_type,
             preset_combo=self.single_preset_voice,
@@ -463,7 +474,7 @@ class SingleTab(QWidget):
             QMessageBox.warning(self, "警告", "请先选择音色！")
             return
 
-        self.main_window.log(f"[试音] 引擎: {engine}, 音色: {voice}, profile: {voice_profile_id}")
+        self.log(f"[试音] 引擎: {engine}, 音色: {voice}, profile: {voice_profile_id}")
         self.single_preview_btn.setEnabled(False)
         self.single_preview_btn.setText("试音中...")
 
@@ -492,3 +503,94 @@ class SingleTab(QWidget):
         else:
             self.main_window.log(f"[试音] 失败: {message}")
             QMessageBox.critical(self, "错误", f"试音失败:\n{message}")
+
+    def preview_volume_mix(self):
+        """音量合成预览（原音截取前段 + 测试TTS循环混合）"""
+        if getattr(self.main_window, 'vol_preview_thread', None) and self.main_window.vol_preview_thread.isRunning():
+            return
+
+        input_path = self.single_file_input.text().strip()
+        if not input_path or not Path(input_path).exists():
+            QMessageBox.warning(self, "警告", "请先选择合法的原音频文件！")
+            return
+
+        params = self.get_single_params()
+        
+        # 预检查音色信息
+        engine = "edge" if self.single_tts_engine.currentText() == "Edge-TTS" else "qwen3"
+        voice, voice_profile_id = self._get_voice_info(
+            engine,
+            voice_tabs=self.single_voice_type,
+            preset_combo=self.single_preset_voice,
+            custom_combo=self.single_custom_voice,
+            edge_combo=self.single_edge_voice
+        )
+        if not voice:
+            QMessageBox.warning(self, "警告", "请先选择音色！")
+            return
+
+        # 补全参数
+        params["tts_engine"] = engine
+        params["tts_voice"] = voice
+        params["voice_profile_id"] = voice_profile_id
+
+        self.log(f"[音量预览] 开始合成，截取 {Path(input_path).name} 前端...")
+        self.single_vol_preview_btn.setEnabled(False)
+        self.single_vol_preview_btn.setText("生成中...")
+
+        from src.gui.workers.pipeline_worker import VolumePreviewWorker
+        self.main_window.vol_preview_thread = VolumePreviewWorker(
+            audio_path=input_path,
+            params=params,
+        )
+        self.main_window.vol_preview_thread.progress.connect(self._on_vol_preview_progress)
+        self.main_window.vol_preview_thread.finished.connect(self._on_vol_preview_finished)
+        self.main_window.vol_preview_thread.start()
+
+    def _on_vol_preview_progress(self, msg: str, pct: int):
+        self.single_vol_preview_btn.setText(f"{pct}% {msg[:6]}...")
+        self.main_window.log(f"[音量预览] {msg} ({pct}%)")
+
+    def _on_vol_preview_finished(self, success: bool, message: str, output_path: str):
+        self.single_vol_preview_btn.setEnabled(True)
+        self.single_vol_preview_btn.setText("预听合成音量")
+
+        if success:
+            self.main_window.log(f"[音量预览] 成功: {message}")
+            self.main_window.audio_player.load_and_play(output_path)
+        else:
+            self.main_window.log(f"[音量预览] 失败: {message}")
+
+    def _get_voice_info(self, engine: str, voice_tabs=None,
+                         preset_combo=None, custom_combo=None,
+                         clone_line=None, edge_combo=None) -> tuple:
+        """
+        从音色选择器获取音色信息
+        """
+        def _parse_voice_text(voice_text: str) -> tuple:
+            voice_text = (voice_text or "").strip()
+            if not voice_text:
+                return "", None
+            match = re.search(r"\(([^()]+)\)\s*$", voice_text)
+            profile_id = match.group(1).strip() if match else None
+            voice_name = voice_text.split(" (", 1)[0].strip()
+            return voice_name, profile_id
+
+        if engine == "edge":
+            if edge_combo is not None:
+                voice_text = edge_combo.currentText()
+                voice_name, _ = _parse_voice_text(voice_text)
+                return voice_name, None
+            return "zh-CN-XiaoxiaoNeural", None
+
+        if voice_tabs is None:
+            return "Vivian", "A1"
+
+        tab_index = voice_tabs.currentIndex()
+        if tab_index == 0:
+            voice_text = preset_combo.currentText()
+            return _parse_voice_text(voice_text)
+        else:
+            voice_text = custom_combo.currentText()
+            return _parse_voice_text(voice_text)
+

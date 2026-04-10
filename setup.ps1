@@ -261,8 +261,8 @@ if ($CleanReinstall) {
 
     # 终止占用 .venv 的 Python 进程
     Write-Host "  正在终止占用 .venv 的进程..." -ForegroundColor White
-    $null = & taskkill /F /IM python.exe /T 2>$null
-    $null = & taskkill /F /IM pythonw.exe /T 2>$null
+    try { & taskkill /F /IM python.exe /T 2>$null } catch {}
+    try { & taskkill /F /IM pythonw.exe /T 2>$null } catch {}
     Start-Sleep -Seconds 2
 
     # 删除 .venv 和锁文件
