@@ -104,11 +104,11 @@ class Mixer:
 
     def detect_volume(self, audio_path: str) -> float:
         """检测音频音量"""
-        data, sr = sf.read(audio_path)
+        data, _ = sf.read(audio_path)
+        # 使用 RMS 作为统一音量口径，避免峰值检测受随机削波影响
         if data.dtype == np.float32 or data.dtype == np.float64:
-            return float(np.max(np.abs(data)))
-        else:
-            return float(np.sqrt(np.mean(data**2)) / 32768)
+            return float(np.sqrt(np.mean(np.square(data))))
+        return float(np.sqrt(np.mean(np.square(data.astype(np.float64)))) / 32768)
 
     @staticmethod
     def _qwen3_speed_instruct(tts_duration: float, target_duration: float) -> str:

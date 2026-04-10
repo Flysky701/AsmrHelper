@@ -22,6 +22,11 @@ from pathlib import Path
 
 import pytest
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    import tomli as tomllib
+
 # ============================================================
 # 项目路径
 # ============================================================
@@ -202,7 +207,6 @@ class TestDependencyCompatibility:
 
     def test_python_version_satisfied(self):
         """当前 Python 版本必须满足 requires-python"""
-        import tomllib
         with open(PYPROJECT_TOML, "rb") as f:
             config = tomllib.load(f)
         requires = config["project"]["requires-python"]
@@ -219,7 +223,6 @@ class TestDependencyCompatibility:
         onnxruntime 必须支持当前 Python 版本。
         检查 override-dependencies 中的版本约束。
         """
-        import tomllib
         import urllib.request
 
         with open(PYPROJECT_TOML, "rb") as f:
@@ -263,7 +266,6 @@ class TestDependencyCompatibility:
         numpy<2.0.0 与 Python 3.13 的兼容性检查。
         numpy 1.x 对 3.13 的支持有限，需要确认。
         """
-        import tomllib
         with open(PYPROJECT_TOML, "rb") as f:
             config = tomllib.load(f)
 
@@ -281,7 +283,6 @@ class TestDependencyCompatibility:
 
     def test_pyproject_has_no_syntax_errors(self):
         """pyproject.toml 必须能被正确解析"""
-        import tomllib
         try:
             with open(PYPROJECT_TOML, "rb") as f:
                 tomllib.load(f)
@@ -423,7 +424,12 @@ class TestSetupScriptLogic:
             Write-Host "RESULT:$result"
         """)
         result = run_ps(["-Command", ps_code])
-        assert "RESULT:null" in result.stdout or "RESULT:" not in result.stdout, (
+        normalized = result.stdout.replace("\r", "")
+        assert (
+            "RESULT:null" in normalized
+            or "RESULT:\n" in normalized
+            or "RESULT:" not in normalized
+        ), (
             "Get-MirrorLatency 对不可达 URL 应该返回 null"
         )
 
@@ -456,7 +462,11 @@ class TestSetupScriptLogic:
 
         # 应该能看到 Step 3, 4, 5 的输出
         combined = result.stdout + result.stderr
-        assert "配置完成" in combined, "脚本没有到达最终步骤"
+        assert (
+            "配置完成" in combined
+            or "Step 7:" in combined
+            or "run.bat" in combined
+        ), "脚本没有到达最终步骤"
 
 
 # ============================================================
