@@ -8,6 +8,7 @@ ASMR Helper GUI - PySide6 主界面 (支持单文件和批量处理)
 
 import sys
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional, List
@@ -29,8 +30,9 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 # 导入拆分模块
-from src.gui_workers import SingleWorkerThread, PreviewWorkerThread, BatchWorkerThread
-from src.gui_services import scan_audio_files
+from src.gui.workers.pipeline_worker import SingleWorkerThread, PreviewWorkerThread, BatchWorkerThread
+from src.gui.services.voice_service import scan_audio_files
+from src.gui.utils.validators import validate_batch_params, validate_single_params
 from src.utils.constants import AUDIO_EXTENSIONS
 
 
@@ -161,6 +163,12 @@ class MainWindow(QMainWindow):
         self.single_asr_model.setCurrentIndex(3)  # 默认 large-v3
         self.single_asr_model.setToolTip("large-v3 对轻声/日语识别效果最好（RTX 4070 Ti SUPER 可流畅运行）")
         vocal_layout.addWidget(self.single_asr_model)
+        vocal_layout.addSpacing(20)
+        vocal_layout.addWidget(QLabel("识别语言:"))
+        self.single_asr_lang = QComboBox()
+        self._init_asr_lang_combo(self.single_asr_lang)
+        self.single_asr_lang.setCurrentIndex(0)  # 默认日语
+        vocal_layout.addWidget(self.single_asr_lang)
         vocal_layout.addStretch()
         vocal_group.setLayout(vocal_layout)
         layout.addWidget(vocal_group)
@@ -715,9 +723,16 @@ class MainWindow(QMainWindow):
             return
 
         self.batch_file_list.clear()
+        discovered = set()
         for ext in AUDIO_EXTENSIONS:
-            for f in Path(dir_path).rglob(f"*{ext}"):
-                self.batch_file_list.addItem(str(f))
+            try:
+                for f in Path(dir_path).rglob(f"*{ext}"):
+                    path_str = str(f)
+                    if path_str not in discovered:
+                        discovered.add(path_str)
+                        self.batch_file_list.addItem(path_str)
+            except (PermissionError, OSError) as e:
+                self.log(f"[WARN] 扫描 {dir_path} 失败 ({ext}): {e}")
 
         count = self.batch_file_list.count()
         self.progress_text.append(f"在 {dir_path} 中找到 {count} 个音频文件")
@@ -773,11 +788,23 @@ class MainWindow(QMainWindow):
         Returns:
             (tts_voice, voice_profile_id)
         """
+        def _parse_voice_text(voice_text: str) -> tuple:
+            """从展示文本中提取 voice 与 profile_id（容错不同格式）。"""
+            voice_text = (voice_text or "").strip()
+            if not voice_text:
+                return "", None
+
+            match = re.search(r"\(([^()]+)\)\s*$", voice_text)
+            profile_id = match.group(1).strip() if match else None
+            voice_name = voice_text.split(" (", 1)[0].strip()
+            return voice_name, profile_id
+
         if engine == "edge":
             # Edge-TTS: 直接返回选中的音色
             if edge_combo is not None:
                 voice_text = edge_combo.currentText()
-                return voice_text.split(" ")[0], None  # "zh-CN-XiaoxiaoNeural"
+                voice_name, _ = _parse_voice_text(voice_text)
+                return voice_name, None
             return "zh-CN-XiaoxiaoNeural", None
 
         # Qwen3-TTS: 从 voice_type 下拉框获取音色
@@ -789,13 +816,11 @@ class MainWindow(QMainWindow):
         if tab_index == 0:
             # 预设音色
             voice_text = preset_combo.currentText()
-            profile_id = voice_text.split("(")[1].rstrip(")") if "(" in voice_text else None
-            return voice_text.split(" ")[0], profile_id
+            return _parse_voice_text(voice_text)
         else:
             # 自定义音色 (包含 B/C 系列)
             voice_text = custom_combo.currentText()
-            profile_id = voice_text.split("(")[1].rstrip(")") if "(" in voice_text else None
-            return voice_text.split(" ")[0], profile_id
+            return _parse_voice_text(voice_text)
 
     def get_single_params(self) -> dict:
         """获取单文件处理参数"""
@@ -824,7 +849,7 @@ class MainWindow(QMainWindow):
             "tts_delay": self.single_delay.value(),
             "vocal_model": vocal_model,
             "asr_model": asr_model,
-            "asr_language": self.single_asr_lang.currentData() or "ja",
+            "asr_language": self.single_asr_lang.currentData() if hasattr(self, "single_asr_lang") else "ja",
         }
 
     def get_batch_params(self) -> dict:
@@ -872,6 +897,10 @@ class MainWindow(QMainWindow):
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         params = self.get_single_params()
+        ok, err = validate_single_params(params)
+        if not ok:
+            QMessageBox.warning(self, "参数错误", err)
+            return
         
         # 查找字幕文件 (支持 VTT / SRT / LRC)
         subtitle_path = None
@@ -917,7 +946,6 @@ class MainWindow(QMainWindow):
 
     def on_single_progress(self, msg: str):
         """单文件进度更新（支持动态步骤数）"""
-        import re
         self.log(msg)
 
         # 动态解析步骤数：支持 [1/3], [2/5], [1/4] 等格式
@@ -959,6 +987,10 @@ class MainWindow(QMainWindow):
         input_files = [self.batch_file_list.item(i).text() for i in range(file_count)]
         output_dir = self.batch_output_input.text().strip()
         params = self.get_batch_params()
+        ok, err = validate_batch_params(params, input_files)
+        if not ok:
+            QMessageBox.warning(self, "参数错误", err)
+            return
         max_workers = params.pop("max_workers", 1)  # 取出并行度，剩余参数传给 Worker
 
         self.log(f"开始批量处理 {file_count} 个文件")
@@ -2013,7 +2045,7 @@ class MainWindow(QMainWindow):
         self.tools_stop_btn.setEnabled(True)
         self.progress_bar.setValue(0)
 
-        from src.gui_workers import ToolsWorkerThread
+        from src.gui.workers.pipeline_worker import ToolsWorkerThread
         self.tools_worker = ToolsWorkerThread(
             tool_id=tool_index,
             params=params,
@@ -2473,7 +2505,7 @@ class MainWindow(QMainWindow):
         self.log(f"[音色工坊] 开始生成音色: {name}")
 
         # 导入 Worker
-        from src.gui_workers import VoiceDesignWorker
+        from src.gui.workers.pipeline_worker import VoiceDesignWorker
 
         self.design_worker = VoiceDesignWorker(
             name=name,
@@ -2545,7 +2577,7 @@ class MainWindow(QMainWindow):
 
         self.log(f"[音色工坊] 开始分析音频片段: {Path(audio_path).name}")
 
-        from src.gui_workers import SegmentAnalysisWorker
+        from src.gui.workers.pipeline_worker import SegmentAnalysisWorker
         self.segment_analysis_worker = SegmentAnalysisWorker(
             audio_path=audio_path,
             subtitle_path=subtitle_path if subtitle_path else None,
@@ -2835,7 +2867,7 @@ class MainWindow(QMainWindow):
         if pre_selected_segments:
             self.log(f"[音色工坊] 预选模式: {len(pre_selected_segments)} 个片段")
 
-        from src.gui_workers import VoiceCloneWorker
+        from src.gui.workers.pipeline_worker import VoiceCloneWorker
 
         # 根据是否有预选片段选择不同的参数
         if pre_selected_segments:
@@ -2978,7 +3010,7 @@ class MainWindow(QMainWindow):
         self.log(f"[音色工坊] 试音: {profile_id}")
         self.workshop_preview_btn.setEnabled(False)
 
-        from src.gui_workers import VoicePreviewWorker
+        from src.gui.workers.pipeline_worker import VoicePreviewWorker
 
         self.preview_worker = VoicePreviewWorker(
             profile_id=profile_id,

@@ -5,6 +5,8 @@ TTS 语音合成模块 - 支持 Edge-TTS / Qwen3-TTS
 """
 
 import asyncio
+import re
+import subprocess
 import time
 from pathlib import Path
 from typing import Optional, Literal, List
@@ -12,6 +14,8 @@ from typing import Optional, Literal, List
 import edge_tts
 import soundfile as sf
 import numpy as np
+
+from src.utils import get_ffmpeg
 
 
 class EdgeTTSEngine:
@@ -89,10 +93,7 @@ class EdgeTTSEngine:
 
     def _convert_to_wav(self, input_path: Path, output_path: Path):
         """将音频转换为 WAV 无损格式"""
-        import imageio_ffmpeg
-        import subprocess
-
-        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        ffmpeg_path = get_ffmpeg()
         cmd = [
             ffmpeg_path,
             "-i", str(input_path),
@@ -155,8 +156,6 @@ class EdgeTTSEngine:
 
     def _split_sentences(self, text: str, max_length: int = 500) -> List[str]:
         """按句子分割文本"""
-        import re
-
         # 简单按句号、问号、感叹号分割
         sentences = re.split(r"([。！？])", text)
         result = []
@@ -178,14 +177,10 @@ class EdgeTTSEngine:
 
     def _merge_audio(self, input_files: List[Path], output_path: Path):
         """合并多个音频文件"""
-        from ..utils import get_ffmpeg
-
         if not input_files:
             return
 
         # 使用 ffmpeg 合并
-        import subprocess
-
         concat_file = output_path.parent / "concat_list.txt"
         with open(concat_file, "w", encoding="utf-8") as f:
             for fpath in input_files:
@@ -390,6 +385,7 @@ class Qwen3TTSEngine:
         else:
             # 预设音色：支持 instruct 参数
             model = self._get_custom_model()
+            import torch
             
             # 使用 torch.no_grad() 禁用梯度计算，提高推理速度并减少显存占用
             with torch.no_grad():

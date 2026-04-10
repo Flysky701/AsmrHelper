@@ -560,9 +560,20 @@ Write-Step "Step 7: 模型状态"
 # 检查 install_models.py 是否存在
 $installModelsScript = Join-Path $ProjectRoot "scripts\install_models.py"
 if (Test-Path $installModelsScript) {
-    # 检查模型状态
-    & uv run python $installModelsScript --check 2>$null
-    if ($LASTEXITCODE -ne 0) {
+    # 检查模型状态（不让外部命令失败中断整个 setup 流程）
+    $modelCheckExit = 0
+    try {
+        $oldErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        & uv run python $installModelsScript --check 2>$null
+        $modelCheckExit = $LASTEXITCODE
+    } catch {
+        $modelCheckExit = 1
+    } finally {
+        $ErrorActionPreference = $oldErrorActionPreference
+    }
+
+    if ($modelCheckExit -ne 0) {
         Write-Warn "部分模型未下载"
         Write-Host ""
         Write-Host "  下载命令:" -ForegroundColor White
