@@ -35,7 +35,6 @@ from src.gui.services.voice_service import scan_audio_files
 from src.gui.utils.validators import validate_batch_params, validate_single_params
 from src.utils.constants import AUDIO_EXTENSIONS
 
-
 class MainWindow(QMainWindow):
     """主窗口"""
 
@@ -44,7 +43,6 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.batch_worker = None
         self.setup_ui()
-
 
     @property
     def single_custom_voice(self):
@@ -163,9 +161,7 @@ class MainWindow(QMainWindow):
         """)
         main_layout.addWidget(self.progress_text)
 
-
     
-
 
     @staticmethod
     def _wrap_scroll(widget: QWidget) -> QScrollArea:
@@ -216,12 +212,7 @@ class MainWindow(QMainWindow):
 
     
 
-
-
-
     
-
-
 
     def _get_voice_info(self, engine: str, voice_tabs: QTabWidget = None,
                          preset_combo: QComboBox = None, custom_combo: QComboBox = None,
@@ -276,7 +267,6 @@ class MainWindow(QMainWindow):
 
     
 
-
     
 
     
@@ -285,14 +275,10 @@ class MainWindow(QMainWindow):
 
     
 
-
-
-
-
-
-
-    def log(self, msg: str):
+    def log(self, msg: str, color: Optional[str] = None):
         """添加日志"""
+        if color:
+            msg = f"<span style=\"color:{color}\">{msg}</span>"
         self.progress_text.append(msg)
         self.progress_text.verticalScrollBar().setValue(
             self.progress_text.verticalScrollBar().maximum()
@@ -529,7 +515,6 @@ class MainWindow(QMainWindow):
         except Exception:
             return "未知"
 
-
 def main():
     """入口函数"""
     app = QApplication(sys.argv)
@@ -539,7 +524,6 @@ def main():
     window.show()
 
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()
