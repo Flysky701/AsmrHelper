@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from typing import Optional, List, Dict
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QSlider, QDoubleSpinBox, QCheckBox, QStackedWidget, QSpinBox
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QSlider, QDoubleSpinBox, QCheckBox, QStackedWidget, QSpinBox, QFileDialog
 from PySide6.QtCore import Qt, QThread
 
 from src.gui.workers.pipeline_worker import SingleWorkerThread

@@ -910,129 +910,150 @@ class ToolsWorkerThread(QThread):
         return "\n".join(msg_lines)
 
     def _run_subtitle_gen(self) -> str:
-        """字幕生成（文本/PDF → SRT/VTT/LRC）
-
-        Q3: ASR对齐返回详细匹配信息供GUI预览
-        """
+        """字幕生成（文本/PDF -> SRT/VTT/LRC）"""
         from src.core.subtitle_generator import SubtitleGenerator
+        from src.core.script_processor import ScriptProcessor
         from pathlib import Path
+        import time
 
-        # 从输入文件读取文本
         input_path = self.params.get("input_path")
         if not input_path:
             raise ValueError("缺少输入文件路径")
 
+        raw_text = ""
         if input_path.lower().endswith(".pdf"):
-            # PDF: 提取第一个脚本的文本
-            scripts = SubtitleGenerator.extract_pdf_scripts(input_path)
+            # Step 1: 使用竖排坐标还原提取 PDF（自动检测竖排/横排）
+            self.progress.emit("[工具箱] 解析 PDF 文本（竖排还原）...")
+            raw_text = ScriptProcessor.convert_vertical_pdf_pages(input_path)
+            
+            # Step 2: 多脚本检测（基于提取后的文本切分）
+            scripts = ScriptProcessor.detect_scripts(raw_text)
             script_index = self.params.get("script_index", 0)
-            text = ""
             for s in scripts:
                 if s["index"] == script_index:
-                    text = s["text"]
+                    raw_text = s["text"]
                     break
-            if not text and scripts:
-                text = scripts[0]["text"]
+            if not raw_text and scripts:
+                raw_text = scripts[0]["text"]
         else:
-            # 纯文本文件
-            text = Path(input_path).read_text(encoding="utf-8")
+            raw_text = Path(input_path).read_text(encoding="utf-8")
+            # 多脚本检测（TXT 直接切分）
+            scripts = ScriptProcessor.detect_scripts(raw_text)
+            script_index = self.params.get("script_index", 0)
+            for s in scripts:
+                if s["index"] == script_index:
+                    raw_text = s["text"]
+                    break
+            if not raw_text and scripts:
+                raw_text = scripts[0]["text"]
 
-        if not text.strip():
+        if not raw_text.strip():
             raise ValueError("输入文件内容为空")
+
+        # --- Pipeline Stage 预处理 ---
+        # 竖排转换
+        vertical_convert = self.params.get("vertical_convert", False)
+        if vertical_convert or ScriptProcessor.detect_vertical_layout(raw_text):
+            raw_text = ScriptProcessor.convert_vertical_to_horizontal(raw_text)
+
+        # 过滤剧本元数据（如背景说明、注意事项）
+        raw_text = ScriptProcessor.filter_script_metadata(raw_text)
+
+        # 提取台词
+        dialogues = ScriptProcessor.extract_dialogue(raw_text)
+
+        # 场景描述模式处理
+        stage_mode = self.params.get("stage_mode", "remove")
+        include_actions = stage_mode != "remove"
+        include_character = False
+        
+        # 导出为目标所需纯文本
+        text_generated = ScriptProcessor.to_subtitle_text(
+            dialogues, 
+            include_character=include_character, 
+            include_actions=include_actions
+        )
 
         fmt = self.params.get("fmt", "srt")
         output_path = self.params["output_path"]
-        gen_mode = self.params.get("mode", "text")
         lang = self.params.get("lang", "zh")
 
         out_p = Path(output_path)
         out_p.parent.mkdir(parents=True, exist_ok=True)
+        
+        # 保存中间处理产物
+        processed_txt_path = out_p.parent / f"{Path(input_path).stem}_processed.txt"
+        processed_txt_path.write_text(text_generated, encoding="utf-8")
 
         t0 = time.time()
 
-        # 获取配对音频时长
         audio_path = self.params.get("audio_path")
+        if not audio_path:
+            raise ValueError("ASR 对齐模式需要配对音频！")
+            
         duration = None
         if audio_path:
             try:
                 import librosa
-                duration = librosa.get_audio_duration(audio_path)
+                duration = librosa.get_audio_duration(path=audio_path)
             except Exception:
                 pass
 
-        if gen_mode == "asr_align" and audio_path:
-            # ASR 对齐模式：用音频做ASR获取真实时间轴，再将文本对齐
-            asr_lang = lang
 
-            self.progress.emit("[工具箱] ASR 对齐模式：正在识别音频...")
-            from src.core.asr import ASRRecognizer
+        asr_lang = lang
+        self.progress.emit(f"[工具箱] ASR 对齐模式：正在识别音频...")
+        from src.core.asr import ASRRecognizer
 
-            recognizer = ASRRecognizer(
-                model_size="large-v3",
-                language=asr_lang,
-                disable_vad=False,
-            )
-            asr_results = recognizer.recognize(audio_path, None)
+        recognizer = ASRRecognizer(
+            model_size="large-v3",
+            language=asr_lang,
+            disable_vad=False,
+        )
+        asr_results = recognizer.recognize(audio_path, None)
 
-            if not asr_results:
-                raise RuntimeError("ASR 未能从音频中识别出任何内容")
+        if not asr_results:
+            raise RuntimeError("ASR 未能从音频中识别出任何内容")
 
-            self.progress.emit(f"[工具箱] ASR 识别完成，共 {len(asr_results)} 条片段，正在对齐台词...")
+        self.progress.emit(f"[工具箱] ASR 识别完成，共 {len(asr_results)} 条片段，正在对齐台词...")
 
-            # Q3: 使用增强的对齐算法 + 返回对齐详情
-            entries = SubtitleGenerator.align_text_with_asr(
-                user_text=text,
-                asr_results=asr_results,
-                total_duration=duration,
-                filter_actions=False,
-                action_mode="keep",
-                fmt=fmt,
-                lang=lang,
-                return_alignment_info=True,
-            )
+        entries = SubtitleGenerator.align_text_with_asr(
+            user_text=text_generated,
+            asr_results=asr_results,
+            total_duration=duration,
+            filter_actions=False,
+            action_mode="keep",
+            fmt=fmt,
+            lang=lang,
+            return_alignment_info=True,
+        )
 
-            # Q3: 发送对齐预览数据到GUI
-            align_preview = []
-            for idx, entry in enumerate(entries):
-                align_info = entry.get("_align", {})
-                align_preview.append({
-                    "index": idx + 1,
-                    "text": entry["text"],
-                    "asr_text": align_info.get("asr_text", ""),
-                    "confidence": align_info.get("confidence", ""),
-                    "score": align_info.get("score", 0),
-                    "start": entry["start"],
-                    "end": entry["end"],
-                    "method": align_info.get("method", ""),
-                })
-            self.alignment_ready.emit(align_preview)
-
-        else:
-            # 纯文本模式：使用音频时长或默认600秒
-            if not duration:
-                duration = 600.0
-                self.progress.emit(f"[工具箱] 纯文本模式：使用默认时长 {duration:.0f} 秒")
-            else:
-                self.progress.emit(f"[工具箱] 纯文本模式：按字符比例分配时间轴...")
-            entries = SubtitleGenerator.generate_from_text(
-                text=text,
-                total_duration=duration,
-                fmt=fmt,
-                lang=lang,
-            )
+        align_preview = []
+        for idx, entry in enumerate(entries):
+            align_info = entry.get("_align", {})
+            align_preview.append({
+                "index": idx + 1,
+                "text": entry["text"],
+                "asr_text": align_info.get("asr_text", ""),
+                "confidence": align_info.get("confidence", ""),
+                "score": align_info.get("score", 0),
+                "start": entry["start"],
+                "end": entry["end"],
+                "method": align_info.get("method", ""),
+            })
+        self.alignment_ready.emit(align_preview)
 
         SubtitleGenerator.save(entries, output_path, fmt)
 
         elapsed = time.time() - t0
         size_kb = out_p.stat().st_size / 1024 if out_p.exists() else 0
-        mode_label = "ASR 对齐" if gen_mode == "asr_align" else "纯文本均分"
 
         return (
             f"字幕生成完成！\n"
-            f"模式: {mode_label}\n"
-            f"输出: {output_path}\n"
+            f"模式: ASR 对齐\n"
+            f"中间文件: {processed_txt_path}\n"
+            f"输出字幕: {output_path}\n"
             f"条目数: {len(entries)}\n"
-            f"文件大小: {size_kb:.1f} KB\n"
+            f"格式: {fmt.upper()}\n"
             f"耗时: {elapsed:.1f}s"
         )
 

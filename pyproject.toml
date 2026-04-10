@@ -24,19 +24,18 @@ dependencies = [
     "edge-tts>=6.1.0",
     "openai>=1.0.0",
     "httpx>=0.25.0",
-
     # 音频处理
     "demucs>=4.0.0",
     "soundfile>=0.12.0",
     "imageio-ffmpeg>=0.4.0",
     "pytsmod>=0.3.0,<1.0.0",
     "numpy>=1.24.0",
-
     # GUI (可选)
     "PySide6>=6.5.0",
-
     # 工具
     "click>=8.1.0",
+    "pypdf>=6.10.0",
+    "pdfplumber>=0.11.9",
 ]
 
 [project.optional-dependencies]
@@ -80,7 +79,7 @@ target-version = "py310"
 # numpy>=2.0.0 强制：numpy 1.x MINGW 构建在 Python 3.13 上会 Access Violation 崩溃
 override-dependencies = [
     "numpy>=2.0.0",
-    "onnxruntime>=1.20.0",
+    "onnxruntime>=1.20.0,<1.24.0",
     "torch==2.11.0+cu126",
     "torchaudio==2.11.0+cu126",
 ]
