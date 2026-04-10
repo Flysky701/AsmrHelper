@@ -26,6 +26,7 @@ from faster_whisper import WhisperModel
 
 from .postprocess import ASRPostProcessor, PostProcessConfig
 from src.config import PROJECT_ROOT  # 统一使用项目根目录
+from src.utils import format_timestamp
 
 
 class ASRRecognizer:
@@ -295,17 +296,11 @@ class ASRRecognizer:
 
     def _format_srt_time(self, seconds: float) -> str:
         """将秒数格式化为 SRT 时间 (HH:MM:SS,mmm)"""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        millis = int((seconds % 1) * 1000)
-        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+        return format_timestamp(seconds, fmt="srt")
 
     def _format_lrc_time(self, seconds: float) -> str:
         """将秒数格式化为 LRC 时间 [MM:SS.xx]"""
-        minutes = int(seconds // 60)
-        secs = seconds % 60
-        return f"[{minutes:02d}:{secs:05.2f}]"
+        return format_timestamp(seconds, fmt="lrc")
 
     def recognize_to_text(self, audio_path: str, output_path: str) -> str:
         """

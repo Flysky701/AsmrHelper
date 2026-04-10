@@ -303,12 +303,6 @@ class Translator:
                 content = response.choices[0].message.content.strip()
                 results = json.loads(content)
 
-                # DEBUG: 打印 API 返回的字段
-                if results and isinstance(results, list):
-                    first_result = results[0]
-                    print(f"[DEBUG] API 返回字段: {list(first_result.keys())}")
-                    print(f"[DEBUG] 示例数据: {first_result}")
-
                 # 确保返回的是列表
                 if isinstance(results, list):
                     # 按 id 排序
@@ -335,7 +329,6 @@ class Translator:
             except (json.JSONDecodeError, KeyError, ValueError) as e:
                 wait_time = 2 ** attempt
                 print(f"  [WARN] 批量 JSON 解析失败 (尝试 {attempt+1}/{max_retries}): {e}")
-                import time
                 time.sleep(wait_time)
                 # 继续重试，温度递增
 
@@ -747,8 +740,6 @@ def detect_vtt_language(translations: List[str]) -> str:
     Returns:
         "zh" | "ja" | "mixed" | "unknown"
     """
-    import re
-
     zh_chars = 0
     ja_kana = 0  # 仅统计假名（排除汉字重叠区）
     total = 0
@@ -1021,7 +1012,6 @@ def load_lrc_translations(lrc_path: str) -> List[str]:
         for line in lines:
             line = line.strip()
             # LRC 时间标签格式: [mm:ss.xx] 或 [mm:ss:xx]
-            import re
             match = re.match(r"\[(\d{2}):(\d{2})[.:](\d{2})\](.+)", line)
             if match:
                 text = match.group(4).strip()
@@ -1054,7 +1044,6 @@ def load_lrc_with_timestamps(lrc_path: str) -> List[dict]:
         prev_end = 0.0
         for line in lines:
             line = line.strip()
-            import re
             # 匹配 LRC 时间标签
             match = re.match(r"\[(\d{2}):(\d{2})[.:](\d{2})\](.+)", line)
             if match:

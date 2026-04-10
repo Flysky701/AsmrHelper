@@ -7,12 +7,14 @@ from .asr import ASRRecognizer
 from .translate import Translator
 from .tts import TTSEngine
 from .pipeline import Pipeline, PipelineConfig
+from src.mixer import Mixer
 
 __all__ = [
     "VocalSeparator",
     "ASRRecognizer",
     "Translator",
     "TTSEngine",
+    "Mixer",
     "Pipeline",
     "PipelineConfig",
 ]

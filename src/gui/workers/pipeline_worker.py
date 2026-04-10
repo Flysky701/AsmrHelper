@@ -8,11 +8,14 @@ GUI Worker 线程模块
 """
 
 import threading
+import subprocess
+import time
 from pathlib import Path
 from typing import Optional, List
 
 from PySide6.QtCore import QThread, Signal
 
+from src.utils import get_ffmpeg, format_timestamp
 from src.utils.constants import AUDIO_EXTENSIONS
 
 
@@ -739,7 +742,6 @@ class ToolsWorkerThread(QThread):
         """音频分离"""
         from src.core.vocal_separator import VocalSeparator
         from pathlib import Path
-        import time
 
         input_path = self.params["input_path"]
         output_dir = self.params["output_dir"]
@@ -784,7 +786,6 @@ class ToolsWorkerThread(QThread):
         from src.core.tts.audio_preprocessor import AudioPreprocessor
         from pathlib import Path
         import soundfile as sf
-        import time
 
         audio_path = self.params["audio_path"]
         subtitle_path = self.params["subtitle_path"]
@@ -827,20 +828,12 @@ class ToolsWorkerThread(QThread):
 
     @staticmethod
     def _fmt_ts(seconds: float, fmt: str = "srt") -> str:
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s_val = int(seconds % 60)
-        ms = int((seconds - int(seconds)) * 1000)
-        if fmt == "srt":
-            return f"{h:02d}:{m:02d}:{s_val:02d},{ms:03d}"
-        else:
-            return f"{h:02d}:{m:02d}:{s_val:02d}.{ms:03d}"
+        return format_timestamp(seconds, fmt=fmt)
 
     def _run_asr(self) -> str:
         """ASR 语音识别"""
         from src.core.asr import ASRRecognizer
         from pathlib import Path
-        import time
 
         input_path = self.params["input_path"]
         output_path = self.params["output_path"]
@@ -923,7 +916,6 @@ class ToolsWorkerThread(QThread):
         """
         from src.core.subtitle_generator import SubtitleGenerator
         from pathlib import Path
-        import time
 
         # 从输入文件读取文本
         input_path = self.params.get("input_path")
@@ -1049,7 +1041,6 @@ class ToolsWorkerThread(QThread):
         from src.core.translate import Translator
         from ..translate import load_subtitle_with_timestamps
         from pathlib import Path
-        import time
 
         input_path = self.params["input_path"]
         output_path = self.params["output_path"]
@@ -1140,8 +1131,6 @@ class ToolsWorkerThread(QThread):
     def _run_convert(self) -> str:
         """音频格式转换"""
         from pathlib import Path
-        import subprocess
-        import time
         import soundfile as sf
 
         input_path = self.params["input_path"]
@@ -1175,7 +1164,7 @@ class ToolsWorkerThread(QThread):
             # m4a 不被 soundfile 直接支持，尝试 ffmpeg
             try:
                 cmd = [
-                    "ffmpeg", "-y", "-i", input_path,
+                    get_ffmpeg(), "-y", "-i", input_path,
                     "-ar", str(target_sr), "-ac", "2",
                     "-c:a", "aac", "-b:a", "192k",
                     str(out_path),
