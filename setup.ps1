@@ -21,6 +21,7 @@
     .\setup.ps1 -Models -Mirror   # 使用镜像加速下载
     .\setup.ps1 -SkipInstall      # 跳过依赖安装，仅初始化配置并验证
     .\setup.ps1 -DevOnly          # 仅安装开发工具
+    .\setup.ps1 -CleanReinstall   # 强制清理并重新安装（解决文件锁定问题）
 
 .NOTES
     需要的运行时:
@@ -33,7 +34,8 @@ param(
     [switch]$SkipInstall,    # 跳过依赖安装
     [switch]$DevOnly,        # 仅安装开发工具
     [switch]$Models,         # 下载模型（基础模式: Whisper base）
-    [switch]$Mirror          # 使用 HuggingFace 镜像加速下载
+    [switch]$Mirror,         # 使用 HuggingFace 镜像加速下载
+    [switch]$CleanReinstall   # 强制删除虚拟环境后重新安装
 )
 
 $ErrorActionPreference = "Stop"
@@ -250,9 +252,39 @@ function Invoke-WithBestMirror([scriptblock]$Script) {
 }
 
 # ============================================================
-# Step 1: 检测/安装 uv
+# Step 1: 清理旧环境（可选）
 # ============================================================
-Write-Step "Step 1: 检测 uv 包管理器"
+if ($CleanReinstall) {
+    Write-Step "Step 1: 清理旧虚拟环境"
+    $venvPath = Join-Path $ProjectRoot ".venv"
+    $lockFile = Join-Path $ProjectRoot "uv.lock"
+
+    # 终止占用 .venv 的 Python 进程
+    Write-Host "  正在终止占用 .venv 的进程..." -ForegroundColor White
+    $null = & taskkill /F /IM python.exe /T 2>$null
+    $null = & taskkill /F /IM pythonw.exe /T 2>$null
+    Start-Sleep -Seconds 2
+
+    # 删除 .venv 和锁文件
+    if (Test-Path $venvPath) {
+        Write-Host "  删除 .venv 目录..." -ForegroundColor White
+        Remove-Item -Path $venvPath -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path $venvPath)) {
+            Write-OK ".venv 已删除"
+        } else {
+            Write-Warn ".venv 删除失败，文件可能被锁定"
+        }
+    }
+    if (Test-Path $lockFile) {
+        Remove-Item $lockFile -Force
+        Write-OK "uv.lock 已删除"
+    }
+}
+
+# ============================================================
+# Step 2: 检测/安装 uv
+# ============================================================
+Write-Step "Step 2: 检测 uv 包管理器"
 
 if (Test-Command "uv") {
     $uvVersion = & uv --version
@@ -296,10 +328,10 @@ if (Test-Command "uv") {
 }
 
 # ============================================================
-# Step 2: 同步依赖
+# Step 3: 同步依赖
 # ============================================================
 if (-not $SkipInstall -and -not $DevOnly) {
-    Write-Step "Step 2: 安装项目依赖"
+    Write-Step "Step 3: 安装项目依赖"
 
     Invoke-WithBestMirror -Script {
         param($mirrorUrl)
@@ -354,7 +386,7 @@ if (-not $SkipInstall -and -not $DevOnly) {
 }
 
 if ($DevOnly) {
-    Write-Step "Step 2: 安装开发工具"
+    Write-Step "Step 3: 安装开发工具"
 
     Invoke-WithBestMirror -Script {
         param($mirrorUrl)
@@ -375,9 +407,9 @@ if ($DevOnly) {
 }
 
 # ============================================================
-# Step 3: 初始化配置文件
+# Step 4: 初始化配置文件
 # ============================================================
-Write-Step "Step 3: 初始化配置文件"
+Write-Step "Step 4: 初始化配置文件"
 
 $configDir = Join-Path $ProjectRoot "config"
 $configFile = Join-Path $configDir "config.json"
@@ -428,9 +460,9 @@ if (Test-Path $configFile) {
 }
 
 # ============================================================
-# Step 4: 创建目录结构
+# Step 5: 创建目录结构
 # ============================================================
-Write-Step "Step 4: 创建必要目录"
+Write-Step "Step 5: 创建必要目录"
 
 $dirs = @(
     "models/voice_profiles",
@@ -448,12 +480,12 @@ foreach ($dir in $dirs) {
 }
 
 # ============================================================
-# Step 5: 下载模型（-Models 参数）
+# Step 6: 下载模型（-Models 参数）
 # ============================================================
 $installModelsScript = Join-Path $ProjectRoot "scripts\install_models.py"
 
 if ($Models) {
-    Write-Step "Step 5: 下载模型"
+    Write-Step "Step 6: 下载模型"
 
     if (-not (Test-Path $installModelsScript)) {
         Write-Fail "install_models.py 不存在: $installModelsScript"

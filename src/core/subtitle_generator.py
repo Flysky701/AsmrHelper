@@ -130,10 +130,10 @@ class SubtitleGenerator:
         """
         raw_text, page_texts = SubtitleGenerator._extract_pdf_text_with_pages(pdf_path)
 
-        # 策略1: 检测明显的章节标题分隔
-        sections = SubtitleGenerator._detect_sections_from_text(raw_text, page_texts)
+        from src.core.script_processor import ScriptProcessor
+        sections = ScriptProcessor.detect_scripts(raw_text)
 
-        if len(sections) <= 1:
+        if not sections or len(sections) <= 1:
             # 只有一个脚本或无法分割
             return [{
                 "index": 0,
@@ -583,7 +583,7 @@ class SubtitleGenerator:
                     }
                 aligned_entries.append(entry)
 
-        if aligned_entries and aligned_entries[-1]["end"] > total_duration:
+        if aligned_entries and total_duration is not None and aligned_entries[-1]["end"] > total_duration:
             aligned_entries[-1]["end"] = total_duration
 
         return aligned_entries

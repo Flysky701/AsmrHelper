@@ -208,12 +208,6 @@ class MainWindow(QMainWindow):
         for value, label in asr_models:
             combo.addItem(label, userData=value)
 
-    
-
-    
-
-    
-
     def _get_voice_info(self, engine: str, voice_tabs: QTabWidget = None,
                          preset_combo: QComboBox = None, custom_combo: QComboBox = None,
                          clone_line: QLineEdit = None, edge_combo: QComboBox = None) -> tuple:
@@ -265,15 +259,6 @@ class MainWindow(QMainWindow):
             voice_text = custom_combo.currentText()
             return _parse_voice_text(voice_text)
 
-    
-
-    
-
-    
-
-    
-
-    
 
     def log(self, msg: str, color: Optional[str] = None):
         """添加日志"""
@@ -384,124 +369,12 @@ class MainWindow(QMainWindow):
             config.save()
             QMessageBox.information(self, "保存成功", "ASR 模型配置已保存！")
 
-    
-
-    
 
     # ==================== 工具 UI 构建器 ====================
 
     @staticmethod
     
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
     # ==================== 工具文件浏览槽函数 ====================
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
 
     def _get_gpu_info(self) -> str:
         """获取 GPU 信息"""

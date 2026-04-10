@@ -93,37 +93,58 @@ uv run python scripts/batch_process.py --input-dir "D:/ASMR"
 ```
 AsmrHelper/
 ├── src/                          # 核心源代码
-│   ├── core/
-│   │   ├── asr/                  # Faster-Whisper ASR 语音识别
+│   ├── core/                     # 核心处理模块
+│   │   ├── asr/                 # Faster-Whisper ASR 语音识别
 │   │   ├── translate/            # 翻译引擎 + 缓存 + 术语库
 │   │   ├── tts/                  # TTS (Edge/Qwen3/GPT-SoVITS)
 │   │   ├── vocal_separator/      # Demucs 人声分离
-│   │   └── pipeline/             # 统一流水线调度
+│   │   ├── pipeline/             # 统一流水线调度
+│   │   ├── subtitle_generator.py # 字幕生成工具
+│   │   └── gpu_manager.py        # GPU 管理
 │   ├── mixer/                    # 智能混音 + 时间轴对齐
 │   ├── utils/                    # 工具模块
 │   │   ├── audio_player.py       # 嵌入式音频播放器
-│   │   └── constants.py          # 常量定义
-│   ├── config.py                 # 配置管理
+│   │   ├── constants.py          # 常量定义
+│   │   ├── formatters.py         # 格式化工具
+│   │   ├── gpu_context.py        # GPU 上下文
+│   │   └── patterns.py           # 正则表达式模式
+│   ├── gui/                     # PySide6 GUI 界面 (MVC 架构)
+│   │   ├── app.py                # 主应用入口
+│   │   ├── views/                # 视图层 (Tab 页面)
+│   │   ├── controllers/           # 控制器
+│   │   ├── components/            # 通用组件
+│   │   ├── services/              # 服务层
+│   │   ├── workers/               # 后台工作线程
+│   │   └── utils/                 # GUI 工具
 │   ├── cli.py                    # Click CLI 入口
-│   ├── gui.py                    # PySide6 GUI 界面
-│   ├── gui_workers.py            # GUI 后台工作线程
-│   └── gui_services.py           # GUI 服务层
+│   └── config.py                 # 配置管理
 ├── config/                       # 配置文件
-│   ├── config.example.json       # 配置模板 (复制为 config.json)
+│   ├── config.example.json       # 配置模板
 │   ├── config.json               # 用户配置 (git ignored)
 │   ├── asmr_terms.json           # ASMR 术语库
-│   └── voice_profiles.json       # 音色配置 (git ignored)
+│   ├── voice_profiles.json       # 音色配置 (git ignored)
+│   └── voice_profiles.example.json # 音色模板
 ├── scripts/                      # 独立脚本
 │   ├── asmr_bilingual.py         # 双语双轨完整流程
 │   ├── batch_process.py          # 批量处理
 │   ├── install_models.py         # 模型下载工具
 │   ├── verify_env.py             # 环境验证
-│   └── verify_models.py          # 模型验证
-├── models/                       # 模型文件 (git ignored, 首次运行自动下载)
+│   ├── verify_models.py          # 模型验证
+│   └── generate_voice_profiles.py # 音色配置文件生成
+├── models/                       # 模型文件 (git ignored)
 ├── tests/                        # 测试
+│   ├── test_core.py             # 核心模块测试
+│   ├── test_fixes.py            # Bug 修复测试
+│   ├── conftest.py              # pytest 配置
+│   ├── records/                  # 测试录音
+│   ├── scripts/                  # 测试脚本
+│   ├── setup/                   # 安装测试
+│   └── test_output/              # 测试输出
+├── 音色描述词指南.md              # 音色描述词参考
 ├── setup.ps1                     # 一键环境配置
 ├── run.bat                       # Windows 启动器
-└── pyproject.toml                # 项目依赖
+├── pyproject.toml                # 项目依赖
+└── uv.lock                       # 依赖锁定文件
 ```
 
 ## 配置说明
@@ -247,12 +268,33 @@ uv run python scripts/install_models.py --qwen3
 MIT License
 
 
-## 架构说明 (MVC-style Componentization)
-本项目采用组件化思想构建 PySide6 GUI 界面：
-- src/gui/app.py: 应用的主入口 (MainWindow)，负责串联各大组件、初始化配置。
-- src/gui/views/: 包含独立的 Tab 并进行组件化隔离。
-  - single_tab.py: 单文件处理视图
-  - atch_tab.py: 批量文件处理视图
-  - workshop_tab.py: 音色工坊 (语音克隆、预览) 视图
-  - 	ools_tab.py: 实用工具箱视图
-- src/gui/gui_workers.py: 处理耗时后台任务的工作线程 (如分离、语音识别、克隆等)，避免阻塞UI。
+## 架构说明
+
+### 核心模块 (src/core)
+- `asr/` - Faster-Whisper 语音识别，支持 VAD 检测和多语言
+- `translate/` - 翻译引擎，支持 DeepSeek/OpenAI，包含缓存和术语库
+- `tts/` - 语音合成，支持 Edge-TTS、Qwen3-TTS
+- `vocal_separator/` - Demucs 人声分离
+- `pipeline/` - 统一处理流水线
+- `subtitle_generator.py` - 字幕生成工具
+
+### GUI 架构 (src/gui) - MVC 模式
+```
+views/       # 视图层：各 Tab 页面 (单文件、批量、音色工坊、工具箱)
+controllers/ # 控制器：处理用户交互逻辑
+services/    # 服务层：业务逻辑封装
+workers/     # 工作线程：后台任务处理，避免 UI 阻塞
+components/  # 通用组件：可复用 UI 组件
+```
+
+### 工具模块 (src/utils)
+- `audio_player.py` - 嵌入式音频播放器
+- `constants.py` - 常量定义
+- `formatters.py` - 格式化工具
+- `gpu_context.py` - GPU 上下文管理
+- `patterns.py` - 正则表达式模式库
+
+
+### TODO LIST
+1: 添加自动识别音频音量来自动调整中文语音音量/或者预览功能
+2：PDF/TXT台本 转换为 字幕文件
