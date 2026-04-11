@@ -296,7 +296,8 @@ class SingleTab(QWidget):
             btn_layout.addWidget(self.single_start_btn)
 
             self.single_stop_btn = QPushButton("停止")
-            self.single_stop_btn.setMinimumHeight(30)
+            self.single_stop_btn.setMinimumHeight(40)
+            self.single_stop_btn.setMinimumWidth(80)
             self.single_stop_btn.setEnabled(False)
             self.single_stop_btn.clicked.connect(self.stop_single)
             btn_layout.addWidget(self.single_stop_btn)
@@ -469,7 +470,7 @@ class SingleTab(QWidget):
             self.single_stop_btn.setEnabled(False)
 
             # 如果是用户主动取消，不弹窗
-            if self.main_window.worker and self.main_window.worker._cancel_event.is_set():
+            if not success and "用户取消" in message:
                 self.log("\n[已停止]")
                 return
 

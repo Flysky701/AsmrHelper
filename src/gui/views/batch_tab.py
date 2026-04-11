@@ -280,7 +280,8 @@ class BatchTab(QWidget):
         btn_layout.addWidget(self.batch_start_btn)
 
         self.batch_stop_btn = QPushButton("停止")
-        self.batch_stop_btn.setMinimumHeight(30)
+        self.batch_stop_btn.setMinimumHeight(40)
+        self.batch_stop_btn.setMinimumWidth(80)
         self.batch_stop_btn.setEnabled(False)
         self.batch_stop_btn.clicked.connect(self.stop_batch)
         btn_layout.addWidget(self.batch_stop_btn)
