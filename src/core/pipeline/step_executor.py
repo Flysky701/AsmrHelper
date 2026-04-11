@@ -122,7 +122,7 @@ class StepExecutor:
         return timestamped_segments
 
     def execute_translate(self, active_steps, subtitle_ctx, timestamped_segments, by_product_dir):
-        from src.core.translate import Translator
+        from src.core.translate import SubtitleTranslator
         
         translated_path = by_product_dir / "translated.txt"
         translations = []
@@ -165,7 +165,7 @@ class StepExecutor:
                     source_path = by_product_dir / "source_for_translate.txt"
                     source_path.write_text("\n".join(source_texts), encoding="utf-8")
                     
-                    translator = self._injected_translator or Translator(
+                    translator = self._injected_translator or SubtitleTranslator(
                         provider=self.config.translate_provider,
                         model=self.config.translate_model,
                         prompt_template=self.config.translate_prompt,
