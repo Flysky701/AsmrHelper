@@ -1,10 +1,14 @@
 import os
+from pathlib import Path
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                                QLabel, QLineEdit, QPushButton, QComboBox, 
                                QFileDialog, QListWidget, QSpinBox, QMessageBox,
-                               QDoubleSpinBox, QCheckBox, QStackedWidget, QSlider)
+                               QDoubleSpinBox, QCheckBox, QStackedWidget, QSlider,
+                               QAbstractItemView)
 from PySide6.QtCore import Qt
 from src.gui.workers.pipeline_worker import BatchWorkerThread
+from src.gui.utils.validators import validate_batch_params
+from src.utils.constants import AUDIO_EXTENSIONS
 
 class BatchTab(QWidget):
     def __init__(self, main_window):
@@ -45,13 +49,34 @@ class BatchTab(QWidget):
         # 文件列表
         self.batch_file_list = QListWidget()
         self.batch_file_list.setMaximumHeight(100)
+        self.batch_file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         input_layout.addWidget(QLabel("待处理文件:"))
         input_layout.addWidget(self.batch_file_list)
 
-        # 刷新按钮
-        refresh_btn = QPushButton("刷新文件列表")
+        # 文件管理按钮
+        file_btn_layout = QHBoxLayout()
+
+        add_file_btn = QPushButton("添加文件")
+        add_file_btn.clicked.connect(self.add_batch_files)
+        file_btn_layout.addWidget(add_file_btn)
+
+        add_folder_btn = QPushButton("添加文件夹")
+        add_folder_btn.clicked.connect(self.add_batch_folder)
+        file_btn_layout.addWidget(add_folder_btn)
+
+        remove_btn = QPushButton("移除选中")
+        remove_btn.clicked.connect(self.remove_selected_batch_files)
+        file_btn_layout.addWidget(remove_btn)
+
+        clear_btn = QPushButton("清空列表")
+        clear_btn.clicked.connect(self.clear_batch_files)
+        file_btn_layout.addWidget(clear_btn)
+
+        refresh_btn = QPushButton("按目录刷新")
         refresh_btn.clicked.connect(self.refresh_batch_files)
-        input_layout.addWidget(refresh_btn)
+        file_btn_layout.addWidget(refresh_btn)
+
+        input_layout.addLayout(file_btn_layout)
 
         input_group.setLayout(input_layout)
         layout.addWidget(input_group)
@@ -161,12 +186,7 @@ class BatchTab(QWidget):
         model_layout = QHBoxLayout()
         model_layout.addWidget(QLabel("识别模型:"))
         self.batch_asr_model = QComboBox()
-        self.batch_asr_model.addItems([
-            "base (快速，精度一般)",
-            "small (中等速度和精度)",
-            "medium (较高精度)",
-            "large-v3 (最高精度，推荐ASMR)",
-        ])
+        self.main_window._init_asr_model_combo(self.batch_asr_model)
         self.batch_asr_model.setCurrentIndex(3)  # 默认 large-v3
         model_layout.addWidget(self.batch_asr_model)
         model_layout.addSpacing(20)
@@ -290,15 +310,58 @@ class BatchTab(QWidget):
         for ext in AUDIO_EXTENSIONS:
             try:
                 for f in Path(dir_path).rglob(f"*{ext}"):
-                    path_str = str(f)
-                    if path_str not in discovered:
-                        discovered.add(path_str)
-                        self.batch_file_list.addItem(path_str)
+                    self._add_file_item(str(f), discovered)
             except (PermissionError, OSError) as e:
                 self.main_window.log(f"[WARN] 扫描 {dir_path} 失败 ({ext}): {e}")
 
         count = self.batch_file_list.count()
         self.main_window.progress_text.append(f"在 {dir_path} 中找到 {count} 个音频文件")
+
+    def add_batch_files(self):
+        """手动添加多个文件到批量列表"""
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "选择音频文件", "",
+            f"音频文件 ({' '.join(AUDIO_EXTENSIONS)});;所有文件 (*.*)"
+        )
+        if not files:
+            return
+
+        existing = {self.batch_file_list.item(i).text() for i in range(self.batch_file_list.count())}
+        for file_path in files:
+            self._add_file_item(file_path, existing)
+
+    def add_batch_folder(self):
+        """手动添加文件夹中的音频文件到批量列表"""
+        folder = QFileDialog.getExistingDirectory(self, "选择包含音频的文件夹", "")
+        if not folder:
+            return
+
+        existing = {self.batch_file_list.item(i).text() for i in range(self.batch_file_list.count())}
+        for ext in AUDIO_EXTENSIONS:
+            for f in Path(folder).rglob(f"*{ext}"):
+                self._add_file_item(str(f), existing)
+
+    def remove_selected_batch_files(self):
+        """移除已选中的文件"""
+        for item in self.batch_file_list.selectedItems():
+            row = self.batch_file_list.row(item)
+            self.batch_file_list.takeItem(row)
+
+    def clear_batch_files(self):
+        """清空文件列表"""
+        self.batch_file_list.clear()
+
+    def _add_file_item(self, path: str, existing: set):
+        normalized = str(Path(path))
+        if normalized in existing:
+            return
+
+        suffix = Path(normalized).suffix.lower()
+        if suffix not in AUDIO_EXTENSIONS:
+            return
+
+        existing.add(normalized)
+        self.batch_file_list.addItem(normalized)
     def on_batch_engine_changed(self, engine: str):
         """批量处理 TTS 引擎改变"""
         if engine == "Edge-TTS":
