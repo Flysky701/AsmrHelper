@@ -153,69 +153,6 @@ class MainWindow(QMainWindow):
                 color: #303133;
             }
 
-            /* ===== 输入框 & 下拉框 - 更清晰的边框 ===== */
-
-            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit, QListWidget {
-                background: #ffffff;
-                border: 1.5px solid #dcdfe6;
-                border-radius: 8px;
-                padding: 6px 10px;
-                color: #303133;
-                min-height: 20px;
-                outline: none;
-            }
-
-            /* 悬停状态 */
-            QLineEdit:hover, QComboBox:hover, QSpinBox:hover,
-            QDoubleSpinBox:hover, QTextEdit:hover, QListWidget:hover {
-                border-color: #9ca3af;
-            }
-
-            /* 聚焦状态 */
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus,
-            QDoubleSpinBox:focus, QTextEdit:focus, QListWidget:focus {
-                border: 2px solid #3b82f6;
-            }
-
-            /* 禁用状态 */
-            QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
-            QDoubleSpinBox:disabled, QTextEdit:disabled, QListWidget:disabled {
-                background: #f9fafb;
-                border-color: #e5e7eb;
-                color: #9ca3af;
-            }
-
-            /* 下拉框定制 */
-            QComboBox {
-                padding-right: 30px;
-            }
-
-            QComboBox::drop-down {
-                border: none;
-                width: 30px;
-                subcontrol-origin: padding;
-                subcontrol-position: right center;
-            }
-
-            /* 优化箭头：颜色一致 + 居中 */
-            QComboBox::down-arrow {
-                image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMiIgaGVpZ2h0PSIxMiIgdmlld0JveD0iMCAwIDEyIDEyIj48cGF0aCBkPSJNMSA0bDUgNiA1LTYiIHN0cm9rZT0iIzNiODJmNiIgc3Ryb2tlLXdpZHRoPSIxLjUiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==);
-                width: 12px;
-                height: 12px;
-                margin-right: 9px;  /* 优化为9px，实现居中 */
-            }
-
-            /* 下拉列表 */
-            QComboBox QAbstractItemView {
-                background: #ffffff;
-                border: 1.5px solid #3b82f6;
-                border-radius: 8px;
-                    selection-background-color: #3b82f6;
-                    selection-color: #ffffff;
-                    outline: none;
-                    padding: 4px;
-            }
-
             /* ===== 按钮层级 ===== */
             /* 主要按钮 - 实心填充蓝色 */
             QPushButton[primary="true"], QPushButton[class="primary"] {
