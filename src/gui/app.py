@@ -86,7 +86,8 @@ class MainWindow(QMainWindow):
     def setup_ui(self):
         """设置UI"""
         self.setWindowTitle("ASMR Helper - 双语双轨处理工具")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(980, 700)
+        self._apply_modern_light_theme()
 
         # 菜单栏
         menubar = self.menuBar()
@@ -111,8 +112,8 @@ class MainWindow(QMainWindow):
 
         # ===== 标题 =====
         title_label = QLabel("ASMR Helper - 双语双轨处理工具")
-        title_font = QFont()
-        title_font.setPointSize(14)
+        title_font = QFont("Microsoft YaHei UI")
+        title_font.setPointSize(16)
         title_font.setBold(True)
         title_label.setFont(title_font)
         title_label.setAlignment(Qt.AlignCenter)
@@ -152,16 +153,106 @@ class MainWindow(QMainWindow):
         self.progress_text.setReadOnly(True)
         self.progress_text.setStyleSheet("""
             QTextEdit {
-                background-color: #1e1e1e;
-                color: #00ff00;
-                font-family: Consolas, monospace;
+                background-color: #f7fafc;
+                color: #1f2937;
+                font-family: Cascadia Mono, Consolas, monospace;
                 font-size: 11px;
-                border: 1px solid #333;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
             }
         """)
         main_layout.addWidget(self.progress_text)
 
     
+
+        def _apply_modern_light_theme(self):
+            """应用统一浅色主题，提升可读性与层次。"""
+            self.setStyleSheet("""
+                QMainWindow, QWidget {
+                    background: #f5f7fb;
+                    color: #1f2937;
+                    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+                    font-size: 12px;
+                }
+                QGroupBox {
+                    background: #ffffff;
+                    border: 1px solid #dbe3f1;
+                    border-radius: 10px;
+                    margin-top: 10px;
+                    padding: 12px 10px 10px 10px;
+                    font-weight: 600;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 10px;
+                    padding: 0 6px;
+                    color: #334155;
+                }
+                QTabWidget::pane {
+                    border: 1px solid #dbe3f1;
+                    border-radius: 10px;
+                    background: #ffffff;
+                    top: -1px;
+                }
+                QTabBar::tab {
+                    background: #e8edf8;
+                    color: #334155;
+                    border: 1px solid #d3dced;
+                    border-bottom: none;
+                    border-top-left-radius: 8px;
+                    border-top-right-radius: 8px;
+                    padding: 8px 14px;
+                    margin-right: 4px;
+                    font-weight: 600;
+                }
+                QTabBar::tab:selected {
+                    background: #ffffff;
+                    color: #0f172a;
+                }
+                QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit, QListWidget {
+                    background: #ffffff;
+                    border: 1px solid #cfd8ea;
+                    border-radius: 8px;
+                    padding: 5px 8px;
+                }
+                QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTextEdit:focus, QListWidget:focus {
+                    border: 1px solid #3b82f6;
+                }
+                QPushButton {
+                    background: #e5edff;
+                    color: #1e3a8a;
+                    border: 1px solid #c5d5ff;
+                    border-radius: 8px;
+                    padding: 6px 12px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background: #d6e4ff;
+                }
+                QPushButton:pressed {
+                    background: #c6d9ff;
+                }
+                QPushButton:disabled {
+                    background: #eef2f7;
+                    color: #94a3b8;
+                    border-color: #e2e8f0;
+                }
+                QProgressBar {
+                    background: #e9eef8;
+                    border: 1px solid #d0daec;
+                    border-radius: 8px;
+                    text-align: center;
+                    color: #0f172a;
+                    font-weight: 700;
+                }
+                QProgressBar::chunk {
+                    background: #3b82f6;
+                    border-radius: 7px;
+                }
+                QCheckBox {
+                    spacing: 6px;
+                }
+            """)
 
     @staticmethod
     def _wrap_scroll(widget: QWidget) -> QScrollArea:
