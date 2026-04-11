@@ -65,6 +65,9 @@ packages = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "gui: GUI runtime and interaction tests",
+]
 
 [tool.black]
 line-length = 100
