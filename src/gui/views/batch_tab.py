@@ -273,7 +273,6 @@ class BatchTab(QWidget):
         btn_layout = QHBoxLayout()
         self.batch_start_btn = QPushButton("开始批量处理")
         self.batch_start_btn.setMinimumHeight(30)
-        self.batch_start_btn.setStyleSheet("QPushButton{background-color:#107c10;color:white;font-weight:bold;border:none;border-radius:5px;}")
         self.batch_start_btn.clicked.connect(self.start_batch)
         btn_layout.addWidget(self.batch_start_btn)
 

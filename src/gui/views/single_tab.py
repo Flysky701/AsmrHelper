@@ -290,7 +290,6 @@ class SingleTab(QWidget):
             btn_layout = QHBoxLayout()
             self.single_start_btn = QPushButton("开始处理")
             self.single_start_btn.setMinimumHeight(30)
-            self.single_start_btn.setStyleSheet("QPushButton{background-color:#0078d4;color:white;font-weight:bold;border:none;border-radius:5px;}")
             self.single_start_btn.clicked.connect(self.start_single)
             btn_layout.addWidget(self.single_start_btn)
 
