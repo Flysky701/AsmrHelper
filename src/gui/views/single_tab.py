@@ -42,6 +42,17 @@ class SingleTab(QWidget):
             file_layout.addWidget(browse_btn)
             input_layout.addLayout(file_layout)
 
+            # 可选字幕文件
+            subtitle_layout = QHBoxLayout()
+            self.single_subtitle_input = QLineEdit()
+            self.single_subtitle_input.setPlaceholderText("可选：手动选择字幕文件（.vtt/.srt/.lrc）")
+            subtitle_layout.addWidget(QLabel("字幕:"))
+            subtitle_layout.addWidget(self.single_subtitle_input)
+            subtitle_browse_btn = QPushButton("浏览...")
+            subtitle_browse_btn.clicked.connect(self.browse_single_subtitle)
+            subtitle_layout.addWidget(subtitle_browse_btn)
+            input_layout.addLayout(subtitle_layout)
+
             # 输出目录
             out_layout = QHBoxLayout()
             self.single_output_input = QLineEdit()
@@ -316,6 +327,15 @@ class SingleTab(QWidget):
             if dir_path:
                 self.single_output_input.setText(dir_path)
 
+    def browse_single_subtitle(self):
+            """选择字幕文件（可选）"""
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "选择字幕文件", "",
+                "字幕文件 (*.vtt *.srt *.lrc);;所有文件 (*.*)"
+            )
+            if file_path:
+                self.single_subtitle_input.setText(file_path)
+
     def on_single_engine_changed(self, engine: str):
             """单文件 TTS 引擎改变"""
             if engine == "Edge-TTS":
@@ -380,14 +400,19 @@ class SingleTab(QWidget):
                 return
             
             # 查找字幕文件 (支持 VTT / SRT / LRC)
-            subtitle_path = None
-            input_p = Path(input_file)
-            search_dirs = [
-                input_p.parent,
-                input_p.parent / "ASMR_O",
-            ]
-            from src.utils import find_subtitle_file
-            subtitle_path = find_subtitle_file(input_p, search_dirs)
+            subtitle_path = self.single_subtitle_input.text().strip()
+            if subtitle_path and not Path(subtitle_path).exists():
+                QMessageBox.warning(self, "警告", "手动字幕文件不存在，请重新选择！")
+                return
+
+            if not subtitle_path:
+                input_p = Path(input_file)
+                search_dirs = [
+                    input_p.parent,
+                    input_p.parent / "ASMR_O",
+                ]
+                from src.utils import find_subtitle_file
+                subtitle_path = find_subtitle_file(input_p, search_dirs)
             
             self.log(f"开始处理: {input_file}")
             self.log(f"输出目录: {output_dir}")
@@ -402,7 +427,7 @@ class SingleTab(QWidget):
 
             self.single_start_btn.setEnabled(False)
             self.single_stop_btn.setEnabled(True)
-            self.progress_bar.setValue(0)
+            self.main_window.progress_bar.setValue(0)
 
             self.main_window.worker = SingleWorkerThread(input_file, output_dir, params, subtitle_path)
             self.main_window.worker.progress.connect(self.on_single_progress)
@@ -433,12 +458,12 @@ class SingleTab(QWidget):
                 if total > 0:
                     # 进度 = 当前步骤 / 总步骤 * 100
                     progress = int((current / total) * 100)
-                    self.progress_bar.setMaximum(100)
-                    self.progress_bar.setValue(progress)
+                    self.main_window.progress_bar.setMaximum(100)
+                    self.main_window.progress_bar.setValue(progress)
 
     def on_single_finished(self, success: bool, message: str):
             """单文件处理完成"""
-            self.progress_bar.setValue(100 if success else 0)
+            self.main_window.progress_bar.setValue(100 if success else 0)
             self.single_start_btn.setEnabled(True)
             self.single_stop_btn.setEnabled(False)
 
