@@ -59,6 +59,8 @@ output/
 *.m4a
 *.ogg
 *.aac
+*.txt
+*.pdf
 
 # =====================
 # Models (large files, download on demand)
