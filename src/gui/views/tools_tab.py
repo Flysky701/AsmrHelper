@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QStackedWidget, QGroupBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PySide6.QtGui import QColor
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, QTimer
 from src.config import config
 
 from src.gui.workers.pipeline_worker import ToolsWorkerThread
@@ -26,6 +26,44 @@ class ToolsTab(QWidget):
 
     def save_config(self):
         config.save()
+
+    def _update_stem_button_style(self):
+        """更新轨道选择按钮的样式（标签/徽章样式）"""
+        unchecked_style = (
+            "QPushButton {"
+            "   background: #f5f7fa;"
+            "   color: #606266;"
+            "   border: 1.5px solid #e4e7ed;"
+            "   border-radius: 16px;"
+            "   padding: 6px 14px;"
+            "   font-weight: 500;"
+            "   font-size: 12px;"
+            "}"
+            "QPushButton:hover {"
+            "   background: #e6f0ff;"
+            "   border-color: #3b82f6;"
+            "   color: #3b82f6;"
+            "}"
+        )
+        checked_style = (
+            "QPushButton {"
+            "   background: #3b82f6;"
+            "   color: #ffffff;"
+            "   border: 1.5px solid #3b82f6;"
+            "   border-radius: 16px;"
+            "   padding: 6px 14px;"
+            "   font-weight: 700;"
+            "   font-size: 12px;"
+            "}"
+            "QPushButton:hover {"
+            "   background: #2563eb;"
+            "   border-color: #2563eb;"
+            "}"
+        )
+        for btn in [self.sep_stem_vocals, self.sep_stem_no_vocals,
+                    self.sep_stem_drums, self.sep_stem_bass,
+                    self.sep_stem_piano, self.sep_stem_other]:
+            btn.setStyleSheet(checked_style if btn.isChecked() else unchecked_style)
 
     def setup_ui(self):
             """创建工具箱标签页 - 提供独立的单步工具功能"""
@@ -105,15 +143,10 @@ class ToolsTab(QWidget):
             # ===== 运行按钮行 =====
             btn_layout = QHBoxLayout()
             self.tools_run_btn = QPushButton("▶ 运行")
-            self.tools_run_btn.setMinimumHeight(32)
-            self.tools_run_btn.setMinimumWidth(100)
+            self.tools_run_btn.setMinimumHeight(36)
+            self.tools_run_btn.setMinimumWidth(120)
             self.tools_run_btn.setEnabled(False)
-            self.tools_run_btn.setStyleSheet(
-                "QPushButton{background-color:#0078d4;color:white;font-weight:bold;"
-                "border:none;border-radius:6px;font-size:13px;}"
-                "QPushButton:hover{background-color:#1a86dd;}"
-                "QPushButton:disabled{background-color:#555;color:#aaa;}"
-            )
+            self.tools_run_btn.setProperty("primary", "true")
             self.tools_run_btn.clicked.connect(self._start_tool_run)
             btn_layout.addWidget(self.tools_run_btn)
 
@@ -164,16 +197,35 @@ class ToolsTab(QWidget):
             self.main_window._init_vocal_model_combo(self.sep_model)
             form.addWidget(self.sep_model, 2, 1, 1, 2)
 
-            # 分离轨道（多选）
+            # 分离轨道（多选）- 标签/徽章样式
             form.addWidget(QLabel("提取轨道:"), 3, 0)
             stems_layout = QHBoxLayout()
-            self.sep_stem_vocals = QCheckBox("vocals (人声)")
-            self.sep_stem_vocals.setChecked(True)
-            self.sep_stem_no_vocals = QCheckBox("no_vocals (伴奏)")
-            self.sep_stem_drums = QCheckBox("drums (鼓声)")
-            self.sep_stem_bass = QCheckBox("bass (贝斯)")
-            self.sep_stem_piano = QCheckBox("piano (钢琴)")
-            self.sep_stem_other = QCheckBox("other (其他)")
+            stems_layout.setSpacing(8)
+
+            # 创建标签样式的轨道选择按钮
+            def make_stem_btn(text, default_checked=True):
+                btn = QPushButton(text)
+                btn.setCheckable(True)
+                btn.setChecked(default_checked)
+                btn.setCursor(Qt.PointingHandCursor)
+                return btn
+
+            self.sep_stem_vocals = make_stem_btn("🎤 vocals (人声)", True)
+            self.sep_stem_no_vocals = make_stem_btn("🎵 no_vocals (伴奏)", False)
+            self.sep_stem_drums = make_stem_btn("🥁 drums (鼓声)", False)
+            self.sep_stem_bass = make_stem_btn("🎸 bass (贝斯)", False)
+            self.sep_stem_piano = make_stem_btn("🎹 piano (钢琴)", False)
+            self.sep_stem_other = make_stem_btn("📦 other (其他)", False)
+
+            # 为每个轨道按钮添加样式更新连接
+            for btn in [self.sep_stem_vocals, self.sep_stem_no_vocals,
+                        self.sep_stem_drums, self.sep_stem_bass,
+                        self.sep_stem_piano, self.sep_stem_other]:
+                btn.clicked.connect(self._update_stem_button_style)
+
+            # 初始更新样式
+            QTimer.singleShot(0, self._update_stem_button_style)
+
             stems_layout.addWidget(self.sep_stem_vocals)
             stems_layout.addWidget(self.sep_stem_no_vocals)
             stems_layout.addWidget(self.sep_stem_drums)

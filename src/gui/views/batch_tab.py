@@ -48,7 +48,8 @@ class BatchTab(QWidget):
 
         # 文件列表
         self.batch_file_list = QListWidget()
-        self.batch_file_list.setMaximumHeight(100)
+        self.batch_file_list.setMinimumHeight(160)
+        self.batch_file_list.setMaximumHeight(200)
         self.batch_file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         input_layout.addWidget(QLabel("待处理文件:"))
         input_layout.addWidget(self.batch_file_list)
@@ -272,7 +273,9 @@ class BatchTab(QWidget):
         # ===== 按钮 =====
         btn_layout = QHBoxLayout()
         self.batch_start_btn = QPushButton("开始批量处理")
-        self.batch_start_btn.setMinimumHeight(30)
+        self.batch_start_btn.setMinimumHeight(40)
+        self.batch_start_btn.setMinimumWidth(160)
+        self.batch_start_btn.setProperty("primary", "true")
         self.batch_start_btn.clicked.connect(self.start_batch)
         btn_layout.addWidget(self.batch_start_btn)
 
