@@ -67,8 +67,13 @@ class SingleWorkerThread(QThread):
                 skip_existing=False,
             )
 
-            pipeline = Pipeline(cfg)
+            pipeline = Pipeline(cfg, cancel_event=self._cancel_event)
             results = pipeline.run(progress_callback=self.progress.emit)
+
+            # 检查是否被用户取消
+            if self._cancel_event.is_set():
+                self.finished.emit(False, "用户取消操作")
+                return
 
             mix_path = results.get("mix_path", "")
             exported_subtitle = results.get("exported_subtitle", "")
@@ -84,6 +89,13 @@ class SingleWorkerThread(QThread):
 
             self.finished.emit(True, final_msg)
 
+        except RuntimeError as e:
+            if "用户取消" in str(e):
+                self.finished.emit(False, "用户取消操作")
+            else:
+                import traceback
+                traceback.print_exc()
+                self.finished.emit(False, str(e))
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -249,7 +261,7 @@ class BatchWorkerThread(QThread):
             # 使用 GPU 锁保护 GPU 操作
             gpu_lock = get_gpu_lock(max_concurrent=1)
             with gpu_lock:
-                pipeline = Pipeline(cfg)
+                pipeline = Pipeline(cfg, cancel_event=self._cancel_event)
                 # 无回调，避免线程安全问题
                 results = pipeline.run(progress_callback=None)
 
@@ -290,6 +302,11 @@ class BatchWorkerThread(QThread):
         # 串行处理（并行度为 1 或 GPU 模式）
         if self.max_workers == 1:
             for i, input_path in enumerate(self.input_files, 1):
+                # 检查取消
+                if self._cancel_event.is_set():
+                    self.progress.emit(f"[已取消] 停止批量处理")
+                    break
+
                 self.file_progress.emit(i, total, Path(input_path).name)
                 self.progress.emit(f"[{i}/{total}] 处理: {Path(input_path).name}")
 
@@ -316,6 +333,11 @@ class BatchWorkerThread(QThread):
                 }
 
                 for future in as_completed(futures):
+                    # 检查取消
+                    if self._cancel_event.is_set():
+                        self.progress.emit(f"[已取消] 停止批量处理")
+                        break
+
                     input_path = futures[future]
                     completed += 1
 

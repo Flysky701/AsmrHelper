@@ -105,7 +105,8 @@ class Pipeline:
 
     def __init__(self, config: PipelineConfig,
                  separator=None, recognizer=None,
-                 translator=None, tts_engine=None, mixer=None):
+                 translator=None, tts_engine=None, mixer=None,
+                 cancel_event=None):
         """
         初始化流水线（支持依赖注入）
 
@@ -116,10 +117,12 @@ class Pipeline:
             translator: 翻译器实例（可选，默认自动创建）
             tts_engine: TTS 引擎实例（可选，默认自动创建）
             mixer: 混音器实例（可选，默认自动创建）
+            cancel_event: 取消事件（threading.Event，协作式取消）
         """
         self.config = config
         self.steps = []
         self.results = {}
+        self._cancel_event = cancel_event
 
         # 依赖注入的组件（支持外部传入，便于测试和复用）
         self._injected_separator = separator
@@ -140,6 +143,9 @@ class Pipeline:
             tts_engine=self._injected_tts_engine,
             mixer=self._injected_mixer
         )
+        # 传递 cancel_event 给 executor
+        if cancel_event:
+            self._step_executor.set_cancel_event(cancel_event)
         self._artifact_collector = ArtifactCollector(config)
 
     @classmethod
@@ -247,7 +253,16 @@ class Pipeline:
 
         # 执行流水线步骤
         t0 = time.time()
+        
+        def _check_cancel():
+            """检查取消状态，若已取消则抛出异常中断流水线"""
+            if self._cancel_event and self._cancel_event.is_set():
+                raise RuntimeError("用户取消操作")
+        
+        _check_cancel()
         vocal_path = executor.execute_separation(active_steps, subtitle_ctx, task_name, input_path, by_product_dir)
+        
+        _check_cancel()
         timestamped_segments = executor.execute_asr(active_steps, subtitle_ctx, vocal_path, by_product_dir)
         
         # asr_only 模式导出字幕
@@ -258,9 +273,13 @@ class Pipeline:
             if sub_path:
                 executor.results["exported_subtitle"] = sub_path
 
+        _check_cancel()
         translations = executor.execute_translate(active_steps, subtitle_ctx, timestamped_segments, by_product_dir)
         
+        _check_cancel()
         tts_audio_path = executor.execute_tts(active_steps, timestamped_segments, by_product_dir)
+        
+        _check_cancel()
         executor.execute_mix(active_steps, vocal_path, input_path, tts_audio_path, mix_path)
         
         # Artifact 收集 (写回多语言字幕)

@@ -25,6 +25,17 @@ class StepExecutor:
         self.results = {}
         self.progress_callback = None
         
+        # Cancellation support
+        self._cancel_event = None
+    
+    def set_cancel_event(self, cancel_event):
+        """设置取消事件（协作式取消）"""
+        self._cancel_event = cancel_event
+    
+    def _is_cancelled(self) -> bool:
+        """检查是否已请求取消"""
+        return self._cancel_event is not None and self._cancel_event.is_set()
+        
     def inject(self, separator=None, recognizer=None, translator=None, tts_engine=None, mixer=None):
         self._injected_separator = separator
         self._injected_recognizer = recognizer
@@ -122,7 +133,7 @@ class StepExecutor:
         return timestamped_segments
 
     def execute_translate(self, active_steps, subtitle_ctx, timestamped_segments, by_product_dir):
-        from src.core.translate import SubtitleTranslator
+        from src.core.translate import Translator
         
         translated_path = by_product_dir / "translated.txt"
         translations = []
@@ -162,16 +173,18 @@ class StepExecutor:
                 t1 = time.time()
                 try:
                     source_texts = [seg.get("text", "") for seg in timestamped_segments]
-                    source_path = by_product_dir / "source_for_translate.txt"
-                    source_path.write_text("\n".join(source_texts), encoding="utf-8")
                     
-                    translator = self._injected_translator or SubtitleTranslator(
+                    translator = self._injected_translator or Translator(
                         provider=self.config.translate_provider,
                         model=self.config.translate_model,
-                        prompt_template=self.config.translate_prompt,
-                        batch_size=self.config.translate_batch_size
                     )
-                    translations = translator.translate_file(str(source_path), str(translated_path))
+                    translations = translator.translate_batch(
+                        source_texts,
+                        source_lang=self.config.source_lang,
+                        target_lang=self.config.target_lang,
+                    )
+                    # 写入翻译文件
+                    translated_path.write_text("\n".join(translations), encoding="utf-8")
                     _attach(timestamped_segments, translations)
                     self.results["steps"]["translate"] = {
                         "duration": time.time() - t1, "segments": len(translations), "output": str(translated_path)
