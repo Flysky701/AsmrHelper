@@ -88,9 +88,8 @@ class VoiceWorkshopTab(QWidget):
             # 生成按钮和进度
             btn_layout = QHBoxLayout()
             self.workshop_design_btn = QPushButton("生成音色")
-            self.workshop_design_btn.setStyleSheet(
-                "QPushButton{background-color:#0078d4;color:white;font-weight:bold;border:none;border-radius:5px;padding:8px;}"
-            )
+            self.workshop_design_btn.setMinimumHeight(36)
+            self.workshop_design_btn.setProperty("primary", "true")
             self.workshop_design_btn.clicked.connect(self._start_voice_design)
             btn_layout.addWidget(self.workshop_design_btn)
 
@@ -268,9 +267,8 @@ class VoiceWorkshopTab(QWidget):
             # 克隆按钮和进度
             clone_btn_layout = QHBoxLayout()
             self.workshop_clone_btn = QPushButton("开始克隆")
-            self.workshop_clone_btn.setStyleSheet(
-                "QPushButton{background-color:#107c10;color:white;font-weight:bold;border:none;border-radius:5px;padding:8px;}"
-            )
+            self.workshop_clone_btn.setMinimumHeight(36)
+            self.workshop_clone_btn.setProperty("primary", "true")
             self.workshop_clone_btn.clicked.connect(self._start_voice_clone)
             clone_btn_layout.addWidget(self.workshop_clone_btn)
 
