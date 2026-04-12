@@ -310,7 +310,7 @@ class ToolsTab(QWidget):
 
             form.addWidget(QLabel("识别语言:"), 3, 0)
             self.asr_tool_lang = QComboBox()
-            self.asr_tool_lang.addItems(["ja (日语)", "zh (中文)", "en (英语)"])
+            self.main_window._init_asr_lang_combo(self.asr_tool_lang)
             form.addWidget(self.asr_tool_lang, 3, 1, 1, 2)
 
             # 导出选项
@@ -618,7 +618,7 @@ class ToolsTab(QWidget):
 
     def _stop_tool_run(self):
             """停止工具执行"""
-            if hasattr(self, 'tools_worker') and self.worker and self.worker.isRunning():
+            if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
                 self.worker.cancel()
             else:
                 self.tools_run_btn.setEnabled(True)
@@ -754,7 +754,7 @@ class ToolsTab(QWidget):
                     output = str(Path(audio).parent / f"{Path(audio).stem}_asr.txt")
 
                 model = self.asr_tool_model.currentData() or "large-v3"
-                lang_code = self.asr_tool_lang.currentText().split(" ")[0]
+                lang_code = self.asr_tool_lang.currentData() or "ja"
                 export_sub = self.asr_export_subtitle.isChecked()
 
                 return {"tool": "asr", "input_path": audio, "output_path": output,

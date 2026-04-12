@@ -324,7 +324,7 @@ class VoiceWorkshopTab(QWidget):
             layout.addWidget(my_voices_group)
 
             # ===== GPU 状态 =====
-            gpu_info = self.main_window._get_gpu_info(self.main_window)
+            gpu_info = self.main_window._get_gpu_info()
             gpu_label = QLabel(f"GPU: {gpu_info}")
             gpu_label.setStyleSheet("color: gray; font-size: 11px;")
             layout.addWidget(gpu_label)

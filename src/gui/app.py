@@ -493,56 +493,11 @@ class MainWindow(QMainWindow):
         for value, label in asr_models:
             combo.addItem(label, userData=value)
 
-    def _get_voice_info(self, engine: str, voice_tabs: QTabWidget = None,
-                         preset_combo: QComboBox = None, custom_combo: QComboBox = None,
-                         clone_line: QLineEdit = None, edge_combo: QComboBox = None) -> tuple:
-        """
-        从音色选择器获取音色信息
-
-        Args:
-            engine: 引擎类型 ("edge" 或 "qwen3")
-            voice_tabs: Qwen3 音色 Tab (仅 Qwen3 需要)
-            preset_combo: 预设音色下拉框 (仅 Qwen3 需要)
-            custom_combo: 自定义音色下拉框 (仅 Qwen3 需要)
-            clone_line: 克隆音色输入框 (仅 Qwen3 需要)
-            edge_combo: Edge 音色下拉框 (仅 Edge 需要)
-
-        Returns:
-            (tts_voice, voice_profile_id)
-        """
-        def _parse_voice_text(voice_text: str) -> tuple:
-            """从展示文本中提取 voice 与 profile_id（容错不同格式）。"""
-            voice_text = (voice_text or "").strip()
-            if not voice_text:
-                return "", None
-
-            match = re.search(r"\(([^()]+)\)\s*$", voice_text)
-            profile_id = match.group(1).strip() if match else None
-            voice_name = voice_text.split(" (", 1)[0].strip()
-            return voice_name, profile_id
-
-        if engine == "edge":
-            # Edge-TTS: 直接返回选中的音色
-            if edge_combo is not None:
-                voice_text = edge_combo.currentText()
-                voice_name, _ = _parse_voice_text(voice_text)
-                return voice_name, None
-            return "zh-CN-XiaoxiaoNeural", None
-
-        # Qwen3-TTS: 从 voice_type 下拉框获取音色
-        # voice_tabs 参数现在代表 voice_type QComboBox
-        if voice_tabs is None:
-            return "Vivian", "A1"
-
-        tab_index = voice_tabs.currentIndex()
-        if tab_index == 0:
-            # 预设音色
-            voice_text = preset_combo.currentText()
-            return _parse_voice_text(voice_text)
-        else:
-            # 自定义音色 (包含 B/C 系列)
-            voice_text = custom_combo.currentText()
-            return _parse_voice_text(voice_text)
+    def _get_voice_info(self, engine: str, voice_tabs=None,
+                         preset_combo=None, custom_combo=None,
+                         clone_line=None, edge_combo=None) -> tuple:
+        from src.gui.utils.voice_utils import get_voice_info
+        return get_voice_info(engine, voice_tabs, preset_combo, custom_combo, clone_line, edge_combo)
 
 
     def log(self, msg: str, color: Optional[str] = None):
@@ -657,8 +612,6 @@ class MainWindow(QMainWindow):
 
     # ==================== 工具 UI 构建器 ====================
 
-    @staticmethod
-    
     # ==================== 工具文件浏览槽函数 ====================
 
     def _get_gpu_info(self) -> str:

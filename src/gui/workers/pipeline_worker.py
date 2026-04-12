@@ -933,7 +933,7 @@ class ToolsWorkerThread(QThread):
 
         # 加载字幕时间戳
         self.progress.emit("[工具箱] 解析字幕时间戳...")
-        from ..translate import load_subtitle_with_timestamps
+        from src.core.translate import load_subtitle_with_timestamps
         entries = load_subtitle_with_timestamps(subtitle_path)
         if not entries:
             raise RuntimeError("无法从字幕文件中解析出有效的时间戳条目")
@@ -1198,7 +1198,7 @@ class ToolsWorkerThread(QThread):
     def _run_subtitle_translate(self) -> str:
         """字幕翻译"""
         from src.core.translate import Translator
-        from ..translate import load_subtitle_with_timestamps
+        from src.core.translate import load_subtitle_with_timestamps
         from pathlib import Path
 
         input_path = self.params["input_path"]

@@ -6,6 +6,7 @@ TTS 语音合成模块 - 支持 Edge-TTS / Qwen3-TTS
 
 import asyncio
 import re
+
 import shutil
 import subprocess
 import time
@@ -14,6 +15,19 @@ from typing import Optional, Literal, List
 
 import edge_tts
 import soundfile as sf
+
+
+def _run_async(coro):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result()
+    return asyncio.run(coro)
 import numpy as np
 
 from src.utils import get_ffmpeg, ensure_dir
@@ -140,7 +154,7 @@ class EdgeTTSEngine:
 
     def synthesize(self, text: str, output_path: str) -> str:
         """同步合成语音"""
-        return asyncio.run(self.synthesize_async(text, output_path))
+        return _run_async(self.synthesize_async(text, output_path))
 
     async def _synthesize_all_async(self, sentences: List[str], temp_files: List[Path]):
         """并发合成所有句子（避免多次 asyncio.run 创建新事件循环）"""
@@ -167,7 +181,7 @@ class EdgeTTSEngine:
         temp_files = [output_path.parent / f"temp_tts_{i}.wav" for i in range(len(sentences))]
 
         # 用单个事件循环并发合成所有句子
-        asyncio.run(self._synthesize_all_async(sentences, temp_files))
+        _run_async(self._synthesize_all_async(sentences, temp_files))
 
         # 合并音频
         existing = [f for f in temp_files if f.exists()]
@@ -195,6 +209,14 @@ class EdgeTTSEngine:
                     result.append(current)
                 current = sent
 
+        if len(sentences) % 2 == 1 and sentences[-1].strip():
+            if len(current) + len(sentences[-1]) <= max_length:
+                current += sentences[-1]
+            else:
+                if current:
+                    result.append(current)
+                current = sentences[-1]
+
         if current:
             result.append(current)
 
@@ -209,7 +231,8 @@ class EdgeTTSEngine:
         concat_file = output_path.parent / "concat_list.txt"
         with open(concat_file, "w", encoding="utf-8") as f:
             for fpath in input_files:
-                f.write(f"file '{fpath}'\n")
+                escaped = str(fpath).replace("'", "'\\''")
+                f.write(f"file '{escaped}'\n")
 
         cmd = [
             get_ffmpeg(),
@@ -585,7 +608,7 @@ class TTSEngine:
         output_path = Path(output_path)
 
         if not segments:
-            sf.write(str(output_path), np.zeros(1), sample_rate)
+            sf.write(str(output_path), np.zeros((1024, 2), dtype=np.float32), sample_rate, subtype="FLOAT")
             return str(output_path)
 
         temp_dir = output_dir / "tts_temp"
@@ -626,7 +649,7 @@ class TTSEngine:
         if is_edge and valid_texts:
             print(f"  [EdgeTTS] 并发合成 {len(valid_texts)} 句...")
             t_syn = time.time()
-            asyncio.run(self.engine._synthesize_all_async(valid_texts, valid_temp_files))
+            _run_async(self.engine._synthesize_all_async(valid_texts, valid_temp_files))
             print(f"  [EdgeTTS] 并发合成完成，耗时: {time.time()-t_syn:.1f}s")
         else:
             for idx, (text, temp_file) in enumerate(zip(valid_texts, valid_temp_files)):
@@ -771,13 +794,14 @@ class TTSEngine:
 
 
         if timeline is None or len(timeline) == 0:
-            sf.write(str(output_path), np.zeros(1), sample_rate)
+            sf.write(str(output_path), np.zeros((1024, 2), dtype=np.float32), sample_rate, subtype="FLOAT")
         else:
             max_val = np.max(np.abs(timeline))
             if max_val > 0.95:
                 timeline = timeline * 0.95 / max_val
                 print(f"[TTS] 归一化: {max_val:.2f} -> 0.95")
-            sf.write(str(output_path), timeline, sample_rate, subtype="FLOAT")
+            stereo = np.column_stack([timeline, timeline])
+            sf.write(str(output_path), stereo, sample_rate, subtype="FLOAT")
 
         shutil.rmtree(temp_dir, ignore_errors=True)
 

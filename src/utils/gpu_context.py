@@ -15,49 +15,35 @@ GPU 资源上下文管理器
     # 自动释放显存
 """
 
-import torch
 from contextlib import contextmanager
 from typing import Optional, Any
 
 
+def _get_torch():
+    try:
+        import torch
+        return torch
+    except ImportError:
+        return None
+
+
 @contextmanager
 def gpu_context(component_name: str, injected: Any = None):
-    """
-    GPU 资源上下文管理器
-
-    Args:
-        component_name: 组件名称（用于日志）
-        injected: 已注入的组件（不为 None 时跳过自动创建）
-
-    Yields:
-        组件实例或 None
-
-    示例:
-        with gpu_context("人声分离") as separator:
-            if separator is None:
-                separator = VocalSeparator()
-            result = separator.separate(audio)
-        # 自动释放显存
-    """
     component = injected
     try:
         yield component
     finally:
-        # 释放显存
         if injected is None and component is not None:
             del component
-        if torch.cuda.is_available():
+        torch = _get_torch()
+        if torch and torch.cuda.is_available():
             torch.cuda.empty_cache()
             print(f"[{component_name}] GPU 显存已释放")
 
 
 def clear_gpu_memory():
-    """
-    清理 GPU 显存
-
-    相当于 torch.cuda.empty_cache()，但提供日志输出
-    """
-    if torch.cuda.is_available():
+    torch = _get_torch()
+    if torch and torch.cuda.is_available():
         torch.cuda.empty_cache()
         allocated = torch.cuda.memory_allocated() / 1024**3
         reserved = torch.cuda.memory_reserved() / 1024**3
