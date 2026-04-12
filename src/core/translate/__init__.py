@@ -724,6 +724,9 @@ def load_vtt_translations(vtt_path: str) -> List[str]:
     return translations
 
 
+from .tw_zh_trad_map import TRADITIONAL_CHARS, TRAD_TO_SIMP_MAP
+
+
 def detect_vtt_language(translations: List[str]) -> str:
     """
     检测 VTT 字幕的主语言（智能跳过 ASR/翻译的关键）
@@ -738,35 +741,98 @@ def detect_vtt_language(translations: List[str]) -> str:
         translations: VTT 解析出的文本列表
 
     Returns:
-        "zh" | "ja" | "mixed" | "unknown"
+        "zh_CN" | "zh_TW" | "ja" | "mixed" | "unknown"
     """
     zh_chars = 0
-    ja_kana = 0  # 仅统计假名（排除汉字重叠区）
+    ja_kana = 0
+    trad_chars = 0
     total = 0
 
     for text in translations:
         if not text.strip():
             continue
-        # 中文字符（Unicode 范围 4E00-9FFF）
         zh_chars += len(re.findall(r"[\u4e00-\u9fff]", text))
-        # 日文假名（平假名 + 片假名）
         ja_kana += len(re.findall(r"[\u3040-\u309f\u30a0-\u30ff]", text))
+        for char in text:
+            if char in TRADITIONAL_CHARS:
+                trad_chars += 1
         total += len(text.strip())
 
     if total == 0:
         return "unknown"
 
-    # 纯中文：没有假名且汉字占比 > 30%
     if ja_kana == 0 and zh_chars / total > 0.3:
-        return "zh"
-    # 纯日文：有假名但没有中文（汉字可能是日文汉字）
+        if trad_chars / total > 0.05:
+            return "zh_TW"
+        return "zh_CN"
     if ja_kana > 0 and zh_chars == 0:
         return "ja"
-    # 混合：两者都有
     if ja_kana > 0 and zh_chars > 0:
         return "mixed"
 
     return "unknown"
+
+
+def traditional_to_simplified(text: str) -> str:
+    """
+    将繁体中文转换为简体中文
+
+    优先使用 opencc 库，如果不可用则使用字符映射表
+
+    Args:
+        text: 繁体中文文本
+
+    Returns:
+        简体中文文本
+    """
+    try:
+        import opencc
+        converter = opencc.OpenCC("tw2s")
+        return converter.convert(text)
+    except ImportError:
+        result = []
+        for char in text:
+            result.append(TRAD_TO_SIMP_MAP.get(char, char))
+        return "".join(result)
+
+
+def deduplicate_text(text: str) -> str:
+    """
+    过滤连续重复的词
+
+    如果一个词连续出现 >= 3 次，保留1个
+
+    Args:
+        text: 输入文本
+
+    Returns:
+        去重后的文本
+    """
+    words = text.split()
+    if not words:
+        return text
+
+    result = []
+    count = 1
+    prev = words[0]
+
+    for i in range(1, len(words)):
+        if words[i] == prev:
+            count += 1
+        else:
+            if count >= 3:
+                result.append(prev)
+            else:
+                result.extend([prev] * count)
+            prev = words[i]
+            count = 1
+
+    if count >= 3:
+        result.append(prev)
+    else:
+        result.extend([prev] * count)
+
+    return " ".join(result)
 
 
 def load_vtt_with_timestamps(vtt_path: str) -> List[dict]:

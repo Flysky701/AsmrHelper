@@ -27,7 +27,7 @@ class SubtitleStrategy:
         self.config = config
 
     def preload(self) -> SubtitleContext:
-        from ..translate import clean_subtitle_batch, detect_subtitle_language, load_subtitle_translations
+        from ..translate import clean_subtitle_batch, deduplicate_text, detect_subtitle_language, load_subtitle_translations, traditional_to_simplified
 
         subtitle_path = self.config.vtt_path
         subtitle_type = Path(subtitle_path).suffix.upper().lstrip(".") if subtitle_path else "VTT"
@@ -61,13 +61,20 @@ class SubtitleStrategy:
             )
 
         subtitle_lang = detect_subtitle_language(translations)
+
+        if subtitle_lang == "zh_TW":
+            translations = [traditional_to_simplified(t) for t in translations]
+            subtitle_lang = "zh"
+
+        translations = [deduplicate_text(t) for t in translations]
+
         return SubtitleContext(
             subtitle_path=subtitle_path,
             subtitle_type=subtitle_type,
             subtitle_translations=translations,
             subtitle_lang=subtitle_lang,
             has_subtitle=True,
-            is_chinese_subtitle=(subtitle_lang == "zh"),
+            is_chinese_subtitle=(subtitle_lang in ("zh", "zh_CN")),
         )
 
     def load_entries(self, subtitle_path: str) -> List[Dict]:

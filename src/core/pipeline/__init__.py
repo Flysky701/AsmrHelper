@@ -79,7 +79,7 @@ class PipelineConfig:
 
     # ===== 步骤解耦输出模式 =====
     # "full"          -> 完整 5 步 (默认, 向后兼容)
-    # "asr_only"      -> 仅 ASR (自动跳过翻译/TTS/混音)
+    # "asr_only"      -> 仅 ASR + 可选人声分离
     # "subtitle_only" -> ASR + 翻译 + 导出字幕文件
     # "tts_only"      -> ASR + 翻译 + TTS (不混音)
     # "custom"        -> 严格按 use_* 布尔开关决定
@@ -98,7 +98,6 @@ class Pipeline:
     PRESETS = {
         "asmr_bilingual": "ASMR 双语双轨（人声分离 + ASR + 翻译 + TTS + 混音）",
         "asr_only": "仅 ASR 识别",
-        "translate_only": "仅翻译文本",
         "tts_only": "仅 TTS 合成",
         "auto_subtitle": "自动字幕（ASR + 翻译）",
     }
@@ -229,16 +228,10 @@ class Pipeline:
         # 解析执行步骤
         active_steps = self._resolve_active_steps(subtitle_ctx.has_subtitle, subtitle_ctx.is_chinese_subtitle)
         
-        # 初始化 Executor 进度展示变量
+        # 进度统计与真实执行步骤保持一致
         executor.total_steps = len(active_steps)
-        if config.pipeline_mode == "full":
-            display_steps = ["vocal_separator"]
-            if not subtitle_ctx.has_subtitle: display_steps.append("asr")
-            if not subtitle_ctx.is_chinese_subtitle: display_steps.append("translate")
-            display_steps.extend(["tts", "mixer"])
-            executor.total_steps = len(display_steps)
-            
-        executor._report(f"流程: {executor.total_steps} 步 [{config.pipeline_mode}]" + (" (智能跳过优化)" if (subtitle_ctx.has_subtitle and config.pipeline_mode == "full") else ""))
+
+        executor._report(f"流程: {executor.total_steps} 步 [{config.pipeline_mode}]")
         executor._report("=" * 60)
 
         executor.results = {
@@ -278,9 +271,16 @@ class Pipeline:
         
         _check_cancel()
         tts_audio_path = executor.execute_tts(active_steps, timestamped_segments, by_product_dir)
-        
+
         _check_cancel()
-        executor.execute_mix(active_steps, vocal_path, input_path, tts_audio_path, mix_path)
+        executor.execute_mix(
+            active_steps,
+            input_path,
+            tts_audio_path,
+            mix_path,
+            timestamped_segments=timestamped_segments,
+            tts_engine=executor.results.get("tts_engine"),
+        )
         
         # Artifact 收集 (写回多语言字幕)
         self._artifact_collector.progress_callback = progress_callback
