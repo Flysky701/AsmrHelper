@@ -744,7 +744,6 @@ class TTSEngine:
                 timeline[start_sample:end_sample] += tts_data[:available].astype(np.float32)
                 synthesized_count += 1
 
-            temp_tts.unlink(missing_ok=True)
 
         if timeline is None or len(timeline) == 0:
             sf.write(str(output_path), np.zeros(1), sample_rate)
