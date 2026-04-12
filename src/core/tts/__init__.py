@@ -537,16 +537,65 @@ class TTSEngine:
             self.engine.synthesize(text, str(temp_file))
             temp_files.append((seg.get("start_time", 0), temp_file))
 
-        # 合并音频（按时间顺序）
+        # 合并音频（按时间轴放置）
         temp_files.sort(key=lambda x: x[0])
-        existing = [f for _, f in temp_files]
-        self._merge_audio(existing, output_path)
+        self._merge_audio_with_timeline(temp_files, output_path)
 
         # 清理临时文件
-        for f in existing:
+        for _, f in temp_files:
             f.unlink(missing_ok=True)
 
         return str(output_path)
+
+    def _merge_audio_with_timeline(self, timed_files: list, output_path: Path):
+        """按时间轴放置并合并多个音频文件（保留原始时间间距）
+
+        Args:
+            timed_files: [(start_time, Path), ...] 按 start_time 排序
+            output_path: 输出文件路径
+        """
+        import soundfile as sf
+
+        if not timed_files:
+            sf.write(str(output_path), np.zeros(1), 16000)
+            return
+
+        # 读取所有音频段
+        segments_audio = []
+        sr = None
+        for start_time, f in timed_files:
+            if f.exists():
+                audio, file_sr = sf.read(str(f))
+                if sr is None:
+                    sr = file_sr
+                if audio.ndim > 1:
+                    audio = np.mean(audio, axis=1)
+                segments_audio.append((start_time, audio.astype(np.float32)))
+
+        if not segments_audio:
+            sf.write(str(output_path), np.zeros(1), 16000)
+            return
+
+        # 计算总时长（最后一段的结束位置）
+        last_start, last_audio = segments_audio[-1]
+        total_duration = last_start + len(last_audio) / sr
+        total_samples = int(total_duration * sr) + 1
+
+        # 创建时间轴（静音背景）
+        timeline = np.zeros(total_samples, dtype=np.float32)
+
+        # 按时间戳放置每段音频
+        for start_time, audio in segments_audio:
+            start_sample = int(start_time * sr)
+            end_sample = start_sample + len(audio)
+            if end_sample > total_samples:
+                end_sample = total_samples
+                audio = audio[:end_sample - start_sample]
+            if start_sample < 0:
+                start_sample = 0
+            timeline[start_sample:end_sample] += audio[:end_sample - start_sample]
+
+        sf.write(str(output_path), timeline, sr, subtype="FLOAT")
 
     def _merge_audio(self, input_files: list, output_path: Path):
         """合并多个音频文件"""
