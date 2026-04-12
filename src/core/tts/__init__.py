@@ -592,6 +592,7 @@ class TTSEngine:
         temp_dir.mkdir(exist_ok=True)
 
         is_qwen3 = isinstance(self.engine, Qwen3TTSEngine)
+        is_edge = isinstance(self.engine, EdgeTTSEngine)
         engine_type = "qwen3" if is_qwen3 else "edge"
         print(f"[TTS] 逐句合成 ({len(segments)} 句), 引擎: {engine_type}")
 
@@ -599,47 +600,71 @@ class TTSEngine:
         failed_count = 0
         total_segments = len(segments)
 
-        timeline_samples = int(reference_duration * sample_rate) if reference_duration > 0 else 0
-        timeline = np.zeros(timeline_samples, dtype=np.float32) if timeline_samples > 0 else None
+        valid_indices = []
+        valid_texts = []
+        valid_temp_files = []
+        seg_meta = {}
 
         for i, seg in enumerate(segments):
-            if (i + 1) % 10 == 0 or i == 0:
-                print(f"  [进度] TTS 合成中... {i+1}/{total_segments} 句")
-
             translation = seg.get("text", "").strip()
             if not translation:
                 continue
-
             original_text = translation
             translation = _clean_text_for_tts(translation)
             if not translation.strip():
                 continue
+            temp_tts = temp_dir / f"tts_{i:04d}.wav"
+            valid_indices.append(i)
+            valid_texts.append(translation)
+            valid_temp_files.append(temp_tts)
+            seg_meta[i] = {
+                "original_text": original_text,
+                "start_sec": seg.get("start_time", 0),
+                "end_sec": seg.get("end_time", seg.get("start_time", 0) + 5.0),
+            }
 
-            start_sec = seg.get("start_time", 0)
-            end_sec = seg.get("end_time", start_sec + 5.0)
+        if is_edge and valid_texts:
+            print(f"  [EdgeTTS] 并发合成 {len(valid_texts)} 句...")
+            t_syn = time.time()
+            asyncio.run(self.engine._synthesize_all_async(valid_texts, valid_temp_files))
+            print(f"  [EdgeTTS] 并发合成完成，耗时: {time.time()-t_syn:.1f}s")
+        else:
+            for idx, (text, temp_file) in enumerate(zip(valid_texts, valid_temp_files)):
+                i = valid_indices[idx]
+                success = False
+                last_error = None
+                for retry in range(3):
+                    try:
+                        self.engine.synthesize(text, str(temp_file))
+                        if temp_file.exists() and temp_file.stat().st_size > 0:
+                            success = True
+                            break
+                    except Exception as e:
+                        last_error = e
+                        if retry < 2:
+                            print(f"  [DEBUG] 第 {i+1} 句重试 {retry+1}: {str(e)[:80]}")
+                            time.sleep(0.5)
+                if not success:
+                    failed_count += 1
+                    meta = seg_meta[i]
+                    display_text = (meta["original_text"][:50] + "...") if len(meta["original_text"]) > 50 else meta["original_text"]
+                    print(f"  [WARN] 第 {i+1} 句 TTS 失败: {last_error}")
+                    print(f"         原文: {display_text!r}")
+
+        timeline_samples = int(reference_duration * sample_rate) if reference_duration > 0 else 0
+        timeline = np.zeros(timeline_samples, dtype=np.float32) if timeline_samples > 0 else None
+
+        for idx, (i, temp_tts) in enumerate(zip(valid_indices, valid_temp_files)):
+            if (idx + 1) % 10 == 0 or idx == 0:
+                print(f"  [进度] 后处理中... {idx+1}/{len(valid_indices)} 句")
+
+            meta = seg_meta[i]
+            start_sec = meta["start_sec"]
+            end_sec = meta["end_sec"]
             original_duration = end_sec - start_sec
 
-            temp_tts = temp_dir / f"tts_{i:04d}.wav"
-            success = False
-            last_error = None
-
-            for retry in range(3):
-                try:
-                    self.engine.synthesize(translation, str(temp_tts))
-                    if temp_tts.exists() and temp_tts.stat().st_size > 0:
-                        success = True
-                        break
-                except Exception as e:
-                    last_error = e
-                    if retry < 2:
-                        print(f"  [DEBUG] 第 {i+1} 句重试 {retry+1}: {str(e)[:80]}")
-                        time.sleep(0.5)
-
-            if not success:
+            if not temp_tts.exists() or temp_tts.stat().st_size == 0:
                 failed_count += 1
-                display_text = (original_text[:50] + "...") if len(original_text) > 50 else original_text
-                print(f"  [WARN] 第 {i+1} 句 TTS 失败: {last_error}")
-                print(f"         原文: {display_text!r}")
                 continue
 
             try:
