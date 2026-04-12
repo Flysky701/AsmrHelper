@@ -270,7 +270,7 @@ class Pipeline:
         translations = executor.execute_translate(active_steps, subtitle_ctx, timestamped_segments, by_product_dir)
         
         _check_cancel()
-        tts_audio_path = executor.execute_tts(active_steps, timestamped_segments, by_product_dir)
+        tts_audio_path = executor.execute_tts(active_steps, timestamped_segments, by_product_dir, input_path=input_path)
 
         _check_cancel()
         executor.execute_mix(
@@ -278,8 +278,6 @@ class Pipeline:
             input_path,
             tts_audio_path,
             mix_path,
-            timestamped_segments=timestamped_segments,
-            tts_engine=executor.results.get("tts_engine"),
         )
         
         # Artifact 收集 (写回多语言字幕)

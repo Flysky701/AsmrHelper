@@ -196,7 +196,7 @@ class StepExecutor:
         self.results["translations"] = translations
         return translations
 
-    def execute_tts(self, active_steps, timestamped_segments, by_product_dir):
+    def execute_tts(self, active_steps, timestamped_segments, by_product_dir, input_path=None):
         from src.core.tts import TTSEngine
 
         tts_audio_path = by_product_dir / "tts_output.wav"
@@ -236,7 +236,24 @@ class StepExecutor:
                             "end_time": end_time
                         })
 
-                    engine.synthesize_segments(voice_segments, str(by_product_dir), str(tts_audio_path))
+                    reference_duration = 0
+                    sample_rate = 44100
+                    if input_path and Path(input_path).exists():
+                        try:
+                            import soundfile as sf_info_mod
+                            info = sf_info_mod.info(str(input_path))
+                            reference_duration = info.duration
+                            sample_rate = info.samplerate
+                        except Exception:
+                            pass
+
+                    engine.synthesize_segments(
+                        voice_segments, str(by_product_dir), str(tts_audio_path),
+                        reference_duration=reference_duration,
+                        sample_rate=sample_rate,
+                        max_tts_ratio=self.config.max_tts_ratio,
+                        compress_ratio=self.config.compress_ratio,
+                    )
                     self.results["steps"]["tts"] = {
                         "duration": time.time() - t1,
                         "segments": len(voice_segments),
@@ -261,9 +278,8 @@ class StepExecutor:
         self.results["tts_path"] = str(tts_audio_path)
         return tts_audio_path
 
-    def execute_mix(self, active_steps, input_path, tts_audio_path, mix_path, timestamped_segments=None, tts_engine=None):
+    def execute_mix(self, active_steps, input_path, tts_audio_path, mix_path):
         from src.mixer import Mixer
-        import soundfile as sf
 
         if "mixer" not in active_steps:
             pass
@@ -278,33 +294,7 @@ class StepExecutor:
                     tts_delay_ms=self.config.tts_delay_ms,
                 )
 
-                if Path(tts_audio_path).exists() and timestamped_segments and tts_engine:
-                    try:
-                        info = sf.info(str(input_path))
-                        reference_duration = info.duration
-                        tts_audio_path_aligned = str(input_path).replace(Path(input_path).name, "tts_aligned.wav")
-                        mixer.build_aligned_tts(
-                            segments=timestamped_segments,
-                            tts_engine=tts_engine,
-                            output_path=tts_audio_path_aligned,
-                            reference_duration=reference_duration,
-                            sample_rate=info.samplerate,
-                            max_tts_ratio=self.config.max_tts_ratio,
-                            compress_ratio=self.config.compress_ratio,
-                        )
-                        mixer.mix(
-                            original_path=str(input_path),
-                            tts_path=tts_audio_path_aligned,
-                            output_path=str(mix_path),
-                        )
-                    except Exception as e:
-                        self._report(f"[WARN] 时间轴对齐混音失败，回退到简单混音: {e}")
-                        mixer.mix(
-                            original_path=str(input_path),
-                            tts_path=str(tts_audio_path),
-                            output_path=str(mix_path),
-                        )
-                elif Path(tts_audio_path).exists():
+                if Path(tts_audio_path).exists():
                     mixer.mix(
                         original_path=str(input_path),
                         tts_path=str(tts_audio_path),
@@ -318,11 +308,6 @@ class StepExecutor:
                 self.results["steps"]["mixer"] = {
                     "duration": time.time() - t1, "output": str(mix_path)
                 }
-
-                if self.results.get("tts_engine_needs_unload") and tts_engine:
-                    if getattr(tts_engine, "engine", None) and hasattr(tts_engine.engine, "unload"):
-                        tts_engine.engine.unload()
-                        self.results["tts_engine_needs_unload"] = False
 
             except Exception as e:
                 self._report(f"[WARN] 混音失败: {e}")
