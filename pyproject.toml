@@ -36,7 +36,7 @@ dependencies = [
     "click>=8.1.0",
     "pypdf>=6.10.0",
     "pdfplumber>=0.11.9",
-    "opencc-python>=0.1.0",
+    "opencc>=1.1.0",
 ]
 
 [project.optional-dependencies]
