@@ -8,77 +8,12 @@
 """
 
 import time
-import re
-import shutil
 from pathlib import Path
-from typing import Optional, Tuple
 import soundfile as sf
 import numpy as np
 
 from ..utils import get_ffmpeg, ensure_dir
-
-
-def _clean_text_for_tts(text: str) -> str:
-    """
-    清理文本以适配 TTS 引擎
-
-    Args:
-        text: 原始文本
-
-    Returns:
-        str: 清理后的文本
-    """
-    if not text:
-        return ""
-
-    # 移除可能导致 Edge-TTS 问题的特殊字符
-    # 保留中文、英文、数字、基本标点
-    cleaned = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', text)
-
-    # 移除多余的空白字符
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-
-    # Edge-TTS 对某些字符可能有问题，替换或移除
-    # 移除控制字符和零宽字符
-    cleaned = cleaned.replace('\u200b', '')  # 零宽空格
-    cleaned = cleaned.replace('\ufeff', '')  # BOM
-
-    # 移除开头和结尾的标点符号（Edge-TTS 无法处理纯标点）
-    cleaned = cleaned.strip('。？！，、；：""''「」『』【】()（）…—·')
-
-    # 如果清理后只剩标点或为空，返回空字符串
-    if not cleaned or re.match(r'^[\s。？！，、；：""''「」『』【】()（）…—·]*$', cleaned):
-        return ""
-
-    return cleaned
-
-
-def _apply_fade(audio: np.ndarray, sample_rate: int, fade_in_ms: int = 30, fade_out_ms: int = 50) -> np.ndarray:
-    """
-    应用淡入淡出
-
-    Args:
-        audio: 音频数据
-        sample_rate: 采样率
-        fade_in_ms: 淡入时长（毫秒）
-        fade_out_ms: 淡出时长（毫秒）
-
-    Returns:
-        np.ndarray: 处理后的音频
-    """
-    audio = audio.copy()
-    fade_in_samples = int(fade_in_ms * sample_rate / 1000)
-    fade_out_samples = int(fade_out_ms * sample_rate / 1000)
-
-    # 淡入
-    if fade_in_samples > 0 and len(audio) > fade_in_samples:
-        audio[:fade_in_samples] *= np.linspace(0, 1, fade_in_samples)
-
-    # 淡出
-    if fade_out_samples > 0 and len(audio) > fade_out_samples:
-        audio[-fade_out_samples:] *= np.linspace(1, 0, fade_out_samples)
-
-    return audio
+from ..core.tts import _clean_text_for_tts, _apply_fade
 
 
 class Mixer:
@@ -109,33 +44,6 @@ class Mixer:
         if data.dtype == np.float32 or data.dtype == np.float64:
             return float(np.sqrt(np.mean(np.square(data))))
         return float(np.sqrt(np.mean(np.square(data.astype(np.float64)))) / 32768)
-
-    @staticmethod
-    def _qwen3_speed_instruct(tts_duration: float, target_duration: float) -> str:
-        """
-        根据 TTS 超出目标的程度，生成对应的自然语言速度提示词
-
-        Args:
-            tts_duration: TTS 实际时长
-            target_duration: 目标时长（原音频时长）
-
-        Returns:
-            str: instruct 提示词，如果超出不大则返回空字符串（不值得重合成）
-        """
-        if target_duration <= 0:
-            return ""
-        ratio = tts_duration / target_duration
-        if ratio <= 1.2:
-            # 超出不明显，不重合成
-            return ""
-        elif ratio <= 1.5:
-            return "语速稍快"
-        elif ratio <= 2.0:
-            return "语速加快"
-        elif ratio <= 3.0:
-            return "用比较快的语速说"
-        else:
-            return "用非常快的语速说"
 
     def mix(
         self,

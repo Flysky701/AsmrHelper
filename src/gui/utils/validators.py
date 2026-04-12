@@ -21,8 +21,8 @@ def validate_single_params(params: Mapping[str, object]) -> Tuple[bool, str]:
     except (TypeError, ValueError):
         return False, "音频参数格式错误"
 
-    if not 0.5 <= tts_speed <= 2.0:
-        return False, "语速范围应在 0.5-2.0"
+    if not 0.1 <= tts_speed <= 3.0:
+        return False, "语速范围应在 0.1-3.0"
     if not 0.0 <= orig <= 1.0:
         return False, "原音音量范围应在 0-1"
     if not 0.0 <= tts_ratio <= 1.0:

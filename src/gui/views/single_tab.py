@@ -591,33 +591,6 @@ class SingleTab(QWidget):
     def _get_voice_info(self, engine: str, voice_tabs=None,
                          preset_combo=None, custom_combo=None,
                          clone_line=None, edge_combo=None) -> tuple:
-        """
-        从音色选择器获取音色信息
-        """
-        def _parse_voice_text(voice_text: str) -> tuple:
-            voice_text = (voice_text or "").strip()
-            if not voice_text:
-                return "", None
-            match = re.search(r"\(([^()]+)\)\s*$", voice_text)
-            profile_id = match.group(1).strip() if match else None
-            voice_name = voice_text.split(" (", 1)[0].strip()
-            return voice_name, profile_id
-
-        if engine == "edge":
-            if edge_combo is not None:
-                voice_text = edge_combo.currentText()
-                voice_name, _ = _parse_voice_text(voice_text)
-                return voice_name, None
-            return "zh-CN-XiaoxiaoNeural", None
-
-        if voice_tabs is None:
-            return "Vivian", "A1"
-
-        tab_index = voice_tabs.currentIndex()
-        if tab_index == 0:
-            voice_text = preset_combo.currentText()
-            return _parse_voice_text(voice_text)
-        else:
-            voice_text = custom_combo.currentText()
-            return _parse_voice_text(voice_text)
+        from src.gui.utils.voice_utils import get_voice_info
+        return get_voice_info(engine, voice_tabs, preset_combo, custom_combo, clone_line, edge_combo)
 
