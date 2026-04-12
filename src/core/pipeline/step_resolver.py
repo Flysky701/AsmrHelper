@@ -19,7 +19,10 @@ class StepResolver:
         mode = config.pipeline_mode
 
         if mode == "full":
-            return ["vocal_separator", "asr", "translate", "tts", "mixer"]
+            steps = ["vocal_separator", "asr", "translate", "tts", "mixer"]
+            if has_subtitle:
+                steps.remove("vocal_separator")
+            return steps
 
         if mode == "asr_only":
             steps = []

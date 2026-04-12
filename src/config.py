@@ -165,8 +165,8 @@ class Config:
 
         # 验证 TTS 配置
         tts_engine = self.get("tts.engine", "")
-        if tts_engine not in ("edge", "qwen3", "gptsovits"):
-            errors.append(f"tts.engine 必须是 'edge', 'qwen3', 或 'gptsovits'，当前: {tts_engine}")
+        if tts_engine not in ("edge", "qwen3"):
+            errors.append(f"tts.engine 必须是 'edge' 或 'qwen3'，当前: {tts_engine}")
 
         speed = self.get("tts.speed", 1.0)
         if not isinstance(speed, (int, float)) or speed < 0.1 or speed > 3.0:

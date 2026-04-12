@@ -414,7 +414,7 @@ class TTSEngine:
         TTSEngine.register("cosyvoice", CosyVoiceEngine)
 
         # 列出可用引擎
-        print(TTSEngine.available_engines())  # ["edge", "qwen3", "gptsovits"]
+        print(TTSEngine.available_engines())  # ["edge", "qwen3"]
 
         # 创建引擎
         tts = TTSEngine(engine="edge", voice="zh-CN-XiaoxiaoNeural")
@@ -453,34 +453,25 @@ class TTSEngine:
 
     def __init__(
         self,
-        engine: Literal["edge", "qwen3", "gptsovits"] = "edge",
+        engine: Literal["edge", "qwen3"] = "edge",
         voice: str = "zh-CN-XiaoxiaoNeural",
         speed: float = 1.0,
         rate: str = "+0%",
         volume: str = "+0%",
         pitch: str = "+0Hz",
         voice_profile_id: str = None,
-        # GPT-SoVITS 专用参数
-        gptsovits_api_url: str = "http://localhost:9870",
-        gptsovits_ref_audio: str = "",
-        gptsovits_ref_text: str = "",
-        gptsovits_language: str = "zh",
     ):
         """
         初始化 TTS 引擎（使用注册式工厂）
 
         Args:
-            engine: 引擎类型 (edge/qwen3/gptsovits)
+            engine: 引擎类型 (edge/qwen3)
             voice: 音色名称
             speed: 语速 (0.5-2.0，仅 Qwen3)
             rate: 语速 (仅 Edge-TTS, +/-%)
             volume: 音量 (仅 Edge-TTS, +/-%)
             pitch: 音调 (仅 Edge-TTS, +/-Hz)
             voice_profile_id: 音色配置 ID（Qwen3 专用）
-            gptsovits_api_url: GPT-SoVITS 服务地址
-            gptsovits_ref_audio: GPT-SoVITS 参考音频路径
-            gptsovits_ref_text: GPT-SoVITS 参考文本
-            gptsovits_language: GPT-SoVITS 合成语言
         """
         self.engine_type = engine
 
@@ -497,16 +488,8 @@ class TTSEngine:
                 speed=speed,
                 voice_profile_id=voice_profile_id,
             )
-        elif engine == "gptsovits":
-            from .gptsovits import GPTSoVITSEngine
-            self.engine = GPTSoVITSEngine(
-                api_url=gptsovits_api_url,
-                ref_audio_path=gptsovits_ref_audio,
-                ref_text=gptsovits_ref_text,
-                language=gptsovits_language,
-            )
         else:
-            raise ValueError(f"不支持的引擎: {engine}，可用: edge/qwen3/gptsovits")
+            raise ValueError(f"不支持的引擎: {engine}，可用: edge/qwen3")
 
     def synthesize(self, text: str, output_path: str) -> str:
         """合成语音"""
@@ -518,25 +501,86 @@ class TTSEngine:
             return self.engine.synthesize_long_text(text, output_path)
         return self.engine.synthesize(text, output_path)
 
+    def synthesize_segments(
+        self,
+        segments: list,
+        output_dir: str,
+        output_path: str,
+    ) -> str:
+        """
+        按时间戳分段合成语音并合并
+
+        Args:
+            segments: 片段列表，每个包含 text, start_time, end_time
+            output_dir: 输出目录（用于临时文件）
+            output_path: 最终输出文件路径
+
+        Returns:
+            str: 输出文件路径
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = Path(output_path)
+
+        if not segments:
+            # 创建空文件
+            sf.write(str(output_path), np.zeros(1), 16000)
+            return str(output_path)
+
+        # 分段合成
+        temp_files = []
+        for i, seg in enumerate(segments):
+            text = seg.get("text", "").strip()
+            if not text:
+                continue
+            temp_file = output_dir / f"tts_seg_{i:04d}.wav"
+            self.engine.synthesize(text, str(temp_file))
+            temp_files.append((seg.get("start_time", 0), temp_file))
+
+        # 合并音频（按时间顺序）
+        temp_files.sort(key=lambda x: x[0])
+        existing = [f for _, f in temp_files]
+        self._merge_audio(existing, output_path)
+
+        # 清理临时文件
+        for f in existing:
+            f.unlink(missing_ok=True)
+
+        return str(output_path)
+
+    def _merge_audio(self, input_files: list, output_path: Path):
+        """合并多个音频文件"""
+        import soundfile as sf
+
+        if not input_files:
+            sf.write(str(output_path), np.zeros(1), 16000)
+            return
+
+        # 读取并拼接音频
+        audio_list = []
+        sr = None
+        for f in input_files:
+            if f.exists():
+                audio, file_sr = sf.read(str(f))
+                if sr is None:
+                    sr = file_sr
+                audio_list.append(audio)
+
+        if audio_list:
+            combined = np.concatenate(audio_list)
+            sf.write(str(output_path), combined, sr, subtype="FLOAT")
+        else:
+            sf.write(str(output_path), np.zeros(1), 16000)
+
     @property
     def is_available(self) -> bool:
         """检查引擎是否可用"""
-        if self.engine_type == "gptsovits":
-            return self.engine.is_service_available()
         return True  # edge/qwen3 本地可用
 
 
 # 注册内置引擎（模块加载时自动注册）
 TTSEngine.register("edge", EdgeTTSEngine)
 TTSEngine.register("qwen3", Qwen3TTSEngine)
-
-# 延迟导入 GPTSoVITSEngine（避免无依赖时模块加载失败）
-try:
-    from .gptsovits import GPTSoVITSEngine
-    TTSEngine.register("gptsovits", GPTSoVITSEngine)
-except ImportError as e:
-    import warnings
-    warnings.warn(f"GPTSoVITS 不可用: {e}")
 
 
 # 便捷函数
