@@ -98,6 +98,8 @@ config/voice_profiles.json
 # =====================
 # WorkBuddy (IDE workspace data)
 # =====================
+.trae
+.github/
 .workbuddy/
 .codebuddy/
 CODEBUDDY.md
