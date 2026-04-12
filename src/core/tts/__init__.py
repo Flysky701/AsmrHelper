@@ -6,6 +6,7 @@ TTS 语音合成模块 - 支持 Edge-TTS / Qwen3-TTS
 
 import asyncio
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -15,7 +16,31 @@ import edge_tts
 import soundfile as sf
 import numpy as np
 
-from src.utils import get_ffmpeg
+from src.utils import get_ffmpeg, ensure_dir
+
+
+def _clean_text_for_tts(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', text)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    cleaned = cleaned.replace('\u200b', '')
+    cleaned = cleaned.replace('\ufeff', '')
+    cleaned = cleaned.strip('。？！，、；：""''「」『』【】()（）…—·')
+    if not cleaned or re.match(r'^[\s。？！，、；：""''「」『』【】()（）…—·]*$', cleaned):
+        return ""
+    return cleaned
+
+
+def _apply_fade(audio: np.ndarray, sample_rate: int, fade_in_ms: int = 30, fade_out_ms: int = 50) -> np.ndarray:
+    audio = audio.copy()
+    fade_in_samples = int(fade_in_ms * sample_rate / 1000)
+    fade_out_samples = int(fade_out_ms * sample_rate / 1000)
+    if fade_in_samples > 0 and len(audio) > fade_in_samples:
+        audio[:fade_in_samples] *= np.linspace(0, 1, fade_in_samples)
+    if fade_out_samples > 0 and len(audio) > fade_out_samples:
+        audio[-fade_out_samples:] *= np.linspace(1, 0, fade_out_samples)
+    return audio
 
 
 class EdgeTTSEngine:
@@ -209,6 +234,22 @@ class EdgeTTSEngine:
 
 class Qwen3TTSEngine:
     """Qwen3-TTS 引擎（支持预设音色 + 自定义音色 + 克隆音色）"""
+
+    @staticmethod
+    def speed_instruct(tts_duration: float, target_duration: float) -> str:
+        if target_duration <= 0:
+            return ""
+        ratio = tts_duration / target_duration
+        if ratio <= 1.2:
+            return ""
+        elif ratio <= 1.5:
+            return "语速稍快"
+        elif ratio <= 2.0:
+            return "语速加快"
+        elif ratio <= 3.0:
+            return "用比较快的语速说"
+        else:
+            return "用非常快的语速说"
 
     # 预设音色（兼容旧 API）
     VOICES = [
@@ -506,14 +547,35 @@ class TTSEngine:
         segments: list,
         output_dir: str,
         output_path: str,
+        reference_duration: float = 0,
+        sample_rate: int = 44100,
+        max_tts_ratio: float = 1.2,
+        compress_ratio: float = 0.75,
+        fade_in_ms: int = 30,
+        fade_out_ms: int = 50,
     ) -> str:
         """
-        按时间戳分段合成语音并合并
+        逐句合成 TTS 并按时间戳拼装到时间轴上
+
+        核心逻辑：
+        1. 对每句翻译单独合成 TTS（带重试）
+        2. 按原音时间戳将 TTS 放置到正确位置
+        3. TTS 超过原音频时长时的压缩策略取决于引擎类型：
+           - Edge-TTS: 使用 pytsmod.ola() 时域压缩（后处理）
+           - Qwen3-TTS: 使用自然语言提示词（如"语速加快"）重新合成
+        4. 应用淡入淡出
+        5. 归一化并保存
 
         Args:
             segments: 片段列表，每个包含 text, start_time, end_time
             output_dir: 输出目录（用于临时文件）
             output_path: 最终输出文件路径
+            reference_duration: 参考音频总时长（秒），0 则自动计算
+            sample_rate: 目标采样率
+            max_tts_ratio: TTS 超过原音频此时长的比例阈值（超过则压缩）
+            compress_ratio: 固定压缩 stretch_factor（仅 Edge-TTS OLA 使用）
+            fade_in_ms: 淡入时长（毫秒）
+            fade_out_ms: 淡出时长（毫秒）
 
         Returns:
             str: 输出文件路径
@@ -523,103 +585,182 @@ class TTSEngine:
         output_path = Path(output_path)
 
         if not segments:
-            # 创建空文件
-            sf.write(str(output_path), np.zeros(1), 16000)
+            sf.write(str(output_path), np.zeros(1), sample_rate)
             return str(output_path)
 
-        # 分段合成
-        temp_files = []
+        temp_dir = output_dir / "tts_temp"
+        temp_dir.mkdir(exist_ok=True)
+
+        is_qwen3 = isinstance(self.engine, Qwen3TTSEngine)
+        engine_type = "qwen3" if is_qwen3 else "edge"
+        print(f"[TTS] 逐句合成 ({len(segments)} 句), 引擎: {engine_type}")
+
+        synthesized_count = 0
+        failed_count = 0
+        total_segments = len(segments)
+
+        timeline_samples = int(reference_duration * sample_rate) if reference_duration > 0 else 0
+        timeline = np.zeros(timeline_samples, dtype=np.float32) if timeline_samples > 0 else None
+
         for i, seg in enumerate(segments):
-            text = seg.get("text", "").strip()
-            if not text:
+            if (i + 1) % 10 == 0 or i == 0:
+                print(f"  [进度] TTS 合成中... {i+1}/{total_segments} 句")
+
+            translation = seg.get("text", "").strip()
+            if not translation:
                 continue
-            temp_file = output_dir / f"tts_seg_{i:04d}.wav"
-            self.engine.synthesize(text, str(temp_file))
-            temp_files.append((seg.get("start_time", 0), temp_file))
 
-        # 合并音频（按时间轴放置）
-        temp_files.sort(key=lambda x: x[0])
-        self._merge_audio_with_timeline(temp_files, output_path)
+            original_text = translation
+            translation = _clean_text_for_tts(translation)
+            if not translation.strip():
+                continue
 
-        # 清理临时文件
-        for _, f in temp_files:
-            f.unlink(missing_ok=True)
+            start_sec = seg.get("start_time", 0)
+            end_sec = seg.get("end_time", start_sec + 5.0)
+            original_duration = end_sec - start_sec
 
-        return str(output_path)
+            temp_tts = temp_dir / f"tts_{i:04d}.wav"
+            success = False
+            last_error = None
 
-    def _merge_audio_with_timeline(self, timed_files: list, output_path: Path):
-        """按时间轴放置并合并多个音频文件（保留原始时间间距）
+            for retry in range(3):
+                try:
+                    self.engine.synthesize(translation, str(temp_tts))
+                    if temp_tts.exists() and temp_tts.stat().st_size > 0:
+                        success = True
+                        break
+                except Exception as e:
+                    last_error = e
+                    if retry < 2:
+                        print(f"  [DEBUG] 第 {i+1} 句重试 {retry+1}: {str(e)[:80]}")
+                        time.sleep(0.5)
 
-        Args:
-            timed_files: [(start_time, Path), ...] 按 start_time 排序
-            output_path: 输出文件路径
-        """
-        import soundfile as sf
+            if not success:
+                failed_count += 1
+                display_text = (original_text[:50] + "...") if len(original_text) > 50 else original_text
+                print(f"  [WARN] 第 {i+1} 句 TTS 失败: {last_error}")
+                print(f"         原文: {display_text!r}")
+                continue
 
-        if not timed_files:
-            sf.write(str(output_path), np.zeros(1), 16000)
-            return
+            try:
+                tts_data, tts_sr = sf.read(str(temp_tts))
+            except Exception as e:
+                print(f"  [WARN] 第 {i+1} 句读取失败: {e}")
+                continue
 
-        # 读取所有音频段
-        segments_audio = []
-        sr = None
-        for start_time, f in timed_files:
-            if f.exists():
-                audio, file_sr = sf.read(str(f))
-                if sr is None:
-                    sr = file_sr
-                if audio.ndim > 1:
-                    audio = np.mean(audio, axis=1)
-                segments_audio.append((start_time, audio.astype(np.float32)))
+            if tts_sr != sample_rate:
+                try:
+                    import librosa
+                    tts_data = librosa.resample(tts_data, orig_sr=tts_sr, target_sr=sample_rate)
+                except ImportError:
+                    _temp_wav = output_dir / f"_resample_temp_{i}.wav"
+                    _temp_48k = _temp_wav.with_suffix(".48k.wav")
+                    try:
+                        sf.write(str(_temp_wav), tts_data, tts_sr, subtype="FLOAT")
+                        subprocess.run(
+                            [get_ffmpeg(), "-i", str(_temp_wav), "-ar", str(sample_rate), "-ac", "2", str(_temp_48k)],
+                            capture_output=True, check=True,
+                        )
+                        tts_data, tts_sr = sf.read(str(_temp_48k))
+                    finally:
+                        _temp_wav.unlink(missing_ok=True)
+                        _temp_48k.unlink(missing_ok=True)
 
-        if not segments_audio:
-            sf.write(str(output_path), np.zeros(1), 16000)
-            return
+            if tts_data.ndim > 1:
+                tts_data = np.mean(tts_data, axis=1)
 
-        # 计算总时长（最后一段的结束位置）
-        last_start, last_audio = segments_audio[-1]
-        total_duration = last_start + len(last_audio) / sr
-        total_samples = int(total_duration * sr) + 1
+            tts_duration = len(tts_data) / sample_rate
 
-        # 创建时间轴（静音背景）
-        timeline = np.zeros(total_samples, dtype=np.float32)
+            if tts_duration > original_duration * max_tts_ratio:
+                if is_qwen3:
+                    original_tts_duration = tts_duration
+                    instruct = Qwen3TTSEngine.speed_instruct(tts_duration, original_duration)
+                    if instruct and hasattr(self.engine, 'synthesize_with_instruct'):
+                        try:
+                            temp_tts_fast = temp_dir / f"tts_{i:04d}_fast.wav"
+                            self.engine.synthesize_with_instruct(translation, str(temp_tts_fast), instruct=instruct)
+                            if temp_tts_fast.exists() and temp_tts_fast.stat().st_size > 0:
+                                tts_data_new, tts_sr_new = sf.read(str(temp_tts_fast))
+                                if tts_sr_new != sample_rate:
+                                    try:
+                                        import librosa
+                                        tts_data_new = librosa.resample(tts_data_new, orig_sr=tts_sr_new, target_sr=sample_rate)
+                                    except ImportError:
+                                        pass
+                                if tts_data_new.ndim > 1:
+                                    tts_data_new = np.mean(tts_data_new, axis=1)
+                                tts_duration_new = len(tts_data_new) / sample_rate
+                                if tts_duration_new < original_tts_duration:
+                                    tts_data = tts_data_new
+                                    tts_duration = tts_duration_new
+                                    print(f"  [{i+1}] Qwen3 instruct 重合成: {original_tts_duration:.1f}s -> {tts_duration:.1f}s (instruct: {instruct!r})")
+                                else:
+                                    print(f"  [{i+1}] Qwen3 instruct 未缩短 ({tts_duration_new:.1f}s >= {original_tts_duration:.1f}s)，保留原始")
+                                temp_tts_fast.unlink(missing_ok=True)
+                            else:
+                                print(f"  [{i+1}] Qwen3 instruct 重合成失败，保留原始")
+                        except Exception as e:
+                            print(f"  [{i+1}] Qwen3 instruct 重合成异常: {e}，保留原始")
+                else:
+                    original_tts_duration = tts_duration
+                    try:
+                        import pytsmod
+                        win_size = int(sample_rate * 0.100)
+                        syn_hop_size = int(sample_rate * 0.025)
+                        tts_data = pytsmod.ola(tts_data, compress_ratio, win_size=win_size, syn_hop_size=syn_hop_size)
+                        tts_duration = len(tts_data) / sample_rate
+                        print(f"  [{i+1}] OLA 压缩 {1/compress_ratio:.2f}x: {original_tts_duration:.1f}s -> {tts_duration:.1f}s")
+                    except ImportError:
+                        print(f"  [WARN] 第 {i+1} 句 TTS 过长 ({tts_duration:.1f}s > {original_duration:.1f}s)，需要安装 pytsmod")
+                        max_samples = int(original_duration * sample_rate)
+                        tts_data = tts_data[:max_samples]
+                        tts_duration = len(tts_data) / sample_rate
 
-        # 按时间戳放置每段音频
-        for start_time, audio in segments_audio:
-            start_sample = int(start_time * sr)
-            end_sample = start_sample + len(audio)
-            if end_sample > total_samples:
-                end_sample = total_samples
-                audio = audio[:end_sample - start_sample]
+            tts_data = _apply_fade(tts_data.astype(np.float32), sample_rate, fade_in_ms, fade_out_ms)
+
+            start_sample = int(start_sec * sample_rate)
+            end_sample = start_sample + len(tts_data)
+
             if start_sample < 0:
+                skip_samples = abs(start_sample)
+                tts_data = tts_data[skip_samples:]
                 start_sample = 0
-            timeline[start_sample:end_sample] += audio[:end_sample - start_sample]
+                end_sample = start_sample + len(tts_data)
+                if len(tts_data) == 0:
+                    continue
 
-        sf.write(str(output_path), timeline, sr, subtype="FLOAT")
+            if timeline is None:
+                timeline_samples = end_sample + int(sample_rate)
+                timeline = np.zeros(timeline_samples, dtype=np.float32)
 
-    def _merge_audio(self, input_files: list, output_path: Path):
-        """合并多个音频文件"""
-        import soundfile as sf
+            if start_sample >= len(timeline):
+                continue
+            if end_sample > len(timeline):
+                end_sample = len(timeline)
+                tts_data = tts_data[:end_sample - start_sample]
 
-        if not input_files:
-            sf.write(str(output_path), np.zeros(1), 16000)
-            return
+            available = end_sample - start_sample
+            if available > 0:
+                timeline[start_sample:end_sample] += tts_data[:available].astype(np.float32)
+                synthesized_count += 1
 
-        # 读取并拼接音频
-        audio_list = []
-        sr = None
-        for f in input_files:
-            if f.exists():
-                audio, file_sr = sf.read(str(f))
-                if sr is None:
-                    sr = file_sr
-                audio_list.append(audio)
+            temp_tts.unlink(missing_ok=True)
 
-        if audio_list:
-            combined = np.concatenate(audio_list)
-            sf.write(str(output_path), combined, sr, subtype="FLOAT")
+        if timeline is None or len(timeline) == 0:
+            sf.write(str(output_path), np.zeros(1), sample_rate)
         else:
-            sf.write(str(output_path), np.zeros(1), 16000)
+            max_val = np.max(np.abs(timeline))
+            if max_val > 0.95:
+                timeline = timeline * 0.95 / max_val
+                print(f"[TTS] 归一化: {max_val:.2f} -> 0.95")
+            sf.write(str(output_path), timeline, sample_rate, subtype="FLOAT")
+
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+        skip_count = len(segments) - synthesized_count - failed_count
+        print(f"[TTS] 时间轴拼装完成: {output_path.name}")
+        print(f"  成功: {synthesized_count} 句, 失败: {failed_count} 句, 跳过(空): {skip_count} 句")
+        return str(output_path)
 
     @property
     def is_available(self) -> bool:
