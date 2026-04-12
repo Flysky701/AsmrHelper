@@ -278,6 +278,8 @@ class Pipeline:
             input_path,
             tts_audio_path,
             mix_path,
+            timestamped_segments=timestamped_segments,
+            tts_engine=executor.results.get("tts_engine"),
         )
         
         # Artifact 收集 (写回多语言字幕)
