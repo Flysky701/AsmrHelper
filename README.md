@@ -302,10 +302,11 @@ components/  # 通用组件：可复用 UI 组件
 - `patterns.py` - 正则表达式模式库
 
 ### TODO LIST
+- 更多 ASR 支持（Qwen3等）
+- 更多 语音合成引擎支持（VoxCPM2，indexTTS等）
 - 处理后输出翻译字幕
-- 批量处理记忆功能
+- 批量处理 文件夹 分别处理功能
 - PDF/TXT台本 转换为 时间轴字幕文件
-- VoxCPM2 语音合成引擎支持
 
 ## DONE LIST
 
