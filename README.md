@@ -31,14 +31,16 @@ ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、
 git clone https://github.com/Flysky701/AsmrHelper.git
 cd AsmrHelper
 
+#如果后续关闭了powershell 需要CD到对应文件夹内
+
 # 基础安装 (ASR + Edge-TTS + Demucs)
-.\setup.ps1
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
 
 # 完整安装 (含 Qwen3-TTS依赖，需要 NVIDIA GPU)
-.\setup.ps1 -Full
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Full
 
 # 环境完全重建
-.\setup.ps1 -CleanReinstall
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -CleanReinstall
 ```
 
 > 安装脚本会自动并发测速 pypi.org 官方源和国内镜像（清华、阿里），选择延迟最低的源进行安装，哪个快用哪个。如果首选源失败，会自动按延迟顺序回退。
@@ -49,13 +51,13 @@ cd AsmrHelper
 
 ```powershell
 # 下载 Whisper base 模型 (约 74MB，推荐)
-.\setup.ps1 -Models
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models
 
 # 下载全部模型 (Whisper + Qwen3-TTS，约 25GB+)
-.\setup.ps1 -Models -Full
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Full
 
 # 使用国内镜像加速
-.\setup.ps1 -Models -Mirror
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Mirror
 
 # 或直接使用 Python 脚本
 uv run python scripts/install_models.py                    # Whisper base
@@ -247,7 +249,7 @@ cp config/config.example.json config/config.json
 
 ```powershell
 # 安装开发工具
-.\setup.ps1 -DevOnly
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -DevOnly
 
 # 运行测试
 uv run pytest

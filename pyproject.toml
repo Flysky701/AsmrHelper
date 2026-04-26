@@ -6,7 +6,7 @@ authors = [
     {name = "ASMR Helper Team"}
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<=3.13"
 license = {text = "MIT"}
 keywords = ["asmr", "audio", "whisper", "tts", "translation"]
 classifiers = [
