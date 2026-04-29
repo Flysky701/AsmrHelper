@@ -301,15 +301,16 @@ components/  # 通用组件：可复用 UI 组件
 - `gpu_context.py` - GPU 上下文管理
 - `patterns.py` - 正则表达式模式库
 
-### TODO LIST
-- 更多 ASR 支持（Qwen3等）
-- 更多 语音合成引擎支持（VoxCPM2，indexTTS等）
-- 处理后输出翻译字幕
-- 批量处理 文件夹 分别处理功能
+### TODO LIST（优先级从高到低）
 - PDF/TXT台本 转换为 时间轴字幕文件
+- 更多 ASR 支持（Qwen3ASR，FUNASR， MIMOASR）
+- 更多 语音合成引擎支持（VoxCPM2，indexTTS等）
+- 添加 模型下载页， 不再使用脚本
+- 批量处理 文件夹 分别处理功能
 
 ## DONE LIST
 
+- 处理后输出翻译字幕
 - GUI 优化和增强
 - 添加音频音量预览功能
 
