@@ -609,9 +609,9 @@ if (Test-Path $installModelsScript) {
         Write-Warn "部分模型未下载"
         Write-Host ""
         Write-Host "  下载命令:" -ForegroundColor White
-        Write-Host "    .\setup.ps1 -Models              # 下载 Whisper base 模型" -ForegroundColor White
-        Write-Host "    .\setup.ps1 -Models -Full         # 下载全部模型 (Whisper + Qwen3)" -ForegroundColor White
-        Write-Host "    .\setup.ps1 -Models -Mirror       # 使用镜像加速下载" -ForegroundColor White
+        Write-Host "    powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models              # 下载 Whisper base 模型" -ForegroundColor White
+        Write-Host "    powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Full         # 下载全部模型 (Whisper + Qwen3)" -ForegroundColor White
+        Write-Host "    powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Mirror       # 使用镜像加速下载" -ForegroundColor White
     }
 } else {
     Write-Warn "install_models.py 不存在，跳过模型检查"
@@ -631,7 +631,7 @@ if ($failed -eq 0) {
 Write-Host ""
 Write-Host "  后续步骤:" -ForegroundColor White
 Write-Host "    1. 配置 API Key (编辑 config/config.json 或设置环境变量)" -ForegroundColor White
-Write-Host "    2. 下载模型:     .\setup.ps1 -Models" -ForegroundColor White
+Write-Host "    2. 下载模型:     powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models" -ForegroundColor White
 Write-Host "    3. 运行 GUI:     .\run.bat" -ForegroundColor White
 Write-Host "    4. 命令行处理:  uv run python scripts/asmr_bilingual.py --input audio.wav" -ForegroundColor White
 Write-Host ""
