@@ -302,11 +302,24 @@ components/  # 通用组件：可复用 UI 组件
 - `patterns.py` - 正则表达式模式库
 
 ### TODO LIST（优先级从高到低）
-- PDF/TXT台本 转换为 时间轴字幕文件
-- 更多 ASR 支持（Qwen3ASR，FUNASR， MIMOASR）
-- 更多 语音合成引擎支持（VoxCPM2，indexTTS等）
-- 添加 模型下载页， 不再使用脚本
+
+#### feat
+- PDF/TXT台本 转换为 时间轴字幕文件（或许可以通过接入Model解决）
+- Model 审查功能， 通过接入 API 进行循环审查（ASR质量，翻译文本质量等）
 - 批量处理 文件夹 分别处理功能
+
+#### model
+- 模型配置项，针对不同 本地/API 模型的统一流水线
+- 对 ASR API的支持(与MODEL API整合)
+- 更多 ASR 支持（Qwen3ASR，FUNASR， MIMOASR）
+- 更多 语音合成引擎支持（VoxCPM2，indexTTS等）（同上）
+- 添加 本地模型下载页， 不再使用脚本下载（网络配置提醒）
+
+#### 重构
+- 前端重构
+- 流水线重构
+- 后端逻辑重构整合
+
 
 ## DONE LIST
 
