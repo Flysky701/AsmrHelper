@@ -860,6 +860,8 @@ class ToolsWorkerThread(QThread):
                 result_msg = self._run_subtitle_gen()
             elif tool_name == "subtitle_translate":
                 result_msg = self._run_subtitle_translate()
+            elif tool_name == "pdf_to_vtt":
+                result_msg = self._run_pdf_to_vtt()
             else:
                 raise ValueError(f"未知工具: {tool_name}")
 
@@ -1338,3 +1340,71 @@ class ToolsWorkerThread(QThread):
         elapsed = time.time() - t0
         size_mb = out_path.stat().st_size / (1024 * 1024)
         return f"转换完成！\n输出: {out_path}\n文件大小: {size_mb:.1f} MB\n采样率: {target_sr} Hz\n耗时: {elapsed:.1f}s"
+
+    def _run_pdf_to_vtt(self) -> str:
+        """PDF台本转字幕 (LLM 流水线)"""
+        from src.core.script_to_subtitle.pipeline import PDFToSubtitlePipeline
+        from pathlib import Path
+
+        mode = self.params.get("mode", "full")
+        pdf_path = self.params["pdf_path"]
+        output_path = self.params["output_path"]
+        use_llm = self.params.get("use_llm_clean", True)
+
+        # API Key 预检查：无 key 时自动禁用 LLM
+        if use_llm:
+            from src.config import config
+            has_key = bool(config.deepseek_api_key or config.openai_api_key)
+            if not has_key:
+                self.progress.emit("[PDF→VTT] 未配置 API Key，自动切换为 regex 清洗模式（可在 设置→API 配置 中添加）")
+                use_llm = False
+
+        pipeline = PDFToSubtitlePipeline()
+
+        def progress_forward(stage, pct, msg):
+            self.progress.emit(f"[PDF→VTT][{stage}] {msg} ({pct}%)")
+
+        if mode == "full":
+            # 完整流程：PDF + 音频 → 字幕
+            audio_path = self.params["audio_path"]
+            fmt = self.params.get("fmt", "vtt")
+            model = self.params.get("model", "large-v3")
+            language = self.params.get("language", "ja")
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            result = pipeline.run(
+                pdf_path=pdf_path,
+                audio_path=audio_path,
+                output_path=output_path,
+                fmt=fmt,
+                use_llm_clean=use_llm,
+                asr_model_size=model,
+                asr_language=language,
+                progress_callback=progress_forward,
+            )
+            return f"PDF→VTT 完成！\n输出: {result}"
+
+        elif mode == "from_vtt":
+            # 已有 VTT：PDF + VTT → 修正字幕
+            vtt_path = self.params["vtt_path"]
+            fmt = self.params.get("fmt", "vtt")
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            result = pipeline.run_from_existing_vtt(
+                pdf_path=pdf_path,
+                vtt_path=vtt_path,
+                output_path=output_path,
+                fmt=fmt,
+                use_llm_clean=use_llm,
+                progress_callback=progress_forward,
+            )
+            return f"PDF→VTT 完成（使用已有字幕对齐）！\n输出: {result}"
+
+        else:
+            # 仅清洗文本
+            result_text = pipeline.run_text_only(
+                pdf_path=pdf_path,
+                output_path=output_path,
+                use_llm_clean=use_llm,
+                progress_callback=progress_forward,
+            )
+            lines = len(result_text.splitlines())
+            return f"PDF 文本清洗完成！\n输出: {output_path}\n共 {lines} 行台词"

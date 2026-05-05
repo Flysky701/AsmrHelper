@@ -159,7 +159,60 @@ class ScriptToSubtitleTool:
         SubtitleGenerator.save(entries, str(output_path), fmt=fmt)
 
     # ------------------------------------------------------------------ #
-    # 5. 一键流程（便捷方法）
+    # 5. LLM 增强方法
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def clean_script_with_llm(raw_text: str, options: Optional[Dict[str, Any]] = None) -> str:
+        """
+        regex 粗洗 + LLM 精洗。
+
+        先用 regex 去除元数据和动作描述，再用 LLM 从复杂格式中提取纯净对话。
+
+        Args:
+            raw_text: 原始台本文本
+            options: 清洗选项（同 clean_script）
+
+        Returns:
+            每行一句台词的纯净文本
+        """
+        rough_text = ScriptToSubtitleTool.clean_script(raw_text, options)
+        try:
+            from .llm_processor import LLMProcessor
+            processor = LLMProcessor()
+            return processor.clean_script(rough_text)
+        except Exception as e:
+            print(f"[ScriptToSubtitle] LLM 清洗失败，使用 regex 结果: {e}")
+            return rough_text
+
+    @staticmethod
+    def align_with_llm(
+        clean_text: str,
+        asr_results: List[Dict[str, Any]],
+        output_path: Optional[Union[str, Path]] = None,
+        fmt: str = "vtt",
+    ) -> List[Dict[str, Any]]:
+        """
+        LLM 智能重排对齐：将台本与 ASR 结果对齐，修正错字，处理顺序差异。
+
+        Args:
+            clean_text: 清洗后的台词文本（每行一句）
+            asr_results: ASR 识别结果
+            output_path: 输出文件路径（可选）
+            fmt: 输出格式
+
+        Returns:
+            字幕条目列表 [{"start": float, "end": float, "text": str}, ...]
+        """
+        from .llm_processor import LLMProcessor
+        processor = LLMProcessor()
+        script_lines = [line.strip() for line in clean_text.split('\n') if line.strip()]
+        entries = processor.align_and_reorder(script_lines, asr_results)
+        if output_path:
+            SubtitleGenerator.save(entries, str(output_path), fmt=fmt)
+        return entries
+
+    # ------------------------------------------------------------------ #
+    # 6. 一键流程（便捷方法）
     # ------------------------------------------------------------------ #
     @classmethod
     def process(

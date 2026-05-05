@@ -85,6 +85,7 @@ class ToolsTab(QWidget):
                 "格式转换 (音频格式互转)",
                 "字幕生成 (文本/PDF转字幕)",
                 "字幕翻译 (翻译字幕文件)",
+                "PDF台本转字幕 (LLM 智能对齐)",
             ])
             self.tools_combo.currentIndexChanged.connect(self._on_tool_changed)
             select_row.addWidget(self.tools_combo, 1)
@@ -136,6 +137,10 @@ class ToolsTab(QWidget):
             # --- Page 6: 字幕翻译 ---
             subtrans_page, self._subtrans_params = self._build_subtitle_translate_ui()
             self.tools_param_stack.addWidget(subtrans_page)  # Index 6
+
+            # --- Page 7: PDF台本转字幕 (LLM 流水线) ---
+            pdfvtt_page, self._pdfvtt_params = self._build_pdf_to_vtt_ui()
+            self.tools_param_stack.addWidget(pdfvtt_page)  # Index 7
 
             self.tools_param_stack.setCurrentIndex(0)
             layout.addWidget(self.tools_param_stack, stretch=1)
@@ -564,6 +569,179 @@ class ToolsTab(QWidget):
             form.setRowStretch(4, 1)
             return page, params
 
+    def _build_pdf_to_vtt_ui(self) -> tuple:
+        """构建 PDF台本转字幕 (LLM 流水线) 的参数面板"""
+        page = QWidget()
+        form = QGridLayout(page)
+        form.setSpacing(10)
+
+        row = 0
+
+        # ===== 模式选择 =====
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("运行模式:"))
+        self.pdfvtt_mode = QComboBox()
+        self.pdfvtt_mode.addItems([
+            "完整流程 (PDF + 音频 → 字幕)",
+            "已有 ASR 字幕 (PDF + VTT → 修正字幕)",
+            "仅清洗文本 (PDF → 纯台词)",
+        ])
+        self.pdfvtt_mode.currentIndexChanged.connect(self._on_pdfvtt_mode_changed)
+        mode_layout.addWidget(self.pdfvtt_mode, 1)
+        form.addLayout(mode_layout, row, 0, 1, 3)
+        row += 1
+
+        # ===== PDF 台本 =====
+        r_pdf, self.pdfvtt_pdf = self._make_file_input_row(
+            "PDF 台本:", "选择 PDF 台本文件...",
+            self._browse_pdfvtt_pdf, self
+        )
+        form.addLayout(r_pdf, row, 0, 1, 3)
+        row += 1
+
+        # ===== 音频文件（完整模式）=====
+        self.pdfvtt_audio_row = QWidget()
+        r_audio = QHBoxLayout(self.pdfvtt_audio_row)
+        r_audio.setContentsMargins(0, 0, 0, 0)
+        r_audio.addWidget(QLabel("音频文件:"))
+        self.pdfvtt_audio = QLineEdit()
+        self.pdfvtt_audio.setPlaceholderText("选择音频文件 (MP3/WAV)...")
+        r_audio.addWidget(self.pdfvtt_audio, 1)
+        audio_browse = QPushButton("浏览...")
+        audio_browse.setMaximumWidth(70)
+        audio_browse.clicked.connect(self._browse_pdfvtt_audio)
+        r_audio.addWidget(audio_browse)
+        form.addWidget(self.pdfvtt_audio_row, row, 0, 1, 3)
+        row += 1
+
+        # ===== 已有 VTT 文件（VTT 模式）=====
+        self.pdfvtt_vtt_row = QWidget()
+        r_vtt = QHBoxLayout(self.pdfvtt_vtt_row)
+        r_vtt.setContentsMargins(0, 0, 0, 0)
+        r_vtt.addWidget(QLabel("已有字幕:"))
+        self.pdfvtt_vtt = QLineEdit()
+        self.pdfvtt_vtt.setPlaceholderText("选择已有的 ASR 字幕文件 (VTT/SRT)...")
+        r_vtt.addWidget(self.pdfvtt_vtt, 1)
+        vtt_browse = QPushButton("浏览...")
+        vtt_browse.setMaximumWidth(70)
+        vtt_browse.clicked.connect(self._browse_pdfvtt_vtt)
+        r_vtt.addWidget(vtt_browse)
+        self.pdfvtt_vtt_row.setVisible(False)
+        form.addWidget(self.pdfvtt_vtt_row, row, 0, 1, 3)
+        row += 1
+
+        # ===== 输出文件 =====
+        r_out, self.pdfvtt_output = self._make_file_input_row(
+            "输出文件:", "字幕输出路径...",
+            self._browse_pdfvtt_output, self
+        )
+        form.addLayout(r_out, row, 0, 1, 3)
+        row += 1
+
+        # ===== 选项 =====
+        opt_layout = QHBoxLayout()
+
+        opt_layout.addWidget(QLabel("输出格式:"))
+        self.pdfvtt_fmt = QComboBox()
+        self.pdfvtt_fmt.addItems(["VTT", "SRT", "LRC"])
+        opt_layout.addWidget(self.pdfvtt_fmt)
+
+        opt_layout.addSpacing(20)
+
+        opt_layout.addWidget(QLabel("ASR 模型:"))
+        self.pdfvtt_asr_model = QComboBox()
+        self.main_window._init_asr_model_combo(self.pdfvtt_asr_model)
+        self.pdfvtt_asr_model.setCurrentIndex(3)
+        opt_layout.addWidget(self.pdfvtt_asr_model)
+
+        opt_layout.addSpacing(20)
+
+        opt_layout.addWidget(QLabel("语言:"))
+        self.pdfvtt_lang = QComboBox()
+        self.main_window._init_asr_lang_combo(self.pdfvtt_lang)
+        self.pdfvtt_lang.setCurrentIndex(0)
+        opt_layout.addWidget(self.pdfvtt_lang)
+
+        opt_layout.addStretch()
+        form.addLayout(opt_layout, row, 0, 1, 3)
+        row += 1
+
+        # ===== LLM 清洗选项 =====
+        llm_layout = QHBoxLayout()
+        self.pdfvtt_use_llm = QCheckBox("启用 LLM 辅助清洗")
+        self.pdfvtt_use_llm.setChecked(True)
+        self.pdfvtt_use_llm.setToolTip("使用 LLM 从杂乱的 PDF 文本中提取纯净对话（需要配置 API Key）")
+        llm_layout.addWidget(self.pdfvtt_use_llm)
+        llm_layout.addStretch()
+        form.addLayout(llm_layout, row, 0, 1, 3)
+        row += 1
+
+        # ===== 说明 =====
+        hint = QLabel(
+            "流程说明：\n"
+            "1. fun1: PDF → 清洗后的台词文本（regex 粗洗 + LLM 精洗）\n"
+            "2. fun2: 音频 → ASR 语音识别（已有 VTT 则跳过）\n"
+            "3. fun3: 台词 + ASR → LLM 智能对齐重排 → 带时间轴的字幕"
+        )
+        hint.setStyleSheet("color: #666; font-size: 11px;")
+        hint.setWordWrap(True)
+        form.addWidget(hint, row, 0, 1, 3)
+        row += 1
+
+        params = {
+            "mode": self.pdfvtt_mode,
+            "pdf": self.pdfvtt_pdf,
+            "audio": self.pdfvtt_audio,
+            "vtt": self.pdfvtt_vtt,
+            "output": self.pdfvtt_output,
+            "fmt": self.pdfvtt_fmt,
+            "asr_model": self.pdfvtt_asr_model,
+            "lang": self.pdfvtt_lang,
+            "use_llm": self.pdfvtt_use_llm,
+        }
+
+        form.setRowStretch(row, 1)
+        return page, params
+
+    def _on_pdfvtt_mode_changed(self, index: int):
+        """切换 PDF→VTT 运行模式时更新 UI"""
+        is_full = (index == 0)       # 完整流程：需要音频
+        is_vtt = (index == 1)        # 已有 VTT：需要 VTT 文件
+        # is_text_only = (index == 2)  # 仅清洗：只需要 PDF
+        self.pdfvtt_audio_row.setVisible(is_full)
+        self.pdfvtt_vtt_row.setVisible(is_vtt)
+
+    def _browse_pdfvtt_pdf(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, "选择 PDF 台本", "", "PDF 文件 (*.pdf);;所有文件 (*)")
+        if fp:
+            self.pdfvtt_pdf.setText(fp)
+            if not self.pdfvtt_output.text():
+                p = Path(fp)
+                fmt_ext = self.pdfvtt_fmt.currentText().lower()
+                self.pdfvtt_output.setText(str(p.parent / "output" / f"{p.stem}.{fmt_ext}"))
+
+    def _browse_pdfvtt_audio(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, "选择音频文件", "",
+            "音频文件 (*.wav *.mp3 *.flac *.m4a *.ogg);;所有文件 (*)")
+        if fp:
+            self.pdfvtt_audio.setText(fp)
+
+    def _browse_pdfvtt_vtt(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, "选择字幕文件", "",
+            "字幕文件 (*.vtt *.srt *.lrc);;所有文件 (*)")
+        if fp:
+            self.pdfvtt_vtt.setText(fp)
+
+    def _browse_pdfvtt_output(self):
+        fp, _ = QFileDialog.getSaveFileName(
+            self, "选择输出文件", "output.vtt",
+            "VTT 文件 (*.vtt);;SRT 文件 (*.srt);;LRC 文件 (*.lrc)")
+        if fp:
+            self.pdfvtt_output.setText(fp)
+
     def _on_tool_changed(self, index: int):
             """切换工具时更新参数面板"""
             descriptions = {
@@ -580,6 +758,9 @@ class ToolsTab(QWidget):
                     "\n支持纯文本均分模式（按字符比例分配）和 ASR 对齐模式（配对音频获取真实时间轴）。\n支持 SRT/VTT/LRC 输出格式。",
                 6: "将字幕文件翻译为目标语言，输出双语对照字幕。"
                     "\n支持 DeepSeek / OpenAI 翻译引擎。",
+                7: "PDF 台本 + 音频 → 完整字幕的 LLM 智能流水线。"
+                    "\n支持三种模式：完整流程（PDF+音频）、已有 VTT 修正、仅清洗文本。"
+                    "\nLLM 负责精洗台本和智能对齐重排（修正错字、处理顺序差异）。",
             }
             desc = descriptions.get(index, "")
             self.tools_desc_label.setText(desc)
@@ -855,6 +1036,62 @@ class ToolsTab(QWidget):
                         "source_lang": source_lang_code,
                         "target_lang": target_lang_code,
                         "format": fmt}
+
+            elif tool_index == 7:
+                # PDF台本转字幕 (LLM 流水线)
+                pdf_path = self.pdfvtt_pdf.text().strip()
+                if not pdf_path or not Path(pdf_path).exists():
+                    QMessageBox.warning(self, "警告", "请选择有效的 PDF 台本文件！")
+                    return None
+
+                mode_index = self.pdfvtt_mode.currentIndex()
+                output = self.pdfvtt_output.text().strip()
+                if not output:
+                    p = Path(pdf_path)
+                    fmt_ext = self.pdfvtt_fmt.currentText().lower()
+                    output = str(p.parent / "output" / f"{p.stem}.{fmt_ext}")
+
+                if mode_index == 0:
+                    # 完整流程
+                    audio = self.pdfvtt_audio.text().strip()
+                    if not audio or not Path(audio).exists():
+                        QMessageBox.warning(self, "警告", "完整流程模式需要选择音频文件！")
+                        return None
+                    return {
+                        "tool": "pdf_to_vtt",
+                        "mode": "full",
+                        "pdf_path": pdf_path,
+                        "audio_path": audio,
+                        "output_path": output,
+                        "fmt": self.pdfvtt_fmt.currentText().lower(),
+                        "model": self.pdfvtt_asr_model.currentData() or "large-v3",
+                        "language": self.pdfvtt_lang.currentData() or "ja",
+                        "use_llm_clean": self.pdfvtt_use_llm.isChecked(),
+                    }
+                elif mode_index == 1:
+                    # 已有 VTT
+                    vtt_path = self.pdfvtt_vtt.text().strip()
+                    if not vtt_path or not Path(vtt_path).exists():
+                        QMessageBox.warning(self, "警告", "请选择已有的 ASR 字幕文件！")
+                        return None
+                    return {
+                        "tool": "pdf_to_vtt",
+                        "mode": "from_vtt",
+                        "pdf_path": pdf_path,
+                        "vtt_path": vtt_path,
+                        "output_path": output,
+                        "fmt": self.pdfvtt_fmt.currentText().lower(),
+                        "use_llm_clean": self.pdfvtt_use_llm.isChecked(),
+                    }
+                else:
+                    # 仅清洗文本
+                    return {
+                        "tool": "pdf_to_vtt",
+                        "mode": "text_only",
+                        "pdf_path": pdf_path,
+                        "output_path": output,
+                        "use_llm_clean": self.pdfvtt_use_llm.isChecked(),
+                    }
 
             return None
 
