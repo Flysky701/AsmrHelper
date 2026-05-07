@@ -7,8 +7,9 @@ PDFToSubtitlePipeline — PDF 台本转字幕完整流水线
   fun3: 清洗 TXT + ASR VTT → LLM 智能重排对齐 → 最终 VTT
 """
 
+import json
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from src.core.subtitle_generator import SubtitleGenerator
 from .tool import ScriptToSubtitleTool
@@ -16,6 +17,22 @@ from .tool import ScriptToSubtitleTool
 
 class PDFToSubtitlePipeline:
     """PDF 台本 → 完整字幕 流水线"""
+
+    @staticmethod
+    def _save_debug(debug_dir: Path, stage: str, filename: str, content: str) -> None:
+        """保存调试中间文件"""
+        stage_dir = debug_dir / stage
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        (stage_dir / filename).write_text(content, encoding="utf-8")
+
+    @staticmethod
+    def _save_debug_json(debug_dir: Path, stage: str, filename: str, data: Any) -> None:
+        """保存调试中间文件（JSON 格式）"""
+        stage_dir = debug_dir / stage
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        (stage_dir / filename).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     def run(
         self,
@@ -26,7 +43,9 @@ class PDFToSubtitlePipeline:
         use_llm_clean: bool = True,
         asr_model_size: str = "large-v3",
         asr_language: str = "ja",
+        track_index: Optional[int] = None,
         progress_callback: Optional[Callable[[str, int, str], None]] = None,
+        debug_dir: Optional[Union[str, Path]] = None,
     ) -> str:
         """
         完整流程：PDF + 音频 → 字幕文件。
@@ -39,22 +58,40 @@ class PDFToSubtitlePipeline:
             use_llm_clean: 是否使用 LLM 辅助清洗
             asr_model_size: ASR 模型大小
             asr_language: ASR 语言
+            track_index: 指定处理的 Track 索引（从 0 开始）
             progress_callback: 进度回调 fn(stage, percent, message)
+            debug_dir: 调试输出目录（可选，设置后保存各阶段中间文件）
 
         Returns:
             输出文件路径
         """
         cb = progress_callback or (lambda *a: None)
+        dbg = Path(debug_dir) if debug_dir else None
 
         # ---- Stage 1: fun1 - PDF → 清洗 TXT ----
         cb("fun1", 0, "正在加载 PDF 台本...")
         raw_text = ScriptToSubtitleTool.load_script(pdf_path)
+        if dbg:
+            self._save_debug(dbg, "stage1_extract", "01_raw_text.txt", raw_text)
+
+        # ---- 多 Track 检测 ----
+        from src.core.script_processor import ScriptProcessor
+        sections = ScriptProcessor.detect_scripts(raw_text)
+        if len(sections) > 1:
+            if track_index is not None and 0 <= track_index < len(sections):
+                raw_text = sections[track_index]["text"]
+                cb("fun1", 15, f"检测到 {len(sections)} 个 Track，使用 Track {track_index + 1}: {sections[track_index]['title']}")
+            else:
+                titles = ", ".join(s["title"] for s in sections)
+                cb("fun1", 15, f"检测到 {len(sections)} 个 Track ({titles})，处理全部")
 
         cb("fun1", 30, "正在清洗台本...")
         if use_llm_clean:
-            clean_text = ScriptToSubtitleTool.clean_script_with_llm(raw_text)
+            clean_text = ScriptToSubtitleTool.clean_script_with_llm(raw_text, debug_dir=dbg)
         else:
             clean_text = ScriptToSubtitleTool.clean_script(raw_text)
+        if dbg:
+            self._save_debug(dbg, "stage1_clean", "02_clean_text.txt", clean_text)
 
         cb("fun1", 100, f"台本清洗完成，共 {len(clean_text.splitlines())} 行台词")
 
@@ -71,14 +108,21 @@ class PDFToSubtitlePipeline:
             progress_callback=lambda pct, msg: cb("fun2", int(pct), msg),
         )
         cb("fun2", 100, f"语音识别完成，共 {len(asr_results)} 个片段")
+        if dbg:
+            self._save_debug_json(dbg, "stage2_asr", "03_asr_results.json", asr_results)
 
         # ---- Stage 3: fun3 - LLM 对齐 ----
         cb("fun3", 0, "正在 LLM 智能对齐...")
-        entries = ScriptToSubtitleTool.align_with_llm(clean_text, asr_results)
+        entries = ScriptToSubtitleTool.align_with_llm(clean_text, asr_results, debug_dir=dbg)
         cb("fun3", 80, f"对齐完成，共 {len(entries)} 条字幕")
+        if dbg:
+            self._save_debug_json(dbg, "stage3_align", "04_aligned_entries.json", entries)
 
         # ---- 保存 ----
         SubtitleGenerator.save(entries, str(output_path), fmt=fmt)
+        if dbg:
+            final_content = Path(output_path).read_text(encoding="utf-8")
+            self._save_debug(dbg, "stage4_output", f"final.{fmt}", final_content)
         cb("fun3", 100, f"已保存到 {output_path}")
 
         return str(output_path)
@@ -90,7 +134,9 @@ class PDFToSubtitlePipeline:
         output_path: Union[str, Path],
         fmt: str = "vtt",
         use_llm_clean: bool = True,
+        track_index: Optional[int] = None,
         progress_callback: Optional[Callable[[str, int, str], None]] = None,
+        debug_dir: Optional[Union[str, Path]] = None,
     ) -> str:
         """
         已有 ASR 字幕的情况（跳过 fun2）。
@@ -103,22 +149,41 @@ class PDFToSubtitlePipeline:
             output_path: 输出路径
             fmt: 输出格式
             use_llm_clean: 是否使用 LLM 辅助清洗
+            track_index: 指定处理的 Track 索引（从 0 开始）。当 PDF 包含多个 Track 时，
+                         传入此参数仅处理对应 Track 的台词。None 表示处理全部。
             progress_callback: 进度回调
+            debug_dir: 调试输出目录（可选）
 
         Returns:
             输出文件路径
         """
         cb = progress_callback or (lambda *a: None)
+        dbg = Path(debug_dir) if debug_dir else None
 
         # ---- fun1: PDF → 清洗 TXT ----
         cb("fun1", 0, "正在加载 PDF 台本...")
         raw_text = ScriptToSubtitleTool.load_script(pdf_path)
+        if dbg:
+            self._save_debug(dbg, "stage1_extract", "01_raw_text.txt", raw_text)
+
+        # ---- 多 Track 检测 ----
+        from src.core.script_processor import ScriptProcessor
+        sections = ScriptProcessor.detect_scripts(raw_text)
+        if len(sections) > 1:
+            if track_index is not None and 0 <= track_index < len(sections):
+                raw_text = sections[track_index]["text"]
+                cb("fun1", 15, f"检测到 {len(sections)} 个 Track，使用 Track {track_index + 1}: {sections[track_index]['title']}")
+            else:
+                titles = ", ".join(s["title"] for s in sections)
+                cb("fun1", 15, f"检测到 {len(sections)} 个 Track ({titles})，处理全部")
 
         cb("fun1", 30, "正在清洗台本...")
         if use_llm_clean:
-            clean_text = ScriptToSubtitleTool.clean_script_with_llm(raw_text)
+            clean_text = ScriptToSubtitleTool.clean_script_with_llm(raw_text, debug_dir=dbg)
         else:
             clean_text = ScriptToSubtitleTool.clean_script(raw_text)
+        if dbg:
+            self._save_debug(dbg, "stage1_clean", "02_clean_text.txt", clean_text)
 
         cb("fun1", 100, f"台本清洗完成，共 {len(clean_text.splitlines())} 行台词")
 
@@ -127,14 +192,21 @@ class PDFToSubtitlePipeline:
         from src.core.translate import load_subtitle_with_timestamps
         asr_results = load_subtitle_with_timestamps(str(vtt_path))
         cb("fun3", 20, f"已加载 {len(asr_results)} 个字幕片段")
+        if dbg:
+            self._save_debug_json(dbg, "stage2_asr", "03_asr_results.json", asr_results)
 
         # ---- fun3: LLM 对齐 ----
         cb("fun3", 30, "正在 LLM 智能对齐...")
-        entries = ScriptToSubtitleTool.align_with_llm(clean_text, asr_results)
+        entries = ScriptToSubtitleTool.align_with_llm(clean_text, asr_results, debug_dir=dbg)
         cb("fun3", 80, f"对齐完成，共 {len(entries)} 条字幕")
+        if dbg:
+            self._save_debug_json(dbg, "stage3_align", "04_aligned_entries.json", entries)
 
         # ---- 保存 ----
         SubtitleGenerator.save(entries, str(output_path), fmt=fmt)
+        if dbg:
+            final_content = Path(output_path).read_text(encoding="utf-8")
+            self._save_debug(dbg, "stage4_output", f"final.{fmt}", final_content)
         cb("fun3", 100, f"已保存到 {output_path}")
 
         return str(output_path)
@@ -144,7 +216,9 @@ class PDFToSubtitlePipeline:
         pdf_path: Union[str, Path],
         output_path: Optional[Union[str, Path]] = None,
         use_llm_clean: bool = True,
+        track_index: Optional[int] = None,
         progress_callback: Optional[Callable[[str, int, str], None]] = None,
+        debug_dir: Optional[Union[str, Path]] = None,
     ) -> str:
         """
         仅 fun1：PDF → 清洗后的纯文本（不做 ASR 和对齐）。
@@ -153,21 +227,39 @@ class PDFToSubtitlePipeline:
             pdf_path: PDF 台本路径
             output_path: 输出 TXT 路径（可选）
             use_llm_clean: 是否使用 LLM 辅助清洗
+            track_index: 指定处理的 Track 索引（从 0 开始）
             progress_callback: 进度回调
+            debug_dir: 调试输出目录（可选）
 
         Returns:
             清洗后的文本
         """
         cb = progress_callback or (lambda *a: None)
+        dbg = Path(debug_dir) if debug_dir else None
 
         cb("fun1", 0, "正在加载 PDF 台本...")
         raw_text = ScriptToSubtitleTool.load_script(pdf_path)
+        if dbg:
+            self._save_debug(dbg, "stage1_extract", "01_raw_text.txt", raw_text)
+
+        # ---- 多 Track 检测 ----
+        from src.core.script_processor import ScriptProcessor
+        sections = ScriptProcessor.detect_scripts(raw_text)
+        if len(sections) > 1:
+            if track_index is not None and 0 <= track_index < len(sections):
+                raw_text = sections[track_index]["text"]
+                cb("fun1", 15, f"检测到 {len(sections)} 个 Track，使用 Track {track_index + 1}: {sections[track_index]['title']}")
+            else:
+                titles = ", ".join(s["title"] for s in sections)
+                cb("fun1", 15, f"检测到 {len(sections)} 个 Track ({titles})，处理全部")
 
         cb("fun1", 30, "正在清洗台本...")
         if use_llm_clean:
-            clean_text = ScriptToSubtitleTool.clean_script_with_llm(raw_text)
+            clean_text = ScriptToSubtitleTool.clean_script_with_llm(raw_text, debug_dir=dbg)
         else:
             clean_text = ScriptToSubtitleTool.clean_script(raw_text)
+        if dbg:
+            self._save_debug(dbg, "stage1_clean", "02_clean_text.txt", clean_text)
 
         cb("fun1", 100, f"台本清洗完成，共 {len(clean_text.splitlines())} 行台词")
 
