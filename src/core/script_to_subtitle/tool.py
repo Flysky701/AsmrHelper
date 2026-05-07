@@ -162,7 +162,11 @@ class ScriptToSubtitleTool:
     # 5. LLM 增强方法
     # ------------------------------------------------------------------ #
     @staticmethod
-    def clean_script_with_llm(raw_text: str, options: Optional[Dict[str, Any]] = None) -> str:
+    def clean_script_with_llm(
+        raw_text: str,
+        options: Optional[Dict[str, Any]] = None,
+        debug_dir: Optional[Union[str, Path]] = None,
+    ) -> str:
         """
         regex 粗洗 + LLM 精洗。
 
@@ -171,15 +175,24 @@ class ScriptToSubtitleTool:
         Args:
             raw_text: 原始台本文本
             options: 清洗选项（同 clean_script）
+            debug_dir: 调试输出目录（可选）
 
         Returns:
             每行一句台词的纯净文本
         """
         rough_text = ScriptToSubtitleTool.clean_script(raw_text, options)
+        if debug_dir:
+            from pathlib import Path as P
+            dbg = P(debug_dir) if not isinstance(debug_dir, Path) else debug_dir
+            dbg.mkdir(parents=True, exist_ok=True)
+            (dbg / "01_rough_clean.txt").write_text(rough_text, encoding="utf-8")
         try:
             from .llm_processor import LLMProcessor
             processor = LLMProcessor()
-            return processor.clean_script(rough_text)
+            result = processor.clean_script(rough_text, debug_dir=debug_dir)
+            if debug_dir:
+                (dbg / "02_llm_clean.txt").write_text(result, encoding="utf-8")
+            return result
         except Exception as e:
             print(f"[ScriptToSubtitle] LLM 清洗失败，使用 regex 结果: {e}")
             return rough_text
@@ -190,6 +203,7 @@ class ScriptToSubtitleTool:
         asr_results: List[Dict[str, Any]],
         output_path: Optional[Union[str, Path]] = None,
         fmt: str = "vtt",
+        debug_dir: Optional[Union[str, Path]] = None,
     ) -> List[Dict[str, Any]]:
         """
         LLM 智能重排对齐：将台本与 ASR 结果对齐，修正错字，处理顺序差异。
@@ -199,12 +213,13 @@ class ScriptToSubtitleTool:
             asr_results: ASR 识别结果
             output_path: 输出文件路径（可选）
             fmt: 输出格式
+            debug_dir: 调试输出目录（可选）
 
         Returns:
             字幕条目列表 [{"start": float, "end": float, "text": str}, ...]
         """
         from .llm_processor import LLMProcessor
-        processor = LLMProcessor()
+        processor = LLMProcessor(debug_dir=debug_dir)
         script_lines = [line.strip() for line in clean_text.split('\n') if line.strip()]
         entries = processor.align_and_reorder(script_lines, asr_results)
         if output_path:

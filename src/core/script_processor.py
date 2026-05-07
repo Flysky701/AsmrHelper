@@ -41,6 +41,11 @@ class ScriptProcessor:
         for m in re.finditer(r'^#{1,3}\s+(.+)$', text, re.MULTILINE):
             boundaries.append((m.start(), m.group(1).strip()))
 
+        # /// トラック① 格式（ASMR 台本常见的 Track 分隔标记）
+        # 只匹配开始标记（不含「終」），避免结束标记重复切分
+        for m in re.finditer(r'^\s*///\s*(トラック.*[①②③④⑤⑥⑦⑧⑨⑩]|[Tt]rack\s*\d+)(?!\s*終)', text, re.MULTILINE):
+            boundaries.append((m.start(), m.group(1).strip()))
+
         boundaries.sort(key=lambda x: x[0])
 
         if boundaries:
@@ -213,8 +218,9 @@ class ScriptProcessor:
         
         # 常见元数据行或说明段落的关键字正则（包含各种标记）
         metadata_patterns = [
-            r'^トラックNo.*', r'^編集時対応項目.*', r'^セリフ：.*', 
-            r'^にて表記しています.*', r'^（以下、台本）.*', r'^・タイトル.*', 
+            r'^トラックNo.*', r'^編集時対応項目.*', r'^セリフ：.*',
+            r'^にて表記しています.*', r'^（以下、台本）.*', r'^・タイトル.*',
+            r'^\s*///\s*トラック.*',  # /// トラック① / /// トラック① 終 等 Track 分隔标记
             r'^【\d+[^】]*】.*', r'^＝＝＝+.*', r'^登場人物\s*$', r'^あらすじ\s*$',
             r'^・[^\s]+.*',  # 登场人物列表（可能有空格，所以稍微宽泛）
             r'^.*第[0-9０-９零一二三四五六七八九十百千万]+[話章幕]\s*$', # 标题类

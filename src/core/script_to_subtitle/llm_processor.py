@@ -9,7 +9,8 @@ LLM 辅助处理器
 import json
 import re
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 
 # ======================================================================
@@ -54,12 +55,14 @@ class LLMProcessor:
     # 每批发给 LLM 的最大 ASR 片段数（避免超 token 限制）
     BATCH_SIZE = 30
 
-    def __init__(self, translator=None):
+    def __init__(self, translator=None, debug_dir: Optional[Union[str, Path]] = None):
         """
         Args:
             translator: Translator 实例，为 None 时通过 ModelManager 自动获取
+            debug_dir: 调试输出目录（可选，设置后保存各阶段中间文件）
         """
         self._translator = translator
+        self._debug_dir = Path(debug_dir) if debug_dir else None
 
     @property
     def translator(self):
@@ -72,12 +75,13 @@ class LLMProcessor:
     # fun1: LLM 精洗
     # ------------------------------------------------------------------
 
-    def clean_script(self, text: str) -> str:
+    def clean_script(self, text: str, debug_dir: Optional[Union[str, Path]] = None) -> str:
         """
         LLM 精洗：从 regex 粗洗后的文本中提取纯净对话。
 
         Args:
             text: regex 粗洗后的文本
+            debug_dir: 调试输出目录（可选，覆盖 __init__ 中的设置）
 
         Returns:
             每行一句台词的纯净文本
@@ -85,18 +89,29 @@ class LLMProcessor:
         if not text.strip():
             return ""
 
+        dbg = Path(debug_dir) if debug_dir else self._debug_dir
+        if dbg:
+            dbg.mkdir(parents=True, exist_ok=True)
+
         try:
             # 文本较短时直接发给 LLM
             if len(text) < 4000:
-                return self._call_llm(CLEAN_SCRIPT_SYSTEM_PROMPT, text).strip()
+                result = self._call_llm(CLEAN_SCRIPT_SYSTEM_PROMPT, text).strip()
+                if dbg:
+                    (dbg / "llm_clean_short_input.txt").write_text(text, encoding="utf-8")
+                    (dbg / "llm_clean_short_output.txt").write_text(result, encoding="utf-8")
+                return result
 
             # 文本较长时分段处理
             lines = text.split('\n')
             chunks = self._split_into_chunks(lines, max_chars=3000)
             results = []
-            for chunk in chunks:
+            for i, chunk in enumerate(chunks):
                 chunk_text = '\n'.join(chunk)
                 cleaned = self._call_llm(CLEAN_SCRIPT_SYSTEM_PROMPT, chunk_text).strip()
+                if dbg:
+                    (dbg / f"llm_clean_chunk_{i:02d}_input.txt").write_text(chunk_text, encoding="utf-8")
+                    (dbg / f"llm_clean_chunk_{i:02d}_output.txt").write_text(cleaned, encoding="utf-8")
                 results.append(cleaned)
             return '\n'.join(results)
         except Exception as e:
@@ -211,6 +226,7 @@ class LLMProcessor:
         asr_segments: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """对一批台本行调用 LLM 对齐"""
+        batch_id = batch_indices[0] // self.BATCH_SIZE
 
         # 构建该批的台本子集
         batch_script = [
@@ -233,8 +249,20 @@ class LLMProcessor:
             "asr": batch_asr,
         }, ensure_ascii=False)
 
+        if self._debug_dir:
+            self._debug_dir.mkdir(parents=True, exist_ok=True)
+            (self._debug_dir / f"batch_{batch_id:02d}_request.json").write_text(
+                user_content, encoding="utf-8"
+            )
+
         raw = self._call_llm(ALIGN_SYSTEM_PROMPT, user_content)
-        return self._parse_align_response(raw, batch_indices)
+
+        if self._debug_dir:
+            (self._debug_dir / f"batch_{batch_id:02d}_response.txt").write_text(
+                raw, encoding="utf-8"
+            )
+
+        return self._parse_align_response(raw, batch_indices, script_lines)
 
     def _find_relevant_asr(
         self,
@@ -267,18 +295,20 @@ class LLMProcessor:
         self,
         raw: str,
         batch_indices: List[int],
+        script_lines: List[str] = None,
     ) -> List[Dict[str, Any]]:
         """解析 LLM 的对齐响应 JSON"""
         # 提取 JSON 数组（LLM 可能会在 JSON 前后加多余文字）
         json_match = re.search(r'\[.*\]', raw, re.DOTALL)
         if not json_match:
-            # 解析失败，回退到预匹配结果
-            return self._fallback_from_indices(batch_indices)
+            print(f"[LLMProcessor] JSON 解析失败，回退到原始台词 (batch {batch_indices[:3]}...)")
+            return self._fallback_from_indices(batch_indices, script_lines)
 
         try:
             items = json.loads(json_match.group())
         except json.JSONDecodeError:
-            return self._fallback_from_indices(batch_indices)
+            print(f"[LLMProcessor] JSON 解析失败，回退到原始台词 (batch {batch_indices[:3]}...)")
+            return self._fallback_from_indices(batch_indices, script_lines)
 
         entries = []
         for item in items:
@@ -298,12 +328,17 @@ class LLMProcessor:
     def _fallback_from_indices(
         self,
         batch_indices: List[int],
+        script_lines: List[str] = None,
     ) -> List[Dict[str, Any]]:
-        """LLM 解析失败时的回退：返回无时间戳的条目"""
-        return [
-            {"start": None, "end": None, "text": "", "script_idx": i, "asr_idx": None}
-            for i in batch_indices
-        ]
+        """LLM 解析失败时的回退：返回无时间戳但保留原始台词的条目"""
+        entries = []
+        for i in batch_indices:
+            text = script_lines[i] if script_lines and i < len(script_lines) else ""
+            entries.append({
+                "start": None, "end": None, "text": text,
+                "script_idx": i, "asr_idx": None,
+            })
+        return entries
 
     # ------------------------------------------------------------------
     # 后处理
@@ -411,7 +446,7 @@ class LLMProcessor:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            max_tokens=4096,
+            max_tokens=8192,
             temperature=0.1,
         )
         return response.choices[0].message.content.strip()
@@ -421,16 +456,23 @@ class LLMProcessor:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _split_into_chunks(lines: List[str], max_chars: int = 3000) -> List[List[str]]:
-        """将行列表按最大字符数分块"""
+    def _split_into_chunks(
+        lines: List[str], max_chars: int = 3000, overlap_lines: int = 2
+    ) -> List[List[str]]:
+        """将行列表按最大字符数分块，相邻块之间有重叠行以保持上下文"""
+        if not lines:
+            return []
+
         chunks = []
         current = []
         current_len = 0
         for line in lines:
             if current_len + len(line) > max_chars and current:
                 chunks.append(current)
-                current = []
-                current_len = 0
+                # 重叠：取上一块的最后 N 行作为下一块的开头
+                overlap = current[-overlap_lines:] if overlap_lines > 0 else []
+                current = list(overlap)
+                current_len = sum(len(l) + 1 for l in current)
             current.append(line)
             current_len += len(line) + 1
         if current:

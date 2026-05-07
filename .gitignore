@@ -68,6 +68,11 @@ output/
 models/
 
 # =====================
+# Debug Output
+# =====================
+debug/
+
+# =====================
 # Cache
 # =====================
 .cache/
@@ -108,6 +113,7 @@ CODEBUDDY.md
 # Development Docx
 # =====================
 docx/
+功能测试素材/
 
 # =====================
 # Translation Cache
