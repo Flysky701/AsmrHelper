@@ -72,7 +72,7 @@ class LLMProcessor:
         return self._translator
 
     # ------------------------------------------------------------------
-    # fun1: LLM 精洗
+    # clean_script: LLM 精洗
     # ------------------------------------------------------------------
 
     def clean_script(self, text: str, debug_dir: Optional[Union[str, Path]] = None) -> str:
@@ -119,7 +119,7 @@ class LLMProcessor:
             return text
 
     # ------------------------------------------------------------------
-    # fun3: LLM 智能重排对齐
+    # llm_align: LLM 智能重排对齐
     # ------------------------------------------------------------------
 
     def align_and_reorder(

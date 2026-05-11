@@ -163,19 +163,19 @@ cp config/config.example.json config/config.json
 
 主要配置项：
 
-| 字段                       | 说明                                   | 默认值                    |
-| ------------------------ | ------------------------------------ | ---------------------- |
+| 字段                       | 说明                                     | 默认值                   |
+| -------------------------- | ---------------------------------------- | ------------------------ |
 | `api.provider`           | 翻译服务 (deepseek/openai)               | `deepseek`             |
-| `api.deepseek_api_key`   | DeepSeek API Key                     | <br />                 |
-| `tts.engine`             | TTS 引擎 (edge/qwen3)                  | `edge`                 |
-| `tts.voice`              | Edge-TTS 音色                          | `zh-CN-XiaoxiaoNeural` |
-| `processing.vocal_model` | 人声分离模型                               | `htdemucs`             |
+| `api.deepseek_api_key`   | DeepSeek API Key                         |                          |
+| `tts.engine`             | TTS 引擎 (edge/qwen3)                    | `edge`                 |
+| `tts.voice`              | Edge-TTS 音色                            | `zh-CN-XiaoxiaoNeural` |
+| `processing.vocal_model` | 人声分离模型                             | `htdemucs`             |
 | `processing.asr_model`   | ASR 模型大小 (tiny/base/medium/large-v3) | `base`                 |
 
 ### 环境变量
 
 | 变量                 | 说明              |
-| ------------------ | --------------- |
+| -------------------- | ----------------- |
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥 |
 | `OPENAI_API_KEY`   | OpenAI API 密钥   |
 
@@ -183,10 +183,10 @@ cp config/config.example.json config/config.json
 
 ## TTS 引擎对比
 
-| 引擎      | 质量 | 速度 | GPU     | 说明                  |
-| ------- | -- | -- | ------- | ------------------- |
-| `edge`  | 一般 | 快  | 不需要     | 微软免费 TTS，适合快速体验     |
-| `qwen3` | 高  | 慢  | 需要 CUDA | Qwen3-TTS，支持音色设计/克隆 |
+| 引擎      | 质量 | 速度 | GPU       | 说明                         |
+| --------- | ---- | ---- | --------- | ---------------------------- |
+| `edge`  | 一般 | 快   | 不需要    | 微软免费 TTS，适合快速体验   |
+| `qwen3` | 高   | 慢   | 需要 CUDA | Qwen3-TTS，支持音色设计/克隆 |
 
 ## GUI 界面
 
@@ -199,14 +199,14 @@ cp config/config.example.json config/config.json
 
 ### 工具箱功能
 
-| 工具     | 说明                            |
-| ------ | ----------------------------- |
-| 音频分离   | Demucs 人声/伴奏分离                |
-| 音频切分   | 按字幕时间轴切分音频                    |
-| ASR 识别 | 语音转文字 (Faster-Whisper)        |
-| 格式转换   | 音频格式互转 (WAV/MP3/FLAC/OGG/M4A) |
-| 字幕生成   | 文本/PDF 转字幕 (SRT/VTT/LRC)      |
-| 字幕翻译   | 翻译字幕文件 (支持批量)                 |
+| 工具     | 说明                                |
+| -------- | ----------------------------------- |
+| 音频分离 | Demucs 人声/伴奏分离                |
+| 音频切分 | 按字幕时间轴切分音频                |
+| ASR 识别 | 语音转文字 (Faster-Whisper)         |
+| 格式转换 | 音频格式互转 (WAV/MP3/FLAC/OGG/M4A) |
+| 字幕生成 | 文本/PDF 转字幕 (SRT/VTT/LRC)       |
+| 字幕翻译 | 翻译字幕文件 (支持批量)             |
 
 ### 嵌入式音频播放器
 
@@ -304,11 +304,12 @@ components/  # 通用组件：可复用 UI 组件
 ### TODO LIST（优先级从高到低）
 
 #### feat
-- PDF/TXT台本 转换为 时间轴字幕文件（或许可以通过接入Model解决）
+
 - Model 审查功能， 通过接入 API 进行循环审查（ASR质量，翻译文本质量等）
 - 批量处理 文件夹 分别处理功能
 
 #### model
+
 - 模型配置项，针对不同 本地/API 模型的统一流水线
 - 对 ASR API的支持(与MODEL API整合)
 - 更多 ASR 支持（Qwen3ASR，FUNASR， MIMOASR）
@@ -316,14 +317,14 @@ components/  # 通用组件：可复用 UI 组件
 - 添加 本地模型下载页， 不再使用脚本下载（网络配置提醒）
 
 #### 重构
+
 - 前端重构
 - 流水线重构
 - 后端逻辑重构整合
 
-
 ## DONE LIST
 
+- PDF/TXT台本 转换为 时间轴字幕文件（通过接入Model解决）
 - 处理后输出翻译字幕
 - GUI 优化和增强
 - 添加音频音量预览功能
-

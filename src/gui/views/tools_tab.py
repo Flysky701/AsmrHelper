@@ -679,9 +679,9 @@ class ToolsTab(QWidget):
         # ===== 说明 =====
         hint = QLabel(
             "流程说明：\n"
-            "1. fun1: PDF → 清洗后的台词文本（regex 粗洗 + LLM 精洗）\n"
-            "2. fun2: 音频 → ASR 语音识别（已有 VTT 则跳过）\n"
-            "3. fun3: 台词 + ASR → LLM 智能对齐重排 → 带时间轴的字幕"
+            "1. clean_script: PDF → 清洗后的台词文本（regex 粗洗 + LLM 精洗）\n"
+            "2. asr_recognize: 音频 → ASR 语音识别（已有 VTT 则跳过）\n"
+            "3. llm_align: 台词 + ASR → LLM 智能对齐重排 → 带时间轴的字幕"
         )
         hint.setStyleSheet("color: #666; font-size: 11px;")
         hint.setWordWrap(True)
