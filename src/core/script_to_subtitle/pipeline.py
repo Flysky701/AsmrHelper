@@ -1,8 +1,8 @@
 """
-PDFToSubtitlePipeline — PDF 台本转字幕完整流水线
+ScriptToSubtitlePipeline — 台本转字幕完整流水线
 
 流程：
-  clean_script: PDF → 清洗后的 TXT（regex 粗洗 + LLM 精洗）
+  clean_script: 台本(PDF/TXT) → 清洗后的 TXT（regex 粗洗 + LLM 精洗）
   asr_recognize: MP3 → ASR VTT（已实现，复用 ASRRecognizer）
   llm_align: 清洗 TXT + ASR VTT → LLM 智能重排对齐 → 最终 VTT
 """
@@ -15,8 +15,8 @@ from src.core.subtitle_generator import SubtitleGenerator
 from .tool import ScriptToSubtitleTool
 
 
-class PDFToSubtitlePipeline:
-    """PDF 台本 → 完整字幕 流水线"""
+class ScriptToSubtitlePipeline:
+    """台本(PDF/TXT) → 完整字幕 流水线"""
 
     @staticmethod
     def _save_debug(debug_dir: Path, stage: str, filename: str, content: str) -> None:
@@ -36,7 +36,7 @@ class PDFToSubtitlePipeline:
 
     def run(
         self,
-        pdf_path: Union[str, Path],
+        script_path: Union[str, Path],
         audio_path: Union[str, Path],
         output_path: Union[str, Path],
         fmt: str = "vtt",
@@ -44,14 +44,15 @@ class PDFToSubtitlePipeline:
         asr_model_size: str = "large-v3",
         asr_language: str = "ja",
         track_index: Optional[int] = None,
+        vertical_mode: str = "auto",
         progress_callback: Optional[Callable[[str, int, str], None]] = None,
         debug_dir: Optional[Union[str, Path]] = None,
     ) -> str:
         """
-        完整流程：PDF + 音频 → 字幕文件。
+        完整流程：台本 + 音频 → 字幕文件。
 
         Args:
-            pdf_path: PDF 台本路径
+            script_path: 台本文件路径（PDF 或 TXT）
             audio_path: MP3/WAV 音频路径
             output_path: 输出字幕文件路径
             fmt: 输出格式 ("vtt" / "srt" / "lrc")
@@ -59,6 +60,7 @@ class PDFToSubtitlePipeline:
             asr_model_size: ASR 模型大小
             asr_language: ASR 语言
             track_index: 指定处理的 Track 索引（从 0 开始）
+            vertical_mode: PDF 竖排处理模式 ("auto" / "horizontal" / "vertical")
             progress_callback: 进度回调 fn(stage, percent, message)
             debug_dir: 调试输出目录（可选，设置后保存各阶段中间文件）
 
@@ -68,9 +70,9 @@ class PDFToSubtitlePipeline:
         cb = progress_callback or (lambda *a: None)
         dbg = Path(debug_dir) if debug_dir else None
 
-        # ---- Stage 1: clean_script - PDF → 清洗 TXT ----
-        cb("clean_script", 0, "正在加载 PDF 台本...")
-        raw_text = ScriptToSubtitleTool.load_script(pdf_path)
+        # ---- Stage 1: clean_script - 台本 → 清洗 TXT ----
+        cb("clean_script", 0, "正在加载台本文件...")
+        raw_text = ScriptToSubtitleTool.load_script(script_path, vertical_mode=vertical_mode)
         if dbg:
             self._save_debug(dbg, "stage1_extract", "01_raw_text.txt", raw_text)
 
@@ -129,12 +131,13 @@ class PDFToSubtitlePipeline:
 
     def run_from_existing_vtt(
         self,
-        pdf_path: Union[str, Path],
+        script_path: Union[str, Path],
         vtt_path: Union[str, Path],
         output_path: Union[str, Path],
         fmt: str = "vtt",
         use_llm_clean: bool = True,
         track_index: Optional[int] = None,
+        vertical_mode: str = "auto",
         progress_callback: Optional[Callable[[str, int, str], None]] = None,
         debug_dir: Optional[Union[str, Path]] = None,
     ) -> str:
@@ -144,13 +147,14 @@ class PDFToSubtitlePipeline:
         适用场景：之前已经跑过 ASR，现在只需要用台本修正字幕。
 
         Args:
-            pdf_path: PDF 台本路径
+            script_path: 台本文件路径（PDF 或 TXT）
             vtt_path: 已有的 ASR 字幕路径（VTT/SRT/LRC）
             output_path: 输出路径
             fmt: 输出格式
             use_llm_clean: 是否使用 LLM 辅助清洗
-            track_index: 指定处理的 Track 索引（从 0 开始）。当 PDF 包含多个 Track 时，
+            track_index: 指定处理的 Track 索引（从 0 开始）。当台本包含多个 Track 时，
                          传入此参数仅处理对应 Track 的台词。None 表示处理全部。
+            vertical_mode: PDF 竖排处理模式 ("auto" / "horizontal" / "vertical")
             progress_callback: 进度回调
             debug_dir: 调试输出目录（可选）
 
@@ -160,9 +164,9 @@ class PDFToSubtitlePipeline:
         cb = progress_callback or (lambda *a: None)
         dbg = Path(debug_dir) if debug_dir else None
 
-        # ---- clean_script: PDF → 清洗 TXT ----
-        cb("clean_script", 0, "正在加载 PDF 台本...")
-        raw_text = ScriptToSubtitleTool.load_script(pdf_path)
+        # ---- clean_script: 台本 → 清洗 TXT ----
+        cb("clean_script", 0, "正在加载台本文件...")
+        raw_text = ScriptToSubtitleTool.load_script(script_path, vertical_mode=vertical_mode)
         if dbg:
             self._save_debug(dbg, "stage1_extract", "01_raw_text.txt", raw_text)
 
@@ -213,21 +217,23 @@ class PDFToSubtitlePipeline:
 
     def run_text_only(
         self,
-        pdf_path: Union[str, Path],
+        script_path: Union[str, Path],
         output_path: Optional[Union[str, Path]] = None,
         use_llm_clean: bool = True,
         track_index: Optional[int] = None,
+        vertical_mode: str = "auto",
         progress_callback: Optional[Callable[[str, int, str], None]] = None,
         debug_dir: Optional[Union[str, Path]] = None,
     ) -> str:
         """
-        仅 clean_script：PDF → 清洗后的纯文本（不做 ASR 和对齐）。
+        仅 clean_script：台本 → 清洗后的纯文本（不做 ASR 和对齐）。
 
         Args:
-            pdf_path: PDF 台本路径
+            script_path: 台本文件路径（PDF 或 TXT）
             output_path: 输出 TXT 路径（可选）
             use_llm_clean: 是否使用 LLM 辅助清洗
             track_index: 指定处理的 Track 索引（从 0 开始）
+            vertical_mode: PDF 竖排处理模式 ("auto" / "horizontal" / "vertical")
             progress_callback: 进度回调
             debug_dir: 调试输出目录（可选）
 
@@ -237,8 +243,8 @@ class PDFToSubtitlePipeline:
         cb = progress_callback or (lambda *a: None)
         dbg = Path(debug_dir) if debug_dir else None
 
-        cb("clean_script", 0, "正在加载 PDF 台本...")
-        raw_text = ScriptToSubtitleTool.load_script(pdf_path)
+        cb("clean_script", 0, "正在加载台本文件...")
+        raw_text = ScriptToSubtitleTool.load_script(script_path, vertical_mode=vertical_mode)
         if dbg:
             self._save_debug(dbg, "stage1_extract", "01_raw_text.txt", raw_text)
 

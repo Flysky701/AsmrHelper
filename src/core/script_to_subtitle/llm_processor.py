@@ -316,6 +316,8 @@ class LLMProcessor:
             start = item.get("start")
             end = item.get("end")
             if text:
+                # 去除 LLM 返回的字符间多余空格（日文/中文不需要空格分隔）
+                text = self._remove_char_spaces(text)
                 entries.append({
                     "start": start,
                     "end": end,
@@ -423,6 +425,28 @@ class LLMProcessor:
             })
             current += duration
         return entries
+
+    # ------------------------------------------------------------------
+    # 文本清理
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _remove_char_spaces(text: str) -> str:
+        """去除 LLM 返回的 CJK 字符间多余空格。
+
+        LLM 对齐时有时会在每个字符之间插入空格，
+        此方法去除非 ASCII 字符之间的空格，但保留拉丁文之间的空格。
+        """
+        if not text or ' ' not in text:
+            return text
+
+        # 非 ASCII 字符之间的空格视为多余（中日韩字符间不需要空格）
+        pat = re.compile(r'([^\x00-\x7f]) +([^\x00-\x7f])')
+        prev = None
+        while prev != text:
+            prev = text
+            text = pat.sub(r'\1\2', text)
+        return text
 
     # ------------------------------------------------------------------
     # 底层 LLM 调用

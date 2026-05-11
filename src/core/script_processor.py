@@ -151,18 +151,31 @@ class ScriptProcessor:
 
     @staticmethod
     def detect_vertical_layout(text: str) -> bool:
-        """基于行长统计特征判断是否为竖排"""
+        """基于行长统计特征判断是否为竖排
+
+        真正的竖排 PDF 经 pypdf 横排提取后，通常表现为大量单字符行（每列一个字）。
+        而 ASMR 台本等横排短对话虽然行长也较短，但每行通常有多个字符。
+        因此以"极短行（≤3字符）占比"作为主要判据，避免短对话台本被误判。
+        """
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         if not lines:
             return False
-            
+
         lengths = [len(l) for l in lines]
         avg_length = sum(lengths) / len(lengths)
-        
-        # 启发式规则：如果平均行长非常短（比如每个字占据一行，或者固定极短字符换行），并且行数较多
-        if avg_length < 15 and len(lines) > 20:
+
+        # 极短行（1-3字符）占比 — 真正竖排的核心特征
+        very_short_count = sum(1 for l in lengths if l <= 3)
+        very_short_ratio = very_short_count / len(lengths)
+
+        # 规则1：极短行占比 > 50% 且行数足够多 → 大概率是竖排提取伪影
+        if very_short_ratio > 0.5 and len(lines) > 20:
             return True
-            
+
+        # 规则2：平均行长极短（< 5）且行数很多 → 几乎可以肯定是竖排
+        if avg_length < 5 and len(lines) > 30:
+            return True
+
         return False
 
     @staticmethod

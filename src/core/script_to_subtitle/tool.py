@@ -22,12 +22,13 @@ class ScriptToSubtitleTool:
     # 1. 统一加载接口
     # ------------------------------------------------------------------ #
     @staticmethod
-    def load_script(source: Union[str, Path]) -> str:
+    def load_script(source: Union[str, Path], vertical_mode: str = "auto") -> str:
         """
         从 PDF 或 TXT 文件提取原始文本。
 
         Args:
             source: 文件路径（.pdf 或 .txt）
+            vertical_mode: PDF 竖排处理模式 ("auto" / "horizontal" / "vertical")，仅对 PDF 生效
 
         Returns:
             提取的原始文本
@@ -38,7 +39,7 @@ class ScriptToSubtitleTool:
 
         suffix = path.suffix.lower()
         if suffix == ".pdf":
-            text, _ = SubtitleGenerator._extract_pdf_text_with_pages(str(path))
+            text, _ = SubtitleGenerator._extract_pdf_text_with_pages(str(path), vertical_mode=vertical_mode)
             return text
         elif suffix == ".txt":
             return path.read_text(encoding="utf-8")

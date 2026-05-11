@@ -1,5 +1,5 @@
 """
-Tests for PDFToSubtitlePipeline debug output infrastructure
+Tests for ScriptToSubtitlePipeline debug output infrastructure
 """
 
 import json
@@ -7,7 +7,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from src.core.script_to_subtitle.pipeline import PDFToSubtitlePipeline
+from src.core.script_to_subtitle.pipeline import ScriptToSubtitlePipeline
 from src.core.script_to_subtitle import ScriptToSubtitleTool
 
 
@@ -75,12 +75,12 @@ WEBVTT
 def test_run_text_only_debug_output(sample_txt: Path, tmp_path: Path):
     """run_text_only 应生成 stage1 中间文件"""
     debug_dir = tmp_path / "debug"
-    pipeline = PDFToSubtitlePipeline()
+    pipeline = ScriptToSubtitlePipeline()
 
     # patch load_script to read our txt file directly
     with patch.object(ScriptToSubtitleTool, 'load_script', return_value=SAMPLE_SCRIPT):
         pipeline.run_text_only(
-            pdf_path=sample_txt,
+            script_path=sample_txt,
             use_llm_clean=False,
             debug_dir=debug_dir,
         )
@@ -103,11 +103,11 @@ def test_run_text_only_debug_output(sample_txt: Path, tmp_path: Path):
 
 def test_run_text_only_no_debug_dir(sample_txt: Path, tmp_path: Path):
     """不设置 debug_dir 时不应创建 debug 目录"""
-    pipeline = PDFToSubtitlePipeline()
+    pipeline = ScriptToSubtitlePipeline()
 
     with patch.object(ScriptToSubtitleTool, 'load_script', return_value=SAMPLE_SCRIPT):
         pipeline.run_text_only(
-            pdf_path=sample_txt,
+            script_path=sample_txt,
             use_llm_clean=False,
         )
 
@@ -123,7 +123,7 @@ def test_run_from_existing_vtt_debug_output(sample_txt: Path, sample_vtt: Path, 
     """run_from_existing_vtt 应生成 stage1 + stage3 中间文件"""
     debug_dir = tmp_path / "debug"
     output_path = tmp_path / "output.vtt"
-    pipeline = PDFToSubtitlePipeline()
+    pipeline = ScriptToSubtitlePipeline()
 
     # Mock LLM 调用避免需要真实 API key
     mock_entries = [
@@ -136,7 +136,7 @@ def test_run_from_existing_vtt_debug_output(sample_txt: Path, sample_vtt: Path, 
     with patch.object(ScriptToSubtitleTool, 'load_script', return_value=SAMPLE_SCRIPT), \
          patch.object(ScriptToSubtitleTool, 'align_with_llm', return_value=mock_entries):
         pipeline.run_from_existing_vtt(
-            pdf_path=sample_txt,
+            script_path=sample_txt,
             vtt_path=sample_vtt,
             output_path=output_path,
             use_llm_clean=False,
