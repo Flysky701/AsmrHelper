@@ -109,9 +109,9 @@ def main():
     debug_dir = Path(args.debug_dir)
     output_path = Path(args.output) if args.output else debug_dir / "output" / f"output.{args.fmt}"
 
-    from src.core.script_to_subtitle.pipeline import PDFToSubtitlePipeline
+    from src.core.script_to_subtitle.pipeline import ScriptToSubtitlePipeline
 
-    pipeline = PDFToSubtitlePipeline()
+    pipeline = ScriptToSubtitlePipeline()
 
     def progress(stage, pct, msg):
         print(f"  [{stage}] {pct:3d}% - {msg}")
@@ -131,7 +131,7 @@ def main():
         print(f"音频文件: {audio_path}")
         print("\n开始完整流水线 (PDF + 音频 → 字幕)...")
         pipeline.run(
-            pdf_path=pdf_path,
+            script_path=pdf_path,
             audio_path=audio_path,
             output_path=output_path,
             fmt=args.fmt,
@@ -149,7 +149,7 @@ def main():
         print(f"VTT 文件: {vtt_path}")
         print("\n开始已有 VTT 模式 (PDF + VTT → 对齐字幕)...")
         pipeline.run_from_existing_vtt(
-            pdf_path=pdf_path,
+            script_path=pdf_path,
             vtt_path=vtt_path,
             output_path=output_path,
             fmt=args.fmt,
@@ -162,7 +162,7 @@ def main():
         # 纯文本模式
         print("\n开始纯文本模式 (PDF → 清洗文本)...")
         clean_text = pipeline.run_text_only(
-            pdf_path=pdf_path,
+            script_path=pdf_path,
             output_path=output_path if args.output else None,
             use_llm_clean=args.use_llm,
             track_index=args.track,

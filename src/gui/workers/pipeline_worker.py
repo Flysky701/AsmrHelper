@@ -816,18 +816,16 @@ class ToolsWorkerThread(QThread):
     2. split      - 音频切分 (按字幕时间轴)
     3. asr        - ASR 语音识别
     4. convert    - 格式转换
-    5. subtitle_gen   - 字幕生成
-    6. subtitle_translate - 字幕翻译
+    5. subtitle_translate - 字幕翻译
+    6. script_to_vtt     - 台本转字幕 (LLM)
 
     信号:
         progress(str): 进度消息
         finished(bool, str): (success, message)
-        alignment_ready(list): ASR 对齐预览数据 (Q3)
     """
 
     progress = Signal(str)
     finished = Signal(bool, str)
-    alignment_ready = Signal(object)  # list[dict] - 对齐结果预览数据
 
     def __init__(self, tool_id: int, params: dict):
         """
@@ -856,12 +854,10 @@ class ToolsWorkerThread(QThread):
                 result_msg = self._run_asr()
             elif tool_name == "convert":
                 result_msg = self._run_convert()
-            elif tool_name == "subtitle_gen":
-                result_msg = self._run_subtitle_gen()
             elif tool_name == "subtitle_translate":
                 result_msg = self._run_subtitle_translate()
-            elif tool_name == "pdf_to_vtt":
-                result_msg = self._run_pdf_to_vtt()
+            elif tool_name == "script_to_vtt":
+                result_msg = self._run_script_to_vtt()
             else:
                 raise ValueError(f"未知工具: {tool_name}")
 
@@ -1049,154 +1045,6 @@ class ToolsWorkerThread(QThread):
 
         return "\n".join(msg_lines)
 
-    def _run_subtitle_gen(self) -> str:
-        """字幕生成（文本/PDF -> SRT/VTT/LRC）"""
-        from src.core.subtitle_generator import SubtitleGenerator
-        from src.core.script_processor import ScriptProcessor
-        from pathlib import Path
-        import time
-
-        input_path = self.params.get("input_path")
-        if not input_path:
-            raise ValueError("缺少输入文件路径")
-
-        raw_text = ""
-        if input_path.lower().endswith(".pdf"):
-            # Step 1: 使用竖排坐标还原提取 PDF（自动检测竖排/横排）
-            self.progress.emit("[工具箱] 解析 PDF 文本（竖排还原）...")
-            raw_text = ScriptProcessor.convert_vertical_pdf_pages(input_path)
-            
-            # Step 2: 多脚本检测（基于提取后的文本切分）
-            scripts = ScriptProcessor.detect_scripts(raw_text)
-            script_index = self.params.get("script_index", 0)
-            for s in scripts:
-                if s["index"] == script_index:
-                    raw_text = s["text"]
-                    break
-            if not raw_text and scripts:
-                raw_text = scripts[0]["text"]
-        else:
-            raw_text = Path(input_path).read_text(encoding="utf-8")
-            # 多脚本检测（TXT 直接切分）
-            scripts = ScriptProcessor.detect_scripts(raw_text)
-            script_index = self.params.get("script_index", 0)
-            for s in scripts:
-                if s["index"] == script_index:
-                    raw_text = s["text"]
-                    break
-            if not raw_text and scripts:
-                raw_text = scripts[0]["text"]
-
-        if not raw_text.strip():
-            raise ValueError("输入文件内容为空")
-
-        # --- Pipeline Stage 预处理 ---
-        # 竖排转换
-        vertical_convert = self.params.get("vertical_convert", False)
-        if vertical_convert or ScriptProcessor.detect_vertical_layout(raw_text):
-            raw_text = ScriptProcessor.convert_vertical_to_horizontal(raw_text)
-
-        # 过滤剧本元数据（如背景说明、注意事项）
-        raw_text = ScriptProcessor.filter_script_metadata(raw_text)
-
-        # 提取台词
-        dialogues = ScriptProcessor.extract_dialogue(raw_text)
-
-        # 场景描述模式处理
-        stage_mode = self.params.get("stage_mode", "remove")
-        include_actions = stage_mode != "remove"
-        include_character = False
-        
-        # 导出为目标所需纯文本
-        text_generated = ScriptProcessor.to_subtitle_text(
-            dialogues, 
-            include_character=include_character, 
-            include_actions=include_actions
-        )
-
-        fmt = self.params.get("fmt", "srt")
-        output_path = self.params["output_path"]
-        lang = self.params.get("lang", "zh")
-
-        out_p = Path(output_path)
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        
-        # 保存中间处理产物
-        processed_txt_path = out_p.parent / f"{Path(input_path).stem}_processed.txt"
-        processed_txt_path.write_text(text_generated, encoding="utf-8")
-
-        t0 = time.time()
-
-        audio_path = self.params.get("audio_path")
-        if not audio_path:
-            raise ValueError("ASR 对齐模式需要配对音频！")
-            
-        duration = None
-        if audio_path:
-            try:
-                import librosa
-                duration = librosa.get_audio_duration(path=audio_path)
-            except Exception:
-                pass
-
-
-        asr_lang = lang
-        self.progress.emit(f"[工具箱] ASR 对齐模式：正在识别音频...")
-        from src.core.asr import ASRRecognizer
-
-        recognizer = ASRRecognizer(
-            model_size="large-v3",
-            language=asr_lang,
-            disable_vad=False,
-        )
-        asr_results = recognizer.recognize(audio_path, None)
-
-        if not asr_results:
-            raise RuntimeError("ASR 未能从音频中识别出任何内容")
-
-        self.progress.emit(f"[工具箱] ASR 识别完成，共 {len(asr_results)} 条片段，正在对齐台词...")
-
-        entries = SubtitleGenerator.align_text_with_asr(
-            user_text=text_generated,
-            asr_results=asr_results,
-            total_duration=duration,
-            filter_actions=False,
-            action_mode="keep",
-            fmt=fmt,
-            lang=lang,
-            return_alignment_info=True,
-        )
-
-        align_preview = []
-        for idx, entry in enumerate(entries):
-            align_info = entry.get("_align", {})
-            align_preview.append({
-                "index": idx + 1,
-                "text": entry["text"],
-                "asr_text": align_info.get("asr_text", ""),
-                "confidence": align_info.get("confidence", ""),
-                "score": align_info.get("score", 0),
-                "start": entry["start"],
-                "end": entry["end"],
-                "method": align_info.get("method", ""),
-            })
-        self.alignment_ready.emit(align_preview)
-
-        SubtitleGenerator.save(entries, output_path, fmt)
-
-        elapsed = time.time() - t0
-        size_kb = out_p.stat().st_size / 1024 if out_p.exists() else 0
-
-        return (
-            f"字幕生成完成！\n"
-            f"模式: ASR 对齐\n"
-            f"中间文件: {processed_txt_path}\n"
-            f"输出字幕: {output_path}\n"
-            f"条目数: {len(entries)}\n"
-            f"格式: {fmt.upper()}\n"
-            f"耗时: {elapsed:.1f}s"
-        )
-
     def _run_subtitle_translate(self) -> str:
         """字幕翻译"""
         from src.core.translate import Translator
@@ -1341,70 +1189,74 @@ class ToolsWorkerThread(QThread):
         size_mb = out_path.stat().st_size / (1024 * 1024)
         return f"转换完成！\n输出: {out_path}\n文件大小: {size_mb:.1f} MB\n采样率: {target_sr} Hz\n耗时: {elapsed:.1f}s"
 
-    def _run_pdf_to_vtt(self) -> str:
-        """PDF台本转字幕 (LLM 流水线)"""
-        from src.core.script_to_subtitle.pipeline import PDFToSubtitlePipeline
+    def _run_script_to_vtt(self) -> str:
+        """台本转字幕 (LLM 流水线)"""
+        from src.core.script_to_subtitle.pipeline import ScriptToSubtitlePipeline
         from pathlib import Path
 
         mode = self.params.get("mode", "full")
-        pdf_path = self.params["pdf_path"]
+        script_path = self.params["script_path"]
         output_path = self.params["output_path"]
         use_llm = self.params.get("use_llm_clean", True)
+        vertical_mode = self.params.get("vertical_mode", "auto")
 
         # API Key 预检查：无 key 时自动禁用 LLM
         if use_llm:
             from src.config import config
             has_key = bool(config.deepseek_api_key or config.openai_api_key)
             if not has_key:
-                self.progress.emit("[PDF→VTT] 未配置 API Key，自动切换为 regex 清洗模式（可在 设置→API 配置 中添加）")
+                self.progress.emit("[台本→VTT] 未配置 API Key，自动切换为 regex 清洗模式（可在 设置→API 配置 中添加）")
                 use_llm = False
 
-        pipeline = PDFToSubtitlePipeline()
+        pipeline = ScriptToSubtitlePipeline()
 
         def progress_forward(stage, pct, msg):
-            self.progress.emit(f"[PDF→VTT][{stage}] {msg} ({pct}%)")
+            self.progress.emit(f"[台本→VTT][{stage}] {msg} ({pct}%)")
 
         if mode == "full":
-            # 完整流程：PDF + 音频 → 字幕
+            # 完整流程：台本 + 音频 → 字幕
             audio_path = self.params["audio_path"]
             fmt = self.params.get("fmt", "vtt")
             model = self.params.get("model", "large-v3")
             language = self.params.get("language", "ja")
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             result = pipeline.run(
-                pdf_path=pdf_path,
+                script_path=script_path,
                 audio_path=audio_path,
                 output_path=output_path,
                 fmt=fmt,
                 use_llm_clean=use_llm,
                 asr_model_size=model,
                 asr_language=language,
+                vertical_mode=vertical_mode,
                 progress_callback=progress_forward,
             )
-            return f"PDF→VTT 完成！\n输出: {result}"
+            return f"台本→VTT 完成！\n输出: {result}"
 
         elif mode == "from_vtt":
-            # 已有 VTT：PDF + VTT → 修正字幕
+            # 已有 VTT：台本 + VTT → 修正字幕
             vtt_path = self.params["vtt_path"]
             fmt = self.params.get("fmt", "vtt")
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             result = pipeline.run_from_existing_vtt(
-                pdf_path=pdf_path,
+                script_path=script_path,
                 vtt_path=vtt_path,
                 output_path=output_path,
                 fmt=fmt,
                 use_llm_clean=use_llm,
+                vertical_mode=vertical_mode,
                 progress_callback=progress_forward,
             )
-            return f"PDF→VTT 完成（使用已有字幕对齐）！\n输出: {result}"
+            return f"台本→VTT 完成（使用已有字幕对齐）！\n输出: {result}"
 
         else:
             # 仅清洗文本
             result_text = pipeline.run_text_only(
-                pdf_path=pdf_path,
+                script_path=script_path,
                 output_path=output_path,
                 use_llm_clean=use_llm,
+                vertical_mode=vertical_mode,
                 progress_callback=progress_forward,
             )
             lines = len(result_text.splitlines())
-            return f"PDF 文本清洗完成！\n输出: {output_path}\n共 {lines} 行台词"
+            return f"台本文本清洗完成！\n输出: {output_path}\n共 {lines} 行台词"
