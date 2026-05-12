@@ -68,6 +68,11 @@ output/
 models/
 
 # =====================
+# Debug Output
+# =====================
+debug/
+
+# =====================
 # Cache
 # =====================
 .cache/
@@ -105,9 +110,10 @@ config/voice_profiles.json
 CODEBUDDY.md
 
 # =====================
-# Development Reports
+# Development Docx
 # =====================
-Report/
+docx/
+功能测试素材/
 
 # =====================
 # Translation Cache

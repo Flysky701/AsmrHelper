@@ -1,12 +1,10 @@
-import os
 from pathlib import Path
-from typing import Optional, List, Dict
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel,
     QLineEdit, QFileDialog, QProgressBar, QTextEdit, QComboBox, QCheckBox, QListWidget,
     QStackedWidget, QGroupBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QSpinBox
 )
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
 from src.utils.audio_player import AudioPlayerWidget

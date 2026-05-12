@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.utils import ensure_dir
+from ...utils import ensure_dir
 
 if TYPE_CHECKING:
     from . import PipelineConfig

@@ -1,13 +1,11 @@
-import os
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel,
     QLineEdit, QFileDialog, QProgressBar, QTextEdit, QComboBox, QCheckBox,
     QStackedWidget, QGroupBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView
 )
-from PySide6.QtGui import QColor
-from PySide6.QtCore import Qt, QThread, QTimer
+from PySide6.QtCore import Qt, QTimer
 from src.config import config
 
 from src.gui.workers.pipeline_worker import ToolsWorkerThread
@@ -83,8 +81,8 @@ class ToolsTab(QWidget):
                 "音频切分 (按字幕时间轴切分音频)",
                 "ASR 识别 (语音转文字)",
                 "格式转换 (音频格式互转)",
-                "字幕生成 (文本/PDF转字幕)",
                 "字幕翻译 (翻译字幕文件)",
+                "台本转字幕 (LLM 智能对齐)",
             ])
             self.tools_combo.currentIndexChanged.connect(self._on_tool_changed)
             select_row.addWidget(self.tools_combo, 1)
@@ -129,13 +127,13 @@ class ToolsTab(QWidget):
             convert_page, self._convert_params = self._build_convert_tool_ui()
             self.tools_param_stack.addWidget(convert_page)  # Index 4
 
-            # --- Page 5: 字幕生成 ---
-            subgen_page, self._subgen_params = self._build_subtitle_gen_ui()
-            self.tools_param_stack.addWidget(subgen_page)  # Index 5
-
-            # --- Page 6: 字幕翻译 ---
+            # --- Page 5: 字幕翻译 ---
             subtrans_page, self._subtrans_params = self._build_subtitle_translate_ui()
-            self.tools_param_stack.addWidget(subtrans_page)  # Index 6
+            self.tools_param_stack.addWidget(subtrans_page)  # Index 5
+
+            # --- Page 6: 台本转字幕 (LLM 流水线) ---
+            pdfvtt_page, self._pdfvtt_params = self._build_pdf_to_vtt_ui()
+            self.tools_param_stack.addWidget(pdfvtt_page)  # Index 6
 
             self.tools_param_stack.setCurrentIndex(0)
             layout.addWidget(self.tools_param_stack, stretch=1)
@@ -367,148 +365,6 @@ class ToolsTab(QWidget):
             form.setRowStretch(4, 1)
             return page, params
 
-    def _build_subtitle_gen_ui(self) -> tuple:
-        """构建字幕生成工具的参数面板（文本/PDF -> SRT/VTT/LRC）"""
-        page = QWidget()
-        form = QGridLayout(page)
-        form.setSpacing(10)
-
-        row = 0
-
-        # ===== Block 1: 语言与输入源检测区 =====
-        core_layout = QHBoxLayout()
-        
-        core_layout.addWidget(QLabel("语言:"))
-        self.subgen_lang = QComboBox()
-        self.main_window._init_asr_lang_combo(self.subgen_lang)
-        self.subgen_lang.setCurrentIndex(1)
-        core_layout.addWidget(self.subgen_lang)
-        
-        core_layout.addSpacing(20)
-
-        self.subgen_source_label = QLabel("类型：未选择文件")
-        self.subgen_source_label.setStyleSheet("color: #888;")
-        core_layout.addWidget(self.subgen_source_label)
-        
-        core_layout.addStretch()
-        form.addLayout(core_layout, row, 0, 1, 3)
-        row += 1
-
-        # ===== Block 2: 文件输入区 =====
-        r_input, self.subgen_input = self._make_file_input_row(
-            "输入文件:", "选择文本 (.txt) 或 PDF 文件...",
-            self._browse_subgen_input, self
-        )
-        form.addLayout(r_input, row, 0, 1, 3)
-        row += 1
-
-        r_audio, self.subgen_audio = self._make_file_input_row(
-            "配对音频(*):", "选择用于 ASR 对齐的音频文件...",
-            self._browse_subgen_audio, self
-        )
-        form.addLayout(r_audio, row, 0, 1, 3)
-        row += 1
-
-        # ===== Block 3: 脚本选择区 =====
-        script_row = QHBoxLayout()
-        script_row.addWidget(QLabel("多台本检测:"))
-        self.subgen_script_combo = QComboBox()
-        self.subgen_script_combo.addItem("-- 加载文件后自动检测 --")
-        self.subgen_script_combo.setMinimumWidth(250)
-        script_row.addWidget(self.subgen_script_combo, 1)
-        
-        self.subgen_script_label = QLabel()
-        self.subgen_script_label.setStyleSheet("color:#888; font-size:11px;")
-        script_row.addWidget(self.subgen_script_label)
-        
-        self.subgen_script_widget = QWidget()
-        self.subgen_script_widget.setLayout(script_row)
-        self.subgen_script_widget.setVisible(False)
-        form.addWidget(self.subgen_script_widget, row, 0, 1, 3)
-        row += 1
-
-        # ===== Block 4: 预处理选项区 =====
-        prep_layout = QHBoxLayout()
-        
-        self.subgen_vertical_chk = QCheckBox("尝试转换竖排文本")
-        self.subgen_vertical_chk.setToolTip("对于竖排排版但提取为横排的 PDF 可能会有帮助")
-        prep_layout.addWidget(self.subgen_vertical_chk)
-        
-        prep_layout.addSpacing(20)
-        
-        prep_layout.addWidget(QLabel("情景描述:"))
-        self.subgen_stage_mode = QComboBox()
-        self.subgen_stage_mode.addItems(["删除 (仅提取台词)", "保留原文 (当作台词部分)", "分离提取"])
-        prep_layout.addWidget(self.subgen_stage_mode)
-        
-        prep_layout.addStretch()
-        form.addLayout(prep_layout, row, 0, 1, 3)
-        row += 1
-
-        # ===== Block 6: 输出设置区 =====
-        out_layout = QHBoxLayout()
-        out_layout.addWidget(QLabel("输出格式:"))
-        self.subgen_fmt = QComboBox()
-        self.subgen_fmt.addItems(["SRT", "VTT", "LRC"])
-        self.subgen_fmt.currentIndexChanged.connect(self._on_subgen_fmt_changed)
-        out_layout.addWidget(self.subgen_fmt)
-        out_layout.addStretch()
-        form.addLayout(out_layout, row, 0, 1, 3)
-        row += 1
-
-        r_out, self.subgen_output = self._make_file_input_row(
-            "输出文件:", "生成的字幕保存位置...",
-            self._browse_subgen_output, self
-        )
-        form.addLayout(r_out, row, 0, 1, 3)
-        row += 1
-
-        out_hint = QLabel("提示：预处理临时文件与字幕默认保存在输入文件的 output/ 目录下。")
-        out_hint.setStyleSheet("color:#888; font-size:11px;")
-        form.addWidget(out_hint, row, 1, 1, 2)
-        row += 1
-
-        # ===== Block 8: ASR 对齐预览区 =====
-        preview_group = QGroupBox("ASR 对齐预览")
-        preview_layout = QVBoxLayout()
-
-        self.subgen_align_table = QTableWidget()
-        self.subgen_align_table.setColumnCount(5)
-        self.subgen_align_table.setHorizontalHeaderLabels([
-            "#", "用户台词", "匹配的ASR文本", "置信度", "时间轴"
-        ])
-        header = self.subgen_align_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.subgen_align_table.setMinimumHeight(120)
-        self.subgen_align_table.setSelectionBehavior(QTableWidget.SelectRows)
-        preview_layout.addWidget(self.subgen_align_table)
-
-        align_hint = QLabel("提示：运行后会显示匹配详情。可手动编辑台词内容后重新生成以改善对齐效果。")
-        align_hint.setStyleSheet("color:#888; font-size:11px;")
-        preview_layout.addWidget(align_hint)
-
-        preview_group.setLayout(preview_layout)
-        form.addWidget(preview_group, row, 0, 1, 3)
-        self.subgen_align_visible = True
-        row += 1
-
-        params = {
-            "input": self.subgen_input,
-            "fmt": self.subgen_fmt,
-            "output": self.subgen_output,
-            "lang": self.subgen_lang,
-            "audio": self.subgen_audio,
-            "script_combo": self.subgen_script_combo,
-            "vertical_convert": self.subgen_vertical_chk,
-            "stage_mode": self.subgen_stage_mode,
-        }
-
-        form.setRowStretch(row, 1)
-        return page, params
-
     def _build_subtitle_translate_ui(self) -> tuple:
             """构建字幕翻译工具的参数面板"""
             page = QWidget()
@@ -564,6 +420,191 @@ class ToolsTab(QWidget):
             form.setRowStretch(4, 1)
             return page, params
 
+    def _build_pdf_to_vtt_ui(self) -> tuple:
+        """构建 PDF台本转字幕 (LLM 流水线) 的参数面板"""
+        page = QWidget()
+        form = QGridLayout(page)
+        form.setSpacing(10)
+
+        row = 0
+
+        # ===== 模式选择 =====
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("运行模式:"))
+        self.pdfvtt_mode = QComboBox()
+        self.pdfvtt_mode.addItems([
+            "完整流程 (台本 + 音频 → 字幕)",
+            "已有 ASR 字幕 (台本 + VTT → 修正字幕)",
+            "仅清洗文本 (台本 → 纯台词)",
+        ])
+        self.pdfvtt_mode.currentIndexChanged.connect(self._on_pdfvtt_mode_changed)
+        mode_layout.addWidget(self.pdfvtt_mode, 1)
+        form.addLayout(mode_layout, row, 0, 1, 3)
+        row += 1
+
+        # ===== 台本文件 =====
+        r_pdf, self.pdfvtt_pdf = self._make_file_input_row(
+            "台本文件:", "选择台本文件 (PDF/TXT)...",
+            self._browse_pdfvtt_pdf, self
+        )
+        form.addLayout(r_pdf, row, 0, 1, 3)
+        row += 1
+
+        # ===== 音频文件（完整模式）=====
+        self.pdfvtt_audio_row = QWidget()
+        r_audio = QHBoxLayout(self.pdfvtt_audio_row)
+        r_audio.setContentsMargins(0, 0, 0, 0)
+        r_audio.addWidget(QLabel("音频文件:"))
+        self.pdfvtt_audio = QLineEdit()
+        self.pdfvtt_audio.setPlaceholderText("选择音频文件 (MP3/WAV)...")
+        r_audio.addWidget(self.pdfvtt_audio, 1)
+        audio_browse = QPushButton("浏览...")
+        audio_browse.setMaximumWidth(70)
+        audio_browse.clicked.connect(self._browse_pdfvtt_audio)
+        r_audio.addWidget(audio_browse)
+        form.addWidget(self.pdfvtt_audio_row, row, 0, 1, 3)
+        row += 1
+
+        # ===== 已有 VTT 文件（VTT 模式）=====
+        self.pdfvtt_vtt_row = QWidget()
+        r_vtt = QHBoxLayout(self.pdfvtt_vtt_row)
+        r_vtt.setContentsMargins(0, 0, 0, 0)
+        r_vtt.addWidget(QLabel("已有字幕:"))
+        self.pdfvtt_vtt = QLineEdit()
+        self.pdfvtt_vtt.setPlaceholderText("选择已有的 ASR 字幕文件 (VTT/SRT)...")
+        r_vtt.addWidget(self.pdfvtt_vtt, 1)
+        vtt_browse = QPushButton("浏览...")
+        vtt_browse.setMaximumWidth(70)
+        vtt_browse.clicked.connect(self._browse_pdfvtt_vtt)
+        r_vtt.addWidget(vtt_browse)
+        self.pdfvtt_vtt_row.setVisible(False)
+        form.addWidget(self.pdfvtt_vtt_row, row, 0, 1, 3)
+        row += 1
+
+        # ===== 输出文件 =====
+        r_out, self.pdfvtt_output = self._make_file_input_row(
+            "输出文件:", "字幕输出路径...",
+            self._browse_pdfvtt_output, self
+        )
+        form.addLayout(r_out, row, 0, 1, 3)
+        row += 1
+
+        # ===== 选项 =====
+        opt_layout = QHBoxLayout()
+
+        opt_layout.addWidget(QLabel("输出格式:"))
+        self.pdfvtt_fmt = QComboBox()
+        self.pdfvtt_fmt.addItems(["VTT", "SRT", "LRC"])
+        opt_layout.addWidget(self.pdfvtt_fmt)
+
+        opt_layout.addSpacing(20)
+
+        opt_layout.addWidget(QLabel("ASR 模型:"))
+        self.pdfvtt_asr_model = QComboBox()
+        self.main_window._init_asr_model_combo(self.pdfvtt_asr_model)
+        self.pdfvtt_asr_model.setCurrentIndex(3)
+        opt_layout.addWidget(self.pdfvtt_asr_model)
+
+        opt_layout.addSpacing(20)
+
+        opt_layout.addWidget(QLabel("语言:"))
+        self.pdfvtt_lang = QComboBox()
+        self.main_window._init_asr_lang_combo(self.pdfvtt_lang)
+        self.pdfvtt_lang.setCurrentIndex(0)
+        opt_layout.addWidget(self.pdfvtt_lang)
+
+        opt_layout.addStretch()
+        form.addLayout(opt_layout, row, 0, 1, 3)
+        row += 1
+
+        # ===== LLM 清洗 + 竖排模式 =====
+        opt2_layout = QHBoxLayout()
+        self.pdfvtt_use_llm = QCheckBox("启用 LLM 辅助清洗")
+        self.pdfvtt_use_llm.setChecked(True)
+        self.pdfvtt_use_llm.setToolTip("使用 LLM 从杂乱的台本文本中提取纯净对话（需要配置 API Key）")
+        opt2_layout.addWidget(self.pdfvtt_use_llm)
+
+        opt2_layout.addSpacing(20)
+
+        opt2_layout.addWidget(QLabel("PDF 竖排模式:"))
+        self.pdfvtt_vertical_mode = QComboBox()
+        self.pdfvtt_vertical_mode.addItems(["自动检测", "强制横排", "强制竖排"])
+        self.pdfvtt_vertical_mode.setToolTip(
+            "自动检测：根据文本特征自动判断（默认）\n"
+            "强制横排：跳过竖排检测，直接横排提取\n"
+            "强制竖排：使用 pdfplumber 竖排模式提取"
+        )
+        opt2_layout.addWidget(self.pdfvtt_vertical_mode)
+
+        opt2_layout.addStretch()
+        form.addLayout(opt2_layout, row, 0, 1, 3)
+        row += 1
+
+        # ===== 说明 =====
+        hint = QLabel(
+            "流程说明：\n"
+            "1. clean_script: 台本(PDF/TXT) → 清洗后的台词文本（regex 粗洗 + LLM 精洗）\n"
+            "2. asr_recognize: 音频 → ASR 语音识别（已有 VTT 则跳过）\n"
+            "3. llm_align: 台词 + ASR → LLM 智能对齐重排 → 带时间轴的字幕"
+        )
+        hint.setStyleSheet("color: #666; font-size: 11px;")
+        hint.setWordWrap(True)
+        form.addWidget(hint, row, 0, 1, 3)
+        row += 1
+
+        params = {
+            "mode": self.pdfvtt_mode,
+            "pdf": self.pdfvtt_pdf,
+            "audio": self.pdfvtt_audio,
+            "vtt": self.pdfvtt_vtt,
+            "output": self.pdfvtt_output,
+            "fmt": self.pdfvtt_fmt,
+            "asr_model": self.pdfvtt_asr_model,
+            "lang": self.pdfvtt_lang,
+            "use_llm": self.pdfvtt_use_llm,
+        }
+
+        form.setRowStretch(row, 1)
+        return page, params
+
+    def _on_pdfvtt_mode_changed(self, index: int):
+        """切换 PDF→VTT 运行模式时更新 UI"""
+        is_full = (index == 0)       # 完整流程：需要音频
+        is_vtt = (index == 1)        # 已有 VTT：需要 VTT 文件
+        self.pdfvtt_audio_row.setVisible(is_full)
+        self.pdfvtt_vtt_row.setVisible(is_vtt)
+
+    def _browse_pdfvtt_pdf(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, "选择台本文件", "", "台本文件 (*.pdf *.txt);;PDF 文件 (*.pdf);;TXT 文件 (*.txt);;所有文件 (*)")
+        if fp:
+            self.pdfvtt_pdf.setText(fp)
+            if not self.pdfvtt_output.text():
+                p = Path(fp)
+                fmt_ext = self.pdfvtt_fmt.currentText().lower()
+                self.pdfvtt_output.setText(str(p.parent / "output" / f"{p.stem}.{fmt_ext}"))
+
+    def _browse_pdfvtt_audio(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, "选择音频文件", "",
+            "音频文件 (*.wav *.mp3 *.flac *.m4a *.ogg);;所有文件 (*)")
+        if fp:
+            self.pdfvtt_audio.setText(fp)
+
+    def _browse_pdfvtt_vtt(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, "选择字幕文件", "",
+            "字幕文件 (*.vtt *.srt *.lrc);;所有文件 (*)")
+        if fp:
+            self.pdfvtt_vtt.setText(fp)
+
+    def _browse_pdfvtt_output(self):
+        fp, _ = QFileDialog.getSaveFileName(
+            self, "选择输出文件", "output.vtt",
+            "VTT 文件 (*.vtt);;SRT 文件 (*.srt);;LRC 文件 (*.lrc)")
+        if fp:
+            self.pdfvtt_output.setText(fp)
+
     def _on_tool_changed(self, index: int):
             """切换工具时更新参数面板"""
             descriptions = {
@@ -576,10 +617,11 @@ class ToolsTab(QWidget):
                     "\n支持导出为纯文本或带时间戳的字幕文件。",
                 4: "在多种常见音频格式之间进行互相转换。"
                     "\n可调整采样率、比特率等参数。",
-                5: "从 PDF 文档或纯文本中提取台词，自动生成带时间轴的字幕文件。"
-                    "\n支持纯文本均分模式（按字符比例分配）和 ASR 对齐模式（配对音频获取真实时间轴）。\n支持 SRT/VTT/LRC 输出格式。",
-                6: "将字幕文件翻译为目标语言，输出双语对照字幕。"
+                5: "将字幕文件翻译为目标语言，输出双语对照字幕。"
                     "\n支持 DeepSeek / OpenAI 翻译引擎。",
+                6: "台本(PDF/TXT) + 音频 → 完整字幕的 LLM 智能流水线。"
+                    "\n支持三种模式：完整流程（台本+音频）、已有 VTT 修正、仅清洗文本。"
+                    "\nLLM 负责精洗台本和智能对齐重排（修正错字、处理顺序差异）。",
             }
             desc = descriptions.get(index, "")
             self.tools_desc_label.setText(desc)
@@ -612,8 +654,6 @@ class ToolsTab(QWidget):
             )
             self.worker.progress.connect(self.log)
             self.worker.finished.connect(self._on_tool_finished)
-            # Q3: ASR对齐预览信号
-            self.worker.alignment_ready.connect(self._on_alignment_preview_ready)
             self.worker.start()
 
     def _stop_tool_run(self):
@@ -636,62 +676,6 @@ class ToolsTab(QWidget):
             else:
                 self.log(f"[工具箱] 失败: {message}")
                 QMessageBox.critical(self, "错误", f"工具执行失败:\n{message}")
-
-    def _on_alignment_preview_ready(self, align_data: list):
-            """Q3: ASR对齐结果预览 - 填充表格"""
-            if not hasattr(self, 'subgen_align_table'):
-                return
-            table = self.subgen_align_table
-            table.setRowCount(len(align_data))
-
-            # 置信度颜色映射
-            conf_colors = {
-                "high": "#2d7d2d",
-                "medium": "#c4a000",
-                "low": "#c43b3b",
-                "none": "#666666",
-            }
-
-            for row, item in enumerate(align_data):
-                # 序号
-                idx_item = QTableWidgetItem(str(item["index"]))
-                idx_item.setTextAlignment(Qt.AlignCenter)
-                table.setItem(row, 0, idx_item)
-
-                # 用户台词
-                text_item = QTableWidgetItem(item["text"][:60] + ("..." if len(item["text"]) > 60 else ""))
-                text_item.setToolTip(item["text"])
-                table.setItem(row, 1, text_item)
-
-                # 匹配的ASR文本
-                asr_text = item.get("asr_text", "") or "(未匹配/估算)"
-                asr_item = QTableWidgetItem(asr_text[:40] + ("..." if len(asr_text) > 40 else ""))
-                asr_item.setToolTip(asr_text or "ASR未匹配到此句")
-                table.setItem(row, 2, asr_item)
-
-                # 置信度
-                conf = item.get("confidence", "none")
-                conf_label = conf.upper()
-                score = item.get("score", 0)
-                if score > 0:
-                    conf_label = f"{conf} ({score:.0%})"
-                conf_item = QTableWidgetItem(conf_label)
-                color = QColor(conf_colors.get(conf, "#888"))
-                conf_item.setForeground(color)
-                conf_item.setTextAlignment(Qt.AlignCenter)
-                table.setItem(row, 3, conf_item)
-
-                # 时间轴
-                ts = f"{item['start']:.1f}s ~ {item['end']:.1f}s"
-                ts_item = QTableWidgetItem(ts)
-                ts_item.setTextAlignment(Qt.AlignCenter)
-                table.setItem(row, 4, ts_item)
-
-            # 显示对齐预览区（如果还没显示）
-            if hasattr(self, 'subgen_align_table'):
-                align_parent = self.subgen_align_table.parent()
-                if align_parent and not align_parent.isVisible():
-                    align_parent.setVisible(True)
 
     def _collect_tool_params(self, tool_index: int) -> Optional[dict]:
             """收集当前选中工具的参数，返回 None 表示校验失败"""
@@ -782,58 +766,6 @@ class ToolsTab(QWidget):
                         "format": target_fmt, "sample_rate": sr}
 
             elif tool_index == 5:
-                # 字幕生成
-                inp = self.subgen_input.text().strip()
-                if not inp:
-                    QMessageBox.warning(self, "警告", "请选择输入文件！")
-                    return None
-                    
-                audio_p = self.subgen_audio.text().strip()
-                if not audio_p:
-                    QMessageBox.warning(self, "警告", "配对音频为必填项（用于 ASR 时间轴对齐）！")
-                    return None
-
-                output = self.subgen_output.text().strip()
-                if not output:
-                    QMessageBox.warning(self, "警告", "请指定输出文件路径！")
-                    return None
-
-                lang_code = self.subgen_lang.currentData() or "zh"
-                fmt = self.subgen_fmt.currentText().lower()
-
-                # Q1: PDF 脚本选择
-                script_index = 0
-                if hasattr(self, 'subgen_script_widget') and self.subgen_script_widget.isVisible():
-                    idx_data = self.subgen_script_combo.currentData()
-                    if idx_data is not None:
-                        script_index = int(idx_data)
-                        
-                # 获取预处理选项
-                vertical_convert = False
-                if hasattr(self, "subgen_vertical_chk"):
-                    vertical_convert = self.subgen_vertical_chk.isChecked()
-                    
-                stage_mode_idx = 0
-                if hasattr(self, "subgen_stage_mode"):
-                    stage_mode_idx = self.subgen_stage_mode.currentIndex()
-                    
-                stage_mode_map = ["remove", "keep", "separate"] # 0: 删除, 1: 保留原文, 2: 分离提取
-                stage_mode = stage_mode_map[stage_mode_idx] if stage_mode_idx < len(stage_mode_map) else "remove"
-
-                result = {"tool": "subtitle_gen",
-                           "input_path": inp,
-                           "audio_path": audio_p,
-                           "fmt": fmt,
-                           "output_path": output,
-                           "mode": "asr_align",
-                           "lang": lang_code,
-                           "script_index": script_index,
-                           "vertical_convert": vertical_convert,
-                           "stage_mode": stage_mode}
-
-                return result
-
-            elif tool_index == 6:
                 # 字幕翻译
                 input_file = self.subtrans_input.text().strip()
                 if not input_file or not Path(input_file).exists():
@@ -855,6 +787,69 @@ class ToolsTab(QWidget):
                         "source_lang": source_lang_code,
                         "target_lang": target_lang_code,
                         "format": fmt}
+
+            elif tool_index == 6:
+                # 台本转字幕 (LLM 流水线)
+                script_path = self.pdfvtt_pdf.text().strip()
+                if not script_path or not Path(script_path).exists():
+                    QMessageBox.warning(self, "警告", "请选择有效的台本文件（PDF 或 TXT）！")
+                    return None
+
+                mode_index = self.pdfvtt_mode.currentIndex()
+                output = self.pdfvtt_output.text().strip()
+                if not output:
+                    p = Path(script_path)
+                    fmt_ext = self.pdfvtt_fmt.currentText().lower()
+                    output = str(p.parent / "output" / f"{p.stem}.{fmt_ext}")
+
+                # 竖排模式映射: 0=auto, 1=horizontal, 2=vertical
+                vertical_mode_map = ["auto", "horizontal", "vertical"]
+                vertical_mode = vertical_mode_map[self.pdfvtt_vertical_mode.currentIndex()]
+
+                if mode_index == 0:
+                    # 完整流程
+                    audio = self.pdfvtt_audio.text().strip()
+                    if not audio or not Path(audio).exists():
+                        QMessageBox.warning(self, "警告", "完整流程模式需要选择音频文件！")
+                        return None
+                    return {
+                        "tool": "script_to_vtt",
+                        "mode": "full",
+                        "script_path": script_path,
+                        "audio_path": audio,
+                        "output_path": output,
+                        "fmt": self.pdfvtt_fmt.currentText().lower(),
+                        "model": self.pdfvtt_asr_model.currentData() or "large-v3",
+                        "language": self.pdfvtt_lang.currentData() or "ja",
+                        "use_llm_clean": self.pdfvtt_use_llm.isChecked(),
+                        "vertical_mode": vertical_mode,
+                    }
+                elif mode_index == 1:
+                    # 已有 VTT
+                    vtt_path = self.pdfvtt_vtt.text().strip()
+                    if not vtt_path or not Path(vtt_path).exists():
+                        QMessageBox.warning(self, "警告", "请选择已有的 ASR 字幕文件！")
+                        return None
+                    return {
+                        "tool": "script_to_vtt",
+                        "mode": "from_vtt",
+                        "script_path": script_path,
+                        "vtt_path": vtt_path,
+                        "output_path": output,
+                        "fmt": self.pdfvtt_fmt.currentText().lower(),
+                        "use_llm_clean": self.pdfvtt_use_llm.isChecked(),
+                        "vertical_mode": vertical_mode,
+                    }
+                else:
+                    # 仅清洗文本
+                    return {
+                        "tool": "script_to_vtt",
+                        "mode": "text_only",
+                        "script_path": script_path,
+                        "output_path": output,
+                        "use_llm_clean": self.pdfvtt_use_llm.isChecked(),
+                        "vertical_mode": vertical_mode,
+                    }
 
             return None
 
@@ -889,119 +884,6 @@ class ToolsTab(QWidget):
             d = QFileDialog.getExistingDirectory(self, "选择输出目录")
             if d:
                 self.split_output.setText(d)
-
-    def _browse_subgen_input(self):
-        fp, _ = QFileDialog.getOpenFileName(
-            self, "选择输入文件", "",
-            "支持的文件 (*.txt *.pdf);;文本文件 (*.txt);;PDF 文件 (*.pdf)"
-        )
-        if fp:
-            from pathlib import Path
-            p = Path(fp)
-            self.subgen_input.setText(fp)
-            
-            # Auto format update
-            ext = p.suffix.lower()
-            if ext == ".txt":
-                self.subgen_source_label.setText("检测到: 文本文件 (.txt)")
-                self.subgen_source_label.setStyleSheet("color: #569CD6; font-weight: bold;")
-            elif ext == ".pdf":
-                self.subgen_source_label.setText("检测到: PDF 文档")
-                self.subgen_source_label.setStyleSheet("color: #4EC970; font-weight: bold;")
-            else:
-                self.subgen_source_label.setText("检测到: 不支持的格式")
-                self.subgen_source_label.setStyleSheet("color: #F14C4C; font-weight: bold;")
-
-            # Auto setup output path
-            fmt_ext = self.subgen_fmt.currentText().lower()
-            out_dir = p.parent / "output"
-            # We don't make dir here, worker will do it
-            default_out = out_dir / f"{p.stem}.{fmt_ext}"
-            self.subgen_output.setText(str(default_out))
-
-            try:
-                scripts = []
-                if ext == ".pdf":
-                    from src.core.subtitle_generator import SubtitleGenerator
-                    scripts = SubtitleGenerator.extract_pdf_scripts(fp)
-                elif ext == ".txt":
-                    from src.core.script_processor import ScriptProcessor
-                    raw_text = Path(fp).read_text(encoding="utf-8")
-                    scripts = ScriptProcessor.detect_scripts(raw_text)
-                
-                self._populate_pdf_script_selector(scripts)
-            except Exception as e:
-                self.log(f"[字幕生成] 加载文件失败: {e}")
-                
-    def _on_subgen_fmt_changed(self, index: int):
-        fp = self.subgen_input.text()
-        if fp:
-            from pathlib import Path
-            p = Path(fp)
-            fmt_ext = self.subgen_fmt.currentText().lower()
-            out_dir = p.parent / "output"
-            default_out = out_dir / f"{p.stem}.{fmt_ext}"
-            self.subgen_output.setText(str(default_out))
-    def _populate_pdf_script_selector(self, scripts: list):
-            """Q1: 填充 PDF 脚本选择下拉框"""
-            self.subgen_script_combo.clear()
-            if not scripts or len(scripts) <= 1:
-                self.subgen_script_combo.addItem("仅一个脚本")
-                self.subgen_script_label.setText("")
-                self.subgen_script_widget.setVisible(False)
-                return
-
-            for s in scripts:
-                title = f"[{s['index']+1}] {s['title']}"
-                page_info = f"P.{s.get('page_start', '?')+1}-{s.get('page_end', '?')+1}" \
-                            if 'page_start' in s else ""
-                display = f"{title} {page_info}".strip()
-                self.subgen_script_combo.addItem(display, userData=s["index"])
-
-            self.subgen_script_label.setText(f"检测到 {len(scripts)} 个脚本段落")
-            self.subgen_script_widget.setVisible(True)
-
-            # 切换脚本时重新加载文本
-            try:
-                self.subgen_script_combo.currentIndexChanged.disconnect(self._on_script_changed)
-            except (TypeError, RuntimeError):
-                pass
-            self.subgen_script_combo.currentIndexChanged.connect(self._on_script_changed)
-            # 缓存脚本列表供切换使用
-            self._pdf_scripts_cache = scripts
-
-    def _on_script_changed(self, index: int):
-        """脚本下拉切换时的处理"""
-        if index >= 0 and hasattr(self, '_pdf_scripts_cache') and self._pdf_scripts_cache:
-            self._current_script_index = self.subgen_script_combo.currentData()
-
-    def _browse_subgen_output(self):
-            fp, _ = QFileDialog.getSaveFileName(self, "选择输出文件",
-                                                 "subtitle.srt",
-                                                 "SRT 文件 (*.srt);;VTT 文件 (*.vtt);;LRC 文件 (*.lrc)")
-            if fp:
-                self.subgen_output.setText(fp)
-                ext = Path(fp).suffix.lstrip(".").lower()
-                idx = self.subgen_fmt.findText(ext.upper())
-                if idx >= 0:
-                    self.subgen_fmt.setCurrentIndex(idx)
-
-    def _browse_subgen_audio(self):
-            fp, _ = QFileDialog.getOpenFileName(self, "选择配对音频",
-                                                "", "音频文件 (*.wav *.mp3 *.flac *.m4a *.ogg);;所有文件 (*)")
-            if fp:
-                self.subgen_audio.setText(fp)
-
-    def _on_subgen_source_changed(self, index: int):
-            """切换输入源时显示/隐藏脚本选择器"""
-            is_pdf = (index == 1)
-            if hasattr(self, 'subgen_script_widget') and self.subgen_script_widget is not None:
-                # subgen_script_widget 是 QHBoxLayout，用 setEnabled 控制可见性
-                # 通过遍历其子 widget 设置
-                for i in range(self.subgen_script_widget.count()):
-                    w = self.subgen_script_widget.itemAt(i).widget()
-                    if w:
-                        w.setVisible(is_pdf)
 
     def _browse_subtrans_input(self):
             fp, _ = QFileDialog.getOpenFileName(self, "选择字幕文件",

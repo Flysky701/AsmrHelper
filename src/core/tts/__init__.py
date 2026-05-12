@@ -244,15 +244,17 @@ class EdgeTTSEngine:
             "-y",
         ]
 
-        subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=True,
-        )
-        concat_file.unlink(missing_ok=True)
+        try:
+            subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=True,
+            )
+        finally:
+            concat_file.unlink(missing_ok=True)
 
 
 class Qwen3TTSEngine:
@@ -628,182 +630,182 @@ class TTSEngine:
         valid_temp_files = []
         seg_meta = {}
 
-        for i, seg in enumerate(segments):
-            translation = seg.get("text", "").strip()
-            if not translation:
-                continue
-            original_text = translation
-            translation = _clean_text_for_tts(translation)
-            if not translation.strip():
-                continue
-            temp_tts = temp_dir / f"tts_{i:04d}.wav"
-            valid_indices.append(i)
-            valid_texts.append(translation)
-            valid_temp_files.append(temp_tts)
-            seg_meta[i] = {
-                "original_text": original_text,
-                "start_sec": seg.get("start_time", 0),
-                "end_sec": seg.get("end_time", seg.get("start_time", 0) + 5.0),
-            }
+        try:
+            for i, seg in enumerate(segments):
+                translation = seg.get("text", "").strip()
+                if not translation:
+                    continue
+                original_text = translation
+                translation = _clean_text_for_tts(translation)
+                if not translation.strip():
+                    continue
+                temp_tts = temp_dir / f"tts_{i:04d}.wav"
+                valid_indices.append(i)
+                valid_texts.append(translation)
+                valid_temp_files.append(temp_tts)
+                seg_meta[i] = {
+                    "original_text": original_text,
+                    "start_sec": seg.get("start_time", 0),
+                    "end_sec": seg.get("end_time", seg.get("start_time", 0) + 5.0),
+                }
 
-        if is_edge and valid_texts:
-            print(f"  [EdgeTTS] 并发合成 {len(valid_texts)} 句...")
-            t_syn = time.time()
-            _run_async(self.engine._synthesize_all_async(valid_texts, valid_temp_files))
-            print(f"  [EdgeTTS] 并发合成完成，耗时: {time.time()-t_syn:.1f}s")
-        else:
-            for idx, (text, temp_file) in enumerate(zip(valid_texts, valid_temp_files)):
-                i = valid_indices[idx]
-                success = False
-                last_error = None
-                for retry in range(3):
-                    try:
-                        self.engine.synthesize(text, str(temp_file))
-                        if temp_file.exists() and temp_file.stat().st_size > 0:
-                            success = True
-                            break
-                    except Exception as e:
-                        last_error = e
-                        if retry < 2:
-                            print(f"  [DEBUG] 第 {i+1} 句重试 {retry+1}: {str(e)[:80]}")
-                            time.sleep(0.5)
-                if not success:
-                    failed_count += 1
-                    meta = seg_meta[i]
-                    display_text = (meta["original_text"][:50] + "...") if len(meta["original_text"]) > 50 else meta["original_text"]
-                    print(f"  [WARN] 第 {i+1} 句 TTS 失败: {last_error}")
-                    print(f"         原文: {display_text!r}")
-
-        timeline_samples = int(reference_duration * sample_rate) if reference_duration > 0 else 0
-        timeline = np.zeros(timeline_samples, dtype=np.float32) if timeline_samples > 0 else None
-
-        for idx, (i, temp_tts) in enumerate(zip(valid_indices, valid_temp_files)):
-            if (idx + 1) % 10 == 0 or idx == 0:
-                print(f"  [进度] 后处理中... {idx+1}/{len(valid_indices)} 句")
-
-            meta = seg_meta[i]
-            start_sec = meta["start_sec"]
-            end_sec = meta["end_sec"]
-            original_duration = end_sec - start_sec
-
-            if not temp_tts.exists() or temp_tts.stat().st_size == 0:
-                failed_count += 1
-                continue
-
-            try:
-                tts_data, tts_sr = sf.read(str(temp_tts))
-            except Exception as e:
-                print(f"  [WARN] 第 {i+1} 句读取失败: {e}")
-                continue
-
-            if tts_sr != sample_rate:
-                try:
-                    import librosa
-                    tts_data = librosa.resample(tts_data, orig_sr=tts_sr, target_sr=sample_rate)
-                except ImportError:
-                    _temp_wav = output_dir / f"_resample_temp_{i}.wav"
-                    _temp_48k = _temp_wav.with_suffix(".48k.wav")
-                    try:
-                        sf.write(str(_temp_wav), tts_data, tts_sr, subtype="FLOAT")
-                        subprocess.run(
-                            [get_ffmpeg(), "-i", str(_temp_wav), "-ar", str(sample_rate), "-ac", "2", str(_temp_48k)],
-                            capture_output=True, check=True,
-                        )
-                        tts_data, tts_sr = sf.read(str(_temp_48k))
-                    finally:
-                        _temp_wav.unlink(missing_ok=True)
-                        _temp_48k.unlink(missing_ok=True)
-
-            if tts_data.ndim > 1:
-                tts_data = np.mean(tts_data, axis=1)
-
-            tts_duration = len(tts_data) / sample_rate
-
-            if tts_duration > original_duration * max_tts_ratio:
-                if is_qwen3:
-                    original_tts_duration = tts_duration
-                    instruct = Qwen3TTSEngine.speed_instruct(tts_duration, original_duration)
-                    if instruct and hasattr(self.engine, 'synthesize_with_instruct'):
+            if is_edge and valid_texts:
+                print(f"  [EdgeTTS] 并发合成 {len(valid_texts)} 句...")
+                t_syn = time.time()
+                _run_async(self.engine._synthesize_all_async(valid_texts, valid_temp_files))
+                print(f"  [EdgeTTS] 并发合成完成，耗时: {time.time()-t_syn:.1f}s")
+            else:
+                for idx, (text, temp_file) in enumerate(zip(valid_texts, valid_temp_files)):
+                    i = valid_indices[idx]
+                    success = False
+                    last_error = None
+                    for retry in range(3):
                         try:
-                            temp_tts_fast = temp_dir / f"tts_{i:04d}_fast.wav"
-                            self.engine.synthesize_with_instruct(translation, str(temp_tts_fast), instruct=instruct)
-                            if temp_tts_fast.exists() and temp_tts_fast.stat().st_size > 0:
-                                tts_data_new, tts_sr_new = sf.read(str(temp_tts_fast))
-                                if tts_sr_new != sample_rate:
-                                    try:
-                                        import librosa
-                                        tts_data_new = librosa.resample(tts_data_new, orig_sr=tts_sr_new, target_sr=sample_rate)
-                                    except ImportError:
-                                        pass
-                                if tts_data_new.ndim > 1:
-                                    tts_data_new = np.mean(tts_data_new, axis=1)
-                                tts_duration_new = len(tts_data_new) / sample_rate
-                                if tts_duration_new < original_tts_duration:
-                                    tts_data = tts_data_new
-                                    tts_duration = tts_duration_new
-                                    print(f"  [{i+1}] Qwen3 instruct 重合成: {original_tts_duration:.1f}s -> {tts_duration:.1f}s (instruct: {instruct!r})")
-                                else:
-                                    print(f"  [{i+1}] Qwen3 instruct 未缩短 ({tts_duration_new:.1f}s >= {original_tts_duration:.1f}s)，保留原始")
-                                temp_tts_fast.unlink(missing_ok=True)
-                            else:
-                                print(f"  [{i+1}] Qwen3 instruct 重合成失败，保留原始")
+                            self.engine.synthesize(text, str(temp_file))
+                            if temp_file.exists() and temp_file.stat().st_size > 0:
+                                success = True
+                                break
                         except Exception as e:
-                            print(f"  [{i+1}] Qwen3 instruct 重合成异常: {e}，保留原始")
-                else:
-                    original_tts_duration = tts_duration
-                    try:
-                        import pytsmod
-                        win_size = int(sample_rate * 0.100)
-                        syn_hop_size = int(sample_rate * 0.025)
-                        tts_data = pytsmod.ola(tts_data, compress_ratio, win_size=win_size, syn_hop_size=syn_hop_size)
-                        tts_duration = len(tts_data) / sample_rate
-                        print(f"  [{i+1}] OLA 压缩 {1/compress_ratio:.2f}x: {original_tts_duration:.1f}s -> {tts_duration:.1f}s")
-                    except ImportError:
-                        print(f"  [WARN] 第 {i+1} 句 TTS 过长 ({tts_duration:.1f}s > {original_duration:.1f}s)，需要安装 pytsmod")
-                        max_samples = int(original_duration * sample_rate)
-                        tts_data = tts_data[:max_samples]
-                        tts_duration = len(tts_data) / sample_rate
+                            last_error = e
+                            if retry < 2:
+                                print(f"  [DEBUG] 第 {i+1} 句重试 {retry+1}: {str(e)[:80]}")
+                                time.sleep(0.5)
+                    if not success:
+                        failed_count += 1
+                        meta = seg_meta[i]
+                        display_text = (meta["original_text"][:50] + "...") if len(meta["original_text"]) > 50 else meta["original_text"]
+                        print(f"  [WARN] 第 {i+1} 句 TTS 失败: {last_error}")
+                        print(f"         原文: {display_text!r}")
 
-            tts_data = _apply_fade(tts_data.astype(np.float32), sample_rate, fade_in_ms, fade_out_ms)
+            timeline_samples = int(reference_duration * sample_rate) if reference_duration > 0 else 0
+            timeline = np.zeros(timeline_samples, dtype=np.float32) if timeline_samples > 0 else None
 
-            start_sample = int(start_sec * sample_rate)
-            end_sample = start_sample + len(tts_data)
+            for idx, (i, temp_tts) in enumerate(zip(valid_indices, valid_temp_files)):
+                if (idx + 1) % 10 == 0 or idx == 0:
+                    print(f"  [进度] 后处理中... {idx+1}/{len(valid_indices)} 句")
 
-            if start_sample < 0:
-                skip_samples = abs(start_sample)
-                tts_data = tts_data[skip_samples:]
-                start_sample = 0
-                end_sample = start_sample + len(tts_data)
-                if len(tts_data) == 0:
+                meta = seg_meta[i]
+                start_sec = meta["start_sec"]
+                end_sec = meta["end_sec"]
+                original_duration = end_sec - start_sec
+
+                if not temp_tts.exists() or temp_tts.stat().st_size == 0:
+                    failed_count += 1
                     continue
 
-            if timeline is None:
-                timeline_samples = end_sample + int(sample_rate)
-                timeline = np.zeros(timeline_samples, dtype=np.float32)
+                try:
+                    tts_data, tts_sr = sf.read(str(temp_tts))
+                except Exception as e:
+                    print(f"  [WARN] 第 {i+1} 句读取失败: {e}")
+                    continue
 
-            if start_sample >= len(timeline):
-                continue
-            if end_sample > len(timeline):
-                end_sample = len(timeline)
-                tts_data = tts_data[:end_sample - start_sample]
+                if tts_sr != sample_rate:
+                    try:
+                        import librosa
+                        tts_data = librosa.resample(tts_data, orig_sr=tts_sr, target_sr=sample_rate)
+                    except ImportError:
+                        _temp_wav = output_dir / f"_resample_temp_{i}.wav"
+                        _temp_48k = _temp_wav.with_suffix(".48k.wav")
+                        try:
+                            sf.write(str(_temp_wav), tts_data, tts_sr, subtype="FLOAT")
+                            subprocess.run(
+                                [get_ffmpeg(), "-i", str(_temp_wav), "-ar", str(sample_rate), "-ac", "2", str(_temp_48k)],
+                                capture_output=True, check=True,
+                            )
+                            tts_data, tts_sr = sf.read(str(_temp_48k))
+                        finally:
+                            _temp_wav.unlink(missing_ok=True)
+                            _temp_48k.unlink(missing_ok=True)
 
-            available = end_sample - start_sample
-            if available > 0:
-                timeline[start_sample:end_sample] += tts_data[:available].astype(np.float32)
-                synthesized_count += 1
+                if tts_data.ndim > 1:
+                    tts_data = np.mean(tts_data, axis=1)
 
+                tts_duration = len(tts_data) / sample_rate
 
-        if timeline is None or len(timeline) == 0:
-            sf.write(str(output_path), np.zeros((1024, 2), dtype=np.float32), sample_rate, subtype="FLOAT")
-        else:
-            max_val = np.max(np.abs(timeline))
-            if max_val > 0.95:
-                timeline = timeline * 0.95 / max_val
-                print(f"[TTS] 归一化: {max_val:.2f} -> 0.95")
-            stereo = np.column_stack([timeline, timeline])
-            sf.write(str(output_path), stereo, sample_rate, subtype="FLOAT")
+                if tts_duration > original_duration * max_tts_ratio:
+                    if is_qwen3:
+                        original_tts_duration = tts_duration
+                        instruct = Qwen3TTSEngine.speed_instruct(tts_duration, original_duration)
+                        if instruct and hasattr(self.engine, 'synthesize_with_instruct'):
+                            try:
+                                temp_tts_fast = temp_dir / f"tts_{i:04d}_fast.wav"
+                                self.engine.synthesize_with_instruct(translation, str(temp_tts_fast), instruct=instruct)
+                                if temp_tts_fast.exists() and temp_tts_fast.stat().st_size > 0:
+                                    tts_data_new, tts_sr_new = sf.read(str(temp_tts_fast))
+                                    if tts_sr_new != sample_rate:
+                                        try:
+                                            import librosa
+                                            tts_data_new = librosa.resample(tts_data_new, orig_sr=tts_sr_new, target_sr=sample_rate)
+                                        except ImportError:
+                                            pass
+                                    if tts_data_new.ndim > 1:
+                                        tts_data_new = np.mean(tts_data_new, axis=1)
+                                    tts_duration_new = len(tts_data_new) / sample_rate
+                                    if tts_duration_new < original_tts_duration:
+                                        tts_data = tts_data_new
+                                        tts_duration = tts_duration_new
+                                        print(f"  [{i+1}] Qwen3 instruct 重合成: {original_tts_duration:.1f}s -> {tts_duration:.1f}s (instruct: {instruct!r})")
+                                    else:
+                                        print(f"  [{i+1}] Qwen3 instruct 未缩短 ({tts_duration_new:.1f}s >= {original_tts_duration:.1f}s)，保留原始")
+                                    temp_tts_fast.unlink(missing_ok=True)
+                                else:
+                                    print(f"  [{i+1}] Qwen3 instruct 重合成失败，保留原始")
+                            except Exception as e:
+                                print(f"  [{i+1}] Qwen3 instruct 重合成异常: {e}，保留原始")
+                    else:
+                        original_tts_duration = tts_duration
+                        try:
+                            import pytsmod
+                            win_size = int(sample_rate * 0.100)
+                            syn_hop_size = int(sample_rate * 0.025)
+                            tts_data = pytsmod.ola(tts_data, compress_ratio, win_size=win_size, syn_hop_size=syn_hop_size)
+                            tts_duration = len(tts_data) / sample_rate
+                            print(f"  [{i+1}] OLA 压缩 {1/compress_ratio:.2f}x: {original_tts_duration:.1f}s -> {tts_duration:.1f}s")
+                        except ImportError:
+                            print(f"  [WARN] 第 {i+1} 句 TTS 过长 ({tts_duration:.1f}s > {original_duration:.1f}s)，需要安装 pytsmod")
+                            max_samples = int(original_duration * sample_rate)
+                            tts_data = tts_data[:max_samples]
+                            tts_duration = len(tts_data) / sample_rate
 
-        shutil.rmtree(temp_dir, ignore_errors=True)
+                tts_data = _apply_fade(tts_data.astype(np.float32), sample_rate, fade_in_ms, fade_out_ms)
+
+                start_sample = int(start_sec * sample_rate)
+                end_sample = start_sample + len(tts_data)
+
+                if start_sample < 0:
+                    skip_samples = abs(start_sample)
+                    tts_data = tts_data[skip_samples:]
+                    start_sample = 0
+                    end_sample = start_sample + len(tts_data)
+                    if len(tts_data) == 0:
+                        continue
+
+                if timeline is None:
+                    timeline_samples = end_sample + int(sample_rate)
+                    timeline = np.zeros(timeline_samples, dtype=np.float32)
+
+                if start_sample >= len(timeline):
+                    continue
+                if end_sample > len(timeline):
+                    end_sample = len(timeline)
+                    tts_data = tts_data[:end_sample - start_sample]
+
+                available = end_sample - start_sample
+                if available > 0:
+                    timeline[start_sample:end_sample] += tts_data[:available].astype(np.float32)
+                    synthesized_count += 1
+
+            if timeline is None or len(timeline) == 0:
+                sf.write(str(output_path), np.zeros((1024, 2), dtype=np.float32), sample_rate, subtype="FLOAT")
+            else:
+                max_val = np.max(np.abs(timeline))
+                if max_val > 0.95:
+                    timeline = timeline * 0.95 / max_val
+                    print(f"[TTS] 归一化: {max_val:.2f} -> 0.95")
+                stereo = np.column_stack([timeline, timeline])
+                sf.write(str(output_path), stereo, sample_rate, subtype="FLOAT")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
         skip_count = len(segments) - synthesized_count - failed_count
         print(f"[TTS] 时间轴拼装完成: {output_path.name}")
@@ -819,15 +821,3 @@ class TTSEngine:
 # 注册内置引擎（模块加载时自动注册）
 TTSEngine.register("edge", EdgeTTSEngine)
 TTSEngine.register("qwen3", Qwen3TTSEngine)
-
-
-# 便捷函数
-def synthesize_speech(
-    text: str,
-    output_path: str,
-    engine: str = "edge",
-    voice: str = "zh-CN-XiaoxiaoNeural",
-) -> str:
-    """快速合成语音"""
-    tts = TTSEngine(engine=engine, voice=voice)
-    return tts.synthesize(text, output_path)

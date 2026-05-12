@@ -4,10 +4,9 @@
 功能：从混合音频中分离出人声、鼓点、贝斯和其他乐器
 """
 
-import os
 import time
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Optional
 
 import numpy as np
 import soundfile as sf
@@ -166,14 +165,3 @@ class VocalSeparator:
                 import torch
                 torch.cuda.empty_cache()
             print(f"[VocalSeparator] 模型已卸载，设备: {self.device}")
-
-
-# 便捷函数
-def separate_vocals(
-    audio_path: str,
-    output_dir: str,
-    model_name: str = "htdemucs",
-) -> str:
-    """快速分离人声"""
-    separator = VocalSeparator(model_name=model_name)
-    return separator.separate_vocals(audio_path, output_dir)
