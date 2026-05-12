@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     ASMR Helper 一键环境配置脚本
@@ -40,6 +40,29 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# ============================================================
+# Windows PowerShell 执行策略检查
+# ============================================================
+$executionPolicy = Get-ExecutionPolicy -Scope CurrentUser
+if ($executionPolicy -eq "Restricted" -or $executionPolicy -eq "AllSigned") {
+    Write-Host ""
+    Write-Host "  [提示] 当前 PowerShell 执行策略为 '$executionPolicy'，可能阻止脚本运行。" -ForegroundColor Yellow
+    Write-Host "  建议执行以下命令以允许本地脚本运行:" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  输入 Y 确认即可。此设置仅影响当前用户，无需管理员权限。" -ForegroundColor DarkGray
+    Write-Host "  如果不想修改策略，可使用以下方式绕过:" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "    powershell -ExecutionPolicy Bypass -File .\setup.ps1" -ForegroundColor Cyan
+    Write-Host ""
+    $continue = Read-Host "  是否继续 (Y/N)?"
+    if ($continue -notmatch "^[Yy]") {
+        Write-Host "  已取消。" -ForegroundColor Yellow
+        exit 0
+    }
+}
 
 # ============================================================
 # 工具函数
@@ -609,9 +632,9 @@ if (Test-Path $installModelsScript) {
         Write-Warn "部分模型未下载"
         Write-Host ""
         Write-Host "  下载命令:" -ForegroundColor White
-        Write-Host "    powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models              # 下载 Whisper base 模型" -ForegroundColor White
-        Write-Host "    powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Full         # 下载全部模型 (Whisper + Qwen3)" -ForegroundColor White
-        Write-Host "    powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Mirror       # 使用镜像加速下载" -ForegroundColor White
+        Write-Host "    .\setup.ps1 -Models              # 下载 Whisper base 模型" -ForegroundColor White
+        Write-Host "    .\setup.ps1 -Models -Full         # 下载全部模型 (Whisper + Qwen3)" -ForegroundColor White
+        Write-Host "    .\setup.ps1 -Models -Mirror       # 使用镜像加速下载" -ForegroundColor White
     }
 } else {
     Write-Warn "install_models.py 不存在，跳过模型检查"
@@ -631,7 +654,7 @@ if ($failed -eq 0) {
 Write-Host ""
 Write-Host "  后续步骤:" -ForegroundColor White
 Write-Host "    1. 配置 API Key (编辑 config/config.json 或设置环境变量)" -ForegroundColor White
-Write-Host "    2. 下载模型:     powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models" -ForegroundColor White
+Write-Host "    2. 下载模型:     .\setup.ps1 -Models" -ForegroundColor White
 Write-Host "    3. 运行 GUI:     .\run.bat" -ForegroundColor White
 Write-Host "    4. 命令行处理:  uv run python scripts/asmr_bilingual.py --input audio.wav" -ForegroundColor White
 Write-Host ""

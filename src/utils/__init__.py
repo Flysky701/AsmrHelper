@@ -2,23 +2,15 @@
 工具函数模块
 """
 
-import os
 import subprocess
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 import imageio_ffmpeg
 
 
 def get_ffmpeg() -> str:
     """获取 ffmpeg 路径（使用 imageio_ffmpeg 内置版本）"""
     return imageio_ffmpeg.get_ffmpeg_exe()
-
-
-def get_audio_duration(audio_path: str) -> float:
-    """获取音频时长（秒）"""
-    import soundfile as sf
-    data, sr = sf.read(audio_path)
-    return len(data) / sr
 
 
 def get_audio_info(audio_path: str) -> dict:
@@ -42,36 +34,6 @@ def ensure_dir(path: str) -> Path:
     p = Path(path)
     p.mkdir(parents=True, exist_ok=True)
     return p
-
-
-def run_ffmpeg(cmd: list, check: bool = True, timeout: int = 300) -> subprocess.CompletedProcess:
-    """运行 ffmpeg 命令"""
-    cmd = [get_ffmpeg()] + cmd[1:] if cmd[0] == "ffmpeg" else cmd
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=check,
-        timeout=timeout,  # 防止 ffmpeg 卡死
-    )
-
-
-def find_vtt_file(input_path: Path, extra_dirs: list = None) -> Optional[Path]:
-    """
-    查找匹配的 VTT 字幕文件（向后兼容）
-
-    Args:
-        input_path: 音频文件路径
-        extra_dirs: 额外搜索目录列表
-
-    Returns:
-        VTT 文件路径，未找到返回 None
-    """
-    # 优先只搜索 .vtt 文件
-    subtitle_exts = [".vtt"]
-    return _find_subtitle_file_impl(input_path, extra_dirs, subtitle_exts)
 
 
 def find_subtitle_file(input_path: Path, extra_dirs: list = None, extensions: list = None) -> Optional[Path]:
@@ -225,12 +187,6 @@ def cut_audio_by_subtitle(
 
     return results
 
-
-# 导出设计模式
-from src.utils.patterns import singleton
-
-# 导出 GPU 上下文管理器
-from src.utils.gpu_context import gpu_context, clear_gpu_memory
 
 # 导出格式化工具
 from src.utils.formatters import format_timestamp

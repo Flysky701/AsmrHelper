@@ -6,7 +6,6 @@ ASMR Helper CLI 入口
     python -m src.cli --task asr --input audio.wav
 """
 
-import os
 import sys
 from pathlib import Path
 from typing import Optional

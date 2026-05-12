@@ -7,9 +7,6 @@ ASMR Helper GUI - PySide6 主界面 (支持单文件和批量处理)
 """
 
 import sys
-import os
-import re
-import subprocess
 from pathlib import Path
 from typing import Optional, List
 
@@ -21,8 +18,8 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QStackedWidget,
     QScrollArea
 )
-from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QFont, QAction, QColor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QAction
 
 # 添加项目根目录到 sys.path（支持直接运行脚本）
 project_root = Path(__file__).parent.parent
@@ -31,9 +28,7 @@ if str(project_root) not in sys.path:
 
 # 导入拆分模块
 from src.gui.workers.pipeline_worker import SingleWorkerThread, PreviewWorkerThread, BatchWorkerThread
-from src.gui.services.voice_service import scan_audio_files
 from src.gui.utils.validators import validate_batch_params, validate_single_params
-from src.utils.constants import AUDIO_EXTENSIONS
 
 class MainWindow(QMainWindow):
     """主窗口"""
@@ -386,6 +381,12 @@ class MainWindow(QMainWindow):
         asr_action.triggered.connect(self.show_asr_config)
         settings_menu.addAction(asr_action)
 
+        settings_menu.addSeparator()
+
+        model_mgr_action = QAction("模型管理", self)
+        model_mgr_action.triggered.connect(self.show_model_manager)
+        settings_menu.addAction(model_mgr_action)
+
         # 中央部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -608,6 +609,117 @@ class MainWindow(QMainWindow):
             config.set("processing.asr_model", asr_model.currentText())
             config.save()
             QMessageBox.information(self, "保存成功", "ASR 模型配置已保存！")
+
+    def show_model_manager(self):
+        """显示模型管理对话框"""
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
+            QPushButton, QDialogButtonBox, QLabel, QHeaderView, QAbstractItemView,
+        )
+        from src.core.model_manager import get_model_manager, ModelManager
+
+        mgr = get_model_manager()
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("模型管理")
+        dialog.setMinimumSize(550, 400)
+
+        layout = QVBoxLayout(dialog)
+
+        # 说明
+        info = QLabel("查看已注册的模型及其加载状态，可单独卸载以释放显存。")
+        info.setStyleSheet("color: gray; font-size: 11px;")
+        layout.addWidget(info)
+
+        # 模型表格
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["类别", "Provider", "状态", "操作"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+
+        # 填充数据
+        rows = []
+        for category in ModelManager.categories():
+            for name in ModelManager.available(category):
+                loaded = mgr.is_loaded(category, name)
+                rows.append((category, name, loaded))
+
+        table.setRowCount(len(rows))
+        unload_buttons = []
+        for i, (cat, name, loaded) in enumerate(rows):
+            table.setItem(i, 0, QTableWidgetItem(cat))
+            table.setItem(i, 1, QTableWidgetItem(name))
+
+            status_item = QTableWidgetItem("已加载" if loaded else "未加载")
+            status_item.setForeground(QColor("#2d7d2d") if loaded else QColor("#999"))
+            table.setItem(i, 2, status_item)
+
+            btn = QPushButton("卸载")
+            btn.setEnabled(loaded)
+            btn.setMaximumWidth(60)
+            unload_buttons.append((btn, cat, name))
+            table.setCellWidget(i, 3, btn)
+
+        layout.addWidget(table)
+
+        # 刷新 + 全部卸载 按钮行
+        btn_row = QHBoxLayout()
+
+        refresh_btn = QPushButton("刷新状态")
+        btn_row.addWidget(refresh_btn)
+
+        unload_all_btn = QPushButton("全部卸载")
+        btn_row.addWidget(unload_all_btn)
+
+        # GPU 信息
+        gpu_info = self._get_gpu_info()
+        if gpu_info:
+            gpu_label = QLabel(gpu_info)
+            gpu_label.setStyleSheet("color: #666; font-size: 11px;")
+            btn_row.addWidget(gpu_label)
+
+        btn_row.addStretch()
+
+        close_btn = QPushButton("关闭")
+        close_btn.clicked.connect(dialog.accept)
+        btn_row.addWidget(close_btn)
+
+        layout.addLayout(btn_row)
+
+        # 刷新逻辑
+        def refresh():
+            for i, (cat, name, _) in enumerate(rows):
+                loaded = mgr.is_loaded(cat, name)
+                status_item = table.item(i, 2)
+                status_item.setText("已加载" if loaded else "未加载")
+                status_item.setForeground(QColor("#2d7d2d") if loaded else QColor("#999"))
+                unload_buttons[i][0].setEnabled(loaded)
+
+        refresh_btn.clicked.connect(refresh)
+
+        # 单个卸载
+        def make_unload_slot(c, n, b):
+            def slot():
+                mgr.unload(c, n)
+                refresh()
+            return slot
+
+        for btn, cat, name in unload_buttons:
+            btn.clicked.connect(make_unload_slot(cat, name, btn))
+
+        # 全部卸载
+        def unload_all():
+            mgr.unload_all()
+            refresh()
+
+        unload_all_btn.clicked.connect(unload_all)
+
+        dialog.exec()
 
 
     # ==================== 工具 UI 构建器 ====================

@@ -241,14 +241,33 @@ class SubtitleGenerator:
         return sections
 
     @staticmethod
-    def _extract_pdf_text_with_pages(pdf_path: str) -> Tuple[str, List[str]]:
-        """从 PDF 提取文本，返回 (全部文本, [每页文本列表])"""
+    def _extract_pdf_text_with_pages(pdf_path: str, vertical_mode: str = "auto") -> Tuple[str, List[str]]:
+        """从 PDF 提取文本，返回 (全部文本, [每页文本列表])
+
+        Args:
+            pdf_path: PDF 文件路径
+            vertical_mode: 竖排处理模式
+                - "auto": 自动检测（默认）
+                - "horizontal": 强制横排提取
+                - "vertical": 强制竖排提取（pdfplumber RTL/TTB）
+
+        提取策略：
+        1. pypdf 快速提取（处理大多数横排 PDF）
+        2. pdfplumber 精确提取（回退 + 竖排自动检测）
+        """
+        from src.core.script_processor import ScriptProcessor
+
         path = Path(pdf_path)
         if not path.exists():
             raise FileNotFoundError(f"PDF 文件不存在: {pdf_path}")
 
+        # 强制竖排模式：直接用 pdfplumber RTL/TTB 提取
+        if vertical_mode == "vertical":
+            return SubtitleGenerator._extract_pdf_vertical(path)
+
+        # --- 尝试 1: pypdf（快速，处理大多数横排 PDF）---
         try:
-            from PyPDF2 import PdfReader
+            from pypdf import PdfReader
             reader = PdfReader(str(path))
             pages_text = []
             for page in reader.pages:
@@ -256,28 +275,80 @@ class SubtitleGenerator:
                 pages_text.append(pt if pt else "")
             result = "\n\n".join(pt for pt in pages_text if pt.strip())
             if result.strip():
-                return result, pages_text
+                # 强制横排模式：直接返回 pypdf 结果
+                if vertical_mode == "horizontal":
+                    return result, pages_text
+                # 自动模式：检查是否需要竖排重提取
+                if not ScriptProcessor.detect_vertical_layout(result):
+                    return result, pages_text
+                # 检测到竖排特征，继续走 pdfplumber 竖排提取
+                return SubtitleGenerator._extract_pdf_vertical(path)
         except ImportError:
             pass
         except Exception:
             pass
 
+        # --- 尝试 2: pdfplumber（精确提取 + 竖排检测）---
         try:
             import pdfplumber
             with pdfplumber.open(str(path)) as pdf:
-                pages_text = []
+                # 横排提取
+                pages_text_h = []
                 for page in pdf.pages:
-                    pt = page.extract_text()
-                    pages_text.append(pt if pt else "")
-                result = "\n\n".join(pt for pt in pages_text if pt.strip())
-                if result.strip():
-                    return result, pages_text
+                    pt = page.extract_text(x_tolerance=3, y_tolerance=3)
+                    pages_text_h.append(pt if pt else "")
+                result_h = "\n\n".join(pt for pt in pages_text_h if pt.strip())
+
+                # 强制横排：直接返回
+                if vertical_mode == "horizontal":
+                    if result_h.strip():
+                        return result_h, pages_text_h
+
+                # 自动模式：检测是否需要竖排提取
+                if vertical_mode == "auto" and result_h.strip() and ScriptProcessor.detect_vertical_layout(result_h):
+                    pages_text_v = []
+                    for page in pdf.pages:
+                        pt = page.extract_text(
+                            line_dir="rtl", char_dir="ttb",
+                            x_tolerance=3, y_tolerance=3,
+                        )
+                        pages_text_v.append(pt if pt else "")
+                    result_v = "\n\n".join(pt for pt in pages_text_v if pt.strip())
+
+                    # 比较：选行均长度更合理的
+                    if result_v.strip():
+                        lines_h = [l for l in result_h.splitlines() if l.strip()]
+                        lines_v = [l for l in result_v.splitlines() if l.strip()]
+                        avg_h = sum(len(l) for l in lines_h) / max(len(lines_h), 1)
+                        avg_v = sum(len(l) for l in lines_v) / max(len(lines_v), 1)
+                        if avg_v > avg_h:
+                            return result_v, pages_text_v
+
+                if result_h.strip():
+                    return result_h, pages_text_h
         except ImportError:
             raise RuntimeError("需要安装 PDF 处理库。请运行: uv add pypdf 或 uv add pdfplumber")
         except Exception as e:
             raise RuntimeError(f"PDF 文本提取失败: {e}")
 
         raise RuntimeError(f"无法从 PDF 中提取文本: {pdf_path}")
+
+    @staticmethod
+    def _extract_pdf_vertical(path: Path) -> Tuple[str, List[str]]:
+        """使用 pdfplumber 竖排模式（RTL/TTB）提取 PDF 文本"""
+        import pdfplumber
+        with pdfplumber.open(str(path)) as pdf:
+            pages_text = []
+            for page in pdf.pages:
+                pt = page.extract_text(
+                    line_dir="rtl", char_dir="ttb",
+                    x_tolerance=3, y_tolerance=3,
+                )
+                pages_text.append(pt if pt else "")
+            result = "\n\n".join(pt for pt in pages_text if pt.strip())
+            if result.strip():
+                return result, pages_text
+        raise RuntimeError(f"无法从 PDF 中提取文本: {path}")
 
     # ==================== 字幕生成核心 ====================
 

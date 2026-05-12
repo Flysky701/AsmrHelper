@@ -335,15 +335,3 @@ class ASRRecognizer:
                 import torch
                 torch.cuda.empty_cache()
             print(f"[ASRRecognizer] 模型已卸载，设备: {self.device}")
-
-
-# 便捷函数
-def recognize_speech(
-    audio_path: str,
-    output_path: Optional[str] = None,
-    language: str = "ja",
-    model_size: str = "base",
-) -> List[dict]:
-    """快速识别语音"""
-    recognizer = ASRRecognizer(model_size=model_size, language=language)
-    return recognizer.recognize(audio_path, output_path)

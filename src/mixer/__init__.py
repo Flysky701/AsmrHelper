@@ -228,20 +228,3 @@ class Mixer:
         print(f"[Mixer] 双语混音完成，耗时: {time.time()-t0:.1f}s")
 
         return str(output_path)
-
-
-# 便捷函数
-def mix_audio(
-    original_path: str,
-    tts_path: str,
-    output_path: str,
-    tts_volume_ratio: float = 0.5,
-    tts_delay_ms: float = 0,
-) -> str:
-    """快速混音"""
-    mixer = Mixer(
-        original_volume=0.85,
-        tts_volume_ratio=tts_volume_ratio,
-        tts_delay_ms=tts_delay_ms,
-    )
-    return mixer.mix(original_path, tts_path, output_path)
