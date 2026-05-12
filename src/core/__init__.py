@@ -7,7 +7,7 @@ from .asr import ASRRecognizer
 from .translate import Translator
 from .tts import TTSEngine
 from .pipeline import Pipeline, PipelineConfig
-from src.mixer import Mixer
+from ..mixer import Mixer
 from .model_manager import ModelManager, get_model_manager
 
 __all__ = [

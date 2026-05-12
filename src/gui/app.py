@@ -7,9 +7,6 @@ ASMR Helper GUI - PySide6 主界面 (支持单文件和批量处理)
 """
 
 import sys
-import os
-import re
-import subprocess
 from pathlib import Path
 from typing import Optional, List
 
@@ -21,8 +18,8 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QStackedWidget,
     QScrollArea
 )
-from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QFont, QAction, QColor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QAction
 
 # 添加项目根目录到 sys.path（支持直接运行脚本）
 project_root = Path(__file__).parent.parent
@@ -31,9 +28,7 @@ if str(project_root) not in sys.path:
 
 # 导入拆分模块
 from src.gui.workers.pipeline_worker import SingleWorkerThread, PreviewWorkerThread, BatchWorkerThread
-from src.gui.services.voice_service import scan_audio_files
 from src.gui.utils.validators import validate_batch_params, validate_single_params
-from src.utils.constants import AUDIO_EXTENSIONS
 
 class MainWindow(QMainWindow):
     """主窗口"""

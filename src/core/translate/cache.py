@@ -10,6 +10,7 @@
 
 import json
 import hashlib
+import threading
 import time
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -266,13 +267,16 @@ class TranslationCache:
         self._misses = 0
 
 
-# 全局单例（延迟初始化）
+# 全局单例（延迟初始化，线程安全）
 _cache_instance: Optional[TranslationCache] = None
+_cache_lock = threading.Lock()
 
 
 def get_cache() -> TranslationCache:
-    """获取全局缓存实例"""
+    """获取全局缓存实例（线程安全）"""
     global _cache_instance
     if _cache_instance is None:
-        _cache_instance = TranslationCache()
+        with _cache_lock:
+            if _cache_instance is None:
+                _cache_instance = TranslationCache()
     return _cache_instance
