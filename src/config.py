@@ -9,7 +9,7 @@ import os
 import json
 import threading
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple
 
 
 # 项目配置目录

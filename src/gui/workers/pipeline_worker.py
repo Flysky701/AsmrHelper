@@ -335,6 +335,9 @@ class BatchWorkerThread(QThread):
                 for future in as_completed(futures):
                     # 检查取消
                     if self._cancel_event.is_set():
+                        # 取消所有未完成的 future
+                        for f in futures:
+                            f.cancel()
                         self.progress.emit(f"[已取消] 停止批量处理")
                         break
 

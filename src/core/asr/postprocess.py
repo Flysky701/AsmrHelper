@@ -38,7 +38,6 @@ class NormalizeRules:
     # 注意：这些规则在半角转半角之后执行，所以使用半角字符
     PUNCTUATION_RULES: List[Tuple[str, str]] = [
         (r'\.{2,}', '...'), # 多个点合并为省略号
-        (r'\.{3,}', '...'), # 4个及以上点也合并为省略号
         (r'!+', '!'),        # 多个感叹号合并为一个
         (r'\?+', '?'),       # 多个问号合并为一个
         (r',+', ','),        # 多个逗号合并为一个
@@ -297,42 +296,3 @@ class ASRPostProcessor:
         return True
 
 
-# 全角转半角（独立函数）
-def fullwidth_to_halfwidth(text: str) -> str:
-    """将全角字符转换为半角"""
-    result = []
-    for char in text:
-        if '\uff01' <= char <= '\uff5e':  # 全角 ASCII 范围
-            result.append(chr(ord(char) - 0xfee0))
-        else:
-            result.append(char)
-    return ''.join(result)
-
-
-# 便捷函数
-def postprocess_segments(
-    segments: List[dict],
-    normalize: bool = True,
-    merge: bool = True,
-    min_log_prob: float = -1.0,
-) -> List[dict]:
-    """
-    快速后处理函数
-
-    Args:
-        segments: Whisper 输出片段
-        normalize: 启用文本规范化
-        merge: 启用片段合并
-        min_log_prob: 最小 log 概率阈值
-
-    Returns:
-        处理后的片段
-    """
-    config = PostProcessConfig(
-        enable_normalize=normalize,
-        enable_merge=merge,
-        enable_confidence_filter=min_log_prob > -2.0,
-        min_log_prob=min_log_prob,
-    )
-    processor = ASRPostProcessor(config)
-    return processor.process(segments)

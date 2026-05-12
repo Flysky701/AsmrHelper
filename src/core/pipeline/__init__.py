@@ -7,20 +7,16 @@
 3. DAG 任务调度
 """
 
-import os
 import time
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Literal, Callable
+from typing import Optional, List, Dict, Any, Callable
 from dataclasses import dataclass, field
-from enum import Enum
 
 from ..vocal_separator import VocalSeparator
 from ..asr import ASRRecognizer
 from ..translate import Translator
 from ..tts import TTSEngine
-from src.mixer import Mixer
-from src.utils import format_timestamp
-import soundfile as sf
+from ...mixer import Mixer
 
 from .path_planner import PathPlanner
 from .step_resolver import StepResolver
@@ -246,50 +242,55 @@ class Pipeline:
 
         # 执行流水线步骤
         t0 = time.time()
-        
+
         def _check_cancel():
             """检查取消状态，若已取消则抛出异常中断流水线"""
             if self._cancel_event and self._cancel_event.is_set():
                 raise RuntimeError("用户取消操作")
-        
-        _check_cancel()
-        vocal_path = executor.execute_separation(active_steps, subtitle_ctx, task_name, input_path, by_product_dir)
-        
-        _check_cancel()
-        timestamped_segments = executor.execute_asr(active_steps, subtitle_ctx, vocal_path, by_product_dir)
-        
-        # asr_only 模式导出字幕
-        if config.pipeline_mode != "full" and "translate" not in active_steps:
+
+        try:
+            _check_cancel()
+            vocal_path = executor.execute_separation(active_steps, subtitle_ctx, task_name, input_path, by_product_dir)
+
+            _check_cancel()
+            timestamped_segments = executor.execute_asr(active_steps, subtitle_ctx, vocal_path, by_product_dir)
+
+            # asr_only 模式导出字幕
+            if config.pipeline_mode != "full" and "translate" not in active_steps:
+                sub_path = self._artifact_collector.write_subtitles(
+                    ["translate"], timestamped_segments, [], by_product_dir, task_name, "ja"
+                )
+                if sub_path:
+                    executor.results["exported_subtitle"] = sub_path
+
+            _check_cancel()
+            translations = executor.execute_translate(active_steps, subtitle_ctx, timestamped_segments, by_product_dir)
+
+            _check_cancel()
+            tts_audio_path = executor.execute_tts(active_steps, timestamped_segments, by_product_dir, input_path=input_path)
+
+            _check_cancel()
+            executor.execute_mix(
+                active_steps,
+                input_path,
+                tts_audio_path,
+                mix_path,
+            )
+
+            # Artifact 收集 (写回多语言字幕)
+            self._artifact_collector.progress_callback = progress_callback
             sub_path = self._artifact_collector.write_subtitles(
-                ["translate"], timestamped_segments, [], by_product_dir, task_name, "ja"
+                active_steps, timestamped_segments, translations, by_product_dir, task_name, subtitle_ctx.subtitle_lang
             )
             if sub_path:
                 executor.results["exported_subtitle"] = sub_path
-
-        _check_cancel()
-        translations = executor.execute_translate(active_steps, subtitle_ctx, timestamped_segments, by_product_dir)
-        
-        _check_cancel()
-        tts_audio_path = executor.execute_tts(active_steps, timestamped_segments, by_product_dir, input_path=input_path)
-
-        _check_cancel()
-        executor.execute_mix(
-            active_steps,
-            input_path,
-            tts_audio_path,
-            mix_path,
-        )
-        
-        # Artifact 收集 (写回多语言字幕)
-        self._artifact_collector.progress_callback = progress_callback
-        sub_path = self._artifact_collector.write_subtitles(
-            active_steps, timestamped_segments, translations, by_product_dir, task_name, subtitle_ctx.subtitle_lang
-        )
-        if sub_path:
-            executor.results["exported_subtitle"] = sub_path
-
-        executor.results["total_duration"] = time.time() - t0
-        executor._report(f"\n[完成] 总耗时: {executor.results['total_duration']:.1f}s")
-        executor._report("=" * 60)
+        except Exception as e:
+            executor.results["error"] = str(e)
+            executor._report(f"\n[ERROR] 流水线异常: {e}")
+            raise
+        finally:
+            executor.results["total_duration"] = time.time() - t0
+            executor._report(f"\n[完成] 总耗时: {executor.results['total_duration']:.1f}s")
+            executor._report("=" * 60)
 
         return executor.results

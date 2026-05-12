@@ -51,6 +51,7 @@ class StepExecutor:
         from src.core.vocal_separator import VocalSeparator
         
         if "vocal_separator" not in active_steps:
+            self.current_step += 1
             self.results["vocal_path"] = str(input_path)
             if subtitle_ctx.has_subtitle:
                 self._report(f"[{self.current_step}/{self.total_steps}] [跳过] 人声分离 (有{subtitle_ctx.subtitle_type}字幕，直接使用原音频)")
@@ -71,7 +72,10 @@ class StepExecutor:
                 try:
                     separator = self._injected_separator or VocalSeparator(model_name=self.config.vocal_model)
                     sep_results = separator.separate(str(input_path), str(by_product_dir), stems=["vocals"])
-                    vocal_path = Path(sep_results.get("vocals", ""))
+                    vocals = sep_results.get("vocals")
+                    if not vocals:
+                        raise ValueError("人声分离未返回 vocals 路径")
+                    vocal_path = Path(vocals)
                     self.results["steps"]["vocal_separator"] = {
                         "duration": time.time() - t1, "output": str(vocal_path), "source": "separated"
                     }

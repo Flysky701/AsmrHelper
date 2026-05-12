@@ -184,6 +184,8 @@ class Translator:
             temperature=0.3,
         )
 
+        if not response.choices or not response.choices[0].message.content:
+            raise ValueError("翻译 API 返回空响应")
         return response.choices[0].message.content.strip()
 
     def _build_system_prompt(self, source_lang: str, target_lang: str) -> str:
@@ -635,18 +637,6 @@ class Translator:
             results.append(seg)
 
         return results
-
-
-# 便捷函数
-def translate_text(
-    text: str,
-    source_lang: str = "日文",
-    target_lang: str = "中文",
-    provider: str = "deepseek",
-) -> str:
-    """快速翻译文本"""
-    translator = Translator(provider=provider)
-    return translator.translate(text, source_lang, target_lang)
 
 
 def translate_batch(
@@ -1187,7 +1177,7 @@ def load_subtitle_translations(subtitle_path: str) -> List[str]:
                 return load_vtt_translations(subtitle_path)
             elif "-->" in content:
                 return load_srt_translations(subtitle_path)
-            elif "[00:" in content or "[00:" in content:
+            elif re.search(r'\[\d{2}:\d{2}', content):
                 return load_lrc_translations(subtitle_path)
         except Exception:
             pass
@@ -1225,7 +1215,7 @@ def load_subtitle_with_timestamps(subtitle_path: str) -> List[dict]:
                 return load_vtt_with_timestamps(subtitle_path)
             elif "-->" in content:
                 return load_srt_with_timestamps(subtitle_path)
-            elif "[00:" in content or "[00:" in content:
+            elif re.search(r'\[\d{2}:\d{2}', content):
                 return load_lrc_with_timestamps(subtitle_path)
         except Exception:
             pass

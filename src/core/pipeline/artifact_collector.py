@@ -4,7 +4,7 @@ Pipeline 产物收集解耦：负责处理流程结束后产生的文件、字�
 from pathlib import Path
 import shutil
 from typing import Dict, List, Optional
-from src.utils.formatters import format_timestamp
+from ...utils.formatters import format_timestamp
 
 class ArtifactCollector:
     def __init__(self, config):

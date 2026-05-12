@@ -1,13 +1,11 @@
-import os
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel,
     QLineEdit, QFileDialog, QProgressBar, QTextEdit, QComboBox, QCheckBox,
     QStackedWidget, QGroupBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView
 )
-from PySide6.QtGui import QColor
-from PySide6.QtCore import Qt, QThread, QTimer
+from PySide6.QtCore import Qt, QTimer
 from src.config import config
 
 from src.gui.workers.pipeline_worker import ToolsWorkerThread
@@ -573,7 +571,6 @@ class ToolsTab(QWidget):
         """切换 PDF→VTT 运行模式时更新 UI"""
         is_full = (index == 0)       # 完整流程：需要音频
         is_vtt = (index == 1)        # 已有 VTT：需要 VTT 文件
-        # is_text_only = (index == 2)  # 仅清洗：只需要 PDF
         self.pdfvtt_audio_row.setVisible(is_full)
         self.pdfvtt_vtt_row.setVisible(is_vtt)
 

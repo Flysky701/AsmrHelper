@@ -12,7 +12,7 @@ import torch
 import numpy as np
 import soundfile as sf
 from pathlib import Path
-from typing import Optional, Callable, List
+from typing import Optional, Callable
 
 from src.config import PROJECT_ROOT  # 统一使用项目根目录
 

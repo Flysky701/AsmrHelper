@@ -665,28 +665,6 @@ class SubtitleFormatValidator:
         return len(errors) == 0, errors
 
 
-def validate_subtitle_format(file_path: str) -> dict:
-    """
-    快速验证字幕格式
-
-    Args:
-        file_path: 字幕文件路径
-
-    Returns:
-        dict: {
-            "valid": bool,
-            "errors": [错误列表],
-            "info": {文件信息},
-        }
-    """
-    is_valid, errors, info = SubtitleFormatValidator.validate_file(file_path)
-    return {
-        "valid": is_valid,
-        "errors": errors,
-        "info": info,
-    }
-
-
 # ===== 导出便捷函数 =====
 
 __all__ = [
@@ -696,5 +674,4 @@ __all__ = [
     "SubtitleFormatValidator",
     "clean_subtitle_text",
     "clean_subtitle_batch",
-    "validate_subtitle_format",
 ]
