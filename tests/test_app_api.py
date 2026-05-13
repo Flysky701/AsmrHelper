@@ -1,4 +1,5 @@
 from click.testing import CliRunner
+import pytest
 
 
 def test_app_package_re_exports_new_dto_and_error_contract():
@@ -6,18 +7,22 @@ def test_app_package_re_exports_new_dto_and_error_contract():
         ArtifactSet,
         ResourceStatus,
         ResourceValidationError,
+        TaskService,
         SynthesisResult,
         TaskStatus,
         TranslationResult,
+        get_task_service,
     )
     from src.app import dto
 
     assert ArtifactSet.__name__ == "ArtifactSet"
+    assert TaskService.__name__ == "TaskService"
     assert TaskStatus.__name__ == "TaskStatus"
     assert TranslationResult.__name__ == "TranslationResult"
     assert SynthesisResult.__name__ == "SynthesisResult"
     assert ResourceStatus.__name__ == "ResourceStatus"
     assert issubclass(ResourceValidationError, Exception)
+    assert callable(get_task_service)
     assert dto.__all__ == [
         "SubtitleSegment",
         "SubtitleDocument",
@@ -71,6 +76,55 @@ def test_new_resource_validation_error_is_an_app_error():
 
     assert isinstance(error, AppError)
     assert str(error) == "missing workspace"
+
+
+def test_task_service_tracks_lifecycle_transitions():
+    from src.app.errors import AppValidationError
+    from src.app.services.task_service import TaskService
+
+    service = TaskService()
+
+    created = service.create_task("pipeline")
+
+    assert created.task_id == "pipeline-1"
+    assert created.state == "pending"
+    assert created.progress == 0.0
+    assert created.message == ""
+    assert service.get_task("pipeline-1") == created
+
+    started = service.start("pipeline-1", message="running")
+    assert started.state == "running"
+    assert started.progress == 0.0
+    assert started.message == "running"
+
+    updated = service.update_progress("pipeline-1", progress=0.5, message="halfway")
+    assert updated.state == "running"
+    assert updated.progress == 0.5
+    assert updated.message == "halfway"
+
+    completed = service.complete("pipeline-1", message="done", detail="out/final_mix.wav")
+    assert completed.state == "completed"
+    assert completed.progress == 1.0
+    assert completed.message == "done"
+    assert completed.detail == "out/final_mix.wav"
+
+    failed = service.fail("pipeline-1", message="retrying", detail="temporary issue")
+    assert failed.state == "failed"
+    assert failed.progress == 1.0
+    assert failed.message == "retrying"
+    assert failed.detail == "temporary issue"
+
+    with pytest.raises(AppValidationError, match="unknown task id: missing-1"):
+        service.get_task("missing-1")
+
+
+def test_task_service_singleton_getter_reuses_instance():
+    from src.app.services import TaskService, get_task_service
+
+    service = get_task_service()
+
+    assert isinstance(service, TaskService)
+    assert service is get_task_service()
 
 
 def test_subtitle_service_round_trip_preserves_timestamp_entries():

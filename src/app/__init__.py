@@ -24,9 +24,11 @@ from .services import (
     ModelService,
     PipelineService,
     SubtitleService,
+    TaskService,
     get_model_service,
     get_pipeline_service,
     get_subtitle_service,
+    get_task_service,
 )
 
 __all__ = [
@@ -47,9 +49,11 @@ __all__ = [
     "SubtitleSegment",
     "SubtitleService",
     "SynthesisResult",
+    "TaskService",
     "TaskStatus",
     "TranslationResult",
     "get_model_service",
     "get_pipeline_service",
     "get_subtitle_service",
+    "get_task_service",
 ]
