@@ -1,6 +1,46 @@
 from click.testing import CliRunner
 
 
+def test_new_application_dtos_expose_expected_fields():
+    from src.app.dto import (
+        ArtifactSet,
+        ResourceStatus,
+        SynthesisResult,
+        TaskStatus,
+        TranslationResult,
+    )
+
+    task = TaskStatus(task_id="task-1", state="pending", progress=0.0, message="queued")
+    artifact = ArtifactSet(files={"mix": "out/final_mix.wav"}, primary_output="out/final_mix.wav")
+    translation = TranslationResult(
+        items=["你好"],
+        provider="deepseek",
+        source_lang="ja",
+        target_lang="zh",
+    )
+    synthesis = SynthesisResult(
+        engine="edge",
+        voice="zh-CN-XiaoxiaoNeural",
+        output_path="out/final.wav",
+    )
+    resource = ResourceStatus(name="model_root", available=True, detail="ready")
+
+    assert task.task_id == "task-1"
+    assert artifact.files["mix"] == "out/final_mix.wav"
+    assert translation.provider == "deepseek"
+    assert synthesis.output_path.endswith("final.wav")
+    assert resource.available is True
+
+
+def test_new_resource_validation_error_is_an_app_error():
+    from src.app.errors import AppError, ResourceValidationError
+
+    error = ResourceValidationError("missing workspace")
+
+    assert isinstance(error, AppError)
+    assert str(error) == "missing workspace"
+
+
 def test_subtitle_service_round_trip_preserves_timestamp_entries():
     from src.app.services.subtitle_service import SubtitleService
 

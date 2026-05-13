@@ -15,3 +15,7 @@ class AppExecutionError(AppError):
 
 class ResourceUnavailableError(AppError):
     """Raised when a required runtime resource is unavailable."""
+
+
+class ResourceValidationError(AppError):
+    """Raised when required runtime resources or workspace paths are invalid."""

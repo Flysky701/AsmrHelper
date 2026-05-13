@@ -43,6 +43,44 @@ class PipelineResult:
 
 
 @dataclass(slots=True)
+class ArtifactSet:
+    files: dict[str, str] = field(default_factory=dict)
+    primary_output: Optional[str] = None
+
+
+@dataclass(slots=True)
+class TaskStatus:
+    task_id: str
+    state: str
+    progress: float = 0.0
+    message: str = ""
+    detail: str = ""
+
+
+@dataclass(slots=True)
+class TranslationResult:
+    items: list[str] = field(default_factory=list)
+    provider: str = ""
+    source_lang: str = ""
+    target_lang: str = ""
+
+
+@dataclass(slots=True)
+class SynthesisResult:
+    engine: str
+    voice: str
+    output_path: str
+
+
+@dataclass(slots=True)
+class ResourceStatus:
+    name: str
+    available: bool
+    detail: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class ModelSummary:
     model_id: str
     kind: str
