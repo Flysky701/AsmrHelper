@@ -28,13 +28,13 @@ class TaskService:
         except KeyError as exc:
             raise AppValidationError(f"unknown task id: {task_id}") from exc
 
-    def start(self, task_id: str, message: str = "") -> TaskStatus:
+    def start_task(self, task_id: str, message: str = "") -> TaskStatus:
         return self._update_task(task_id, state="running", message=message)
 
     def update_progress(self, task_id: str, progress: float, message: str = "") -> TaskStatus:
         return self._update_task(task_id, progress=progress, message=message)
 
-    def complete(self, task_id: str, message: str = "", detail: str = "") -> TaskStatus:
+    def complete_task(self, task_id: str, message: str = "", detail: str = "") -> TaskStatus:
         return self._update_task(
             task_id,
             state="completed",
@@ -43,7 +43,7 @@ class TaskService:
             detail=detail,
         )
 
-    def fail(self, task_id: str, message: str, detail: str = "") -> TaskStatus:
+    def fail_task(self, task_id: str, message: str, detail: str = "") -> TaskStatus:
         return self._update_task(
             task_id,
             state="failed",

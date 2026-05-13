@@ -92,7 +92,7 @@ def test_task_service_tracks_lifecycle_transitions():
     assert created.message == ""
     assert service.get_task("pipeline-1") == created
 
-    started = service.start("pipeline-1", message="running")
+    started = service.start_task("pipeline-1", message="running")
     assert started.state == "running"
     assert started.progress == 0.0
     assert started.message == "running"
@@ -102,13 +102,13 @@ def test_task_service_tracks_lifecycle_transitions():
     assert updated.progress == 0.5
     assert updated.message == "halfway"
 
-    completed = service.complete("pipeline-1", message="done", detail="out/final_mix.wav")
+    completed = service.complete_task("pipeline-1", message="done", detail="out/final_mix.wav")
     assert completed.state == "completed"
     assert completed.progress == 1.0
     assert completed.message == "done"
     assert completed.detail == "out/final_mix.wav"
 
-    failed = service.fail("pipeline-1", message="retrying", detail="temporary issue")
+    failed = service.fail_task("pipeline-1", message="retrying", detail="temporary issue")
     assert failed.state == "failed"
     assert failed.progress == 1.0
     assert failed.message == "retrying"
