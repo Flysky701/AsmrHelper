@@ -3,6 +3,20 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+__all__ = [
+    "SubtitleSegment",
+    "SubtitleDocument",
+    "PipelineRequest",
+    "PipelineResult",
+    "ArtifactSet",
+    "TaskStatus",
+    "TranslationResult",
+    "SynthesisResult",
+    "ResourceStatus",
+    "ModelSummary",
+    "ModelStatusView",
+]
+
 
 @dataclass(slots=True)
 class SubtitleSegment:

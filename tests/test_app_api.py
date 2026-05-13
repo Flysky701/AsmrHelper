@@ -1,6 +1,38 @@
 from click.testing import CliRunner
 
 
+def test_app_package_re_exports_new_dto_and_error_contract():
+    from src.app import (
+        ArtifactSet,
+        ResourceStatus,
+        ResourceValidationError,
+        SynthesisResult,
+        TaskStatus,
+        TranslationResult,
+    )
+    from src.app import dto
+
+    assert ArtifactSet.__name__ == "ArtifactSet"
+    assert TaskStatus.__name__ == "TaskStatus"
+    assert TranslationResult.__name__ == "TranslationResult"
+    assert SynthesisResult.__name__ == "SynthesisResult"
+    assert ResourceStatus.__name__ == "ResourceStatus"
+    assert issubclass(ResourceValidationError, Exception)
+    assert dto.__all__ == [
+        "SubtitleSegment",
+        "SubtitleDocument",
+        "PipelineRequest",
+        "PipelineResult",
+        "ArtifactSet",
+        "TaskStatus",
+        "TranslationResult",
+        "SynthesisResult",
+        "ResourceStatus",
+        "ModelSummary",
+        "ModelStatusView",
+    ]
+
+
 def test_new_application_dtos_expose_expected_fields():
     from src.app.dto import (
         ArtifactSet,
