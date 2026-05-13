@@ -34,6 +34,7 @@ dependencies = [
     "PySide6>=6.5.0",
     # 工具
     "click>=8.1.0",
+    "pyyaml>=6.0.0",
     "pypdf>=6.10.0",
     "pdfplumber>=0.11.9",
     "opencc>=1.1.0",
@@ -84,16 +85,16 @@ target-version = "py310"
 override-dependencies = [
     "numpy>=2.0.0",
     "onnxruntime>=1.20.0,<1.24.0",
-    "torch==2.11.0+cu126",
-    "torchaudio==2.11.0+cu126",
+    "torch==2.11.0+cu128",
+    "torchaudio==2.11.0+cu128",
 ]
 
 # PyTorch CUDA 源：确保 uv sync / uv run 安装 CUDA 版本而非 CPU 版本
 [[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu126" }
-torchaudio = { index = "pytorch-cu126" }
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
