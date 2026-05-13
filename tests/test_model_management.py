@@ -177,9 +177,62 @@ def test_cli_model_commands_surface_local_and_cloud_behaviors(monkeypatch, tmp_p
     assert "installed" in result.output
 
 
+def test_cli_model_queries_use_application_model_service(monkeypatch):
+    from src.cli import cli
+
+    calls = {"list": 0, "status": 0}
+
+    class DummyAppModelService:
+        def list_models(self, kind=None, category=None):
+            calls["list"] += 1
+            return [
+                type(
+                    "Summary",
+                    (),
+                    {
+                        "model_id": "demo-model",
+                        "kind": "local",
+                        "category": "asr",
+                        "backend": "faster_whisper",
+                        "display_name": "Demo Model",
+                    },
+                )()
+            ]
+
+        def get_model_status(self, model_id):
+            calls["status"] += 1
+            return type(
+                "StatusView",
+                (),
+                {"model_id": model_id, "status": "installed", "detail": "ready"},
+            )()
+
+        def list_model_statuses(self, kind=None, category=None):
+            calls["status"] += 1
+            return [
+                type(
+                    "StatusView",
+                    (),
+                    {"model_id": "demo-model", "status": "installed", "detail": "ready"},
+                )()
+            ]
+
+    monkeypatch.setattr("src.cli.get_app_model_service", lambda: DummyAppModelService())
+
+    runner = CliRunner()
+    list_result = runner.invoke(cli, ["model", "list"])
+    status_result = runner.invoke(cli, ["model", "status", "demo-model"])
+
+    assert list_result.exit_code == 0
+    assert status_result.exit_code == 0
+    assert "demo-model" in list_result.output
+    assert "installed" in status_result.output
+    assert calls["list"] == 1
+    assert calls["status"] >= 1
+
+
 def test_verify_models_script_uses_shared_model_service():
     script_path = Path("scripts/verify_models.py")
     content = script_path.read_text(encoding="utf-8")
 
     assert "ModelService" in content or "get_model_service" in content
-
