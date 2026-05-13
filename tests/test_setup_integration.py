@@ -176,8 +176,8 @@ class TestNetworkConnectivity:
     def test_pytorch_cuda_index_configured(self):
         """PyTorch CUDA 索引必须在 pyproject.toml 中正确配置"""
         content = PYPROJECT_TOML.read_text(encoding="utf-8")
-        assert "pytorch-cu126" in content, "缺少 PyTorch CUDA 126 索引配置"
-        assert "download.pytorch.org/whl/cu126" in content, "PyTorch CUDA URL 不正确"
+        assert "pytorch-cu128" in content, "缺少 PyTorch CUDA 128 索引配置"
+        assert "download.pytorch.org/whl/cu128" in content, "PyTorch CUDA URL 不正确"
 
     def test_astral_sh_uv_install_reachable(self):
         """uv 官方安装脚本必须可达"""

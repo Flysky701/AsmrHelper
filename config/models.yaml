@@ -1,0 +1,176 @@
+models:
+  - id: faster-whisper-tiny
+    kind: local
+    category: asr
+    provider: faster_whisper
+    display_name: Faster-Whisper Tiny
+    description: Fastest Whisper model with the lowest accuracy.
+    install_root: models
+    install_path: whisper/tiny
+    required_files:
+      - model.bin
+      - config.json
+      - tokenizer.json
+    required_dirs: []
+    supports_install: true
+    supports_remove: true
+    install_strategy: whisper
+
+  - id: faster-whisper-base
+    kind: local
+    category: asr
+    provider: faster_whisper
+    display_name: Faster-Whisper Base
+    description: Recommended balanced Whisper model.
+    install_root: models
+    install_path: whisper/base
+    required_files:
+      - model.bin
+      - config.json
+      - tokenizer.json
+    required_dirs: []
+    supports_install: true
+    supports_remove: true
+    install_strategy: whisper
+
+  - id: faster-whisper-small
+    kind: local
+    category: asr
+    provider: faster_whisper
+    display_name: Faster-Whisper Small
+    description: Higher-accuracy Whisper model.
+    install_root: models
+    install_path: whisper/small
+    required_files:
+      - model.bin
+      - config.json
+      - tokenizer.json
+    required_dirs: []
+    supports_install: true
+    supports_remove: true
+    install_strategy: whisper
+
+  - id: faster-whisper-medium
+    kind: local
+    category: asr
+    provider: faster_whisper
+    display_name: Faster-Whisper Medium
+    description: High-accuracy Whisper model.
+    install_root: models
+    install_path: whisper/medium
+    required_files:
+      - model.bin
+      - config.json
+      - tokenizer.json
+    required_dirs: []
+    supports_install: true
+    supports_remove: true
+    install_strategy: whisper
+
+  - id: faster-whisper-large-v3
+    kind: local
+    category: asr
+    provider: faster_whisper
+    display_name: Faster-Whisper Large-v3
+    description: Highest-accuracy Whisper model.
+    install_root: models
+    install_path: whisper/large-v3
+    required_files:
+      - model.bin
+      - config.json
+      - tokenizer.json
+    required_dirs: []
+    supports_install: true
+    supports_remove: true
+    install_strategy: whisper
+
+  - id: qwen3-custom-voice
+    kind: local
+    category: tts
+    engine: qwen3
+    display_name: Qwen3 CustomVoice
+    description: Preset-speaker Qwen3 TTS model.
+    install_root: models
+    install_path: qwen3tts/models--Qwen--Qwen3-TTS-12Hz-1.7B-CustomVoice
+    required_files:
+      - model.safetensors
+      - config.json
+      - vocab.json
+    required_dirs:
+      - speech_tokenizer
+    supports_install: true
+    supports_remove: true
+    install_strategy: qwen3
+    upstream_name: CustomVoice
+
+  - id: qwen3-voice-design
+    kind: local
+    category: tts
+    engine: qwen3
+    display_name: Qwen3 VoiceDesign
+    description: Natural-language voice design model.
+    install_root: models
+    install_path: qwen3tts/models--Qwen--Qwen3-TTS-12Hz-1.7B-VoiceDesign
+    required_files:
+      - model.safetensors
+      - config.json
+      - vocab.json
+    required_dirs:
+      - speech_tokenizer
+    supports_install: true
+    supports_remove: true
+    install_strategy: qwen3
+    upstream_name: VoiceDesign
+
+  - id: qwen3-base
+    kind: local
+    category: tts
+    engine: qwen3
+    display_name: Qwen3 Base
+    description: Voice clone Qwen3 TTS model.
+    install_root: models
+    install_path: qwen3tts/models--Qwen--Qwen3-TTS-12Hz-1.7B-Base
+    required_files:
+      - model.safetensors
+      - config.json
+      - vocab.json
+    required_dirs:
+      - speech_tokenizer
+    supports_install: true
+    supports_remove: true
+    install_strategy: qwen3
+    upstream_name: Base
+
+  - id: demucs-htdemucs
+    kind: local
+    category: separator
+    provider: demucs
+    display_name: Demucs HTDemucs
+    description: Demucs separator provided by the installed Python package.
+    install_root: models
+    install_path: demucs/htdemucs
+    required_files: []
+    required_dirs: []
+    supports_install: false
+    supports_remove: false
+    install_strategy: package
+
+  - id: deepseek
+    kind: cloud
+    category: llm
+    provider: deepseek
+    display_name: DeepSeek API
+    description: DeepSeek-hosted LLM provider.
+    api_key_config: api.deepseek_api_key
+    supports_install: false
+    supports_remove: false
+
+  - id: openai
+    kind: cloud
+    category: llm
+    provider: openai
+    display_name: OpenAI API
+    description: OpenAI-hosted LLM provider.
+    api_key_config: api.openai_api_key
+    supports_install: false
+    supports_remove: false

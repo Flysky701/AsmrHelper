@@ -1,72 +1,34 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     ASMR Helper 一键环境配置脚本
 
 .DESCRIPTION
-    自动完成以下步骤:
-    1. 检测/安装 uv 包管理器
-    2. 创建 Python 虚拟环境
-    3. 安装核心依赖
-    4. (可选) 安装 Qwen3-TTS 依赖
-    5. 初始化配置文件
-    6. (可选) 下载 AI 模型
-    7. 验证环境
+    负责环境准备、配置初始化、模型下载委托和基础验证。
+    长期目标是让模型下载等核心能力回收到项目内部；本脚本只保留引导职责。
 
 .EXAMPLE
-    .\setup.ps1                  # 基础安装 (ASR + Edge-TTS + Demucs)
-    .\setup.ps1 -Full            # 完整安装 (含 Qwen3-TTS)
-    .\setup.ps1 -Models           # 下载 Whisper base 模型
-    .\setup.ps1 -Models -Full     # 下载全部模型 (Whisper + Qwen3)
-    .\setup.ps1 -Models -Mirror   # 使用镜像加速下载
-    .\setup.ps1 -SkipInstall      # 跳过依赖安装，仅初始化配置并验证
-    .\setup.ps1 -DevOnly          # 仅安装开发工具
-    .\setup.ps1 -CleanReinstall   # 强制清理并重新安装（解决文件锁定问题）
-
-.NOTES
-    需要的运行时:
-    - Python 3.10+ (建议 3.12)
-    - NVIDIA GPU + CUDA (可选，仅 Qwen3-TTS 需要)
+    .\setup.ps1
+    .\setup.ps1 -Full
+    .\setup.ps1 -Models
+    .\setup.ps1 -Models -Full
+    .\setup.ps1 -Models -Mirror
+    .\setup.ps1 -SkipInstall
+    .\setup.ps1 -DevOnly
+    .\setup.ps1 -CleanReinstall
 #>
 
 param(
-    [switch]$Full,           # 包含 Qwen3-TTS (需要 CUDA GPU)
-    [switch]$SkipInstall,    # 跳过依赖安装
-    [switch]$DevOnly,        # 仅安装开发工具
-    [switch]$Models,         # 下载模型（基础模式: Whisper base）
-    [switch]$Mirror,         # 使用 HuggingFace 镜像加速下载
-    [switch]$CleanReinstall   # 强制删除虚拟环境后重新安装
+    [switch]$Full,
+    [switch]$SkipInstall,
+    [switch]$DevOnly,
+    [switch]$Models,
+    [switch]$Mirror,
+    [switch]$CleanReinstall
 )
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-
-# ============================================================
-# Windows PowerShell 执行策略检查
-# ============================================================
-$executionPolicy = Get-ExecutionPolicy -Scope CurrentUser
-if ($executionPolicy -eq "Restricted" -or $executionPolicy -eq "AllSigned") {
-    Write-Host ""
-    Write-Host "  [提示] 当前 PowerShell 执行策略为 '$executionPolicy'，可能阻止脚本运行。" -ForegroundColor Yellow
-    Write-Host "  建议执行以下命令以允许本地脚本运行:" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  输入 Y 确认即可。此设置仅影响当前用户，无需管理员权限。" -ForegroundColor DarkGray
-    Write-Host "  如果不想修改策略，可使用以下方式绕过:" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "    powershell -ExecutionPolicy Bypass -File .\setup.ps1" -ForegroundColor Cyan
-    Write-Host ""
-    $continue = Read-Host "  是否继续 (Y/N)?"
-    if ($continue -notmatch "^[Yy]") {
-        Write-Host "  已取消。" -ForegroundColor Yellow
-        exit 0
-    }
-}
-
-# ============================================================
-# 工具函数
-# ============================================================
 
 function Write-Step([string]$Message) {
     Write-Host ""
@@ -91,30 +53,12 @@ function Test-Command([string]$Command) {
     return $null -ne (Get-Command $Command -ErrorAction SilentlyContinue)
 }
 
-# ============================================================
-# Step 0: 切换到项目目录
-# ============================================================
-Write-Step "Step 0: 准备项目目录"
-Set-Location $ProjectRoot
-Write-OK "当前目录: $ProjectRoot"
-
-# 确保 uv 安装路径在 PATH 中 (官方安装脚本默认安装到此处)
-$uvBinDir = Join-Path $env:USERPROFILE ".local\bin"
-if (-not ($env:PATH -split ";" | Where-Object { $_ -eq $uvBinDir })) {
-    $env:PATH = "$uvBinDir;$env:PATH"
-}
-
-# 国内镜像源列表 (已验证可用)
 $PyMirrors = @(
-    @{ Name = "tsinghua";  URL = "https://pypi.tuna.tsinghua.edu.cn/simple" },
-    @{ Name = "aliyun";    URL = "https://mirrors.aliyun.com/pypi/simple" }
+    @{ Name = "tsinghua"; URL = "https://pypi.tuna.tsinghua.edu.cn/simple" },
+    @{ Name = "aliyun"; URL = "https://mirrors.aliyun.com/pypi/simple" }
 )
 
 function Get-MirrorLatency([string]$Url, [int]$TimeoutMs = 5000) {
-    <#
-    .SYNOPSIS
-        测量 URL 的连接延迟（毫秒），不可达则返回 $null。
-    #>
     try {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $req = [System.Net.HttpWebRequest]::Create($Url)
@@ -130,531 +74,198 @@ function Get-MirrorLatency([string]$Url, [int]$TimeoutMs = 5000) {
 }
 
 function Select-BestMirror {
-    <#
-    .SYNOPSIS
-        并发测速所有源（含官方源），返回延迟最低的源信息。
-        返回 @{ Name = "..."; URL = "..."; Latency = N } 或 $null（全部不可达）。
-    #>
     Write-Host "  正在测速选择最快源..." -ForegroundColor White
 
-    # 构建候选列表：官方源 + 国内镜像
     $candidates = @(
-        @{ Name = "pypi.org (官方)"; URL = "" }
+        @{ Name = "pypi.org (官方)"; URL = "https://pypi.org" }
     ) + $PyMirrors
 
-    # 为每个源构造测速 URL（空 URL 表示官方源，用 pypi.org 根域测速）
-    $testUrls = $candidates | ForEach-Object {
-        if ($_.URL) {
-            @{ Name = $_.Name; URL = $_.URL; TestUrl = $_.URL }
-        } else {
-            @{ Name = $_.Name; URL = ""; TestUrl = "https://pypi.org" }
+    $results = @()
+    foreach ($candidate in $candidates) {
+        $latency = Get-MirrorLatency -Url $candidate.URL
+        if ($null -ne $latency) {
+            $results += @{
+                Name = $candidate.Name
+                URL = $candidate.URL
+                Latency = $latency
+            }
         }
     }
 
-    # 并发测速
-    $jobs = @()
-    foreach ($c in $testUrls) {
-        $name = $c.Name
-        $testUrl = $c.TestUrl
-        $mirrorUrl = $c.URL
-        $jobs += Start-Job -ScriptBlock {
-            param($n, $t, $m)
-            try {
-                $sw = [System.Diagnostics.Stopwatch]::StartNew()
-                $req = [System.Net.HttpWebRequest]::Create($t)
-                $req.Timeout = 5000
-                $req.Method = "HEAD"
-                $resp = $req.GetResponse()
-                $resp.Close()
-                $sw.Stop()
-                @{ Name = $n; URL = $m; Latency = [int]$sw.ElapsedMilliseconds }
-            } catch {
-                $null
-            }
-        } -ArgumentList $name, $testUrl, $mirrorUrl
+    if ($results.Count -eq 0) {
+        Write-Warn "所有源均不可达，将回退到官方源。"
+        return @{ Name = "pypi.org (官方)"; URL = "https://pypi.org"; Latency = 9999 }
     }
 
-    # 等待所有测速完成（最多 6 秒）
-    $results = $jobs | Wait-Job -Timeout 6 | Receive-Job
-    $jobs | Remove-Job -Force
-
-    # 过滤有效结果并按延迟排序
-    $valid = $results | Where-Object { $null -ne $_ } | Sort-Object Latency
-
-    if ($valid.Count -eq 0) {
-        Write-Warn "所有源均不可达，将使用官方源重试"
-        return @{ Name = "pypi.org (官方)"; URL = ""; Latency = 9999 }
-    }
-
-    # 展示测速结果
-    Write-Host "  测速结果:" -ForegroundColor DarkGray
-    foreach ($r in $valid) {
-        Write-Host ("    {0,-22} {1,6} ms" -f $r.Name, $r.Latency) -ForegroundColor DarkGray
-    }
-
-    $best = $valid[0]
-    Write-Host ("  已选择: {0} ({1} ms)" -f $best.Name, $best.Latency) -ForegroundColor Green
+    $best = $results | Sort-Object Latency | Select-Object -First 1
+    Write-OK ("已选择: {0} ({1} ms)" -f $best.Name, $best.Latency)
     return $best
 }
 
-function Invoke-WithBestMirror([scriptblock]$Script) {
-    <#
-    .SYNOPSIS
-        竞速模式：并发测速所有源，选最快的执行安装。
-        如果最快的源失败，按延迟顺序回退到其余可用源。
-    #>
-    $candidates = @(
-        @{ Name = "pypi.org (官方)"; URL = "" }
-    ) + $PyMirrors
-
-    # 并发测速
-    $testUrls = $candidates | ForEach-Object {
-        if ($_.URL) {
-            @{ Name = $_.Name; URL = $_.URL; TestUrl = $_.URL }
-        } else {
-            @{ Name = $_.Name; URL = ""; TestUrl = "https://pypi.org" }
-        }
-    }
-
-    Write-Host "  正在测速选择最快源..." -ForegroundColor White
-
-    $jobs = @()
-    foreach ($c in $testUrls) {
-        $name = $c.Name
-        $testUrl = $c.TestUrl
-        $mirrorUrl = $c.URL
-        $jobs += Start-Job -ScriptBlock {
-            param($n, $t, $m)
-            try {
-                $sw = [System.Diagnostics.Stopwatch]::StartNew()
-                $req = [System.Net.HttpWebRequest]::Create($t)
-                $req.Timeout = 5000
-                $req.Method = "HEAD"
-                $resp = $req.GetResponse()
-                $resp.Close()
-                $sw.Stop()
-                @{ Name = $n; URL = $m; Latency = [int]$sw.ElapsedMilliseconds }
-            } catch {
-                $null
-            }
-        } -ArgumentList $name, $testUrl, $mirrorUrl
-    }
-
-    $results = $jobs | Wait-Job -Timeout 6 | Receive-Job
-    $jobs | Remove-Job -Force
-
-    $valid = $results | Where-Object { $null -ne $_ } | Sort-Object Latency
-
-    if ($valid.Count -eq 0) {
-        Write-Warn "所有源测速失败，尝试官方源..."
-        & $Script
-        if ($LASTEXITCODE -eq 0) { Write-OK "官方源安装成功"; return }
-        Write-Fail "所有源均失败"
+function Ensure-Uv {
+    if (Test-Command "uv") {
+        Write-OK "已检测到 uv"
         return
     }
 
-    # 展示测速结果
-    Write-Host "  测速结果:" -ForegroundColor DarkGray
-    foreach ($r in $valid) {
-        Write-Host ("    {0,-22} {1,6} ms" -f $r.Name, $r.Latency) -ForegroundColor DarkGray
-    }
+    Write-Step "Step 1: 安装 uv"
+    Invoke-RestMethod "https://astral.sh/uv/install.ps1" | Invoke-Expression
 
-    # 按延迟顺序逐个尝试
-    $tried = 0
-    foreach ($source in $valid) {
-        $tried++
-        Write-Host "  [$tried/$($valid.Count)] 尝试 $($source.Name) ($($source.Latency) ms)..." -ForegroundColor White
-        & $Script $source.URL
-        if ($LASTEXITCODE -eq 0) {
-            Write-OK "$($source.Name) 安装成功"
-            return
-        }
-    }
-
-    Write-Fail "所有源均安装失败"
-}
-
-# ============================================================
-# Step 1: 清理旧环境（可选）
-# ============================================================
-if ($CleanReinstall) {
-    Write-Step "Step 1: 清理旧虚拟环境"
-    $venvPath = Join-Path $ProjectRoot ".venv"
-    $lockFile = Join-Path $ProjectRoot "uv.lock"
-
-    # 终止占用 .venv 的 Python 进程
-    Write-Host "  正在终止占用 .venv 的进程..." -ForegroundColor White
-    try { & taskkill /F /IM python.exe /T 2>$null } catch {}
-    try { & taskkill /F /IM pythonw.exe /T 2>$null } catch {}
-    Start-Sleep -Seconds 2
-
-    # 删除 .venv 和锁文件
-    if (Test-Path $venvPath) {
-        Write-Host "  删除 .venv 目录..." -ForegroundColor White
-        Remove-Item -Path $venvPath -Recurse -Force -ErrorAction SilentlyContinue
-        if (-not (Test-Path $venvPath)) {
-            Write-OK ".venv 已删除"
-        } else {
-            Write-Warn ".venv 删除失败，文件可能被锁定"
-        }
-    }
-    if (Test-Path $lockFile) {
-        Remove-Item $lockFile -Force
-        Write-OK "uv.lock 已删除"
-    }
-}
-
-# ============================================================
-# Step 2: 检测/安装 uv
-# ============================================================
-Write-Step "Step 2: 检测 uv 包管理器"
-
-if (Test-Command "uv") {
-    $uvVersion = & uv --version
-    Write-OK "uv 已安装: $uvVersion"
-} else {
-    Write-Warn "uv 未安装，正在安装..."
-
-    # 方式1: 官方安装脚本 (独立二进制，不走 pip)
-    try {
-        Write-Host "  正在通过官方脚本安装 uv..." -ForegroundColor White
-        Invoke-WebRequest -useb https://astral.sh/uv/install.ps1 | Invoke-Expression
-    } catch {
-        Write-Warn "官方脚本安装失败: $($_.Exception.Message)"
-    }
-
-    # 方式2: pip 安装 (带镜像回退)
-    if (-not (Test-Command "uv")) {
-        Write-Warn "尝试通过 pip 安装..."
-        Invoke-WithBestMirror -Script {
-            param($mirrorUrl)
-            if ($mirrorUrl) {
-                python -m pip install uv -i $mirrorUrl --trusted-host ($mirrorUrl -replace "https?://([^/]+).*", "`$1")
-            } else {
-                python -m pip install uv
-            }
-        }
-    }
-
-    # 刷新 PATH (官方安装后需要)
+    $uvBinDir = Join-Path $env:USERPROFILE ".local\bin"
     if (-not ($env:PATH -split ";" | Where-Object { $_ -eq $uvBinDir })) {
         $env:PATH = "$uvBinDir;$env:PATH"
     }
 
-    if ((Test-Command "uv")) {
-        $uvVersion = & uv --version
-        Write-OK "uv 安装成功: $uvVersion"
-    } else {
-        Write-Fail "uv 安装失败，请手动安装: https://docs.astral.sh/uv/getting-started/installation/"
-        exit 1
+    if (-not (Test-Command "uv")) {
+        throw "uv 安装失败"
     }
+
+    Write-OK "uv 安装完成"
 }
 
-# ============================================================
-# Step 3: 同步依赖
-# ============================================================
-if (-not $SkipInstall -and -not $DevOnly) {
-    Write-Step "Step 3: 安装项目依赖"
+function Ensure-ConfigFiles {
+    Write-Step "Step 3: 初始化配置"
 
-    Invoke-WithBestMirror -Script {
-        param($mirrorUrl)
-        if ($mirrorUrl) {
-            $env:UV_INDEX_URL = $mirrorUrl
-        } else {
-            Remove-Item Env:\UV_INDEX_URL -ErrorAction SilentlyContinue
-        }
-        if ($Full) {
-            Write-Host "  安装完整依赖 (含 Qwen3-TTS)..." -ForegroundColor White
-            & uv sync --extra qwen3
-        } else {
-            Write-Host "  安装核心依赖..." -ForegroundColor White
-            & uv sync
-        }
-    }
+    $configDir = Join-Path $ProjectRoot "config"
+    $exampleConfig = Join-Path $configDir "config.example.json"
+    $targetConfig = Join-Path $configDir "config.json"
+    $exampleVoices = Join-Path $configDir "voice_profiles.example.json"
+    $targetVoices = Join-Path $configDir "voice_profiles.json"
 
-    if ($LASTEXITCODE -eq 0) {
-        Write-OK "依赖安装完成"
+    if (-not (Test-Path $targetConfig) -and (Test-Path $exampleConfig)) {
+        Copy-Item $exampleConfig $targetConfig
+        Write-OK "已创建 config.json"
+    } elseif (Test-Path $targetConfig) {
+        Write-OK "保留已有 config.json"
     } else {
-        Write-Fail "依赖安装失败"
-        exit 1
+        Write-Warn "未找到 config.example.json"
     }
 
-    # Qwen3-TTS 需要 SoX 命令行工具
-    if ($Full -and -not (Test-Command "sox")) {
-        Write-Host ""
-        Write-Host "  [INFO] Qwen3-TTS 依赖 SoX 音频处理工具，正在安装..." -ForegroundColor Yellow
-        try {
-            winget install ChrisBagwell.SoX --accept-source-agreements --accept-package-agreements 2>$null
-            # 刷新 PATH（winget 安装后可能需要）
-            $soxPaths = @(
-                "C:\Program Files\SoX",
-                "C:\Program Files (x86)\SoX",
-                "${env:ProgramFiles}\SoX"
-            )
-            foreach ($p in $soxPaths) {
-                if (Test-Path $p) {
-                    $env:PATH = "$p;$env:PATH"
-                    break
-                }
-            }
-            if (Test-Command "sox") {
-                Write-OK "SoX 安装成功"
-            } else {
-                Write-Warn "SoX 安装后未找到，请重启终端后重试"
-            }
-        } catch {
-            Write-Warn "SoX 自动安装失败，请手动安装: winget install ChrisBagwell.SoX"
-        }
+    if (-not (Test-Path $targetVoices) -and (Test-Path $exampleVoices)) {
+        Copy-Item $exampleVoices $targetVoices
+        Write-OK "已创建 voice_profiles.json"
+    } elseif (Test-Path $targetVoices) {
+        Write-OK "保留已有 voice_profiles.json"
+    } else {
+        Write-Warn "未找到 voice_profiles.example.json"
     }
+
+    Write-Host "  配置完成" -ForegroundColor White
 }
 
-if ($DevOnly) {
-    Write-Step "Step 3: 安装开发工具"
+function Ensure-Directories {
+    Write-Step "Step 4: 创建目录结构"
 
-    Invoke-WithBestMirror -Script {
-        param($mirrorUrl)
-        if ($mirrorUrl) {
-            $env:UV_INDEX_URL = $mirrorUrl
-        } else {
-            Remove-Item Env:\UV_INDEX_URL -ErrorAction SilentlyContinue
-        }
-        & uv sync --extra dev
-    }
+    $dirs = @(
+        "models",
+        "models\whisper",
+        "models\qwen3tts",
+        "models\voice_profiles",
+        "output",
+        ".workbuddy\memory"
+    )
 
-    if ($LASTEXITCODE -eq 0) {
-        Write-OK "开发工具安装完成"
-    } else {
-        Write-Fail "开发工具安装失败"
-        exit 1
-    }
-}
-
-# ============================================================
-# Step 4: 初始化配置文件
-# ============================================================
-Write-Step "Step 4: 初始化配置文件"
-
-$configDir = Join-Path $ProjectRoot "config"
-$configFile = Join-Path $configDir "config.json"
-$exampleFile = Join-Path $configDir "config.example.json"
-
-if (-not (Test-Path $configFile)) {
-    if (Test-Path $exampleFile) {
-        Copy-Item $exampleFile $configFile -Force
-        Write-OK "已从 config.example.json 创建 config.json"
-    } else {
-        Write-Warn "config.example.json 不存在，跳过"
-    }
-} else {
-    Write-OK "config.json 已存在，跳过"
-}
-
-# voice_profiles.json
-$vpFile = Join-Path $configDir "voice_profiles.json"
-$vpExample = Join-Path $configDir "voice_profiles.example.json"
-if (-not (Test-Path $vpFile)) {
-    if (Test-Path $vpExample) {
-        Copy-Item $vpExample $vpFile -Force
-        Write-OK "已从 voice_profiles.example.json 创建 voice_profiles.json"
-    } else {
-        Write-Warn "voice_profiles.example.json 不存在，跳过"
-    }
-} else {
-    Write-OK "voice_profiles.json 已存在，跳过"
-}
-
-# 检查 API Key 配置
-if (Test-Path $configFile) {
-    $config = Get-Content $configFile -Raw | ConvertFrom-Json
-    $hasKey = $false
-    if ($config.api.deepseek_api_key -and $config.api.deepseek_api_key -ne "") { $hasKey = $true }
-    if ($config.api.openai_api_key -and $config.api.openai_api_key -ne "") { $hasKey = $true }
-
-    if (-not $hasKey) {
-        Write-Warn "API Key 未配置"
-        Write-Host ""
-        Write-Host "  请通过以下任一方式配置:" -ForegroundColor White
-        Write-Host "    1. 编辑 config/config.json 填入 API Key" -ForegroundColor White
-        Write-Host "    2. 设置环境变量: `$env:DEEPSEEK_API_KEY = `"your-key`"" -ForegroundColor White
-        Write-Host "    3. 在 GUI 的设置菜单中配置" -ForegroundColor White
-    } else {
-        Write-OK "API Key 已配置"
-    }
-}
-
-# ============================================================
-# Step 5: 创建目录结构
-# ============================================================
-Write-Step "Step 5: 创建必要目录"
-
-$dirs = @(
-    "models/voice_profiles",
-    "models/qwen3tts"
-)
-
-foreach ($dir in $dirs) {
-    $fullPath = Join-Path $ProjectRoot $dir
-    if (-not (Test-Path $fullPath)) {
-        New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
-        Write-OK "创建: $dir/"
-    } else {
-        Write-OK "已存在: $dir/"
-    }
-}
-
-# ============================================================
-# Step 6: 下载模型（-Models 参数）
-# ============================================================
-$installModelsScript = Join-Path $ProjectRoot "scripts\install_models.py"
-
-if ($Models) {
-    Write-Step "Step 6: 下载模型"
-
-    if (-not (Test-Path $installModelsScript)) {
-        Write-Fail "install_models.py 不存在: $installModelsScript"
-        exit 1
-    }
-
-    # 确保模型目录存在
-    $modelDirs = @("models/whisper", "models/qwen3tts", "models/voice_profiles")
-    foreach ($dir in $modelDirs) {
+    foreach ($dir in $dirs) {
         $fullPath = Join-Path $ProjectRoot $dir
         if (-not (Test-Path $fullPath)) {
             New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
         }
     }
 
-    # 构建下载参数
-    $modelArgs = @($installModelsScript)
+    Write-OK "目录结构已就绪"
+}
+
+function Invoke-DependencyInstall {
+    if ($SkipInstall) {
+        Write-OK "已跳过依赖安装"
+        return
+    }
+
+    Ensure-Uv
+
+    Write-Step "Step 2: 同步依赖"
+    if ($CleanReinstall) {
+        $venvDir = Join-Path $ProjectRoot ".venv"
+        if (Test-Path $venvDir) {
+            Remove-Item $venvDir -Recurse -Force
+            Write-OK "已删除旧 .venv"
+        }
+    }
+
+    if ($DevOnly) {
+        & uv sync --extra dev
+    } elseif ($Full) {
+        & uv sync --extra qwen3 --extra dev
+    } else {
+        & uv sync
+    }
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "uv sync 失败"
+    }
+
+    Write-OK "依赖同步完成"
+}
+
+function Invoke-ModelInstall {
+    if (-not $Models) {
+        return
+    }
+
+    Ensure-Uv
+
+    Write-Step "Step 5: 下载模型"
+    $scriptPath = Join-Path $ProjectRoot "scripts\install_models.py"
+    $args = @("run", "python", $scriptPath)
 
     if ($Full) {
-        $modelArgs += "--all"
-    } else {
-        $modelArgs += "--whisper"
-        $modelArgs += "base"
+        $args += "--all"
     }
 
     if ($Mirror) {
-        $modelArgs += "--mirror"
-        $modelArgs += "https://hf-mirror.com"
-    }
-
-    Write-Host "  下载参数: $($modelArgs -join ' ')" -ForegroundColor DarkGray
-
-    & uv run python @modelArgs
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "部分模型下载失败，可稍后重试"
-    } else {
-        Write-OK "模型下载完成"
-    }
-
-    Write-Host ""
-}
-
-# ============================================================
-# Step 6: 环境验证
-# ============================================================
-Write-Step "环境验证"
-
-# numpy MINGW 警告抑制参数（Python 3.13 + numpy 会产生大量无害 stderr 警告）
-$PyWarnArgs = @("-W", "ignore::RuntimeWarning", "-W", "ignore::Warning")
-
-$checks = @(
-    @{ Name = "Python"; Script = { & uv run python --version } },
-    @{ Name = "faster-whisper"; Script = { & uv run python @PyWarnArgs -c "import faster_whisper; print(faster_whisper.__version__)" } },
-    @{ Name = "edge-tts"; Script = { & uv run python -c "import edge_tts; print('OK')" } },
-    @{ Name = "demucs"; Script = { & uv run python @PyWarnArgs -c "import demucs; print(demucs.__version__)" } },
-    @{ Name = "PySide6 (GUI)"; Script = { & uv run python -c "import PySide6; print(PySide6.__version__)" } },
-    @{ Name = "PyTorch + CUDA"; Script = {
-        & uv run python @PyWarnArgs -c "import torch; print(f'torch={torch.__version__}, cuda={torch.cuda.is_available()}, gpu={torch.cuda.get_device_name(0) if torch.cuda.is_available() else chr(78)+chr(65)}')"
-    }}
-)
-
-if ($Full) {
-    $checks += @(
-        @{ Name = "qwen-tts"; Script = { & uv run python -c "import qwen_tts; print(qwen_tts.__version__)" 2>&1 } },
-        @{ Name = "SoX (qwen-tts 依赖)"; Script = {
-            if (Test-Command "sox") {
-                & sox --version 2>&1 | Select-Object -First 1
-            } else {
-                Write-Warn "SoX 未安装 — qwen-tts 可能无法正常工作"
-                Write-Host "  安装方法: winget install sox" -ForegroundColor DarkGray
-                $false
-            }
-        }}
-    )
-}
-
-$passed = 0
-$failed = 0
-
-foreach ($check in $checks) {
-    try {
-        $result = & $check.Script 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            $resultStr = ($result | Where-Object { $_ -is [string] }) -join ""
-            $resultStr = $resultStr.Trim()
-            Write-OK "$($check.Name): $resultStr"
-            $passed++
-        } else {
-            Write-Fail "$($check.Name): 执行失败 (exit code: $LASTEXITCODE)"
-            $failed++
+        $bestMirror = Select-BestMirror
+        if ($bestMirror.URL -match "tsinghua|aliyun") {
+            $args += @("--mirror", "https://hf-mirror.com")
         }
-    } catch {
-        Write-Fail "$($check.Name): $($_.Exception.Message)"
-        $failed++
-    }
-}
-
-# ============================================================
-# Step 7: 模型状态
-# ============================================================
-Write-Step "Step 7: 模型状态"
-
-# 检查 install_models.py 是否存在
-$installModelsScript = Join-Path $ProjectRoot "scripts\install_models.py"
-if (Test-Path $installModelsScript) {
-    # 检查模型状态（不让外部命令失败中断整个 setup 流程）
-    $modelCheckExit = 0
-    try {
-        $oldErrorActionPreference = $ErrorActionPreference
-        $ErrorActionPreference = "Continue"
-        & uv run python $installModelsScript --check 2>$null
-        $modelCheckExit = $LASTEXITCODE
-    } catch {
-        $modelCheckExit = 1
-    } finally {
-        $ErrorActionPreference = $oldErrorActionPreference
     }
 
-    if ($modelCheckExit -ne 0) {
-        Write-Warn "部分模型未下载"
-        Write-Host ""
-        Write-Host "  下载命令:" -ForegroundColor White
-        Write-Host "    .\setup.ps1 -Models              # 下载 Whisper base 模型" -ForegroundColor White
-        Write-Host "    .\setup.ps1 -Models -Full         # 下载全部模型 (Whisper + Qwen3)" -ForegroundColor White
-        Write-Host "    .\setup.ps1 -Models -Mirror       # 使用镜像加速下载" -ForegroundColor White
+    & uv @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "模型下载失败"
     }
-} else {
-    Write-Warn "install_models.py 不存在，跳过模型检查"
+
+    Write-OK "模型下载完成"
 }
 
-# ============================================================
-# 结果汇总
-# ============================================================
-Write-Step "配置完成"
-Write-Host ""
-if ($failed -eq 0) {
-    Write-Host "  所有检查通过!" -ForegroundColor Green
-} else {
-    Write-Host "  $passed 项通过, $failed 项失败" -ForegroundColor Yellow
+function Invoke-EnvironmentVerify {
+    Write-Step "Step 6: 环境验证"
+
+    if (Test-Command "uv") {
+        $verifyScript = Join-Path $ProjectRoot "scripts\verify_models.py"
+        if (Test-Path $verifyScript) {
+            & uv run python $verifyScript | Out-Host
+        }
+    } else {
+        Write-Warn "未检测到 uv，跳过模型验证"
+    }
+
+    Write-OK "环境验证完成"
 }
 
-Write-Host ""
+Write-Step "Step 0: 准备项目目录"
+Set-Location $ProjectRoot
+Write-OK "当前目录: $ProjectRoot"
+
+Invoke-DependencyInstall
+Ensure-ConfigFiles
+Ensure-Directories
+Invoke-ModelInstall
+Invoke-EnvironmentVerify
+
+Write-Step "Step 7: 完成"
 Write-Host "  后续步骤:" -ForegroundColor White
 Write-Host "    1. 配置 API Key (编辑 config/config.json 或设置环境变量)" -ForegroundColor White
 Write-Host "    2. 下载模型:     .\setup.ps1 -Models" -ForegroundColor White
 Write-Host "    3. 运行 GUI:     .\run.bat" -ForegroundColor White
-Write-Host "    4. 命令行处理:  uv run python scripts/asmr_bilingual.py --input audio.wav" -ForegroundColor White
+Write-Host "    4. 命令行处理:   uv run python scripts/asmr_bilingual.py --input audio.wav" -ForegroundColor White
 Write-Host ""

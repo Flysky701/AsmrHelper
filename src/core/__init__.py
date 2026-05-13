@@ -9,6 +9,7 @@ from .tts import TTSEngine
 from .pipeline import Pipeline, PipelineConfig
 from ..mixer import Mixer
 from .model_manager import ModelManager, get_model_manager
+from .resources import ModelService, get_model_service
 
 __all__ = [
     "VocalSeparator",
@@ -20,4 +21,6 @@ __all__ = [
     "PipelineConfig",
     "ModelManager",
     "get_model_manager",
+    "ModelService",
+    "get_model_service",
 ]

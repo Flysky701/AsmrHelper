@@ -1,28 +1,27 @@
 """
-Qwen3-TTS 模型管理器
+Qwen3-TTS model manager.
 
-功能：
-1. 模型单例化 - 避免重复加载 8.4GB 模型
-2. 分模型加载 - CustomVoice / VoiceDesign / Base 按需加载
-3. 显存管理 - 用完可卸载释放显存
+This manager keeps runtime singleton behavior, while the actual on-disk
+location of the models is resolved through the shared model resource layer.
 """
 
-import torch
-import os
 import threading
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict
 
-from src.config import PROJECT_ROOT  # 统一使用项目根目录
+import torch
 
 
 class Qwen3ModelManager:
-    """Qwen3 模型管理器 - 单例 + 延迟加载"""
+    """Singleton-style lazy loader for Qwen3 TTS models."""
 
     _instances: Dict[str, Any] = {}
     _lock = threading.Lock()
-
-    # 模型本地路径（相对于 models/qwen3tts/）
+    _MODEL_IDS = {
+        "custom_voice": "qwen3-custom-voice",
+        "voice_design": "qwen3-voice-design",
+        "base": "qwen3-base",
+    }
     _MODEL_SUBDIRS = {
         "custom_voice": "models--Qwen--Qwen3-TTS-12Hz-1.7B-CustomVoice",
         "voice_design": "models--Qwen--Qwen3-TTS-12Hz-1.7B-VoiceDesign",
@@ -31,50 +30,36 @@ class Qwen3ModelManager:
 
     @classmethod
     def _get_model_dir(cls, model_type: str, download_root: str = None) -> Path:
-        """获取模型本地目录的绝对路径"""
         if download_root:
-            base = Path(download_root)
+            model_dir = Path(download_root) / cls._MODEL_SUBDIRS[model_type]
         else:
-            # 统一使用 PROJECT_ROOT
-            base = PROJECT_ROOT / "models" / "qwen3tts"
+            from src.core.resources import get_model_service
 
-        model_dir = base / cls._MODEL_SUBDIRS[model_type]
+            service = get_model_service()
+            model_dir = service.resolve_install_dir(cls._MODEL_IDS[model_type])
+
         if not model_dir.exists():
             raise FileNotFoundError(
                 f"模型目录不存在: {model_dir}\n"
-                f"请从 HuggingFace 下载模型到该目录"
+                "请先通过项目内模型管理命令下载对应模型。"
             )
         return model_dir
 
     @classmethod
     def get_model(cls, model_type: str, download_root: str = None) -> Any:
-        """
-        获取指定类型的模型（延迟加载，单例复用）
-
-        Args:
-            model_type: "custom_voice" | "voice_design" | "base"
-            download_root: 模型根目录（默认 models/qwen3tts）
-
-        Returns:
-            Qwen3TTSModel 实例
-        """
         if model_type not in cls._MODEL_SUBDIRS:
             raise ValueError(f"未知的模型类型: {model_type}")
 
         with cls._lock:
-            # 已加载则直接返回
             if model_type in cls._instances and cls._instances[model_type] is not None:
                 print(f"[Qwen3ModelManager] 复用已加载的模型: {model_type}")
                 return cls._instances[model_type]
 
             model_dir = cls._get_model_dir(model_type, download_root)
-
-            # 首次加载
             print(f"[Qwen3ModelManager] 加载模型: {model_type} ({model_dir})...")
 
             t0 = torch.cuda.Event(enable_timing=True) if torch.cuda.is_available() else None
             t1 = torch.cuda.Event(enable_timing=True) if torch.cuda.is_available() else None
-
             if t0:
                 t0.record()
 
@@ -96,22 +81,18 @@ class Qwen3ModelManager:
 
     @classmethod
     def get_custom_voice_model(cls, download_root: str = None) -> Any:
-        """获取 CustomVoice 模型"""
         return cls.get_model("custom_voice", download_root)
 
     @classmethod
     def get_voice_design_model(cls, download_root: str = None) -> Any:
-        """获取 VoiceDesign 模型"""
         return cls.get_model("voice_design", download_root)
 
     @classmethod
     def get_base_model(cls, download_root: str = None) -> Any:
-        """获取 Base 模型 (用于 VoiceClone)"""
         return cls.get_model("base", download_root)
 
     @classmethod
     def unload(cls, model_type: str):
-        """卸载指定模型释放显存"""
         if model_type in cls._instances:
             print(f"[Qwen3ModelManager] 卸载模型: {model_type}")
             cls._instances[model_type] = None
@@ -122,19 +103,16 @@ class Qwen3ModelManager:
 
     @classmethod
     def unload_all(cls):
-        """卸载所有模型"""
         print("[Qwen3ModelManager] 卸载所有模型...")
         for model_type in list(cls._instances.keys()):
             cls.unload(model_type)
 
     @classmethod
     def is_loaded(cls, model_type: str) -> bool:
-        """检查模型是否已加载"""
         return model_type in cls._instances and cls._instances[model_type] is not None
 
     @classmethod
     def get_gpu_memory_info(cls) -> dict:
-        """获取 GPU 显存信息"""
         if not torch.cuda.is_available():
             return {"available": False}
 
