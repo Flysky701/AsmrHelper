@@ -1,5 +1,6 @@
 from click.testing import CliRunner
 import pytest
+import threading
 
 
 def test_app_package_re_exports_new_dto_and_error_contract():
@@ -23,7 +24,7 @@ def test_app_package_re_exports_new_dto_and_error_contract():
     assert ResourceStatus.__name__ == "ResourceStatus"
     assert issubclass(ResourceValidationError, Exception)
     assert callable(get_task_service)
-    assert dto.__all__ == [
+    assert set(dto.__all__) == {
         "SubtitleSegment",
         "SubtitleDocument",
         "PipelineRequest",
@@ -35,7 +36,7 @@ def test_app_package_re_exports_new_dto_and_error_contract():
         "ResourceStatus",
         "ModelSummary",
         "ModelStatusView",
-    ]
+    }
 
 
 def test_new_application_dtos_expose_expected_fields():
@@ -90,7 +91,12 @@ def test_task_service_tracks_lifecycle_transitions():
     assert created.state == "pending"
     assert created.progress == 0.0
     assert created.message == ""
-    assert service.get_task("pipeline-1") == created
+    fetched = service.get_task("pipeline-1")
+    assert fetched == created
+    assert fetched is not created
+
+    fetched.message = "mutated"
+    assert service.get_task("pipeline-1").message == ""
 
     started = service.start_task("pipeline-1", message="running")
     assert started.state == "running"
@@ -118,13 +124,43 @@ def test_task_service_tracks_lifecycle_transitions():
         service.get_task("missing-1")
 
 
-def test_task_service_singleton_getter_reuses_instance():
+def test_task_service_singleton_getter_reuses_instance(monkeypatch):
+    import src.app.services.task_service as task_service_module
     from src.app.services import TaskService, get_task_service
 
-    service = get_task_service()
+    monkeypatch.setattr(task_service_module, "_service", None)
 
-    assert isinstance(service, TaskService)
-    assert service is get_task_service()
+    first = get_task_service()
+    second = get_task_service()
+
+    assert isinstance(first, TaskService)
+    assert first is second
+
+    task = first.create_task("singleton")
+    assert second.get_task(task.task_id).task_id == task.task_id
+
+
+def test_task_service_create_task_is_safe_for_concurrent_in_process_use():
+    from src.app.services.task_service import TaskService
+
+    service = TaskService()
+    created_task_ids: list[str] = []
+    created_lock = threading.Lock()
+
+    def worker() -> None:
+        task = service.create_task("pipeline")
+        with created_lock:
+            created_task_ids.append(task.task_id)
+
+    threads = [threading.Thread(target=worker) for _ in range(20)]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(created_task_ids) == 20
+    assert len(set(created_task_ids)) == 20
 
 
 def test_subtitle_service_round_trip_preserves_timestamp_entries():

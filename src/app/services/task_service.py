@@ -14,19 +14,23 @@ class TaskService:
     def __init__(self) -> None:
         self._tasks: dict[str, TaskStatus] = {}
         self._counters: dict[str, int] = {}
+        self._lock = threading.Lock()
 
     def create_task(self, kind: str) -> TaskStatus:
-        next_id = self._counters.get(kind, 0) + 1
-        self._counters[kind] = next_id
-        task = TaskStatus(task_id=f"{kind}-{next_id}", state="pending")
-        self._tasks[task.task_id] = task
-        return task
+        with self._lock:
+            next_id = self._counters.get(kind, 0) + 1
+            self._counters[kind] = next_id
+            task = TaskStatus(task_id=f"{kind}-{next_id}", state="pending")
+            self._tasks[task.task_id] = task
+            return self._clone_task(task)
 
     def get_task(self, task_id: str) -> TaskStatus:
-        try:
-            return self._tasks[task_id]
-        except KeyError as exc:
-            raise AppValidationError(f"unknown task id: {task_id}") from exc
+        with self._lock:
+            try:
+                task = self._tasks[task_id]
+            except KeyError as exc:
+                raise AppValidationError(f"unknown task id: {task_id}") from exc
+            return self._clone_task(task)
 
     def start_task(self, task_id: str, message: str = "") -> TaskStatus:
         return self._update_task(task_id, state="running", message=message)
@@ -61,16 +65,31 @@ class TaskService:
         message: str | None = None,
         detail: str | None = None,
     ) -> TaskStatus:
-        current = self.get_task(task_id)
-        updated = TaskStatus(
-            task_id=current.task_id,
-            state=state if state is not None else current.state,
-            progress=progress if progress is not None else current.progress,
-            message=message if message is not None else current.message,
-            detail=detail if detail is not None else current.detail,
+        with self._lock:
+            try:
+                current = self._tasks[task_id]
+            except KeyError as exc:
+                raise AppValidationError(f"unknown task id: {task_id}") from exc
+
+            updated = TaskStatus(
+                task_id=current.task_id,
+                state=state if state is not None else current.state,
+                progress=progress if progress is not None else current.progress,
+                message=message if message is not None else current.message,
+                detail=detail if detail is not None else current.detail,
+            )
+            self._tasks[task_id] = updated
+            return self._clone_task(updated)
+
+    @staticmethod
+    def _clone_task(task: TaskStatus) -> TaskStatus:
+        return TaskStatus(
+            task_id=task.task_id,
+            state=task.state,
+            progress=task.progress,
+            message=task.message,
+            detail=task.detail,
         )
-        self._tasks[task_id] = updated
-        return updated
 
 
 _service: TaskService | None = None
