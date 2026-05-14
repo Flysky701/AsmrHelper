@@ -13,7 +13,7 @@ class ResourceService:
     """Resolve and prepare app-level workspace resources."""
 
     def __init__(self, project_root: Path | None = None) -> None:
-        self.project_root = (project_root or Path(__file__).resolve().parents[3]).resolve()
+        self.project_root = (project_root or Path.cwd()).resolve()
 
     def ensure_workspace(self) -> dict[str, Path]:
         project_root = self.project_root

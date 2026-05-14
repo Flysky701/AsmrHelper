@@ -43,6 +43,16 @@ def test_app_package_re_exports_new_dto_and_error_contract():
     }
 
 
+def test_app_and_services_all_include_resource_service_exports():
+    import src.app as app_module
+    import src.app.services as services_module
+
+    assert "ResourceService" in app_module.__all__
+    assert "get_resource_service" in app_module.__all__
+    assert "ResourceService" in services_module.__all__
+    assert "get_resource_service" in services_module.__all__
+
+
 def test_new_application_dtos_expose_expected_fields():
     from src.app.dto import (
         ArtifactSet,
@@ -159,6 +169,23 @@ def test_resource_service_ensures_workspace_with_default_model_root(tmp_path, mo
     assert workspace["models_dir"] == project_root / "models"
     assert workspace["output_dir"].is_dir()
     assert workspace["models_dir"].is_dir()
+
+
+def test_resource_service_defaults_project_root_to_current_working_directory(
+    tmp_path, monkeypatch
+):
+    from src.app.services.resource_service import ResourceService
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ASMR_HELPER_MODEL_ROOT", raising=False)
+
+    service = ResourceService()
+    workspace = service.ensure_workspace()
+
+    assert service.project_root == tmp_path.resolve()
+    assert workspace["project_root"] == tmp_path.resolve()
+    assert workspace["output_dir"] == tmp_path.resolve() / "output"
+    assert workspace["models_dir"] == tmp_path.resolve() / "models"
 
 
 def test_resource_service_reports_required_resources_with_env_override(tmp_path, monkeypatch):
