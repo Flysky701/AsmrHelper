@@ -218,6 +218,34 @@ def test_resource_service_singleton_getter_reuses_instance(monkeypatch):
     assert first is second
 
 
+def test_resource_service_singleton_getter_uses_cwd_on_first_initialization(
+    tmp_path, monkeypatch
+):
+    import src.app.services.resource_service as resource_service_module
+    from src.app.services import get_resource_service
+
+    first_cwd = tmp_path / "first-workspace"
+    second_cwd = tmp_path / "second-workspace"
+    first_cwd.mkdir()
+    second_cwd.mkdir()
+
+    monkeypatch.setattr(resource_service_module, "_service", None)
+    monkeypatch.delenv("ASMR_HELPER_MODEL_ROOT", raising=False)
+
+    monkeypatch.chdir(first_cwd)
+    first = get_resource_service()
+
+    monkeypatch.chdir(second_cwd)
+    second = get_resource_service()
+    workspace = second.ensure_workspace()
+
+    assert first is second
+    assert first.project_root == first_cwd.resolve()
+    assert workspace["project_root"] == first_cwd.resolve()
+    assert workspace["output_dir"] == first_cwd.resolve() / "output"
+    assert workspace["models_dir"] == first_cwd.resolve() / "models"
+
+
 def test_task_service_create_task_is_safe_for_concurrent_in_process_use():
     from src.app.services.task_service import TaskService
 
