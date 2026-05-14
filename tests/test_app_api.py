@@ -341,6 +341,53 @@ def test_subtitle_service_export_srt_text_formats_document():
     )
 
 
+def test_subtitle_service_load_srt_text_round_trips_segment_text_with_blank_lines():
+    from src.app.dto import SubtitleDocument, SubtitleSegment
+    from src.app.services.subtitle_service import SubtitleService
+
+    document = SubtitleDocument(
+        segments=[
+            SubtitleSegment(start=0.0, end=1.25, text="hello\n\nworld"),
+            SubtitleSegment(start=1.25, end=2.0, text="tail"),
+        ]
+    )
+
+    service = SubtitleService()
+
+    exported = service.export_srt_text(document)
+    restored = service.load_srt_text(exported)
+
+    assert restored.segments == document.segments
+
+
+def test_subtitle_service_load_srt_text_skips_malformed_timestamp_cues():
+    from src.app.services.subtitle_service import SubtitleService
+
+    content = (
+        "1\n"
+        "00:00:00,000 --> 00:00:01,000\n"
+        "alpha\n"
+        "\n"
+        "2\n"
+        "not-a-time --> 00:00:02,000\n"
+        "broken\n"
+        "\n"
+        "3\n"
+        "00:00:02,500 --> 00:00:03,750\n"
+        "omega\n"
+    )
+
+    service = SubtitleService()
+
+    document = service.load_srt_text(content)
+
+    assert len(document.segments) == 2
+    assert document.segments[0].text == "alpha"
+    assert document.segments[1].start == 2.5
+    assert document.segments[1].end == 3.75
+    assert document.segments[1].text == "omega"
+
+
 def test_pipeline_service_maps_request_and_result(monkeypatch):
     import inspect
 

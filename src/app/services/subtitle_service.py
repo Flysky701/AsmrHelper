@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import threading
 
 from ..dto import SubtitleDocument, SubtitleSegment
@@ -38,28 +37,33 @@ class SubtitleService:
             return SubtitleDocument()
 
         segments: list[SubtitleSegment] = []
-        for block in re.split(r"\n\s*\n", normalized):
-            lines = [line for line in block.split("\n") if line.strip()]
-            if len(lines) < 2:
+        lines = normalized.split("\n")
+        line_count = len(lines)
+        index = 0
+
+        while index < line_count:
+            cue_start, timing_line_index = self._find_srt_timing_line(lines, index)
+            if timing_line_index is None:
+                index += 1
                 continue
 
-            timing_line_index = 1 if "-->" not in lines[0] else 0
-            if timing_line_index >= len(lines):
-                continue
-
+            next_cue_start = self._find_next_srt_cue_start(lines, timing_line_index + 1)
             timing_line = lines[timing_line_index]
-            if "-->" not in timing_line:
-                continue
-
             start_text, end_text = [part.strip() for part in timing_line.split("-->", maxsplit=1)]
-            text = "\n".join(lines[timing_line_index + 1 :])
-            segments.append(
-                SubtitleSegment(
-                    start=self._parse_srt_timestamp(start_text),
-                    end=self._parse_srt_timestamp(end_text),
-                    text=text,
+            text = "\n".join(lines[timing_line_index + 1 : next_cue_start]).rstrip("\n")
+
+            try:
+                segments.append(
+                    SubtitleSegment(
+                        start=self._parse_srt_timestamp(start_text),
+                        end=self._parse_srt_timestamp(end_text),
+                        text=text,
+                    )
                 )
-            )
+            except ValueError:
+                pass
+
+            index = next_cue_start
 
         return SubtitleDocument(segments=segments)
 
@@ -100,6 +104,22 @@ class SubtitleService:
         minutes, remainder = divmod(remainder, 60_000)
         seconds, milliseconds = divmod(remainder, 1000)
         return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+    def _find_srt_timing_line(
+        self, lines: list[str], start_index: int
+    ) -> tuple[int, int | None]:
+        if "-->" in lines[start_index]:
+            return start_index, start_index
+        if start_index + 1 < len(lines) and lines[start_index].strip() and "-->" in lines[start_index + 1]:
+            return start_index, start_index + 1
+        return start_index, None
+
+    def _find_next_srt_cue_start(self, lines: list[str], start_index: int) -> int:
+        for index in range(start_index, len(lines)):
+            cue_start, timing_line_index = self._find_srt_timing_line(lines, index)
+            if timing_line_index is not None:
+                return cue_start
+        return len(lines)
 
 
 _service: SubtitleService | None = None
