@@ -23,10 +23,12 @@ from .errors import (
 from .services import (
     ModelService,
     PipelineService,
+    ResourceService,
     SubtitleService,
     TaskService,
     get_model_service,
     get_pipeline_service,
+    get_resource_service,
     get_subtitle_service,
     get_task_service,
 )
@@ -42,6 +44,7 @@ __all__ = [
     "PipelineRequest",
     "PipelineResult",
     "PipelineService",
+    "ResourceService",
     "ResourceStatus",
     "ResourceUnavailableError",
     "ResourceValidationError",
@@ -54,6 +57,7 @@ __all__ = [
     "TranslationResult",
     "get_model_service",
     "get_pipeline_service",
+    "get_resource_service",
     "get_subtitle_service",
     "get_task_service",
 ]

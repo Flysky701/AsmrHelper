@@ -6,23 +6,27 @@ import threading
 def test_app_package_re_exports_new_dto_and_error_contract():
     from src.app import (
         ArtifactSet,
+        ResourceService,
         ResourceStatus,
         ResourceValidationError,
         TaskService,
         SynthesisResult,
         TaskStatus,
         TranslationResult,
+        get_resource_service,
         get_task_service,
     )
     from src.app import dto
 
     assert ArtifactSet.__name__ == "ArtifactSet"
+    assert ResourceService.__name__ == "ResourceService"
     assert TaskService.__name__ == "TaskService"
     assert TaskStatus.__name__ == "TaskStatus"
     assert TranslationResult.__name__ == "TranslationResult"
     assert SynthesisResult.__name__ == "SynthesisResult"
     assert ResourceStatus.__name__ == "ResourceStatus"
     assert issubclass(ResourceValidationError, Exception)
+    assert callable(get_resource_service)
     assert callable(get_task_service)
     assert set(dto.__all__) == {
         "SubtitleSegment",
@@ -138,6 +142,53 @@ def test_task_service_singleton_getter_reuses_instance(monkeypatch):
 
     task = first.create_task("singleton")
     assert second.get_task(task.task_id).task_id == task.task_id
+
+
+def test_resource_service_ensures_workspace_with_default_model_root(tmp_path, monkeypatch):
+    from src.app.services.resource_service import ResourceService
+
+    monkeypatch.delenv("ASMR_HELPER_MODEL_ROOT", raising=False)
+
+    project_root = tmp_path / "project"
+    service = ResourceService(project_root=project_root)
+
+    workspace = service.ensure_workspace()
+
+    assert workspace["project_root"] == project_root
+    assert workspace["output_dir"] == project_root / "output"
+    assert workspace["models_dir"] == project_root / "models"
+    assert workspace["output_dir"].is_dir()
+    assert workspace["models_dir"].is_dir()
+
+
+def test_resource_service_reports_required_resources_with_env_override(tmp_path, monkeypatch):
+    from src.app.services.resource_service import ResourceService
+
+    project_root = tmp_path / "project"
+    model_root = tmp_path / "shared-models"
+    monkeypatch.setenv("ASMR_HELPER_MODEL_ROOT", str(model_root))
+
+    service = ResourceService(project_root=project_root)
+
+    statuses = {status.name: status for status in service.check_required_resources()}
+
+    assert statuses["project_root"].available is True
+    assert statuses["output_dir"].available is True
+    assert statuses["models_dir"].available is True
+    assert statuses["models_dir"].metadata["path"] == str(model_root)
+
+
+def test_resource_service_singleton_getter_reuses_instance(monkeypatch):
+    import src.app.services.resource_service as resource_service_module
+    from src.app.services import ResourceService, get_resource_service
+
+    monkeypatch.setattr(resource_service_module, "_service", None)
+
+    first = get_resource_service()
+    second = get_resource_service()
+
+    assert isinstance(first, ResourceService)
+    assert first is second
 
 
 def test_task_service_create_task_is_safe_for_concurrent_in_process_use():
