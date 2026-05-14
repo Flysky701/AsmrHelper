@@ -288,6 +288,8 @@ def test_subtitle_service_round_trip_preserves_timestamp_entries():
 
 
 def test_pipeline_service_maps_request_and_result(monkeypatch):
+    import inspect
+
     from src.app.dto import PipelineRequest
     from src.app.services.pipeline_service import PipelineService
 
@@ -299,6 +301,7 @@ def test_pipeline_service_maps_request_and_result(monkeypatch):
 
         def run(self, preset=None, progress_callback=None):
             captured["preset"] = preset
+            captured["progress_callback_arity"] = len(inspect.signature(progress_callback).parameters)
             return {
                 "input": "demo.wav",
                 "mix_path": "out/demo_mix.wav",
@@ -328,7 +331,10 @@ def test_pipeline_service_maps_request_and_result(monkeypatch):
 
     assert captured["config"].input_path == "demo.wav"
     assert captured["config"].translate_provider == "deepseek"
+    assert captured["config"].source_lang == "日文"
+    assert captured["config"].target_lang == "中文"
     assert captured["preset"] == "asmr_bilingual"
+    assert captured["progress_callback_arity"] == 1
     assert result.success is True
     assert result.mix_path == "out/demo_mix.wav"
     assert result.exported_subtitle == "out/demo_subtitle.srt"
@@ -374,6 +380,8 @@ def test_pipeline_service_wraps_execution_errors(monkeypatch):
 
 
 def test_pipeline_service_orchestrates_workspace_task_lifecycle_and_artifacts(monkeypatch):
+    import inspect
+
     from src.app.dto import PipelineRequest
     from src.app.services.pipeline_service import PipelineService
 
@@ -428,8 +436,9 @@ def test_pipeline_service_orchestrates_workspace_task_lifecycle_and_artifacts(mo
         def run(self, preset=None, progress_callback=None):
             captured["preset"] = preset
             captured["progress_callback"] = progress_callback
-            progress_callback(0.35, "separating vocals")
-            progress_callback(0.7, "mixing audio")
+            captured["progress_callback_arity"] = len(inspect.signature(progress_callback).parameters)
+            progress_callback("separating vocals")
+            progress_callback("mixing audio")
             return {
                 "input": "demo.wav",
                 "mix_path": "workspace-output/demo_mix.wav",
@@ -450,7 +459,10 @@ def test_pipeline_service_orchestrates_workspace_task_lifecycle_and_artifacts(mo
 
     assert captured["workspace_checked"] is True
     assert captured["config"].output_dir == "workspace-output"
+    assert captured["config"].source_lang == "日文"
+    assert captured["config"].target_lang == "中文"
     assert captured["preset"] == "asmr_bilingual"
+    assert captured["progress_callback_arity"] == 1
     assert result.success is True
     assert result.task_id == "pipeline-1"
     assert result.task_state == "completed"
@@ -469,8 +481,8 @@ def test_pipeline_service_orchestrates_workspace_task_lifecycle_and_artifacts(mo
         ("create", "pipeline"),
         ("start", "pipeline-1", "running pipeline"),
         ("progress", "pipeline-1", 0.1, "preparing workspace"),
-        ("progress", "pipeline-1", 0.35, "separating vocals"),
-        ("progress", "pipeline-1", 0.7, "mixing audio"),
+        ("progress", "pipeline-1", 0.1, "separating vocals"),
+        ("progress", "pipeline-1", 0.1, "mixing audio"),
         ("progress", "pipeline-1", 0.9, "pipeline finished"),
         (
             "complete",
@@ -589,6 +601,20 @@ def test_pipeline_service_marks_task_failed_when_workspace_setup_raises(monkeypa
         ("start", "pipeline-3", "running pipeline"),
         ("fail", "pipeline-3", "pipeline failed", "workspace unavailable"),
     ]
+
+
+def test_pipeline_service_rejects_unsupported_language_codes():
+    from src.app.dto import PipelineRequest
+    from src.app.errors import AppValidationError
+    from src.app.services.pipeline_service import PipelineService
+
+    service = PipelineService()
+
+    with pytest.raises(AppValidationError, match="unsupported source_lang: fr"):
+        service.run_audio_pipeline(PipelineRequest(input_path="demo.wav", source_lang="fr"))
+
+    with pytest.raises(AppValidationError, match="unsupported target_lang: ko"):
+        service.run_audio_pipeline(PipelineRequest(input_path="demo.wav", target_lang="ko"))
 
 
 def test_cli_pipeline_run_uses_pipeline_service(monkeypatch):

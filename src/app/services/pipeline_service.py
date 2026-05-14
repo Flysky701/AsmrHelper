@@ -13,10 +13,13 @@ from .task_service import TaskService, get_task_service
 
 
 LANG_MAP = {
-    "ja": ("鏃ユ枃", "涓枃"),
-    "zh": ("涓枃", "鑻辨枃"),
-    "en": ("鑻辨枃", "涓枃"),
+    "ja": ("日文", "中文"),
+    "zh": ("中文", "英文"),
+    "en": ("英文", "中文"),
 }
+
+SUPPORTED_LANGUAGE_CODES = frozenset(LANG_MAP)
+PROGRESS_MESSAGE_DEFAULT = 0.1
 
 
 class PipelineService:
@@ -33,26 +36,25 @@ class PipelineService:
     def run_audio_pipeline(self, request: PipelineRequest) -> PipelineResult:
         if not request.input_path:
             raise AppValidationError("input_path is required")
+        if request.source_lang not in SUPPORTED_LANGUAGE_CODES:
+            raise AppValidationError(f"unsupported source_lang: {request.source_lang}")
+        if request.target_lang not in SUPPORTED_LANGUAGE_CODES:
+            raise AppValidationError(f"unsupported target_lang: {request.target_lang}")
 
         task = self._task_service.create_task("pipeline")
-        current_task = self._task_service.start_task(task.task_id, message="running pipeline")
+        self._task_service.start_task(task.task_id, message="running pipeline")
 
         try:
             workspace = self._resource_service.ensure_workspace()
             output_dir = request.output_dir or str(workspace["output_dir"])
-            current_task = self._task_service.update_progress(
+            self._task_service.update_progress(
                 task.task_id,
                 progress=0.1,
                 message="preparing workspace",
             )
 
-            source_label, target_label = LANG_MAP.get(request.source_lang, ("鏃ユ枃", "涓枃"))
-            if request.target_lang == "zh":
-                target_label = "涓枃"
-            elif request.target_lang == "en":
-                target_label = "鑻辨枃"
-            elif request.target_lang == "ja":
-                target_label = "鏃ユ枃"
+            source_label, _ = LANG_MAP[request.source_lang]
+            target_label = LANG_MAP[request.target_lang][0]
 
             config = PipelineConfig(
                 input_path=request.input_path,
@@ -73,11 +75,10 @@ class PipelineService:
                 skip_existing=request.skip_existing,
             )
 
-            def on_progress(progress: float, message: str = "") -> None:
-                nonlocal current_task
-                current_task = self._task_service.update_progress(
+            def on_progress(message: str) -> None:
+                self._task_service.update_progress(
                     task.task_id,
-                    progress=progress,
+                    progress=PROGRESS_MESSAGE_DEFAULT,
                     message=message,
                 )
 
@@ -86,7 +87,7 @@ class PipelineService:
                 progress_callback=on_progress,
             )
         except Exception as exc:
-            current_task = self._task_service.fail_task(
+            self._task_service.fail_task(
                 task.task_id,
                 message="pipeline failed",
                 detail=str(exc),
@@ -95,7 +96,7 @@ class PipelineService:
                 raise
             raise AppExecutionError(str(exc)) from exc
 
-        current_task = self._task_service.update_progress(
+        self._task_service.update_progress(
             task.task_id,
             progress=0.9,
             message="pipeline finished",
