@@ -51,6 +51,7 @@ class PipelineRequest:
 class PipelineResult:
     success: bool
     input_path: str
+    task: Optional["TaskStatus"] = None
     task_id: Optional[str] = None
     task_state: Optional[str] = None
     artifacts: ArtifactSet = field(default_factory=lambda: ArtifactSet())
