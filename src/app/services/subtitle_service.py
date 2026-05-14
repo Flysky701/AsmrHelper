@@ -50,6 +50,9 @@ class SubtitleService:
         while index < line_count:
             cue_start, timing_line_index = self._find_srt_timing_line(lines, index)
             if timing_line_index is None:
+                if self._is_malformed_srt_cue_start(lines, index):
+                    index = self._skip_srt_block(lines, index + 1)
+                    continue
                 index += 1
                 continue
 
@@ -118,8 +121,8 @@ class SubtitleService:
             return start_index, start_index
         if (
             start_index + 1 < len(lines)
-            and self._is_srt_cue_index(lines[start_index])
-            and self._contains_srt_separator(lines[start_index + 1])
+            and self._is_srt_cue_index_at_block_start(lines, start_index)
+            and self._is_srt_timing_line(lines[start_index + 1])
         ):
             return start_index, start_index + 1
         return start_index, None
@@ -129,6 +132,8 @@ class SubtitleService:
             cue_start, timing_line_index = self._find_srt_timing_line(lines, index)
             if timing_line_index is not None:
                 return cue_start
+            if self._is_malformed_srt_cue_start(lines, index):
+                return index
         return len(lines)
 
     def _is_srt_timing_line(self, value: str) -> bool:
@@ -136,6 +141,25 @@ class SubtitleService:
 
     def _is_srt_cue_index(self, value: str) -> bool:
         return bool(self._SRT_CUE_INDEX_PATTERN.fullmatch(value))
+
+    def _is_srt_cue_index_at_block_start(self, lines: list[str], index: int) -> bool:
+        return self._is_srt_cue_index(lines[index]) and (index == 0 or not lines[index - 1].strip())
+
+    def _is_malformed_srt_cue_start(self, lines: list[str], start_index: int) -> bool:
+        return (
+            start_index + 1 < len(lines)
+            and self._is_srt_cue_index_at_block_start(lines, start_index)
+            and self._contains_srt_separator(lines[start_index + 1])
+            and not self._is_srt_timing_line(lines[start_index + 1])
+        )
+
+    def _skip_srt_block(self, lines: list[str], start_index: int) -> int:
+        index = start_index
+        while index < len(lines) and lines[index].strip():
+            index += 1
+        while index < len(lines) and not lines[index].strip():
+            index += 1
+        return index
 
     def _contains_srt_separator(self, value: str) -> bool:
         left, separator, right = value.partition("-->")
