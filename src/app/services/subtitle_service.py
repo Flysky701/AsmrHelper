@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 
 from ..dto import SubtitleDocument, SubtitleSegment
@@ -9,6 +10,11 @@ from ..dto import SubtitleDocument, SubtitleSegment
 
 class SubtitleService:
     """Translate subtitle entry dicts into stable application DTOs."""
+
+    _SRT_TIMING_LINE_PATTERN = re.compile(
+        r"^\s*\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}\s*$"
+    )
+    _SRT_CUE_INDEX_PATTERN = re.compile(r"^\s*\d+\s*$")
 
     def from_timestamp_entries(self, entries: list[dict]) -> SubtitleDocument:
         segments = [
@@ -108,9 +114,13 @@ class SubtitleService:
     def _find_srt_timing_line(
         self, lines: list[str], start_index: int
     ) -> tuple[int, int | None]:
-        if "-->" in lines[start_index]:
+        if self._is_srt_timing_line(lines[start_index]):
             return start_index, start_index
-        if start_index + 1 < len(lines) and lines[start_index].strip() and "-->" in lines[start_index + 1]:
+        if (
+            start_index + 1 < len(lines)
+            and self._is_srt_cue_index(lines[start_index])
+            and self._contains_srt_separator(lines[start_index + 1])
+        ):
             return start_index, start_index + 1
         return start_index, None
 
@@ -120,6 +130,16 @@ class SubtitleService:
             if timing_line_index is not None:
                 return cue_start
         return len(lines)
+
+    def _is_srt_timing_line(self, value: str) -> bool:
+        return bool(self._SRT_TIMING_LINE_PATTERN.fullmatch(value))
+
+    def _is_srt_cue_index(self, value: str) -> bool:
+        return bool(self._SRT_CUE_INDEX_PATTERN.fullmatch(value))
+
+    def _contains_srt_separator(self, value: str) -> bool:
+        left, separator, right = value.partition("-->")
+        return bool(separator and left.strip() and right.strip())
 
 
 _service: SubtitleService | None = None

@@ -388,6 +388,29 @@ def test_subtitle_service_load_srt_text_skips_malformed_timestamp_cues():
     assert document.segments[1].text == "omega"
 
 
+def test_subtitle_service_load_srt_text_does_not_treat_arrow_text_as_new_cue():
+    from src.app.services.subtitle_service import SubtitleService
+
+    content = (
+        "1\n"
+        "00:00:00,000 --> 00:00:01,500\n"
+        "look --> there\n"
+        "still same cue\n"
+        "\n"
+        "2\n"
+        "00:00:01,500 --> 00:00:02,000\n"
+        "tail\n"
+    )
+
+    service = SubtitleService()
+
+    document = service.load_srt_text(content)
+
+    assert len(document.segments) == 2
+    assert document.segments[0].text == "look --> there\nstill same cue"
+    assert document.segments[1].text == "tail"
+
+
 def test_pipeline_service_maps_request_and_result(monkeypatch):
     import inspect
 
