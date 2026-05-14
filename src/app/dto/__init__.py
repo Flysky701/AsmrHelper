@@ -1,5 +1,7 @@
 """Application-layer DTOs."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -49,6 +51,9 @@ class PipelineRequest:
 class PipelineResult:
     success: bool
     input_path: str
+    task_id: Optional[str] = None
+    task_state: Optional[str] = None
+    artifacts: ArtifactSet = field(default_factory=lambda: ArtifactSet())
     mix_path: Optional[str] = None
     exported_subtitle: Optional[str] = None
     steps: dict[str, Any] = field(default_factory=dict)

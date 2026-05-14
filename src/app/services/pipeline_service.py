@@ -6,8 +6,10 @@ import threading
 
 from src.core import Pipeline, PipelineConfig
 
-from ..dto import PipelineRequest, PipelineResult
+from ..dto import ArtifactSet, PipelineRequest, PipelineResult
 from ..errors import AppExecutionError, AppValidationError
+from .resource_service import ResourceService, get_resource_service
+from .task_service import TaskService, get_task_service
 
 
 LANG_MAP = {
@@ -20,9 +22,27 @@ LANG_MAP = {
 class PipelineService:
     """Wrap core pipeline invocation behind stable request/result DTOs."""
 
+    def __init__(
+        self,
+        task_service: TaskService | None = None,
+        resource_service: ResourceService | None = None,
+    ) -> None:
+        self._task_service = task_service or get_task_service()
+        self._resource_service = resource_service or get_resource_service()
+
     def run_audio_pipeline(self, request: PipelineRequest) -> PipelineResult:
         if not request.input_path:
             raise AppValidationError("input_path is required")
+
+        task = self._task_service.create_task("pipeline")
+        self._task_service.start_task(task.task_id, message="running pipeline")
+        workspace = self._resource_service.ensure_workspace()
+        output_dir = request.output_dir or str(workspace["output_dir"])
+        self._task_service.update_progress(
+            task.task_id,
+            progress=0.1,
+            message="preparing workspace",
+        )
 
         source_label, target_label = LANG_MAP.get(request.source_lang, ("日文", "中文"))
         if request.target_lang == "zh":
@@ -34,7 +54,7 @@ class PipelineService:
 
         config = PipelineConfig(
             input_path=request.input_path,
-            output_dir=request.output_dir,
+            output_dir=output_dir,
             use_vocal_separator=True,
             vocal_model=request.vocal_model,
             asr_model=request.asr_model,
@@ -53,16 +73,43 @@ class PipelineService:
 
         try:
             results = Pipeline(config).run(preset="asmr_bilingual")
-        except AppValidationError:
-            raise
         except Exception as exc:
+            self._task_service.fail_task(task.task_id, message="pipeline failed", detail=str(exc))
+            if isinstance(exc, AppValidationError):
+                raise
             raise AppExecutionError(str(exc)) from exc
+
+        self._task_service.update_progress(
+            task.task_id,
+            progress=0.9,
+            message="pipeline finished",
+        )
+        mix_path = results.get("mix_path")
+        exported_subtitle = results.get("exported_subtitle")
+        completed_task = self._task_service.complete_task(
+            task.task_id,
+            message="pipeline completed",
+            detail=mix_path or exported_subtitle or "",
+        )
 
         return PipelineResult(
             success=True,
             input_path=results.get("input", request.input_path),
-            mix_path=results.get("mix_path"),
-            exported_subtitle=results.get("exported_subtitle"),
+            task_id=completed_task.task_id,
+            task_state=completed_task.state,
+            artifacts=ArtifactSet(
+                files={
+                    name: path
+                    for name, path in {
+                        "mix": mix_path,
+                        "subtitle": exported_subtitle,
+                    }.items()
+                    if path
+                },
+                primary_output=mix_path or exported_subtitle,
+            ),
+            mix_path=mix_path,
+            exported_subtitle=exported_subtitle,
             steps=results.get("steps", {}),
             total_duration=float(results.get("total_duration", 0.0)),
             error_message=results.get("error"),

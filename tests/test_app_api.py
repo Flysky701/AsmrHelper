@@ -370,6 +370,150 @@ def test_pipeline_service_wraps_execution_errors(monkeypatch):
         service.run_audio_pipeline(request)
 
 
+def test_pipeline_service_orchestrates_workspace_task_lifecycle_and_artifacts(monkeypatch):
+    from src.app.dto import PipelineRequest
+    from src.app.services.pipeline_service import PipelineService
+
+    captured = {"task_events": []}
+
+    class DummyTaskService:
+        def create_task(self, kind):
+            captured["task_events"].append(("create", kind))
+            return type("Task", (), {"task_id": "pipeline-1"})()
+
+        def start_task(self, task_id, message=""):
+            captured["task_events"].append(("start", task_id, message))
+            return type("Task", (), {"task_id": task_id, "state": "running"})()
+
+        def update_progress(self, task_id, progress, message=""):
+            captured["task_events"].append(("progress", task_id, progress, message))
+            return type("Task", (), {"task_id": task_id, "state": "running"})()
+
+        def complete_task(self, task_id, message="", detail=""):
+            captured["task_events"].append(("complete", task_id, message, detail))
+            return type("Task", (), {"task_id": task_id, "state": "completed"})()
+
+    class DummyResourceService:
+        def ensure_workspace(self):
+            captured["workspace_checked"] = True
+            return {
+                "project_root": "project-root",
+                "output_dir": "workspace-output",
+                "models_dir": "workspace-models",
+            }
+
+    class DummyPipeline:
+        def __init__(self, config):
+            captured["config"] = config
+
+        def run(self, preset=None, progress_callback=None):
+            captured["preset"] = preset
+            return {
+                "input": "demo.wav",
+                "mix_path": "workspace-output/demo_mix.wav",
+                "exported_subtitle": "workspace-output/demo_subtitle.srt",
+                "steps": {"mix": {"status": "done"}},
+                "total_duration": 12.5,
+            }
+
+    monkeypatch.setattr("src.app.services.pipeline_service.Pipeline", DummyPipeline)
+
+    request = PipelineRequest(input_path="demo.wav", output_dir="")
+    service = PipelineService(
+        task_service=DummyTaskService(),
+        resource_service=DummyResourceService(),
+    )
+
+    result = service.run_audio_pipeline(request)
+
+    assert captured["workspace_checked"] is True
+    assert captured["config"].output_dir == "workspace-output"
+    assert captured["preset"] == "asmr_bilingual"
+    assert result.success is True
+    assert result.task_id == "pipeline-1"
+    assert result.task_state == "completed"
+    assert result.artifacts.primary_output == "workspace-output/demo_mix.wav"
+    assert result.artifacts.files == {
+        "mix": "workspace-output/demo_mix.wav",
+        "subtitle": "workspace-output/demo_subtitle.srt",
+    }
+    assert captured["task_events"] == [
+        ("create", "pipeline"),
+        ("start", "pipeline-1", "running pipeline"),
+        ("progress", "pipeline-1", 0.1, "preparing workspace"),
+        ("progress", "pipeline-1", 0.9, "pipeline finished"),
+        (
+            "complete",
+            "pipeline-1",
+            "pipeline completed",
+            "workspace-output/demo_mix.wav",
+        ),
+    ]
+
+
+def test_pipeline_service_marks_task_failed_when_pipeline_raises(monkeypatch):
+    import pytest
+
+    from src.app.dto import PipelineRequest
+    from src.app.errors import AppExecutionError
+    from src.app.services.pipeline_service import PipelineService
+
+    captured = {"task_events": []}
+
+    class DummyTaskService:
+        def create_task(self, kind):
+            captured["task_events"].append(("create", kind))
+            return type("Task", (), {"task_id": "pipeline-9"})()
+
+        def start_task(self, task_id, message=""):
+            captured["task_events"].append(("start", task_id, message))
+            return type("Task", (), {"task_id": task_id, "state": "running"})()
+
+        def update_progress(self, task_id, progress, message=""):
+            captured["task_events"].append(("progress", task_id, progress, message))
+            return type("Task", (), {"task_id": task_id, "state": "running"})()
+
+        def fail_task(self, task_id, message, detail=""):
+            captured["task_events"].append(("fail", task_id, message, detail))
+            return type("Task", (), {"task_id": task_id, "state": "failed"})()
+
+    class DummyResourceService:
+        def ensure_workspace(self):
+            captured["workspace_checked"] = True
+            return {
+                "project_root": "project-root",
+                "output_dir": "workspace-output",
+                "models_dir": "workspace-models",
+            }
+
+    class DummyPipeline:
+        def __init__(self, config):
+            captured["config"] = config
+
+        def run(self, preset=None, progress_callback=None):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("src.app.services.pipeline_service.Pipeline", DummyPipeline)
+
+    request = PipelineRequest(input_path="demo.wav", output_dir="")
+    service = PipelineService(
+        task_service=DummyTaskService(),
+        resource_service=DummyResourceService(),
+    )
+
+    with pytest.raises(AppExecutionError, match="boom"):
+        service.run_audio_pipeline(request)
+
+    assert captured["workspace_checked"] is True
+    assert captured["config"].output_dir == "workspace-output"
+    assert captured["task_events"] == [
+        ("create", "pipeline"),
+        ("start", "pipeline-9", "running pipeline"),
+        ("progress", "pipeline-9", 0.1, "preparing workspace"),
+        ("fail", "pipeline-9", "pipeline failed", "boom"),
+    ]
+
+
 def test_cli_pipeline_run_uses_pipeline_service(monkeypatch):
     from src.app.dto import PipelineResult
     from src.cli import cli
