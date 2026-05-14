@@ -287,6 +287,60 @@ def test_subtitle_service_round_trip_preserves_timestamp_entries():
     assert restored == entries
 
 
+def test_subtitle_service_load_srt_text_parses_document_segments():
+    from src.app.services.subtitle_service import SubtitleService
+
+    content = (
+        "1\n"
+        "00:00:00,000 --> 00:00:01,250\n"
+        "hello\n"
+        "\n"
+        "2\n"
+        "00:00:01,250 --> 00:00:03,500\n"
+        "multi-line\n"
+        "world\n"
+    )
+
+    service = SubtitleService()
+
+    document = service.load_srt_text(content)
+
+    assert len(document.segments) == 2
+    assert document.segments[0].start == 0.0
+    assert document.segments[0].end == 1.25
+    assert document.segments[0].text == "hello"
+    assert document.segments[1].start == 1.25
+    assert document.segments[1].end == 3.5
+    assert document.segments[1].text == "multi-line\nworld"
+
+
+def test_subtitle_service_export_srt_text_formats_document():
+    from src.app.dto import SubtitleDocument, SubtitleSegment
+    from src.app.services.subtitle_service import SubtitleService
+
+    document = SubtitleDocument(
+        segments=[
+            SubtitleSegment(start=0.0, end=1.25, text="hello"),
+            SubtitleSegment(start=1.25, end=3.5, text="multi-line\nworld"),
+        ]
+    )
+
+    service = SubtitleService()
+
+    exported = service.export_srt_text(document)
+
+    assert exported == (
+        "1\n"
+        "00:00:00,000 --> 00:00:01,250\n"
+        "hello\n"
+        "\n"
+        "2\n"
+        "00:00:01,250 --> 00:00:03,500\n"
+        "multi-line\n"
+        "world\n"
+    )
+
+
 def test_pipeline_service_maps_request_and_result(monkeypatch):
     import inspect
 
