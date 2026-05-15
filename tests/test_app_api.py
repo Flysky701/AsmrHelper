@@ -3,32 +3,36 @@ import pytest
 import threading
 
 
-def test_app_package_re_exports_new_dto_and_error_contract():
-    from src.app import (
+def test_app_package_re_exports_phase1_contract():
+    import src.app as app_module
+    from src.app import dto
+    from src.app.dto import (
         ArtifactSet,
-        ResourceService,
+        ModelStatusView,
+        ModelSummary,
+        PipelineRequest,
+        PipelineResult,
         ResourceStatus,
-        ResourceValidationError,
-        TaskService,
+        SubtitleDocument,
+        SubtitleSegment,
         SynthesisResult,
         TaskStatus,
         TranslationResult,
-        get_resource_service,
-        get_task_service,
     )
-    from src.app import dto
+    from src.app.errors import (
+        AppError,
+        AppExecutionError,
+        AppValidationError,
+        ResourceUnavailableError,
+        ResourceValidationError,
+    )
+    from src.app.services.model_service import ModelService, get_model_service
+    from src.app.services.pipeline_service import PipelineService, get_pipeline_service
+    from src.app.services.resource_service import ResourceService, get_resource_service
+    from src.app.services.subtitle_service import SubtitleService, get_subtitle_service
+    from src.app.services.task_service import TaskService, get_task_service
 
-    assert ArtifactSet.__name__ == "ArtifactSet"
-    assert ResourceService.__name__ == "ResourceService"
-    assert TaskService.__name__ == "TaskService"
-    assert TaskStatus.__name__ == "TaskStatus"
-    assert TranslationResult.__name__ == "TranslationResult"
-    assert SynthesisResult.__name__ == "SynthesisResult"
-    assert ResourceStatus.__name__ == "ResourceStatus"
-    assert issubclass(ResourceValidationError, Exception)
-    assert callable(get_resource_service)
-    assert callable(get_task_service)
-    assert set(dto.__all__) == {
+    expected_dto_exports = {
         "SubtitleSegment",
         "SubtitleDocument",
         "PipelineRequest",
@@ -41,41 +45,68 @@ def test_app_package_re_exports_new_dto_and_error_contract():
         "ModelSummary",
         "ModelStatusView",
     }
-
-
-def test_app_and_services_all_include_resource_service_exports():
-    import src.app as app_module
-    import src.app.services as services_module
-
-    assert "ResourceService" in app_module.__all__
-    assert "get_resource_service" in app_module.__all__
-    assert "ResourceService" in services_module.__all__
-    assert "get_resource_service" in services_module.__all__
-
-
-def test_app_and_services_export_full_phase1_service_surface():
-    import src.app as app_module
-    import src.app.services as services_module
-
-    expected_exports = {
-        "ModelService",
-        "PipelineService",
-        "ResourceService",
-        "SubtitleService",
-        "TaskService",
-        "get_model_service",
-        "get_pipeline_service",
-        "get_resource_service",
-        "get_subtitle_service",
-        "get_task_service",
+    expected_app_bindings = {
+        "ArtifactSet": ArtifactSet,
+        "ModelService": ModelService,
+        "ModelStatusView": ModelStatusView,
+        "ModelSummary": ModelSummary,
+        "PipelineRequest": PipelineRequest,
+        "PipelineResult": PipelineResult,
+        "PipelineService": PipelineService,
+        "ResourceService": ResourceService,
+        "ResourceStatus": ResourceStatus,
+        "ResourceUnavailableError": ResourceUnavailableError,
+        "ResourceValidationError": ResourceValidationError,
+        "SubtitleDocument": SubtitleDocument,
+        "SubtitleSegment": SubtitleSegment,
+        "SubtitleService": SubtitleService,
+        "SynthesisResult": SynthesisResult,
+        "TaskService": TaskService,
+        "TaskStatus": TaskStatus,
+        "TranslationResult": TranslationResult,
+        "AppError": AppError,
+        "AppExecutionError": AppExecutionError,
+        "AppValidationError": AppValidationError,
+        "get_model_service": get_model_service,
+        "get_pipeline_service": get_pipeline_service,
+        "get_resource_service": get_resource_service,
+        "get_subtitle_service": get_subtitle_service,
+        "get_task_service": get_task_service,
     }
 
-    assert expected_exports.issubset(set(app_module.__all__))
-    assert expected_exports.issubset(set(services_module.__all__))
+    assert set(dto.__all__) == expected_dto_exports
+    assert set(expected_app_bindings).issubset(set(app_module.__all__))
+    assert issubclass(app_module.ResourceValidationError, Exception)
 
-    for name in expected_exports:
-        assert hasattr(app_module, name)
-        assert hasattr(services_module, name)
+    for name, expected_object in expected_app_bindings.items():
+        assert getattr(app_module, name) is expected_object
+
+
+def test_services_package_exports_phase1_service_bindings():
+    import src.app.services as services_module
+    from src.app.services.model_service import ModelService, get_model_service
+    from src.app.services.pipeline_service import PipelineService, get_pipeline_service
+    from src.app.services.resource_service import ResourceService, get_resource_service
+    from src.app.services.subtitle_service import SubtitleService, get_subtitle_service
+    from src.app.services.task_service import TaskService, get_task_service
+
+    expected_service_bindings = {
+        "ModelService": ModelService,
+        "PipelineService": PipelineService,
+        "ResourceService": ResourceService,
+        "SubtitleService": SubtitleService,
+        "TaskService": TaskService,
+        "get_model_service": get_model_service,
+        "get_pipeline_service": get_pipeline_service,
+        "get_resource_service": get_resource_service,
+        "get_subtitle_service": get_subtitle_service,
+        "get_task_service": get_task_service,
+    }
+
+    assert set(services_module.__all__) == set(expected_service_bindings)
+
+    for name, expected_object in expected_service_bindings.items():
+        assert getattr(services_module, name) is expected_object
 
 
 def test_new_application_dtos_expose_expected_fields():

@@ -1,3 +1,4 @@
+import importlib.util
 import shutil
 from pathlib import Path
 
@@ -231,8 +232,41 @@ def test_cli_model_queries_use_application_model_service(monkeypatch):
     assert calls["status"] >= 1
 
 
-def test_verify_models_script_uses_shared_model_service():
-    script_path = Path("scripts/verify_models.py")
-    content = script_path.read_text(encoding="utf-8")
+def test_verify_models_script_main_uses_shared_model_service(monkeypatch, capsys):
+    import src.core.resources as core_resources
 
-    assert "ModelService" in content or "get_model_service" in content
+    script_path = Path("scripts/verify_models.py")
+    captured = {"called": False, "kind": None}
+
+    class DummyStatus:
+        def __init__(self, model_id, status, detail, path=None):
+            self.model_id = model_id
+            self.status = status
+            self.detail = detail
+            self.path = path
+
+    class DummyService:
+        def get_all_statuses(self, kind=None):
+            captured["kind"] = kind
+            return [DummyStatus("demo-model", "installed", "ready", "models/demo-model")]
+
+    def fake_get_model_service():
+        captured["called"] = True
+        return DummyService()
+
+    monkeypatch.setattr(core_resources, "get_model_service", fake_get_model_service)
+
+    spec = importlib.util.spec_from_file_location("verify_models_test_module", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    result = module.main()
+    stdout = capsys.readouterr().out
+
+    assert result == 0
+    assert captured["called"] is True
+    assert captured["kind"] == "local"
+    assert "Model Status" in stdout
+    assert "[demo-model] installed" in stdout
+    assert "All models verified successfully!" in stdout
