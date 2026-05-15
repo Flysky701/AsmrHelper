@@ -1,6 +1,85 @@
+import importlib
+import sys
+
 from click.testing import CliRunner
 import pytest
 import threading
+
+
+def _purge_modules(*module_prefixes: str) -> None:
+    for module_name in list(sys.modules):
+        if any(
+            module_name == prefix or module_name.startswith(f"{prefix}.")
+            for prefix in module_prefixes
+        ):
+            sys.modules.pop(module_name, None)
+
+
+class _DummyPipelineConfig:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+def _patch_pipeline_runtime(monkeypatch, pipeline_cls) -> None:
+    import src.app.services.pipeline_service as pipeline_service_module
+
+    monkeypatch.setattr(
+        pipeline_service_module,
+        "PipelineConfig",
+        _DummyPipelineConfig,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        pipeline_service_module,
+        "Pipeline",
+        pipeline_cls,
+        raising=False,
+    )
+
+
+def test_app_package_dto_and_error_exports_do_not_import_core_runtime():
+    _purge_modules("src.app")
+
+    importlib.import_module("src")
+    baseline_core_modules = {
+        module_name
+        for module_name in sys.modules
+        if module_name == "src.core" or module_name.startswith("src.core.")
+    }
+
+    app_module = importlib.import_module("src.app")
+
+    assert "src.app.services" not in sys.modules
+
+    assert app_module.ArtifactSet.__name__ == "ArtifactSet"
+    assert app_module.AppValidationError.__name__ == "AppValidationError"
+    assert "src.app.dto" in sys.modules
+    assert "src.app.errors" in sys.modules
+    assert "src.app.services" not in sys.modules
+    assert {
+        module_name
+        for module_name in sys.modules
+        if module_name == "src.core" or module_name.startswith("src.core.")
+    } == baseline_core_modules
+
+
+def test_services_package_import_is_lazy_until_service_exports_are_requested():
+    _purge_modules("src.app", "src.core")
+
+    services_module = importlib.import_module("src.app.services")
+
+    assert "src.core" not in sys.modules
+    assert "src.app.services.model_service" not in sys.modules
+    assert "src.app.services.pipeline_service" not in sys.modules
+    assert "src.app.services.resource_service" not in sys.modules
+
+    resource_service = services_module.ResourceService
+
+    assert resource_service.__name__ == "ResourceService"
+    assert "src.app.services.resource_service" in sys.modules
+    assert "src.app.services.model_service" not in sys.modules
+    assert "src.app.services.pipeline_service" not in sys.modules
+    assert "src.core" not in sys.modules
 
 
 def test_app_package_re_exports_phase1_contract():
@@ -514,7 +593,7 @@ def test_pipeline_service_maps_request_and_result(monkeypatch):
                 "total_duration": 3.5,
             }
 
-    monkeypatch.setattr("src.app.services.pipeline_service.Pipeline", DummyPipeline)
+    _patch_pipeline_runtime(monkeypatch, DummyPipeline)
 
     request = PipelineRequest(
         input_path="demo.wav",
@@ -561,7 +640,7 @@ def test_pipeline_service_wraps_execution_errors(monkeypatch):
         def run(self, preset=None, progress_callback=None):
             raise RuntimeError("boom")
 
-    monkeypatch.setattr("src.app.services.pipeline_service.Pipeline", DummyPipeline)
+    _patch_pipeline_runtime(monkeypatch, DummyPipeline)
 
     request = PipelineRequest(
         input_path="demo.wav",
@@ -651,7 +730,7 @@ def test_pipeline_service_orchestrates_workspace_task_lifecycle_and_artifacts(mo
                 "total_duration": 12.5,
             }
 
-    monkeypatch.setattr("src.app.services.pipeline_service.Pipeline", DummyPipeline)
+    _patch_pipeline_runtime(monkeypatch, DummyPipeline)
 
     request = PipelineRequest(input_path="demo.wav", output_dir="")
     service = PipelineService(
@@ -693,6 +772,83 @@ def test_pipeline_service_orchestrates_workspace_task_lifecycle_and_artifacts(mo
             "pipeline-1",
             "pipeline completed",
             "workspace-output/demo_mix.wav",
+        ),
+    ]
+
+
+def test_pipeline_service_fails_task_when_pipeline_reports_step_errors(monkeypatch):
+    import pytest
+
+    from src.app.dto import PipelineRequest
+    from src.app.errors import AppExecutionError
+    from src.app.services.pipeline_service import PipelineService
+
+    captured = {"task_events": []}
+
+    class DummyTaskService:
+        def create_task(self, kind):
+            captured["task_events"].append(("create", kind))
+            return type("Task", (), {"task_id": "pipeline-7"})()
+
+        def start_task(self, task_id, message=""):
+            captured["task_events"].append(("start", task_id, message))
+            return type("Task", (), {"task_id": task_id, "state": "running"})()
+
+        def update_progress(self, task_id, progress, message=""):
+            captured["task_events"].append(("progress", task_id, progress, message))
+            return type("Task", (), {"task_id": task_id, "state": "running"})()
+
+        def fail_task(self, task_id, message, detail=""):
+            captured["task_events"].append(("fail", task_id, message, detail))
+            return type("Task", (), {"task_id": task_id, "state": "failed"})()
+
+    class DummyResourceService:
+        def ensure_workspace(self):
+            return {
+                "project_root": "project-root",
+                "output_dir": "workspace-output",
+                "models_dir": "workspace-models",
+            }
+
+    class DummyPipeline:
+        def __init__(self, config):
+            captured["config"] = config
+
+        def run(self, preset=None, progress_callback=None):
+            return {
+                "input": "demo.wav",
+                "mix_path": "workspace-output/demo_mix.wav",
+                "exported_subtitle": "workspace-output/demo_subtitle.srt",
+                "steps": {
+                    "asr": {"segments": 2},
+                    "tts": {"error": "voice synthesis failed", "recoverable": True},
+                },
+                "total_duration": 9.5,
+            }
+
+    _patch_pipeline_runtime(monkeypatch, DummyPipeline)
+
+    service = PipelineService(
+        task_service=DummyTaskService(),
+        resource_service=DummyResourceService(),
+    )
+
+    with pytest.raises(
+        AppExecutionError,
+        match="pipeline reported step errors: tts: voice synthesis failed",
+    ):
+        service.run_audio_pipeline(PipelineRequest(input_path="demo.wav", output_dir=""))
+
+    assert captured["config"].output_dir == "workspace-output"
+    assert captured["task_events"] == [
+        ("create", "pipeline"),
+        ("start", "pipeline-7", "running pipeline"),
+        ("progress", "pipeline-7", 0.1, "preparing workspace"),
+        (
+            "fail",
+            "pipeline-7",
+            "pipeline failed",
+            "pipeline reported step errors: tts: voice synthesis failed",
         ),
     ]
 
@@ -739,7 +895,7 @@ def test_pipeline_service_marks_task_failed_when_pipeline_raises(monkeypatch):
         def run(self, preset=None, progress_callback=None):
             raise RuntimeError("boom")
 
-    monkeypatch.setattr("src.app.services.pipeline_service.Pipeline", DummyPipeline)
+    _patch_pipeline_runtime(monkeypatch, DummyPipeline)
 
     request = PipelineRequest(input_path="demo.wav", output_dir="")
     service = PipelineService(
@@ -790,7 +946,7 @@ def test_pipeline_service_marks_task_failed_when_workspace_setup_raises(monkeypa
         def __init__(self, config):
             raise AssertionError("Pipeline should not be constructed when workspace setup fails")
 
-    monkeypatch.setattr("src.app.services.pipeline_service.Pipeline", DummyPipeline)
+    _patch_pipeline_runtime(monkeypatch, DummyPipeline)
 
     service = PipelineService(
         task_service=DummyTaskService(),

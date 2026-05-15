@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import threading
 
-from src.core import Pipeline, PipelineConfig
-
 from ..dto import ArtifactSet, PipelineRequest, PipelineResult
 from ..errors import AppExecutionError, AppValidationError
 from .resource_service import ResourceService, get_resource_service
@@ -20,6 +18,30 @@ LANG_MAP = {
 
 SUPPORTED_LANGUAGE_CODES = frozenset(LANG_MAP)
 PROGRESS_MESSAGE_DEFAULT = 0.1
+Pipeline = None
+PipelineConfig = None
+
+
+def _load_pipeline_runtime():
+    global Pipeline
+    global PipelineConfig
+    if Pipeline is None or PipelineConfig is None:
+        from src.core import Pipeline as core_pipeline
+        from src.core import PipelineConfig as core_pipeline_config
+
+        if Pipeline is None:
+            Pipeline = core_pipeline
+        if PipelineConfig is None:
+            PipelineConfig = core_pipeline_config
+    return Pipeline, PipelineConfig
+
+
+def _get_step_errors(results: dict) -> dict[str, str]:
+    step_errors: dict[str, str] = {}
+    for step_name, step_result in results.get("steps", {}).items():
+        if isinstance(step_result, dict) and step_result.get("error"):
+            step_errors[step_name] = str(step_result["error"])
+    return step_errors
 
 
 class PipelineService:
@@ -55,8 +77,9 @@ class PipelineService:
 
             source_label, _ = LANG_MAP[request.source_lang]
             target_label = LANG_MAP[request.target_lang][0]
+            pipeline_class, pipeline_config_class = _load_pipeline_runtime()
 
-            config = PipelineConfig(
+            config = pipeline_config_class(
                 input_path=request.input_path,
                 output_dir=output_dir,
                 use_vocal_separator=True,
@@ -82,17 +105,24 @@ class PipelineService:
                     message=message,
                 )
 
-            results = Pipeline(config).run(
+            results = pipeline_class(config).run(
                 preset="asmr_bilingual",
                 progress_callback=on_progress,
             )
+            step_errors = _get_step_errors(results)
+            if step_errors:
+                detail = "; ".join(
+                    f"{step_name}: {error_message}"
+                    for step_name, error_message in step_errors.items()
+                )
+                raise AppExecutionError(f"pipeline reported step errors: {detail}")
         except Exception as exc:
             self._task_service.fail_task(
                 task.task_id,
                 message="pipeline failed",
                 detail=str(exc),
             )
-            if isinstance(exc, AppValidationError):
+            if isinstance(exc, (AppValidationError, AppExecutionError)):
                 raise
             raise AppExecutionError(str(exc)) from exc
 
