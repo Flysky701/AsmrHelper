@@ -53,6 +53,31 @@ def test_app_and_services_all_include_resource_service_exports():
     assert "get_resource_service" in services_module.__all__
 
 
+def test_app_and_services_export_full_phase1_service_surface():
+    import src.app as app_module
+    import src.app.services as services_module
+
+    expected_exports = {
+        "ModelService",
+        "PipelineService",
+        "ResourceService",
+        "SubtitleService",
+        "TaskService",
+        "get_model_service",
+        "get_pipeline_service",
+        "get_resource_service",
+        "get_subtitle_service",
+        "get_task_service",
+    }
+
+    assert expected_exports.issubset(set(app_module.__all__))
+    assert expected_exports.issubset(set(services_module.__all__))
+
+    for name in expected_exports:
+        assert hasattr(app_module, name)
+        assert hasattr(services_module, name)
+
+
 def test_new_application_dtos_expose_expected_fields():
     from src.app.dto import (
         ArtifactSet,
