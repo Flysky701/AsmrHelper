@@ -75,7 +75,7 @@ def test_app_package_re_exports_phase1_contract():
     }
 
     assert set(dto.__all__) == expected_dto_exports
-    assert set(expected_app_bindings).issubset(set(app_module.__all__))
+    assert set(app_module.__all__) == set(expected_app_bindings)
     assert issubclass(app_module.ResourceValidationError, Exception)
 
     for name, expected_object in expected_app_bindings.items():
