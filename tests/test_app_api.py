@@ -1553,8 +1553,20 @@ def test_batch_process_collects_results_without_stopping_on_failures(monkeypatch
 def test_cli_pipeline_presets_still_lists_available_presets():
     from src.cli import cli
 
+    class DummyPipelineService:
+        def list_presets(self):
+            return {
+                "asmr_bilingual": "Bilingual pipeline",
+                "asr_only": "ASR only",
+            }
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr("src.cli.get_pipeline_service", lambda: DummyPipelineService())
+
     runner = CliRunner()
     result = runner.invoke(cli, ["pipeline", "presets"])
 
+    monkeypatch.undo()
     assert result.exit_code == 0
     assert "asmr_bilingual" in result.output
+    assert "ASR only" in result.output

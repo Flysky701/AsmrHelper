@@ -60,11 +60,19 @@ class TestHealth:
 
 class TestPipelineRoutes:
     def test_list_presets(self, client):
+        mock_svc = MagicMock()
+        mock_svc.list_presets.return_value = {
+            "asmr_bilingual": "Bilingual pipeline",
+            "asr_only": "ASR only",
+        }
+        client.app.dependency_overrides[dependencies.pipeline_service] = _mock_dep(mock_svc)
+
         resp = client.get("/api/v1/pipeline/presets")
         assert resp.status_code == 200
         data = resp.json()
         assert "asmr_bilingual" in data["presets"]
         assert "asr_only" in data["presets"]
+        mock_svc.list_presets.assert_called_once_with()
 
     def test_run_pipeline_success(self, client):
         mock_svc = MagicMock()

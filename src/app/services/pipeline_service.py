@@ -161,6 +161,10 @@ class PipelineService:
             error_message=results.get("error"),
         )
 
+    def list_presets(self) -> dict[str, str]:
+        pipeline_class, _ = _load_pipeline_runtime()
+        return dict(getattr(pipeline_class, "PRESETS", {}))
+
 
 _service: PipelineService | None = None
 _lock = threading.Lock()

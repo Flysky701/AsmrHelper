@@ -69,7 +69,13 @@ def run_pipeline(
 
 
 @router.get("/presets", response_model=PipelinePresetsResponse)
-def list_presets():
+def list_presets(
+    svc: PipelineService = Depends(pipeline_service),
+):
     return PipelinePresetsResponse(
-        presets=["asmr_bilingual", "asr_only", "tts_only", "auto_subtitle"]
+        presets=list(_run_presets(svc))
     )
+
+
+def _run_presets(svc: PipelineService) -> list[str]:
+    return list(svc.list_presets().keys())

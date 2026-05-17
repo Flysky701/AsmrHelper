@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .subtitles import SubtitleSegmentModel
+
 
 class TranscribeRequest(BaseModel):
     input_path: str = Field(..., description="Path to audio file")
@@ -12,13 +14,7 @@ class TranscribeRequest(BaseModel):
     language: str = Field("ja", description="Language code (ja/zh/en)")
 
 
-class SubtitleSegmentResponse(BaseModel):
-    start: float
-    end: float
-    text: str
-
-
 class TranscribeResponse(BaseModel):
-    segments: list[SubtitleSegmentResponse] = Field(default_factory=list)
+    segments: list[SubtitleSegmentModel] = Field(default_factory=list)
     output_path: str | None = None
     text: str = ""

@@ -148,10 +148,8 @@ def pipeline_run(
 @pipeline_group.command(name="presets")
 def pipeline_presets():
     """Show available pipeline presets."""
-    from src.core.pipeline import Pipeline
-
     click.echo("Available presets:\n")
-    for name, desc in Pipeline.PRESETS.items():
+    for name, desc in _run_app_command(get_pipeline_service().list_presets).items():
         click.echo(f"  {name:20s} - {desc}")
 
 
