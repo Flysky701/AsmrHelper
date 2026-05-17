@@ -54,6 +54,18 @@ def _resolve_tts_voice(tts_engine: str, tts_voice: str) -> str:
     return tts_voice
 
 
+def _artifact_path(result, name: str) -> str | None:
+    artifacts = getattr(result, "artifacts", None)
+    if artifacts is None:
+        return None
+    if hasattr(artifacts, "get"):
+        return artifacts.get(name)
+    files = getattr(artifacts, "files", None)
+    if isinstance(files, dict):
+        return files.get(name)
+    return None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="ASMR bilingual audio pipeline")
     parser.add_argument("--input", "-i", required=True, help="Input audio file path")
@@ -126,10 +138,12 @@ def main() -> int:
         return 1
 
     print("Pipeline completed.")
-    if result.mix_path:
-        print(f"Mix: {result.mix_path}")
-    if result.exported_subtitle:
-        print(f"Subtitle Output: {result.exported_subtitle}")
+    mix_path = _artifact_path(result, "mix") or getattr(result, "mix_path", None)
+    subtitle_path = _artifact_path(result, "subtitle") or getattr(result, "exported_subtitle", None)
+    if mix_path:
+        print(f"Mix: {mix_path}")
+    if subtitle_path:
+        print(f"Subtitle Output: {subtitle_path}")
     if result.error_message:
         print(f"Warning: {result.error_message}")
     return 0

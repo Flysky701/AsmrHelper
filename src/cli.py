@@ -47,6 +47,45 @@ def _emit_command_error(message: str) -> None:
     raise click.ClickException(message)
 
 
+def _artifact_path(result: Any, name: str) -> Optional[str]:
+    artifacts = getattr(result, "artifacts", None)
+    if artifacts is None:
+        return None
+    if hasattr(artifacts, "get"):
+        return artifacts.get(name)
+    files = getattr(artifacts, "files", None)
+    if isinstance(files, dict):
+        return files.get(name)
+    return None
+
+
+def _primary_output(result: Any) -> Optional[str]:
+    artifacts = getattr(result, "artifacts", None)
+    primary_output = getattr(artifacts, "primary_output", None)
+    if primary_output:
+        return primary_output
+    return getattr(result, "mix_path", None) or getattr(result, "exported_subtitle", None)
+
+
+def _emit_pipeline_result(result: Any) -> None:
+    task = getattr(result, "task", None)
+    if task is not None:
+        _emit_key_value("Task", f"{task.task_id} [{task.state}]")
+    elif getattr(result, "task_id", None) and getattr(result, "task_state", None):
+        _emit_key_value("Task", f"{result.task_id} [{result.task_state}]")
+
+    _emit_saved_output(_primary_output(result))
+
+    mix_path = _artifact_path(result, "mix") or getattr(result, "mix_path", None)
+    subtitle_path = _artifact_path(result, "subtitle") or getattr(result, "exported_subtitle", None)
+    if mix_path:
+        _emit_key_value("Mix", mix_path)
+    if subtitle_path:
+        _emit_key_value("Subtitle", subtitle_path)
+    if result.error_message:
+        _emit_key_value("Warning", result.error_message)
+
+
 @click.group()
 @click.version_option(version="0.2.0")
 def cli():
@@ -103,12 +142,7 @@ def pipeline_run(
     result = _run_app_command(get_pipeline_service().run_audio_pipeline, request)
 
     click.echo("\nPipeline completed.")
-    if result.mix_path:
-        _emit_key_value("Mix", result.mix_path)
-    if result.exported_subtitle:
-        _emit_key_value("Subtitle", result.exported_subtitle)
-    if result.error_message:
-        _emit_key_value("Warning", result.error_message)
+    _emit_pipeline_result(result)
 
 
 @pipeline_group.command(name="presets")

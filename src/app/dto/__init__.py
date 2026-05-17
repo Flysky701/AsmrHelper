@@ -75,6 +75,21 @@ class ArtifactSet:
     files: dict[str, str] = field(default_factory=dict)
     primary_output: Optional[str] = None
 
+    @classmethod
+    def from_optional_paths(
+        cls,
+        *,
+        primary_output: Optional[str] = None,
+        **files: Optional[str],
+    ) -> "ArtifactSet":
+        return cls(
+            files={name: path for name, path in files.items() if path},
+            primary_output=primary_output,
+        )
+
+    def get(self, name: str) -> Optional[str]:
+        return self.files.get(name)
+
 
 @dataclass(slots=True)
 class TaskStatus:

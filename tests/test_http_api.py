@@ -71,10 +71,14 @@ class TestPipelineRoutes:
         mock_svc.run_audio_pipeline.return_value = PipelineResult(
             success=True,
             input_path="/test/input.wav",
+            task=TaskStatus(task_id="pipeline-1", state="completed", progress=1.0),
             task_id="pipeline-1",
             task_state="completed",
             artifacts=ArtifactSet(
-                files={"mix": "/test/output/mix.wav"},
+                files={
+                    "mix": "/test/output/mix.wav",
+                    "subtitle": "/test/output/subtitle.srt",
+                },
                 primary_output="/test/output/mix.wav",
             ),
             mix_path="/test/output/mix.wav",
@@ -97,6 +101,10 @@ class TestPipelineRoutes:
         data = resp.json()
         assert data["success"] is True
         assert data["task_id"] == "pipeline-1"
+        assert data["task"]["task_id"] == "pipeline-1"
+        assert data["task"]["state"] == "completed"
+        assert data["artifacts"]["primary_output"] == "/test/output/mix.wav"
+        assert data["artifacts"]["files"]["subtitle"] == "/test/output/subtitle.srt"
         assert data["mix_path"] == "/test/output/mix.wav"
         request = mock_svc.run_audio_pipeline.call_args.args[0]
         assert request.vtt_path == "/test/input.vtt"

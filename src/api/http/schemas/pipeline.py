@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from .tasks import TaskStatusResponse
+
 
 class PipelineRunRequest(BaseModel):
     input_path: str = Field(..., description="Path to input audio file")
@@ -29,17 +31,10 @@ class ArtifactSetResponse(BaseModel):
     primary_output: str | None = None
 
 
-class TaskStatusResponse(BaseModel):
-    task_id: str
-    state: str
-    progress: float = 0.0
-    message: str = ""
-    detail: str = ""
-
-
 class PipelineRunResponse(BaseModel):
     success: bool
     input_path: str
+    task: TaskStatusResponse | None = None
     task_id: str | None = None
     task_state: str | None = None
     artifacts: ArtifactSetResponse = Field(default_factory=ArtifactSetResponse)

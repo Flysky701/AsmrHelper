@@ -149,16 +149,10 @@ class PipelineService:
             task=completed_task,
             task_id=completed_task.task_id,
             task_state=completed_task.state,
-            artifacts=ArtifactSet(
-                files={
-                    name: path
-                    for name, path in {
-                        "mix": mix_path,
-                        "subtitle": exported_subtitle,
-                    }.items()
-                    if path
-                },
+            artifacts=ArtifactSet.from_optional_paths(
                 primary_output=mix_path or exported_subtitle,
+                mix=mix_path,
+                subtitle=exported_subtitle,
             ),
             mix_path=mix_path,
             exported_subtitle=exported_subtitle,

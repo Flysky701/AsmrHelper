@@ -18,6 +18,21 @@ from src.app.services import PipelineService
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
+def _build_task_response(result) -> TaskStatusResponse | None:
+    if getattr(result, "task", None) is not None:
+        task = result.task
+        return TaskStatusResponse(
+            task_id=task.task_id,
+            state=task.state,
+            progress=task.progress,
+            message=task.message,
+            detail=task.detail,
+        )
+    if result.task_id and result.task_state:
+        return TaskStatusResponse(task_id=result.task_id, state=result.task_state)
+    return None
+
+
 @router.post("/run", response_model=PipelineRunResponse)
 def run_pipeline(
     body: PipelineRunRequest,
@@ -42,9 +57,11 @@ def run_pipeline(
         skip_existing=body.skip_existing,
     )
     result = svc.run_audio_pipeline(request)
+    task = _build_task_response(result)
     return PipelineRunResponse(
         success=result.success,
         input_path=result.input_path,
+        task=task,
         task_id=result.task_id,
         task_state=result.task_state,
         artifacts=ArtifactSetResponse(

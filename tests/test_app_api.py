@@ -1271,6 +1271,24 @@ def test_cli_pipeline_run_uses_pipeline_service(monkeypatch):
             return PipelineResult(
                 success=True,
                 input_path=request.input_path,
+                task=type(
+                    "Task",
+                    (),
+                    {"task_id": "pipeline-1", "state": "completed", "progress": 1.0, "message": "", "detail": ""},
+                )(),
+                task_id="pipeline-1",
+                task_state="completed",
+                artifacts=type(
+                    "ArtifactSet",
+                    (),
+                    {
+                        "primary_output": "out/final_mix.wav",
+                        "files": {
+                            "mix": "out/final_mix.wav",
+                            "subtitle": "out/final_subtitle.srt",
+                        },
+                    },
+                )(),
                 mix_path="out/final_mix.wav",
                 exported_subtitle="out/final_subtitle.srt",
                 steps={"asr": {"segments": 2}},
@@ -1310,6 +1328,8 @@ def test_cli_pipeline_run_uses_pipeline_service(monkeypatch):
     assert result.exit_code == 0
     assert captured["request"].input_path == "demo.wav"
     assert captured["request"].output_dir == "out"
+    assert "Task: pipeline-1 [completed]" in result.output
+    assert "Saved: out/final_mix.wav" in result.output
     assert "out/final_mix.wav" in result.output
 
 
@@ -1333,6 +1353,17 @@ def test_asmr_bilingual_script_wraps_pipeline_service(monkeypatch, tmp_path, cap
                 "PipelineResult",
                 (),
                 {
+                    "artifacts": type(
+                        "ArtifactSet",
+                        (),
+                        {
+                            "primary_output": "out/final_mix.wav",
+                            "files": {
+                                "mix": "out/final_mix.wav",
+                                "subtitle": "out/final_subtitle.srt",
+                            },
+                        },
+                    )(),
                     "mix_path": "out/final_mix.wav",
                     "exported_subtitle": "out/final_subtitle.srt",
                     "error_message": None,
