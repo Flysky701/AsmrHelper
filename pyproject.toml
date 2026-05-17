@@ -35,6 +35,9 @@ dependencies = [
     # 工具
     "click>=8.1.0",
     "pyyaml>=6.0.0",
+    # HTTP API
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
     "pypdf>=6.10.0",
     "pdfplumber>=0.11.9",
     "opencc>=1.1.0",

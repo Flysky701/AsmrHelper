@@ -201,6 +201,7 @@ dependencies = [
     { name = "click" },
     { name = "demucs" },
     { name = "edge-tts" },
+    { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "httpx" },
     { name = "imageio-ffmpeg" },
@@ -214,6 +215,7 @@ dependencies = [
     { name = "pytsmod" },
     { name = "pyyaml" },
     { name = "soundfile" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -235,6 +237,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.1.0" },
     { name = "demucs", specifier = ">=4.0.0" },
     { name = "edge-tts", specifier = ">=6.1.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
     { name = "faster-whisper", specifier = ">=1.0.0" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "imageio-ffmpeg", specifier = ">=0.4.0" },
@@ -251,6 +254,7 @@ requires-dist = [
     { name = "qwen-tts", marker = "extra == 'qwen3'", specifier = ">=0.1.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "soundfile", specifier = ">=0.12.0" },
+    { name = "uvicorn", specifier = ">=0.34.0" },
 ]
 provides-extras = ["qwen3", "dev"]
 

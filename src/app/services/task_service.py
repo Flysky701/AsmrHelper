@@ -81,6 +81,10 @@ class TaskService:
             self._tasks[task_id] = updated
             return self._clone_task(updated)
 
+    def list_tasks(self) -> list[TaskStatus]:
+        with self._lock:
+            return [self._clone_task(t) for t in self._tasks.values()]
+
     @staticmethod
     def _clone_task(task: TaskStatus) -> TaskStatus:
         return TaskStatus(
