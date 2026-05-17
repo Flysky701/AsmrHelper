@@ -20,14 +20,7 @@ router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 def _build_task_response(result) -> TaskStatusResponse | None:
     if getattr(result, "task", None) is not None:
-        task = result.task
-        return TaskStatusResponse(
-            task_id=task.task_id,
-            state=task.state,
-            progress=task.progress,
-            message=task.message,
-            detail=task.detail,
-        )
+        return TaskStatusResponse.from_task_status(result.task)
     if result.task_id and result.task_state:
         return TaskStatusResponse(task_id=result.task_id, state=result.task_state)
     return None

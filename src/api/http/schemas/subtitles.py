@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Optional
+
+from pydantic import BaseModel, Field, model_validator
 
 
-class SubtitleSegmentResponse(BaseModel):
+class SubtitleSegmentModel(BaseModel):
     start: float
     end: float
     text: str
+
+
+class SubtitleDocumentModel(BaseModel):
+    segments: list[SubtitleSegmentModel] = Field(default_factory=list)
 
 
 class SubtitleLoadRequest(BaseModel):
@@ -16,12 +22,25 @@ class SubtitleLoadRequest(BaseModel):
 
 
 class SubtitleLoadResponse(BaseModel):
-    segments: list[SubtitleSegmentResponse] = Field(default_factory=list)
+    document: SubtitleDocumentModel
+    segments: list[SubtitleSegmentModel] = Field(default_factory=list)
 
 
 class SubtitleExportRequest(BaseModel):
-    segments: list[SubtitleSegmentResponse] = Field(..., description="Subtitle segments to export")
+    document: Optional[SubtitleDocumentModel] = None
+    segments: list[SubtitleSegmentModel] = Field(default_factory=list)
     output_path: str = Field(..., description="Path to save SRT file")
+
+    @model_validator(mode="after")
+    def validate_document_input(self) -> "SubtitleExportRequest":
+        if self.document is None and not self.segments:
+            raise ValueError("either document or segments is required")
+        return self
+
+    def resolved_document(self) -> SubtitleDocumentModel:
+        if self.document is not None:
+            return self.document
+        return SubtitleDocumentModel(segments=self.segments)
 
 
 class SubtitleExportResponse(BaseModel):

@@ -315,6 +315,22 @@ class TestSubtitleRoutes:
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
+    def test_load_subtitle_returns_document_shape(self, client, tmp_path):
+        subtitle_file = tmp_path / "test.srt"
+        subtitle_file.write_text(
+            "1\n00:00:00,000 --> 00:00:02,500\nHello\n",
+            encoding="utf-8",
+        )
+
+        resp = client.post(
+            "/api/v1/subtitles/load",
+            json={"file_path": str(subtitle_file)},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["document"]["segments"][0]["text"] == "Hello"
+        assert data["segments"][0]["text"] == "Hello"
+
     def test_export_subtitle(self, client, tmp_path):
         mock_svc = MagicMock()
         mock_svc.export_srt_text.return_value = "1\n00:00:00,000 --> 00:00:02,500\nHello\n"
@@ -325,6 +341,25 @@ class TestSubtitleRoutes:
             "/api/v1/subtitles/export",
             json={
                 "segments": [{"start": 0.0, "end": 2.5, "text": "Hello"}],
+                "output_path": output_file,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["segment_count"] == 1
+
+    def test_export_subtitle_accepts_document_shape(self, client, tmp_path):
+        mock_svc = MagicMock()
+        mock_svc.export_srt_text.return_value = "1\n00:00:00,000 --> 00:00:02,500\nHello\n"
+        client.app.dependency_overrides[dependencies.subtitle_service] = _mock_dep(mock_svc)
+
+        output_file = str(tmp_path / "document-shape.srt")
+        resp = client.post(
+            "/api/v1/subtitles/export",
+            json={
+                "document": {
+                    "segments": [{"start": 0.0, "end": 2.5, "text": "Hello"}],
+                },
                 "output_path": output_file,
             },
         )
