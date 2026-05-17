@@ -3,8 +3,9 @@ ASMR Helper CLI entrypoints.
 """
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import click
 
@@ -18,6 +19,32 @@ from src.app.services import get_asr_service
 from src.app.services import get_model_service as get_app_model_service
 from src.app.services import get_pipeline_service
 from src.app.services import get_translation_service, get_tts_service
+
+
+def _run_app_command(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    try:
+        return func(*args, **kwargs)
+    except AppError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _emit_key_value(label: str, value: Any) -> None:
+    click.echo(f"{label}: {value}")
+
+
+def _emit_saved_output(path: Optional[str]) -> None:
+    if path:
+        _emit_key_value("Saved", path)
+
+
+def _emit_status_line(name: str, status: str, detail: str) -> None:
+    click.echo(f"{name}: {status} ({detail})")
+
+
+def _emit_command_error(message: str) -> None:
+    raise click.ClickException(message)
 
 
 @click.group()
@@ -73,18 +100,15 @@ def pipeline_run(
         skip_existing=skip_existing,
     )
 
-    try:
-        result = get_pipeline_service().run_audio_pipeline(request)
-    except Exception as exc:
-        raise click.ClickException(str(exc))
+    result = _run_app_command(get_pipeline_service().run_audio_pipeline, request)
 
     click.echo("\nPipeline completed.")
     if result.mix_path:
-        click.echo(f"Mix: {result.mix_path}")
+        _emit_key_value("Mix", result.mix_path)
     if result.exported_subtitle:
-        click.echo(f"Subtitle: {result.exported_subtitle}")
+        _emit_key_value("Subtitle", result.exported_subtitle)
     if result.error_message:
-        click.echo(f"Warning: {result.error_message}")
+        _emit_key_value("Warning", result.error_message)
 
 
 @pipeline_group.command(name="presets")
@@ -105,19 +129,16 @@ def pipeline_presets():
 def asr_cmd(input_path: str, output_path: Optional[str], model: str, language: str):
     """Run standalone ASR through the application API layer."""
     click.echo(f"Recognizing audio: {input_path}")
-    try:
-        result = get_asr_service().transcribe_file(
-            input_path=input_path,
-            output_path=output_path,
-            model=model,
-            language=language,
-        )
-    except AppError as exc:
-        raise click.ClickException(str(exc))
+    result = _run_app_command(
+        get_asr_service().transcribe_file,
+        input_path=input_path,
+        output_path=output_path,
+        model=model,
+        language=language,
+    )
 
     click.echo(f"\nRecognition finished, {len(result.segments)} segments")
-    if result.output_path:
-        click.echo(f"Saved: {result.output_path}")
+    _emit_saved_output(result.output_path)
 
 
 @cli.command(name="translate")
@@ -126,18 +147,16 @@ def asr_cmd(input_path: str, output_path: Optional[str], model: str, language: s
 @click.option("--provider", default="deepseek", help="Translation provider")
 def translate_cmd(input_path: str, output_path: Optional[str], provider: str):
     """Run standalone translation through the application API layer."""
-    try:
-        result = get_translation_service().translate_file(
-            input_path=input_path,
-            output_path=output_path,
-            provider=provider,
-        )
-    except AppError as exc:
-        raise click.ClickException(str(exc))
+    result = _run_app_command(
+        get_translation_service().translate_file,
+        input_path=input_path,
+        output_path=output_path,
+        provider=provider,
+    )
 
     click.echo(f"Translating {len(result.items)} lines...")
     if output_path:
-        click.echo(f"Saved: {output_path}")
+        _emit_saved_output(output_path)
     else:
         for item in result.items:
             click.echo(item)
@@ -151,17 +170,15 @@ def translate_cmd(input_path: str, output_path: Optional[str], provider: str):
 def tts_cmd(input_path: str, output_path: str, engine: str, voice: str):
     """Run standalone TTS through the application API layer."""
     click.echo(f"Synthesizing audio: {input_path}")
-    try:
-        result = get_tts_service().synthesize_file(
-            input_path=input_path,
-            output_path=output_path,
-            engine=engine,
-            voice=voice,
-        )
-    except AppError as exc:
-        raise click.ClickException(str(exc))
+    result = _run_app_command(
+        get_tts_service().synthesize_file,
+        input_path=input_path,
+        output_path=output_path,
+        engine=engine,
+        voice=voice,
+    )
 
-    click.echo(f"Saved: {result.output_path}")
+    _emit_saved_output(result.output_path)
 
 
 @cli.group(name="model")
@@ -207,10 +224,7 @@ def model_status(model_id: Optional[str], kind: Optional[str], category: Optiona
 def model_install(model_id: str, mirror: Optional[str], force: bool):
     """Install a model through the application API layer."""
     service = get_app_model_service()
-    try:
-        result = service.install_model(model_id, mirror=mirror, force=force)
-    except AppError as exc:
-        raise click.ClickException(str(exc))
+    result = _run_app_command(service.install_model, model_id, mirror=mirror, force=force)
     click.echo(f"Model installed: {result.model_id} [{result.status}]")
 
 
@@ -219,18 +233,15 @@ def model_install(model_id: str, mirror: Optional[str], force: bool):
 def model_verify(model_id: Optional[str]):
     """Verify model availability and configuration through the application API layer."""
     service = get_app_model_service()
-    try:
-        results = service.verify_models(model_id=model_id)
-    except AppError as exc:
-        raise click.ClickException(str(exc))
+    results = _run_app_command(service.verify_models, model_id=model_id)
 
     failed = False
     for result in results:
-        click.echo(f"{result.model_id}: {result.status} ({result.detail})")
+        _emit_status_line(result.model_id, result.status, result.detail)
         failed = failed or not result.success
 
     if failed:
-        raise click.ClickException("Some models failed verification")
+        _emit_command_error("Some models failed verification")
 
 
 @model_group.command(name="remove")
@@ -238,10 +249,7 @@ def model_verify(model_id: Optional[str]):
 def model_remove(model_id: str):
     """Remove a local model through the application API layer."""
     service = get_app_model_service()
-    try:
-        result = service.remove_model(model_id)
-    except AppError as exc:
-        raise click.ClickException(str(exc))
+    result = _run_app_command(service.remove_model, model_id)
     click.echo(f"Model removed: {result.model_id} [{result.status}]")
 
 

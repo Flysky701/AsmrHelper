@@ -816,6 +816,31 @@ def test_cli_asr_translate_and_tts_use_application_services(monkeypatch, tmp_pat
     assert captured["tts"] == (str(input_text), "out/demo.wav", "qwen3", "Vivian")
 
 
+def test_cli_helpers_wrap_application_and_unexpected_errors(monkeypatch):
+    from src.app.errors import AppValidationError
+    from src.cli import cli
+
+    class DummyAsrService:
+        def transcribe_file(self, **kwargs):
+            raise AppValidationError("missing input file")
+
+    class DummyTtsService:
+        def synthesize_file(self, **kwargs):
+            raise RuntimeError("audio backend crashed")
+
+    monkeypatch.setattr("src.cli.get_asr_service", lambda: DummyAsrService())
+    monkeypatch.setattr("src.cli.get_tts_service", lambda: DummyTtsService())
+
+    runner = CliRunner()
+    asr_result = runner.invoke(cli, ["asr", "--input", "missing.wav"])
+    tts_result = runner.invoke(cli, ["tts", "--input", "demo.txt", "--output", "out/demo.wav"])
+
+    assert asr_result.exit_code != 0
+    assert "Error: missing input file" in asr_result.output
+    assert tts_result.exit_code != 0
+    assert "Error: audio backend crashed" in tts_result.output
+
+
 def test_pipeline_service_maps_request_and_result(monkeypatch):
     import inspect
 
