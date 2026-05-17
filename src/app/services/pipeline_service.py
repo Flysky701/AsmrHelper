@@ -94,12 +94,16 @@ class PipelineService:
                 use_tts=True,
                 tts_engine=request.tts_engine,
                 tts_voice=request.tts_voice,
+                qwen3_voice=request.tts_voice,
+                voice_profile_id=request.voice_profile_id,
                 tts_speed=request.tts_speed,
                 use_mixer=True,
                 original_volume=request.original_volume,
                 tts_volume_ratio=request.tts_volume_ratio,
                 tts_delay_ms=request.tts_delay,
                 skip_existing=request.skip_existing,
+                output_mode=request.output_mode,
+                batch_root_dir=request.batch_root_dir,
             )
 
             def on_progress(message: str) -> None:

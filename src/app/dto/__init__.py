@@ -5,12 +5,20 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .batch_pipeline import BatchItemResult, BatchPipelineRequest, BatchPipelineResult
+from .script_subtitle import ScriptSubtitleRequest, ScriptSubtitleResult
+
 __all__ = [
     "SubtitleSegment",
     "SubtitleDocument",
     "PipelineRequest",
     "PipelineResult",
     "ArtifactSet",
+    "BatchPipelineRequest",
+    "BatchItemResult",
+    "BatchPipelineResult",
+    "ScriptSubtitleRequest",
+    "ScriptSubtitleResult",
     "TaskStatus",
     "TranslationResult",
     "TranscriptionResult",
@@ -53,6 +61,9 @@ class PipelineRequest:
     tts_volume_ratio: float = 0.5
     tts_delay: float = 0.0
     skip_existing: bool = False
+    voice_profile_id: Optional[str] = None
+    output_mode: str = "single"
+    batch_root_dir: str = ""
 
 
 @dataclass(slots=True)

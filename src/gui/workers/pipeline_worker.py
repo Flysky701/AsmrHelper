@@ -1,4 +1,4 @@
-"""
+﻿"""
 GUI Worker 线程模块
 
 包含所有后台处理线程：
@@ -1194,8 +1194,9 @@ class ToolsWorkerThread(QThread):
 
     def _run_script_to_vtt(self) -> str:
         """台本转字幕 (LLM 流水线)"""
-        from src.core.script_to_subtitle.pipeline import ScriptToSubtitlePipeline
         from pathlib import Path
+        from src.app import ScriptSubtitleRequest
+        from src.app.services import get_script_subtitle_service
 
         mode = self.params.get("mode", "full")
         script_path = self.params["script_path"]
@@ -1211,55 +1212,42 @@ class ToolsWorkerThread(QThread):
                 self.progress.emit("[台本→VTT] 未配置 API Key，自动切换为 regex 清洗模式（可在 设置→API 配置 中添加）")
                 use_llm = False
 
-        pipeline = ScriptToSubtitlePipeline()
+        service = get_script_subtitle_service()
+        request = ScriptSubtitleRequest(
+            script_path=script_path,
+            output_path=output_path,
+            use_llm_clean=use_llm,
+            vertical_mode=vertical_mode,
+        )
 
         def progress_forward(stage, pct, msg):
             self.progress.emit(f"[台本→VTT][{stage}] {msg} ({pct}%)")
 
         if mode == "full":
             # 完整流程：台本 + 音频 → 字幕
-            audio_path = self.params["audio_path"]
-            fmt = self.params.get("fmt", "vtt")
-            model = self.params.get("model", "large-v3")
-            language = self.params.get("language", "ja")
+            request.audio_path = self.params["audio_path"]
+            request.fmt = self.params.get("fmt", "vtt")
+            request.asr_model_size = self.params.get("model", "large-v3")
+            request.asr_language = self.params.get("language", "ja")
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            result = pipeline.run(
-                script_path=script_path,
-                audio_path=audio_path,
-                output_path=output_path,
-                fmt=fmt,
-                use_llm_clean=use_llm,
-                asr_model_size=model,
-                asr_language=language,
-                vertical_mode=vertical_mode,
-                progress_callback=progress_forward,
-            )
-            return f"台本→VTT 完成！\n输出: {result}"
+            result = service.run_full(request, progress_callback=progress_forward)
+            return f"台本→VTT 完成！\n输出: {result.output_path}"
 
         elif mode == "from_vtt":
             # 已有 VTT：台本 + VTT → 修正字幕
-            vtt_path = self.params["vtt_path"]
-            fmt = self.params.get("fmt", "vtt")
+            request.vtt_path = self.params["vtt_path"]
+            request.fmt = self.params.get("fmt", "vtt")
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            result = pipeline.run_from_existing_vtt(
-                script_path=script_path,
-                vtt_path=vtt_path,
-                output_path=output_path,
-                fmt=fmt,
-                use_llm_clean=use_llm,
-                vertical_mode=vertical_mode,
+            result = service.run_from_existing_vtt(
+                request,
                 progress_callback=progress_forward,
             )
-            return f"台本→VTT 完成（使用已有字幕对齐）！\n输出: {result}"
+            return f"台本→VTT 完成（使用已有字幕对齐）！\n输出: {result.output_path}"
 
         else:
             # 仅清洗文本
-            result_text = pipeline.run_text_only(
-                script_path=script_path,
-                output_path=output_path,
-                use_llm_clean=use_llm,
-                vertical_mode=vertical_mode,
+            result = service.run_text_only(
+                request,
                 progress_callback=progress_forward,
             )
-            lines = len(result_text.splitlines())
-            return f"台本文本清洗完成！\n输出: {output_path}\n共 {lines} 行台词"
+            return f"台本文本清洗完成！\n输出: {output_path}\n共 {result.line_count} 行台词"

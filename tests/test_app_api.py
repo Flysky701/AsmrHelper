@@ -88,12 +88,17 @@ def test_app_package_re_exports_phase1_contract():
     from src.app import dto
     from src.app.dto import (
         ArtifactSet,
+        BatchItemResult,
+        BatchPipelineRequest,
+        BatchPipelineResult,
         ModelOperationResult,
         ModelStatusView,
         ModelSummary,
         PipelineRequest,
         PipelineResult,
         ResourceStatus,
+        ScriptSubtitleRequest,
+        ScriptSubtitleResult,
         SubtitleDocument,
         SubtitleSegment,
         SynthesisResult,
@@ -110,9 +115,17 @@ def test_app_package_re_exports_phase1_contract():
         ResourceValidationError,
     )
     from src.app.services.asr_service import AsrService, get_asr_service
+    from src.app.services.batch_pipeline_service import (
+        BatchPipelineService,
+        get_batch_pipeline_service,
+    )
     from src.app.services.model_service import ModelService, get_model_service
     from src.app.services.pipeline_service import PipelineService, get_pipeline_service
     from src.app.services.resource_service import ResourceService, get_resource_service
+    from src.app.services.script_subtitle_service import (
+        ScriptSubtitleService,
+        get_script_subtitle_service,
+    )
     from src.app.services.subtitle_service import SubtitleService, get_subtitle_service
     from src.app.services.task_service import TaskService, get_task_service
     from src.app.services.translation_service import TranslationService, get_translation_service
@@ -124,6 +137,11 @@ def test_app_package_re_exports_phase1_contract():
         "PipelineRequest",
         "PipelineResult",
         "ArtifactSet",
+        "BatchPipelineRequest",
+        "BatchItemResult",
+        "BatchPipelineResult",
+        "ScriptSubtitleRequest",
+        "ScriptSubtitleResult",
         "TaskStatus",
         "TranslationResult",
         "SynthesisResult",
@@ -137,6 +155,10 @@ def test_app_package_re_exports_phase1_contract():
     expected_app_bindings = {
         "AsrService": AsrService,
         "ArtifactSet": ArtifactSet,
+        "BatchItemResult": BatchItemResult,
+        "BatchPipelineRequest": BatchPipelineRequest,
+        "BatchPipelineResult": BatchPipelineResult,
+        "BatchPipelineService": BatchPipelineService,
         "ModelService": ModelService,
         "ModelOperationResult": ModelOperationResult,
         "ModelStatusView": ModelStatusView,
@@ -148,6 +170,9 @@ def test_app_package_re_exports_phase1_contract():
         "ResourceStatus": ResourceStatus,
         "ResourceUnavailableError": ResourceUnavailableError,
         "ResourceValidationError": ResourceValidationError,
+        "ScriptSubtitleRequest": ScriptSubtitleRequest,
+        "ScriptSubtitleResult": ScriptSubtitleResult,
+        "ScriptSubtitleService": ScriptSubtitleService,
         "SubtitleDocument": SubtitleDocument,
         "SubtitleSegment": SubtitleSegment,
         "SubtitleService": SubtitleService,
@@ -162,9 +187,11 @@ def test_app_package_re_exports_phase1_contract():
         "AppExecutionError": AppExecutionError,
         "AppValidationError": AppValidationError,
         "get_asr_service": get_asr_service,
+        "get_batch_pipeline_service": get_batch_pipeline_service,
         "get_model_service": get_model_service,
         "get_pipeline_service": get_pipeline_service,
         "get_resource_service": get_resource_service,
+        "get_script_subtitle_service": get_script_subtitle_service,
         "get_subtitle_service": get_subtitle_service,
         "get_task_service": get_task_service,
         "get_translation_service": get_translation_service,
@@ -182,9 +209,17 @@ def test_app_package_re_exports_phase1_contract():
 def test_services_package_exports_phase1_service_bindings():
     import src.app.services as services_module
     from src.app.services.asr_service import AsrService, get_asr_service
+    from src.app.services.batch_pipeline_service import (
+        BatchPipelineService,
+        get_batch_pipeline_service,
+    )
     from src.app.services.model_service import ModelService, get_model_service
     from src.app.services.pipeline_service import PipelineService, get_pipeline_service
     from src.app.services.resource_service import ResourceService, get_resource_service
+    from src.app.services.script_subtitle_service import (
+        ScriptSubtitleService,
+        get_script_subtitle_service,
+    )
     from src.app.services.subtitle_service import SubtitleService, get_subtitle_service
     from src.app.services.task_service import TaskService, get_task_service
     from src.app.services.translation_service import TranslationService, get_translation_service
@@ -192,17 +227,21 @@ def test_services_package_exports_phase1_service_bindings():
 
     expected_service_bindings = {
         "AsrService": AsrService,
+        "BatchPipelineService": BatchPipelineService,
         "ModelService": ModelService,
         "PipelineService": PipelineService,
         "ResourceService": ResourceService,
+        "ScriptSubtitleService": ScriptSubtitleService,
         "SubtitleService": SubtitleService,
         "TaskService": TaskService,
         "TranslationService": TranslationService,
         "TtsService": TtsService,
         "get_asr_service": get_asr_service,
+        "get_batch_pipeline_service": get_batch_pipeline_service,
         "get_model_service": get_model_service,
         "get_pipeline_service": get_pipeline_service,
         "get_resource_service": get_resource_service,
+        "get_script_subtitle_service": get_script_subtitle_service,
         "get_subtitle_service": get_subtitle_service,
         "get_task_service": get_task_service,
         "get_translation_service": get_translation_service,
@@ -1426,9 +1465,10 @@ def test_asmr_bilingual_script_reports_missing_input(tmp_path, monkeypatch, caps
     assert f"Error: input file does not exist: {missing_path}" in stdout
 
 
-def test_batch_process_script_wraps_pipeline_service(monkeypatch, tmp_path, capsys):
+def test_batch_process_script_wraps_batch_pipeline_service(monkeypatch, tmp_path, capsys):
     import importlib.util
     import src.app.services as app_services
+    from src.app.dto import BatchItemResult, BatchPipelineResult
 
     script_path = Path("scripts/batch_process.py")
     input_path = tmp_path / "demo.wav"
@@ -1436,23 +1476,28 @@ def test_batch_process_script_wraps_pipeline_service(monkeypatch, tmp_path, caps
     output_base_dir = tmp_path / "batch-output"
     captured = {}
 
-    class DummyPipelineService:
-        def run_audio_pipeline(self, request):
+    class DummyBatchPipelineService:
+        def run_batch(self, request, progress_callback=None):
             captured["request"] = request
-            return type(
-                "PipelineResult",
-                (),
-                {
-                    "mix_path": str(output_base_dir / "demo" / "final_mix.wav"),
-                    "artifacts": type(
-                        "ArtifactSet",
-                        (),
-                        {"primary_output": str(output_base_dir / "demo" / "final_mix.wav")},
-                    )(),
-                },
-            )()
+            return BatchPipelineResult(
+                items=[
+                    BatchItemResult(
+                        file=str(input_path),
+                        status="success",
+                        output=str(output_base_dir / "demo" / "final_mix.wav"),
+                        duration=1.25,
+                    )
+                ],
+                total_count=1,
+                success_count=1,
+                total_duration=1.25,
+            )
 
-    monkeypatch.setattr(app_services, "get_pipeline_service", lambda: DummyPipelineService())
+    monkeypatch.setattr(
+        app_services,
+        "get_batch_pipeline_service",
+        lambda: DummyBatchPipelineService(),
+    )
 
     spec = importlib.util.spec_from_file_location("batch_process_test_module", script_path)
     module = importlib.util.module_from_spec(spec)
@@ -1476,8 +1521,8 @@ def test_batch_process_script_wraps_pipeline_service(monkeypatch, tmp_path, caps
 
     assert result["status"] == "success"
     assert result["output"] == str(output_base_dir / "demo" / "final_mix.wav")
-    assert captured["request"].input_path == str(input_path)
-    assert captured["request"].output_dir == str(output_base_dir / "demo")
+    assert captured["request"].input_files == [str(input_path)]
+    assert captured["request"].output_base_dir == str(output_base_dir)
     assert captured["request"].tts_engine == "qwen3"
     assert captured["request"].tts_voice == "Vivian"
     assert captured["request"].tts_speed == 1.2
@@ -1487,11 +1532,12 @@ def test_batch_process_script_wraps_pipeline_service(monkeypatch, tmp_path, caps
     assert captured["request"].vocal_model == "hdemucs_mmi"
     assert captured["request"].asr_model == "small"
     assert captured["request"].skip_existing is False
-    assert "[Pipeline] 通过 Application API 执行统一音频流程..." in stdout
+    assert "[Pipeline] Delegating through the application API..." in stdout
 
 
 def test_batch_process_script_skips_existing_mix(tmp_path):
     import importlib.util
+    from src.app.dto import BatchItemResult, BatchPipelineResult
 
     script_path = Path("scripts/batch_process.py")
     input_path = tmp_path / "demo.wav"
@@ -1501,10 +1547,27 @@ def test_batch_process_script_skips_existing_mix(tmp_path):
     final_mix.parent.mkdir(parents=True)
     final_mix.write_bytes(b"mix")
 
+    class DummyBatchPipelineService:
+        def run_batch(self, request, progress_callback=None):
+            return BatchPipelineResult(
+                items=[
+                    BatchItemResult(
+                        file=str(input_path),
+                        status="skipped",
+                        output=str(final_mix),
+                    )
+                ],
+                total_count=1,
+                skipped_count=1,
+            )
+
     spec = importlib.util.spec_from_file_location("batch_process_skip_module", script_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(module, "get_batch_pipeline_service", lambda: DummyBatchPipelineService())
 
     result = module.process_single_file(
         input_path,
@@ -1514,10 +1577,12 @@ def test_batch_process_script_skips_existing_mix(tmp_path):
 
     assert result["status"] == "skipped"
     assert result["output"] == str(final_mix)
+    monkeypatch.undo()
 
 
 def test_batch_process_collects_results_without_stopping_on_failures(monkeypatch, tmp_path):
     import importlib.util
+    from src.app.dto import BatchItemResult, BatchPipelineResult
 
     script_path = Path("scripts/batch_process.py")
     inputs = [tmp_path / "a.wav", tmp_path / "b.wav", tmp_path / "c.wav"]
@@ -1529,14 +1594,25 @@ def test_batch_process_collects_results_without_stopping_on_failures(monkeypatch
     assert spec.loader is not None
     spec.loader.exec_module(module)
 
-    def fake_process_single_file(input_path, output_base_dir=None, skip_existing=True, **params):
-        if input_path.name == "a.wav":
-            return {"file": str(input_path), "status": "success", "error": None, "output": "a-out", "time": 1.0}
-        if input_path.name == "b.wav":
-            return {"file": str(input_path), "status": "failed", "error": "boom", "output": None, "time": 2.0}
-        return {"file": str(input_path), "status": "skipped", "error": None, "output": "c-out", "time": 0.5}
+    class DummyBatchPipelineService:
+        def run_batch(self, request, progress_callback=None):
+            items = [
+                BatchItemResult(file=str(inputs[0]), status="success", output="a-out", duration=1.0),
+                BatchItemResult(file=str(inputs[1]), status="failed", error="boom", duration=2.0),
+                BatchItemResult(file=str(inputs[2]), status="skipped", output="c-out", duration=0.5),
+            ]
+            if progress_callback is not None:
+                for index, item in enumerate(items, start=1):
+                    progress_callback(index, len(items), item)
+            return BatchPipelineResult(
+                items=items,
+                total_count=3,
+                success_count=1,
+                failed_count=1,
+                skipped_count=1,
+            )
 
-    monkeypatch.setattr(module, "process_single_file", fake_process_single_file)
+    monkeypatch.setattr(module, "get_batch_pipeline_service", lambda: DummyBatchPipelineService())
 
     results = module.batch_process(
         inputs,
