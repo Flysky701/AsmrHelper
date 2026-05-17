@@ -39,13 +39,18 @@ class SubtitleDocument:
 class PipelineRequest:
     input_path: str
     output_dir: str = ""
+    vtt_path: Optional[str] = None
     source_lang: str = "ja"
     target_lang: str = "zh"
+    use_vocal_separator: bool = True
     tts_engine: str = "edge"
     tts_voice: str = "zh-CN-XiaoxiaoNeural"
     vocal_model: str = "htdemucs"
     asr_model: str = "base"
     translate_provider: str = "deepseek"
+    tts_speed: float = 1.0
+    original_volume: float = 0.85
+    tts_volume_ratio: float = 0.5
     tts_delay: float = 0.0
     skip_existing: bool = False
 

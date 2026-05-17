@@ -1,5 +1,6 @@
 import importlib
 import sys
+from pathlib import Path
 
 from click.testing import CliRunner
 import pytest
@@ -869,13 +870,18 @@ def test_pipeline_service_maps_request_and_result(monkeypatch):
     request = PipelineRequest(
         input_path="demo.wav",
         output_dir="out",
+        vtt_path="demo.vtt",
         source_lang="ja",
         target_lang="zh",
+        use_vocal_separator=False,
         tts_engine="edge",
         tts_voice="zh-CN-XiaoxiaoNeural",
         vocal_model="htdemucs",
         asr_model="base",
         translate_provider="deepseek",
+        tts_speed=1.1,
+        original_volume=0.75,
+        tts_volume_ratio=0.6,
         tts_delay=0.0,
         skip_existing=False,
     )
@@ -884,7 +890,12 @@ def test_pipeline_service_maps_request_and_result(monkeypatch):
     result = service.run_audio_pipeline(request)
 
     assert captured["config"].input_path == "demo.wav"
+    assert captured["config"].vtt_path == "demo.vtt"
+    assert captured["config"].use_vocal_separator is False
     assert captured["config"].translate_provider == "deepseek"
+    assert captured["config"].tts_speed == 1.1
+    assert captured["config"].original_volume == 0.75
+    assert captured["config"].tts_volume_ratio == 0.6
     assert captured["config"].source_lang == "日文"
     assert captured["config"].target_lang == "中文"
     assert captured["preset"] == "asmr_bilingual"
@@ -1300,6 +1311,88 @@ def test_cli_pipeline_run_uses_pipeline_service(monkeypatch):
     assert captured["request"].input_path == "demo.wav"
     assert captured["request"].output_dir == "out"
     assert "out/final_mix.wav" in result.output
+
+
+def test_asmr_bilingual_script_wraps_pipeline_service(monkeypatch, tmp_path, capsys):
+    import importlib.util
+    import src.app.services as app_services
+
+    script_path = Path("scripts/asmr_bilingual.py")
+    input_path = tmp_path / "demo.wav"
+    input_path.write_bytes(b"audio")
+    vtt_dir = tmp_path / "ASMR_O"
+    vtt_dir.mkdir()
+    vtt_path = vtt_dir / "demo.wav.vtt"
+    vtt_path.write_text("WEBVTT\n", encoding="utf-8")
+    captured = {}
+
+    class DummyPipelineService:
+        def run_audio_pipeline(self, request):
+            captured["request"] = request
+            return type(
+                "PipelineResult",
+                (),
+                {
+                    "mix_path": "out/final_mix.wav",
+                    "exported_subtitle": "out/final_subtitle.srt",
+                    "error_message": None,
+                },
+            )()
+
+    monkeypatch.setattr(app_services, "get_pipeline_service", lambda: DummyPipelineService())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "asmr_bilingual.py",
+            "--input",
+            str(input_path),
+            "--tts-engine",
+            "qwen3",
+            "--skip-existing",
+            "--no-vocal",
+        ],
+    )
+
+    spec = importlib.util.spec_from_file_location("asmr_bilingual_test_module", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    result = module.main()
+    stdout = capsys.readouterr().out
+
+    assert result == 0
+    assert captured["request"].input_path == str(input_path)
+    assert captured["request"].output_dir.endswith("demo_output")
+    assert captured["request"].vtt_path == str(vtt_path)
+    assert captured["request"].use_vocal_separator is False
+    assert captured["request"].tts_engine == "qwen3"
+    assert captured["request"].tts_voice == "Vivian"
+    assert captured["request"].skip_existing is True
+    assert "Pipeline completed." in stdout
+    assert "Mix: out/final_mix.wav" in stdout
+    assert "Subtitle Output: out/final_subtitle.srt" in stdout
+
+
+def test_asmr_bilingual_script_reports_missing_input(tmp_path, monkeypatch, capsys):
+    import importlib.util
+
+    script_path = Path("scripts/asmr_bilingual.py")
+    missing_path = tmp_path / "missing.wav"
+
+    monkeypatch.setattr(sys, "argv", ["asmr_bilingual.py", "--input", str(missing_path)])
+
+    spec = importlib.util.spec_from_file_location("asmr_bilingual_missing_input_module", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    result = module.main()
+    stdout = capsys.readouterr().out
+
+    assert result == 1
+    assert f"Error: input file does not exist: {missing_path}" in stdout
 
 
 def test_cli_pipeline_presets_still_lists_available_presets():

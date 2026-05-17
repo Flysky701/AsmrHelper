@@ -82,7 +82,8 @@ class PipelineService:
             config = pipeline_config_class(
                 input_path=request.input_path,
                 output_dir=output_dir,
-                use_vocal_separator=True,
+                vtt_path=request.vtt_path,
+                use_vocal_separator=request.use_vocal_separator,
                 vocal_model=request.vocal_model,
                 asr_model=request.asr_model,
                 asr_language=request.source_lang,
@@ -93,7 +94,10 @@ class PipelineService:
                 use_tts=True,
                 tts_engine=request.tts_engine,
                 tts_voice=request.tts_voice,
+                tts_speed=request.tts_speed,
                 use_mixer=True,
+                original_volume=request.original_volume,
+                tts_volume_ratio=request.tts_volume_ratio,
                 tts_delay_ms=request.tts_delay,
                 skip_existing=request.skip_existing,
             )
