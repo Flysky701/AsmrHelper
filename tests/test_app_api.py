@@ -1395,6 +1395,130 @@ def test_asmr_bilingual_script_reports_missing_input(tmp_path, monkeypatch, caps
     assert f"Error: input file does not exist: {missing_path}" in stdout
 
 
+def test_batch_process_script_wraps_pipeline_service(monkeypatch, tmp_path, capsys):
+    import importlib.util
+    import src.app.services as app_services
+
+    script_path = Path("scripts/batch_process.py")
+    input_path = tmp_path / "demo.wav"
+    input_path.write_bytes(b"audio")
+    output_base_dir = tmp_path / "batch-output"
+    captured = {}
+
+    class DummyPipelineService:
+        def run_audio_pipeline(self, request):
+            captured["request"] = request
+            return type(
+                "PipelineResult",
+                (),
+                {
+                    "mix_path": str(output_base_dir / "demo" / "final_mix.wav"),
+                    "artifacts": type(
+                        "ArtifactSet",
+                        (),
+                        {"primary_output": str(output_base_dir / "demo" / "final_mix.wav")},
+                    )(),
+                },
+            )()
+
+    monkeypatch.setattr(app_services, "get_pipeline_service", lambda: DummyPipelineService())
+
+    spec = importlib.util.spec_from_file_location("batch_process_test_module", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    result = module.process_single_file(
+        input_path,
+        output_base_dir=output_base_dir,
+        skip_existing=False,
+        tts_engine="qwen3",
+        tts_voice="Vivian",
+        tts_speed=1.2,
+        original_volume=0.7,
+        tts_ratio=0.45,
+        tts_delay=125,
+        vocal_model="hdemucs_mmi",
+        asr_model="small",
+    )
+    stdout = capsys.readouterr().out
+
+    assert result["status"] == "success"
+    assert result["output"] == str(output_base_dir / "demo" / "final_mix.wav")
+    assert captured["request"].input_path == str(input_path)
+    assert captured["request"].output_dir == str(output_base_dir / "demo")
+    assert captured["request"].tts_engine == "qwen3"
+    assert captured["request"].tts_voice == "Vivian"
+    assert captured["request"].tts_speed == 1.2
+    assert captured["request"].original_volume == 0.7
+    assert captured["request"].tts_volume_ratio == 0.45
+    assert captured["request"].tts_delay == 125
+    assert captured["request"].vocal_model == "hdemucs_mmi"
+    assert captured["request"].asr_model == "small"
+    assert captured["request"].skip_existing is False
+    assert "[Pipeline] 通过 Application API 执行统一音频流程..." in stdout
+
+
+def test_batch_process_script_skips_existing_mix(tmp_path):
+    import importlib.util
+
+    script_path = Path("scripts/batch_process.py")
+    input_path = tmp_path / "demo.wav"
+    input_path.write_bytes(b"audio")
+    output_base_dir = tmp_path / "batch-output"
+    final_mix = output_base_dir / "demo" / "final_mix.wav"
+    final_mix.parent.mkdir(parents=True)
+    final_mix.write_bytes(b"mix")
+
+    spec = importlib.util.spec_from_file_location("batch_process_skip_module", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    result = module.process_single_file(
+        input_path,
+        output_base_dir=output_base_dir,
+        skip_existing=True,
+    )
+
+    assert result["status"] == "skipped"
+    assert result["output"] == str(final_mix)
+
+
+def test_batch_process_collects_results_without_stopping_on_failures(monkeypatch, tmp_path):
+    import importlib.util
+
+    script_path = Path("scripts/batch_process.py")
+    inputs = [tmp_path / "a.wav", tmp_path / "b.wav", tmp_path / "c.wav"]
+    for input_path in inputs:
+        input_path.write_bytes(b"audio")
+
+    spec = importlib.util.spec_from_file_location("batch_process_aggregate_module", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    def fake_process_single_file(input_path, output_base_dir=None, skip_existing=True, **params):
+        if input_path.name == "a.wav":
+            return {"file": str(input_path), "status": "success", "error": None, "output": "a-out", "time": 1.0}
+        if input_path.name == "b.wav":
+            return {"file": str(input_path), "status": "failed", "error": "boom", "output": None, "time": 2.0}
+        return {"file": str(input_path), "status": "skipped", "error": None, "output": "c-out", "time": 0.5}
+
+    monkeypatch.setattr(module, "process_single_file", fake_process_single_file)
+
+    results = module.batch_process(
+        inputs,
+        output_base_dir=tmp_path / "out",
+        max_workers=1,
+        skip_existing=True,
+    )
+
+    assert [result["status"] for result in results] == ["success", "failed", "skipped"]
+    assert results[1]["error"] == "boom"
+    assert len(results) == 3
+
+
 def test_cli_pipeline_presets_still_lists_available_presets():
     from src.cli import cli
 

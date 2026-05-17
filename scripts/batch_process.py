@@ -13,7 +13,6 @@
     python scripts/batch_process.py --input-dir "D:/ASMR" --tts-ratio 0.6 --tts-delay 50
 """
 
-import os
 import sys
 import argparse
 from pathlib import Path
@@ -26,13 +25,8 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.core import (
-    VocalSeparator,
-    ASRRecognizer,
-    Translator,
-    TTSEngine,
-)
-from src.mixer import Mixer
+from src.app import PipelineRequest
+from src.app.services import get_pipeline_service
 
 
 # 支持的音频格式
@@ -45,6 +39,20 @@ def find_audio_files(directory: str) -> List[Path]:
     for ext in AUDIO_EXTENSIONS:
         audio_files.extend(Path(directory).rglob(f"*{ext}"))
     return sorted(audio_files)
+
+
+def _sanitize_output_name(input_path: Path) -> str:
+    return "".join(
+        char if char.isalnum() or char in " _-()" else "_"
+        for char in input_path.stem
+    )
+
+
+def _resolve_output_dir(input_path: Path, output_base_dir: Optional[Path]) -> Path:
+    safe_name = _sanitize_output_name(input_path)
+    if output_base_dir:
+        return output_base_dir / safe_name
+    return input_path.parent / f"{safe_name}_output"
 
 
 def process_single_file(
@@ -77,13 +85,7 @@ def process_single_file(
 
     try:
         # 设置输出目录
-        if output_base_dir:
-            # 在输出基础目录下创建与输入文件同结构的子目录
-            safe_name = "".join(c if c.isalnum() or c in " _-()" else "_" for c in input_path.stem)
-            output_dir = output_base_dir / safe_name
-        else:
-            safe_name = "".join(c if c.isalnum() or c in " _-()" else "_" for c in input_path.stem)
-            output_dir = input_path.parent / f"{safe_name}_output"
+        output_dir = _resolve_output_dir(input_path, output_base_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # 如果已存在且跳过
@@ -97,61 +99,34 @@ def process_single_file(
         print(f"\n{'='*60}")
         print(f"[批量处理] 处理: {input_path.name}")
         print(f"{'='*60}")
+        print("[Pipeline] 通过 Application API 执行统一音频流程...")
 
-        # ===== Step 1: 人声分离 =====
-        print("[1/5] 人声分离...")
-        separator = VocalSeparator(model_name=params.get("vocal_model", "htdemucs"))
-        sep_results = separator.separate(str(input_path), str(output_dir), stems=["vocals"])
-        vocal_path = Path(sep_results.get("vocals", ""))
-        if not vocal_path.exists():
-            raise RuntimeError("人声分离失败")
-
-        # ===== Step 2: ASR 识别 =====
-        print("[2/5] ASR 识别...")
-        recognizer = ASRRecognizer(
-            model_size=params.get("asr_model", "base"),
-            language="ja"
-        )
-        asr_path = output_dir / "asr_result.txt"
-        asr_results = recognizer.recognize(str(vocal_path), str(asr_path))
-        print(f"  -> 识别到 {len(asr_results)} 段")
-
-        if not asr_results:
-            raise RuntimeError("ASR 未识别到任何内容")
-
-        # ===== Step 3: 翻译 =====
-        print("[3/5] 翻译...")
-        translator = Translator(provider="deepseek")
-        texts = [r["text"] for r in asr_results]
-        translations = translator.translate_batch(texts)
-        trans_path = output_dir / "translated.txt"
-        trans_path.write_text("\n".join(translations), encoding="utf-8")
-
-        # ===== Step 4: TTS 合成 =====
-        print(f"[4/5] TTS 合成...")
-        tts_engine = TTSEngine(
-            engine=params.get("tts_engine", "edge"),
-            voice=params.get("tts_voice", "zh-CN-XiaoxiaoNeural"),
-            speed=params.get("tts_speed", 1.0),
-        )
-        full_text = "。".join(translations)
-        tts_ext = "wav" if params.get("tts_engine") == "qwen3" else "mp3"
-        tts_path = output_dir / f"tts_output.{tts_ext}"
-        tts_engine.synthesize(full_text, str(tts_path))
-
-        # ===== Step 5: 混音 =====
-        print("[5/5] 混音...")
-        mixer = Mixer(
+        request = PipelineRequest(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            source_lang="ja",
+            target_lang="zh",
+            use_vocal_separator=True,
+            tts_engine=params.get("tts_engine", "edge"),
+            tts_voice=params.get("tts_voice", "zh-CN-XiaoxiaoNeural"),
+            vocal_model=params.get("vocal_model", "htdemucs"),
+            asr_model=params.get("asr_model", "base"),
+            translate_provider="deepseek",
+            tts_speed=params.get("tts_speed", 1.0),
             original_volume=params.get("original_volume", 0.85),
             tts_volume_ratio=params.get("tts_ratio", 0.5),
-            tts_delay_ms=params.get("tts_delay", 0),
+            tts_delay=params.get("tts_delay", 0),
+            skip_existing=skip_existing,
         )
-        mixer.mix(str(vocal_path), str(tts_path), str(final_mix))
+        pipeline_result = get_pipeline_service().run_audio_pipeline(request)
+        output_path = pipeline_result.mix_path or pipeline_result.artifacts.primary_output
+        if not output_path:
+            raise RuntimeError("Pipeline 未返回主输出文件")
 
         result["status"] = "success"
-        result["output"] = str(final_mix)
+        result["output"] = output_path
         result["time"] = time.time() - t0
-        print(f"\n[完成] {input_path.name} -> {final_mix.name} ({result['time']:.1f}s)")
+        print(f"\n[完成] {input_path.name} -> {Path(output_path).name} ({result['time']:.1f}s)")
 
     except Exception as e:
         result["status"] = "failed"
