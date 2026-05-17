@@ -87,6 +87,7 @@ def test_app_package_re_exports_phase1_contract():
     from src.app import dto
     from src.app.dto import (
         ArtifactSet,
+        ModelOperationResult,
         ModelStatusView,
         ModelSummary,
         PipelineRequest,
@@ -96,7 +97,9 @@ def test_app_package_re_exports_phase1_contract():
         SubtitleSegment,
         SynthesisResult,
         TaskStatus,
+        TranscriptionResult,
         TranslationResult,
+        ModelVerificationResult,
     )
     from src.app.errors import (
         AppError,
@@ -105,11 +108,14 @@ def test_app_package_re_exports_phase1_contract():
         ResourceUnavailableError,
         ResourceValidationError,
     )
+    from src.app.services.asr_service import AsrService, get_asr_service
     from src.app.services.model_service import ModelService, get_model_service
     from src.app.services.pipeline_service import PipelineService, get_pipeline_service
     from src.app.services.resource_service import ResourceService, get_resource_service
     from src.app.services.subtitle_service import SubtitleService, get_subtitle_service
     from src.app.services.task_service import TaskService, get_task_service
+    from src.app.services.translation_service import TranslationService, get_translation_service
+    from src.app.services.tts_service import TtsService, get_tts_service
 
     expected_dto_exports = {
         "SubtitleSegment",
@@ -123,10 +129,15 @@ def test_app_package_re_exports_phase1_contract():
         "ResourceStatus",
         "ModelSummary",
         "ModelStatusView",
+        "ModelOperationResult",
+        "ModelVerificationResult",
+        "TranscriptionResult",
     }
     expected_app_bindings = {
+        "AsrService": AsrService,
         "ArtifactSet": ArtifactSet,
         "ModelService": ModelService,
+        "ModelOperationResult": ModelOperationResult,
         "ModelStatusView": ModelStatusView,
         "ModelSummary": ModelSummary,
         "PipelineRequest": PipelineRequest,
@@ -142,15 +153,21 @@ def test_app_package_re_exports_phase1_contract():
         "SynthesisResult": SynthesisResult,
         "TaskService": TaskService,
         "TaskStatus": TaskStatus,
+        "TranscriptionResult": TranscriptionResult,
+        "TranslationService": TranslationService,
         "TranslationResult": TranslationResult,
+        "TtsService": TtsService,
         "AppError": AppError,
         "AppExecutionError": AppExecutionError,
         "AppValidationError": AppValidationError,
+        "get_asr_service": get_asr_service,
         "get_model_service": get_model_service,
         "get_pipeline_service": get_pipeline_service,
         "get_resource_service": get_resource_service,
         "get_subtitle_service": get_subtitle_service,
         "get_task_service": get_task_service,
+        "get_translation_service": get_translation_service,
+        "get_tts_service": get_tts_service,
     }
 
     assert set(dto.__all__) == expected_dto_exports
@@ -163,23 +180,32 @@ def test_app_package_re_exports_phase1_contract():
 
 def test_services_package_exports_phase1_service_bindings():
     import src.app.services as services_module
+    from src.app.services.asr_service import AsrService, get_asr_service
     from src.app.services.model_service import ModelService, get_model_service
     from src.app.services.pipeline_service import PipelineService, get_pipeline_service
     from src.app.services.resource_service import ResourceService, get_resource_service
     from src.app.services.subtitle_service import SubtitleService, get_subtitle_service
     from src.app.services.task_service import TaskService, get_task_service
+    from src.app.services.translation_service import TranslationService, get_translation_service
+    from src.app.services.tts_service import TtsService, get_tts_service
 
     expected_service_bindings = {
+        "AsrService": AsrService,
         "ModelService": ModelService,
         "PipelineService": PipelineService,
         "ResourceService": ResourceService,
         "SubtitleService": SubtitleService,
         "TaskService": TaskService,
+        "TranslationService": TranslationService,
+        "TtsService": TtsService,
+        "get_asr_service": get_asr_service,
         "get_model_service": get_model_service,
         "get_pipeline_service": get_pipeline_service,
         "get_resource_service": get_resource_service,
         "get_subtitle_service": get_subtitle_service,
         "get_task_service": get_task_service,
+        "get_translation_service": get_translation_service,
+        "get_tts_service": get_tts_service,
     }
 
     assert set(services_module.__all__) == set(expected_service_bindings)
@@ -191,9 +217,12 @@ def test_services_package_exports_phase1_service_bindings():
 def test_new_application_dtos_expose_expected_fields():
     from src.app.dto import (
         ArtifactSet,
+        ModelOperationResult,
+        ModelVerificationResult,
         ResourceStatus,
         SynthesisResult,
         TaskStatus,
+        TranscriptionResult,
         TranslationResult,
     )
 
@@ -211,12 +240,33 @@ def test_new_application_dtos_expose_expected_fields():
         output_path="out/final.wav",
     )
     resource = ResourceStatus(name="model_root", available=True, detail="ready")
+    model_operation = ModelOperationResult(
+        action="install",
+        model_id="faster-whisper-base",
+        success=True,
+        status="installed",
+        detail="ready",
+    )
+    model_verification = ModelVerificationResult(
+        model_id="deepseek",
+        success=True,
+        status="configured",
+        detail="api key set",
+    )
+    transcription = TranscriptionResult(
+        segments=[],
+        output_path="out/transcript.txt",
+        text="hello",
+    )
 
     assert task.task_id == "task-1"
     assert artifact.files["mix"] == "out/final_mix.wav"
     assert translation.provider == "deepseek"
     assert synthesis.output_path.endswith("final.wav")
     assert resource.available is True
+    assert model_operation.action == "install"
+    assert model_verification.status == "configured"
+    assert transcription.output_path.endswith("transcript.txt")
 
 
 def test_new_resource_validation_error_is_an_app_error():
@@ -568,6 +618,202 @@ def test_subtitle_service_load_srt_text_does_not_treat_numeric_text_and_arrow_te
     assert len(document.segments) == 2
     assert document.segments[0].text == "123\nlook --> there\nstill same cue"
     assert document.segments[1].text == "tail"
+
+
+def test_asr_service_transcribes_file_through_core_runtime(monkeypatch, tmp_path):
+    from src.app.dto import TranscriptionResult
+    from src.app.services.asr_service import AsrService
+
+    input_path = tmp_path / "demo.wav"
+    input_path.write_bytes(b"audio")
+    captured = {}
+
+    class DummyRecognizer:
+        def __init__(self, model_size, language):
+            captured["init"] = (model_size, language)
+
+        def recognize(self, audio_path, output_path=None):
+            captured["recognize"] = (audio_path, output_path)
+            return [
+                {"start": 0.0, "end": 1.25, "text": "hello"},
+                {"start": 1.25, "end": 2.5, "text": "world"},
+            ]
+
+    monkeypatch.setattr("src.core.asr.ASRRecognizer", DummyRecognizer)
+
+    result = AsrService().transcribe_file(
+        input_path=str(input_path),
+        output_path="out/transcript.txt",
+        model="small",
+        language="en",
+    )
+
+    assert captured["init"] == ("small", "en")
+    assert captured["recognize"] == (str(input_path), "out/transcript.txt")
+    assert result == TranscriptionResult(
+        segments=result.segments,
+        output_path="out/transcript.txt",
+        text="hello\nworld",
+    )
+    assert [segment.text for segment in result.segments] == ["hello", "world"]
+
+
+def test_translation_service_translates_file_through_core_runtime(monkeypatch, tmp_path):
+    from src.app.dto import TranslationResult
+    from src.app.services.translation_service import TranslationService
+
+    input_path = tmp_path / "demo.txt"
+    output_path = tmp_path / "translated.txt"
+    input_path.write_text("line 1\n\nline 2\n", encoding="utf-8")
+    captured = {}
+
+    class DummyTranslator:
+        def __init__(self, provider):
+            captured["provider"] = provider
+
+        def translate_batch(self, texts, source_lang="ja", target_lang="zh"):
+            captured["translate_batch"] = (texts, source_lang, target_lang)
+            return ["L1", "L2"]
+
+    monkeypatch.setattr("src.core.translate.Translator", DummyTranslator)
+
+    result = TranslationService().translate_file(
+        input_path=str(input_path),
+        output_path=str(output_path),
+        provider="openai",
+        source_lang="en",
+        target_lang="zh",
+    )
+
+    assert captured["provider"] == "openai"
+    assert captured["translate_batch"] == (["line 1", "line 2"], "en", "zh")
+    assert output_path.read_text(encoding="utf-8") == "L1\nL2"
+    assert result == TranslationResult(
+        items=["L1", "L2"],
+        provider="openai",
+        source_lang="en",
+        target_lang="zh",
+    )
+
+
+def test_tts_service_synthesizes_file_through_core_runtime(monkeypatch, tmp_path):
+    from src.app.dto import SynthesisResult
+    from src.app.services.tts_service import TtsService
+
+    input_path = tmp_path / "demo.txt"
+    output_path = tmp_path / "demo.wav"
+    input_path.write_text("hello world", encoding="utf-8")
+    captured = {}
+
+    class DummyTTSEngine:
+        def __init__(self, engine, voice):
+            captured["init"] = (engine, voice)
+
+        def synthesize(self, text, current_output_path):
+            captured["synthesize"] = (text, current_output_path)
+            return current_output_path
+
+    monkeypatch.setattr("src.core.tts.TTSEngine", DummyTTSEngine)
+
+    result = TtsService().synthesize_file(
+        input_path=str(input_path),
+        output_path=str(output_path),
+        engine="edge",
+        voice="zh-CN-XiaoxiaoNeural",
+    )
+
+    assert captured["init"] == ("edge", "zh-CN-XiaoxiaoNeural")
+    assert captured["synthesize"] == ("hello world", str(output_path))
+    assert result == SynthesisResult(
+        engine="edge",
+        voice="zh-CN-XiaoxiaoNeural",
+        output_path=str(output_path),
+    )
+
+
+def test_standalone_services_map_missing_inputs_to_validation_errors(tmp_path):
+    from src.app.errors import AppValidationError
+    from src.app.services.asr_service import AsrService
+    from src.app.services.translation_service import TranslationService
+    from src.app.services.tts_service import TtsService
+
+    missing_audio = tmp_path / "missing.wav"
+    missing_text = tmp_path / "missing.txt"
+
+    with pytest.raises(AppValidationError, match="input file does not exist"):
+        AsrService().transcribe_file(str(missing_audio))
+
+    with pytest.raises(AppValidationError, match="input file does not exist"):
+        TranslationService().translate_file(str(missing_text))
+
+    with pytest.raises(AppValidationError, match="input file does not exist"):
+        TtsService().synthesize_file(str(missing_text), str(tmp_path / "demo.wav"))
+
+
+def test_cli_asr_translate_and_tts_use_application_services(monkeypatch, tmp_path):
+    from src.cli import cli
+
+    input_audio = tmp_path / "demo.wav"
+    input_text = tmp_path / "demo.txt"
+    input_audio.write_bytes(b"audio")
+    input_text.write_text("line 1\nline 2\n", encoding="utf-8")
+    captured = {"asr": None, "translate": None, "tts": None}
+
+    class DummyAsrService:
+        def transcribe_file(self, input_path, output_path=None, model="base", language="ja"):
+            captured["asr"] = (input_path, output_path, model, language)
+            return type(
+                "TranscriptionResult",
+                (),
+                {"segments": [object(), object()], "output_path": output_path, "text": "hello\nworld"},
+            )()
+
+    class DummyTranslationService:
+        def translate_file(self, input_path, output_path=None, provider="deepseek", source_lang="ja", target_lang="zh"):
+            captured["translate"] = (input_path, output_path, provider, source_lang, target_lang)
+            return type(
+                "TranslationResult",
+                (),
+                {"items": ["L1", "L2"], "provider": provider, "source_lang": source_lang, "target_lang": target_lang},
+            )()
+
+    class DummyTtsService:
+        def synthesize_file(self, input_path, output_path, engine="edge", voice="zh-CN-XiaoxiaoNeural"):
+            captured["tts"] = (input_path, output_path, engine, voice)
+            return type(
+                "SynthesisResult",
+                (),
+                {"engine": engine, "voice": voice, "output_path": output_path},
+            )()
+
+    monkeypatch.setattr("src.cli.get_asr_service", lambda: DummyAsrService())
+    monkeypatch.setattr("src.cli.get_translation_service", lambda: DummyTranslationService())
+    monkeypatch.setattr("src.cli.get_tts_service", lambda: DummyTtsService())
+
+    runner = CliRunner()
+    asr_result = runner.invoke(
+        cli,
+        ["asr", "--input", str(input_audio), "--output", "out/transcript.txt", "--model", "small", "--language", "en"],
+    )
+    translate_result = runner.invoke(
+        cli,
+        ["translate", "--input", str(input_text), "--output", "out/translated.txt", "--provider", "openai"],
+    )
+    tts_result = runner.invoke(
+        cli,
+        ["tts", "--input", str(input_text), "--output", "out/demo.wav", "--engine", "qwen3", "--voice", "Vivian"],
+    )
+
+    assert asr_result.exit_code == 0
+    assert translate_result.exit_code == 0
+    assert tts_result.exit_code == 0
+    assert "Recognition finished, 2 segments" in asr_result.output
+    assert "Saved: out/transcript.txt" in asr_result.output
+    assert "Saved: out/translated.txt" in translate_result.output
+    assert "Saved: out/demo.wav" in tts_result.output
+    assert captured["asr"] == (str(input_audio), "out/transcript.txt", "small", "en")
+    assert captured["translate"] == (str(input_text), "out/translated.txt", "openai", "ja", "zh")
+    assert captured["tts"] == (str(input_text), "out/demo.wav", "qwen3", "Vivian")
 
 
 def test_pipeline_service_maps_request_and_result(monkeypatch):

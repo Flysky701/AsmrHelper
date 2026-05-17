@@ -13,10 +13,13 @@ __all__ = [
     "ArtifactSet",
     "TaskStatus",
     "TranslationResult",
+    "TranscriptionResult",
     "SynthesisResult",
     "ResourceStatus",
     "ModelSummary",
     "ModelStatusView",
+    "ModelOperationResult",
+    "ModelVerificationResult",
 ]
 
 
@@ -86,6 +89,13 @@ class TranslationResult:
 
 
 @dataclass(slots=True)
+class TranscriptionResult:
+    segments: list[SubtitleSegment] = field(default_factory=list)
+    output_path: Optional[str] = None
+    text: str = ""
+
+
+@dataclass(slots=True)
 class SynthesisResult:
     engine: str
     voice: str
@@ -112,5 +122,22 @@ class ModelSummary:
 @dataclass(slots=True)
 class ModelStatusView:
     model_id: str
+    status: str
+    detail: str
+
+
+@dataclass(slots=True)
+class ModelOperationResult:
+    action: str
+    model_id: str
+    success: bool
+    status: str
+    detail: str
+
+
+@dataclass(slots=True)
+class ModelVerificationResult:
+    model_id: str
+    success: bool
     status: str
     detail: str

@@ -1,5 +1,4 @@
 import importlib.util
-import shutil
 from pathlib import Path
 
 import pytest
@@ -89,22 +88,28 @@ def test_cloud_status_depends_on_configured_api_key(monkeypatch):
     entry = catalog.get("deepseek")
     resolver = ModelStatusResolver()
 
-    monkeypatch.setattr("src.config.config._config", {
-        "api": {
-            "provider": "deepseek",
-            "deepseek_api_key": "",
-            "openai_api_key": "",
-        }
-    })
+    monkeypatch.setattr(
+        "src.config.config._config",
+        {
+            "api": {
+                "provider": "deepseek",
+                "deepseek_api_key": "",
+                "openai_api_key": "",
+            }
+        },
+    )
     assert resolver.resolve(entry).status == "unconfigured"
 
-    monkeypatch.setattr("src.config.config._config", {
-        "api": {
-            "provider": "deepseek",
-            "deepseek_api_key": "secret",
-            "openai_api_key": "",
-        }
-    })
+    monkeypatch.setattr(
+        "src.config.config._config",
+        {
+            "api": {
+                "provider": "deepseek",
+                "deepseek_api_key": "secret",
+                "openai_api_key": "",
+            }
+        },
+    )
     assert resolver.resolve(entry).status == "configured"
 
 
@@ -164,7 +169,7 @@ def test_cli_model_commands_surface_local_and_cloud_behaviors(monkeypatch, tmp_p
 
     result = runner.invoke(cli, ["model", "install", "deepseek"])
     assert result.exit_code != 0
-    assert "仅支持配置检查" in result.output
+    assert "deepseek" in result.output
 
     fake_model_dir = tmp_path / "models" / "whisper" / "base"
     fake_model_dir.mkdir(parents=True)
@@ -230,6 +235,252 @@ def test_cli_model_queries_use_application_model_service(monkeypatch):
     assert "installed" in status_result.output
     assert calls["list"] == 1
     assert calls["status"] >= 1
+
+
+def test_application_model_service_wraps_model_lifecycle_operations():
+    from src.app.dto import ModelOperationResult, ModelVerificationResult
+    from src.app.services.model_service import ModelService
+
+    calls = {"install": [], "verify": [], "remove": []}
+
+    class DummyEntry:
+        def __init__(self, model_id, kind="local"):
+            self.id = model_id
+            self.kind = kind
+
+    class DummyStatus:
+        def __init__(self, model_id, status, detail):
+            self.model_id = model_id
+            self.status = status
+            self.detail = detail
+
+    class DummyCoreService:
+        def get_model(self, model_id):
+            return DummyEntry(model_id)
+
+        def get_status(self, model_id):
+            if model_id == "demo-remove":
+                return DummyStatus(model_id, "missing", "removed")
+            if model_id == "demo-invalid":
+                return DummyStatus(model_id, "invalid", "missing config.json")
+            return DummyStatus(model_id, "installed", "ready")
+
+        def install(self, model_id, mirror=None, force=False):
+            calls["install"].append((model_id, mirror, force))
+            return True
+
+        def verify(self, model_id=None):
+            calls["verify"].append(model_id)
+            return {"demo-install": True, "demo-invalid": False}
+
+        def remove(self, model_id):
+            calls["remove"].append(model_id)
+
+    service = ModelService(core_service=DummyCoreService())
+
+    install_result = service.install_model("demo-install", mirror="https://hf-mirror.test", force=True)
+    verify_results = service.verify_models()
+    remove_result = service.remove_model("demo-remove")
+
+    assert calls["install"] == [("demo-install", "https://hf-mirror.test", True)]
+    assert calls["verify"] == [None]
+    assert calls["remove"] == ["demo-remove"]
+    assert install_result == ModelOperationResult(
+        action="install",
+        model_id="demo-install",
+        success=True,
+        status="installed",
+        detail="ready",
+    )
+    assert verify_results == [
+        ModelVerificationResult(
+            model_id="demo-install",
+            success=True,
+            status="installed",
+            detail="ready",
+        ),
+        ModelVerificationResult(
+            model_id="demo-invalid",
+            success=False,
+            status="invalid",
+            detail="missing config.json",
+        ),
+    ]
+    assert remove_result == ModelOperationResult(
+        action="remove",
+        model_id="demo-remove",
+        success=True,
+        status="missing",
+        detail="removed",
+    )
+
+
+def test_application_model_service_verifies_cloud_model_from_status():
+    from src.app.dto import ModelVerificationResult
+    from src.app.services.model_service import ModelService
+
+    class DummyEntry:
+        def __init__(self, model_id, kind="cloud"):
+            self.id = model_id
+            self.kind = kind
+
+    class DummyStatus:
+        def __init__(self, model_id, status, detail):
+            self.model_id = model_id
+            self.status = status
+            self.detail = detail
+
+    class DummyCoreService:
+        def get_model(self, model_id):
+            return DummyEntry(model_id)
+
+        def get_status(self, model_id):
+            return DummyStatus(model_id, "configured", "api key set")
+
+        def verify(self, model_id=None):
+            raise AssertionError("cloud verification should not call local verify()")
+
+    service = ModelService(core_service=DummyCoreService())
+
+    assert service.verify_models("deepseek") == [
+        ModelVerificationResult(
+            model_id="deepseek",
+            success=True,
+            status="configured",
+            detail="api key set",
+        )
+    ]
+
+
+def test_application_model_service_maps_validation_and_execution_errors():
+    from src.app.errors import AppExecutionError, AppValidationError
+    from src.app.services.model_service import ModelService
+
+    class DummyEntry:
+        def __init__(self, model_id):
+            self.id = model_id
+            self.kind = "local"
+
+    class DummyStatus:
+        def __init__(self, model_id, status, detail):
+            self.model_id = model_id
+            self.status = status
+            self.detail = detail
+
+    class DummyCoreService:
+        def get_model(self, model_id):
+            if model_id == "unknown":
+                raise ValueError("unknown model")
+            return DummyEntry(model_id)
+
+        def get_status(self, model_id):
+            return DummyStatus(model_id, "installed", "ready")
+
+        def install(self, model_id, mirror=None, force=False):
+            if model_id == "broken":
+                return False
+            raise RuntimeError("network error")
+
+        def verify(self, model_id=None):
+            raise RuntimeError("verify failed")
+
+        def remove(self, model_id):
+            raise ValueError("cannot remove")
+
+    service = ModelService(core_service=DummyCoreService())
+
+    with pytest.raises(AppValidationError, match="unknown model"):
+        service.install_model("unknown")
+
+    with pytest.raises(AppExecutionError, match="model install failed: broken"):
+        service.install_model("broken")
+
+    with pytest.raises(AppExecutionError, match="network error"):
+        service.install_model("demo")
+
+    with pytest.raises(AppExecutionError, match="verify failed"):
+        service.verify_models()
+
+    with pytest.raises(AppValidationError, match="cannot remove"):
+        service.remove_model("demo")
+
+
+def test_cli_model_lifecycle_commands_use_application_model_service(monkeypatch):
+    from src.cli import cli
+
+    calls = {"install": [], "verify": [], "remove": []}
+
+    class DummyAppModelService:
+        def install_model(self, model_id, mirror=None, force=False):
+            calls["install"].append((model_id, mirror, force))
+            return type("Operation", (), {"model_id": model_id, "status": "installed"})()
+
+        def verify_models(self, model_id=None):
+            calls["verify"].append(model_id)
+            return [
+                type(
+                    "Verification",
+                    (),
+                    {
+                        "model_id": model_id or "demo-model",
+                        "success": True,
+                        "status": "installed",
+                        "detail": "ready",
+                    },
+                )()
+            ]
+
+        def remove_model(self, model_id):
+            calls["remove"].append(model_id)
+            return type("Operation", (), {"model_id": model_id, "status": "missing"})()
+
+    monkeypatch.setattr("src.cli.get_app_model_service", lambda: DummyAppModelService())
+
+    runner = CliRunner()
+    install_result = runner.invoke(
+        cli,
+        ["model", "install", "demo-model", "--mirror", "https://hf-mirror.test", "--force"],
+    )
+    verify_result = runner.invoke(cli, ["model", "verify", "demo-model"])
+    remove_result = runner.invoke(cli, ["model", "remove", "demo-model"])
+
+    assert install_result.exit_code == 0
+    assert verify_result.exit_code == 0
+    assert remove_result.exit_code == 0
+    assert "Model installed: demo-model [installed]" in install_result.output
+    assert "demo-model: installed (ready)" in verify_result.output
+    assert "Model removed: demo-model [missing]" in remove_result.output
+    assert calls["install"] == [("demo-model", "https://hf-mirror.test", True)]
+    assert calls["verify"] == ["demo-model"]
+    assert calls["remove"] == ["demo-model"]
+
+
+def test_cli_model_verify_fails_when_any_result_is_invalid(monkeypatch):
+    from src.cli import cli
+
+    class DummyAppModelService:
+        def verify_models(self, model_id=None):
+            return [
+                type(
+                    "Verification",
+                    (),
+                    {
+                        "model_id": "broken-model",
+                        "success": False,
+                        "status": "invalid",
+                        "detail": "missing config.json",
+                    },
+                )()
+            ]
+
+    monkeypatch.setattr("src.cli.get_app_model_service", lambda: DummyAppModelService())
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["model", "verify"])
+
+    assert result.exit_code != 0
+    assert "broken-model: invalid (missing config.json)" in result.output
+    assert "Some models failed verification" in result.output
 
 
 def test_verify_models_script_main_uses_shared_model_service(monkeypatch, capsys):

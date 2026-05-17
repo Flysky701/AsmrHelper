@@ -12,11 +12,12 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+from src.app.errors import AppError
 from src.app import PipelineRequest
+from src.app.services import get_asr_service
 from src.app.services import get_model_service as get_app_model_service
 from src.app.services import get_pipeline_service
-from src.core import ASRRecognizer, Pipeline, TTSEngine, Translator
-from src.core.resources import get_model_service as get_core_model_service
+from src.app.services import get_translation_service, get_tts_service
 
 
 @click.group()
@@ -89,6 +90,8 @@ def pipeline_run(
 @pipeline_group.command(name="presets")
 def pipeline_presets():
     """Show available pipeline presets."""
+    from src.core.pipeline import Pipeline
+
     click.echo("Available presets:\n")
     for name, desc in Pipeline.PRESETS.items():
         click.echo(f"  {name:20s} - {desc}")
@@ -100,14 +103,21 @@ def pipeline_presets():
 @click.option("--model", default="base", help="Whisper model size")
 @click.option("--language", default="ja", help="Language code")
 def asr_cmd(input_path: str, output_path: Optional[str], model: str, language: str):
-    """Legacy direct ASR command."""
+    """Run standalone ASR through the application API layer."""
     click.echo(f"Recognizing audio: {input_path}")
-    recognizer = ASRRecognizer(model_size=model, language=language)
-    results = recognizer.recognize(input_path, output_path)
+    try:
+        result = get_asr_service().transcribe_file(
+            input_path=input_path,
+            output_path=output_path,
+            model=model,
+            language=language,
+        )
+    except AppError as exc:
+        raise click.ClickException(str(exc))
 
-    click.echo(f"\nRecognition finished, {len(results)} segments")
-    if output_path:
-        click.echo(f"Saved: {output_path}")
+    click.echo(f"\nRecognition finished, {len(result.segments)} segments")
+    if result.output_path:
+        click.echo(f"Saved: {result.output_path}")
 
 
 @cli.command(name="translate")
@@ -115,20 +125,22 @@ def asr_cmd(input_path: str, output_path: Optional[str], model: str, language: s
 @click.option("--output", "-o", "output_path", default=None, help="Output file path")
 @click.option("--provider", default="deepseek", help="Translation provider")
 def translate_cmd(input_path: str, output_path: Optional[str], provider: str):
-    """Legacy direct translation command."""
-    texts = Path(input_path).read_text(encoding="utf-8").split("\n")
-    texts = [text for text in texts if text.strip()]
+    """Run standalone translation through the application API layer."""
+    try:
+        result = get_translation_service().translate_file(
+            input_path=input_path,
+            output_path=output_path,
+            provider=provider,
+        )
+    except AppError as exc:
+        raise click.ClickException(str(exc))
 
-    click.echo(f"Translating {len(texts)} lines...")
-    translator = Translator(provider=provider)
-    results = translator.translate_batch(texts)
-
+    click.echo(f"Translating {len(result.items)} lines...")
     if output_path:
-        Path(output_path).write_text("\n".join(results), encoding="utf-8")
         click.echo(f"Saved: {output_path}")
     else:
-        for result in results:
-            click.echo(result)
+        for item in result.items:
+            click.echo(item)
 
 
 @cli.command(name="tts")
@@ -137,13 +149,19 @@ def translate_cmd(input_path: str, output_path: Optional[str], provider: str):
 @click.option("--engine", default="edge", type=click.Choice(["edge", "qwen3"]), help="TTS engine")
 @click.option("--voice", default="zh-CN-XiaoxiaoNeural", help="TTS voice")
 def tts_cmd(input_path: str, output_path: str, engine: str, voice: str):
-    """Legacy direct TTS command."""
-    text = Path(input_path).read_text(encoding="utf-8")
+    """Run standalone TTS through the application API layer."""
     click.echo(f"Synthesizing audio: {input_path}")
+    try:
+        result = get_tts_service().synthesize_file(
+            input_path=input_path,
+            output_path=output_path,
+            engine=engine,
+            voice=voice,
+        )
+    except AppError as exc:
+        raise click.ClickException(str(exc))
 
-    tts_engine = TTSEngine(engine=engine, voice=voice)
-    result_path = tts_engine.synthesize(text, output_path)
-    click.echo(f"Saved: {result_path}")
+    click.echo(f"Saved: {result.output_path}")
 
 
 @cli.group(name="model")
@@ -187,28 +205,29 @@ def model_status(model_id: Optional[str], kind: Optional[str], category: Optiona
 @click.option("--mirror", default=None, help="HuggingFace mirror")
 @click.option("--force", is_flag=True, help="Force redownload")
 def model_install(model_id: str, mirror: Optional[str], force: bool):
-    """Legacy direct model installation command."""
-    service = get_core_model_service()
+    """Install a model through the application API layer."""
+    service = get_app_model_service()
     try:
-        success = service.install(model_id, mirror=mirror, force=force)
-    except ValueError as exc:
+        result = service.install_model(model_id, mirror=mirror, force=force)
+    except AppError as exc:
         raise click.ClickException(str(exc))
-
-    if not success:
-        raise click.ClickException(f"Model installation failed: {model_id}")
-    click.echo(f"Model installed: {model_id}")
+    click.echo(f"Model installed: {result.model_id} [{result.status}]")
 
 
 @model_group.command(name="verify")
 @click.argument("model_id", required=False)
 def model_verify(model_id: Optional[str]):
-    """Legacy direct model verification command."""
-    service = get_core_model_service()
-    results = service.verify(model_id=model_id)
+    """Verify model availability and configuration through the application API layer."""
+    service = get_app_model_service()
+    try:
+        results = service.verify_models(model_id=model_id)
+    except AppError as exc:
+        raise click.ClickException(str(exc))
+
     failed = False
-    for current_id, ok in results.items():
-        click.echo(f"{current_id}: {'installed' if ok else 'invalid'}")
-        failed = failed or not ok
+    for result in results:
+        click.echo(f"{result.model_id}: {result.status} ({result.detail})")
+        failed = failed or not result.success
 
     if failed:
         raise click.ClickException("Some models failed verification")
@@ -217,13 +236,13 @@ def model_verify(model_id: Optional[str]):
 @model_group.command(name="remove")
 @click.argument("model_id")
 def model_remove(model_id: str):
-    """Legacy direct model removal command."""
-    service = get_core_model_service()
+    """Remove a local model through the application API layer."""
+    service = get_app_model_service()
     try:
-        service.remove(model_id)
-    except ValueError as exc:
+        result = service.remove_model(model_id)
+    except AppError as exc:
         raise click.ClickException(str(exc))
-    click.echo(f"Model removed: {model_id}")
+    click.echo(f"Model removed: {result.model_id} [{result.status}]")
 
 
 if __name__ == "__main__":
