@@ -1,4 +1,4 @@
-"""Verify model status through the shared model-management service."""
+"""Verify model status through the shared application-layer model service."""
 
 from pathlib import Path
 import sys
@@ -7,12 +7,12 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.core.resources import get_model_service
+from src.app.services import get_model_service
 
 
 def main() -> int:
     service = get_model_service()
-    statuses = service.get_all_statuses(kind="local")
+    statuses = service.list_model_statuses(kind="local")
 
     print("Model Status")
     print("=" * 65)
@@ -20,8 +20,6 @@ def main() -> int:
     has_failure = False
     for status in statuses:
         print(f"[{status.model_id}] {status.status}")
-        if status.path:
-            print(f"  Path: {status.path}")
         print(f"  Detail: {status.detail}")
         print()
         has_failure = has_failure or status.status != "installed"

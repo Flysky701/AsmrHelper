@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -483,29 +484,28 @@ def test_cli_model_verify_fails_when_any_result_is_invalid(monkeypatch):
     assert "Some models failed verification" in result.output
 
 
-def test_verify_models_script_main_uses_shared_model_service(monkeypatch, capsys):
-    import src.core.resources as core_resources
+def test_verify_models_script_main_uses_application_model_service(monkeypatch, capsys):
+    import src.app.services as app_services
 
     script_path = Path("scripts/verify_models.py")
     captured = {"called": False, "kind": None}
 
     class DummyStatus:
-        def __init__(self, model_id, status, detail, path=None):
+        def __init__(self, model_id, status, detail):
             self.model_id = model_id
             self.status = status
             self.detail = detail
-            self.path = path
 
     class DummyService:
-        def get_all_statuses(self, kind=None):
+        def list_model_statuses(self, kind=None, category=None):
             captured["kind"] = kind
-            return [DummyStatus("demo-model", "installed", "ready", "models/demo-model")]
+            return [DummyStatus("demo-model", "installed", "ready")]
 
     def fake_get_model_service():
         captured["called"] = True
         return DummyService()
 
-    monkeypatch.setattr(core_resources, "get_model_service", fake_get_model_service)
+    monkeypatch.setattr(app_services, "get_model_service", fake_get_model_service)
 
     spec = importlib.util.spec_from_file_location("verify_models_test_module", script_path)
     module = importlib.util.module_from_spec(spec)
@@ -521,3 +521,44 @@ def test_verify_models_script_main_uses_shared_model_service(monkeypatch, capsys
     assert "Model Status" in stdout
     assert "[demo-model] installed" in stdout
     assert "All models verified successfully!" in stdout
+
+
+def test_install_models_script_uses_application_model_service_for_check(monkeypatch, capsys):
+    import src.app.services as app_services
+
+    script_path = Path("scripts/install_models.py")
+    captured = {"called": False, "kind": None}
+
+    class DummyStatus:
+        def __init__(self, model_id, status, detail):
+            self.model_id = model_id
+            self.status = status
+            self.detail = detail
+
+    class DummyService:
+        def list_model_statuses(self, kind=None, category=None):
+            captured["kind"] = kind
+            return [DummyStatus("demo-model", "installed", "ready")]
+
+    def fake_get_model_service():
+        captured["called"] = True
+        return DummyService()
+
+    monkeypatch.setattr(app_services, "get_model_service", fake_get_model_service)
+    monkeypatch.setattr(sys, "argv", ["install_models.py", "--check"])
+
+    spec = importlib.util.spec_from_file_location("install_models_test_module", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    with pytest.raises(SystemExit) as exc_info:
+        module.main()
+
+    stdout = capsys.readouterr().out
+
+    assert exc_info.value.code == 0
+    assert captured["called"] is True
+    assert captured["kind"] == "local"
+    assert "Model status check" in stdout
+    assert "demo-model: installed - ready" in stdout
