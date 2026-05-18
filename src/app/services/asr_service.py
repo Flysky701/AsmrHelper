@@ -18,6 +18,7 @@ class AsrService:
         output_path: str | None = None,
         model: str = "base",
         language: str = "ja",
+        disable_vad: bool = True,
     ) -> TranscriptionResult:
         source_path = Path(input_path)
         if not source_path.exists():
@@ -26,7 +27,7 @@ class AsrService:
         try:
             from src.core.asr import ASRRecognizer
 
-            recognizer = ASRRecognizer(model_size=model, language=language)
+            recognizer = ASRRecognizer(model_size=model, language=language, disable_vad=disable_vad)
             entries = recognizer.recognize(str(source_path), output_path)
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc

@@ -46,3 +46,24 @@ class SubtitleExportRequest(BaseModel):
 class SubtitleExportResponse(BaseModel):
     output_path: str
     segment_count: int
+
+
+class ScriptToVttRequest(BaseModel):
+    script_path: str = Field(..., description="Path to the script file")
+    output_path: str = Field("", description="Output subtitle file path")
+    audio_path: str | None = Field(None, description="Optional audio file for alignment")
+    vtt_path: str | None = Field(None, description="Existing VTT file for re-alignment")
+    fmt: str = Field("vtt", description="Output format (vtt/srt/lrc)")
+    use_llm_clean: bool = Field(True, description="Use LLM to clean script text")
+    asr_model_size: str = Field("large-v3", description="ASR model size")
+    asr_language: str = Field("ja", description="Audio language")
+    track_index: int | None = Field(None, description="Audio track index")
+    vertical_mode: str = Field("auto", description="Vertical text mode (auto/horizontal/vertical)")
+    debug_dir: str | None = Field(None, description="Debug output directory")
+
+
+class ScriptToVttResponse(BaseModel):
+    mode: str
+    output_path: str | None = None
+    text: str = ""
+    line_count: int = 0

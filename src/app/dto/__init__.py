@@ -5,8 +5,34 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .audio_tools import (
+    ConvertRequest,
+    ConvertResult,
+    SeparationRequest,
+    SeparationResult,
+    SplitRequest,
+    SplitResult,
+    SplitSegment,
+    SubtitleTranslationRequest,
+    SubtitleTranslationResult,
+    VolumePreviewRequest,
+    VolumePreviewResult,
+)
 from .batch_pipeline import BatchItemResult, BatchPipelineRequest, BatchPipelineResult
 from .script_subtitle import ScriptSubtitleRequest, ScriptSubtitleResult
+from .voice import (
+    SegmentAnalyzeRequest,
+    SegmentAnalyzeResult,
+    SegmentInfo,
+    VoiceCloneRequest,
+    VoiceCloneResult,
+    VoiceDesignRequest,
+    VoiceDesignResult,
+    VoiceProfileSummary,
+    VoiceProfileView,
+    VoicePreviewRequest,
+    VoicePreviewResult,
+)
 
 __all__ = [
     "SubtitleSegment",
@@ -17,8 +43,30 @@ __all__ = [
     "BatchPipelineRequest",
     "BatchItemResult",
     "BatchPipelineResult",
+    "ConvertRequest",
+    "ConvertResult",
+    "SeparationRequest",
+    "SeparationResult",
+    "SplitRequest",
+    "SplitResult",
+    "SplitSegment",
+    "SubtitleTranslationRequest",
+    "SubtitleTranslationResult",
     "ScriptSubtitleRequest",
     "ScriptSubtitleResult",
+    "VolumePreviewRequest",
+    "VolumePreviewResult",
+    "SegmentAnalyzeRequest",
+    "SegmentAnalyzeResult",
+    "SegmentInfo",
+    "VoiceCloneRequest",
+    "VoiceCloneResult",
+    "VoiceDesignRequest",
+    "VoiceDesignResult",
+    "VoiceProfileSummary",
+    "VoiceProfileView",
+    "VoicePreviewRequest",
+    "VoicePreviewResult",
     "TaskStatus",
     "TranslationResult",
     "TranscriptionResult",

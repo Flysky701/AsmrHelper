@@ -5,8 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pathlib import Path
 
-from src.api.http.dependencies import subtitle_service
+from src.api.http.dependencies import script_subtitle_service, subtitle_service
 from src.api.http.schemas.subtitles import (
+    ScriptToVttRequest,
+    ScriptToVttResponse,
     SubtitleDocumentModel,
     SubtitleExportRequest,
     SubtitleExportResponse,
@@ -15,8 +17,9 @@ from src.api.http.schemas.subtitles import (
     SubtitleSegmentModel,
 )
 from src.app.dto import SubtitleDocument, SubtitleSegment
+from src.app.dto.script_subtitle import ScriptSubtitleRequest
 from src.app.errors import AppExecutionError, AppValidationError
-from src.app.services import SubtitleService
+from src.app.services import ScriptSubtitleService, SubtitleService
 
 router = APIRouter(prefix="/subtitles", tags=["subtitles"])
 
@@ -71,4 +74,38 @@ def export_subtitle(
     return SubtitleExportResponse(
         output_path=body.output_path,
         segment_count=len(doc.segments),
+    )
+
+
+@router.post("/script-to-vtt", response_model=ScriptToVttResponse)
+def script_to_vtt(
+    body: ScriptToVttRequest,
+    svc: ScriptSubtitleService = Depends(script_subtitle_service),
+):
+    request = ScriptSubtitleRequest(
+        script_path=body.script_path,
+        output_path=body.output_path,
+        audio_path=body.audio_path,
+        vtt_path=body.vtt_path,
+        fmt=body.fmt,
+        use_llm_clean=body.use_llm_clean,
+        asr_model_size=body.asr_model_size,
+        asr_language=body.asr_language,
+        track_index=body.track_index,
+        vertical_mode=body.vertical_mode,
+        debug_dir=body.debug_dir,
+    )
+
+    if body.vtt_path:
+        result = svc.run_from_existing_vtt(request)
+    elif body.audio_path:
+        result = svc.run_full(request)
+    else:
+        result = svc.run_text_only(request)
+
+    return ScriptToVttResponse(
+        mode=result.mode,
+        output_path=result.output_path,
+        text=result.text,
+        line_count=result.line_count,
     )

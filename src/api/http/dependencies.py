@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from src.app.services import (
     get_asr_service,
+    get_audio_tool_service,
+    get_batch_pipeline_service,
     get_model_service,
     get_pipeline_service,
     get_resource_service,
+    get_script_subtitle_service,
     get_subtitle_service,
     get_task_service,
     get_translation_service,
     get_tts_service,
+    get_voice_service,
 )
 
 
@@ -44,3 +48,19 @@ def task_service():
 
 def resource_service():
     return get_resource_service()
+
+
+def audio_tool_service():
+    return get_audio_tool_service()
+
+
+def batch_pipeline_service():
+    return get_batch_pipeline_service()
+
+
+def script_subtitle_service():
+    return get_script_subtitle_service()
+
+
+def voice_service():
+    return get_voice_service()

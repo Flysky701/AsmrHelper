@@ -9,6 +9,7 @@ __all__ = [
     "AppExecutionError",
     "AppValidationError",
     "AsrService",
+    "AudioToolService",
     "ArtifactSet",
     "BatchItemResult",
     "BatchPipelineRequest",
@@ -38,7 +39,9 @@ __all__ = [
     "TranslationService",
     "TranslationResult",
     "TtsService",
+    "VoiceService",
     "get_asr_service",
+    "get_audio_tool_service",
     "get_batch_pipeline_service",
     "get_model_service",
     "get_pipeline_service",
@@ -48,6 +51,7 @@ __all__ = [
     "get_task_service",
     "get_translation_service",
     "get_tts_service",
+    "get_voice_service",
 ]
 
 _EXPORTS = {
@@ -55,6 +59,7 @@ _EXPORTS = {
     "AppExecutionError": ("src.app.errors", "AppExecutionError"),
     "AppValidationError": ("src.app.errors", "AppValidationError"),
     "AsrService": ("src.app.services", "AsrService"),
+    "AudioToolService": ("src.app.services", "AudioToolService"),
     "ArtifactSet": ("src.app.dto", "ArtifactSet"),
     "BatchItemResult": ("src.app.dto", "BatchItemResult"),
     "BatchPipelineRequest": ("src.app.dto", "BatchPipelineRequest"),
@@ -84,7 +89,9 @@ _EXPORTS = {
     "TranslationService": ("src.app.services", "TranslationService"),
     "TranslationResult": ("src.app.dto", "TranslationResult"),
     "TtsService": ("src.app.services", "TtsService"),
+    "VoiceService": ("src.app.services", "VoiceService"),
     "get_asr_service": ("src.app.services", "get_asr_service"),
+    "get_audio_tool_service": ("src.app.services", "get_audio_tool_service"),
     "get_batch_pipeline_service": ("src.app.services", "get_batch_pipeline_service"),
     "get_model_service": ("src.app.services", "get_model_service"),
     "get_pipeline_service": ("src.app.services", "get_pipeline_service"),
@@ -94,6 +101,7 @@ _EXPORTS = {
     "get_task_service": ("src.app.services", "get_task_service"),
     "get_translation_service": ("src.app.services", "get_translation_service"),
     "get_tts_service": ("src.app.services", "get_tts_service"),
+    "get_voice_service": ("src.app.services", "get_voice_service"),
 }
 
 

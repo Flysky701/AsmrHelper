@@ -6,6 +6,7 @@ from importlib import import_module
 
 __all__ = [
     "AsrService",
+    "AudioToolService",
     "BatchPipelineService",
     "ModelService",
     "PipelineService",
@@ -15,7 +16,9 @@ __all__ = [
     "TaskService",
     "TranslationService",
     "TtsService",
+    "VoiceService",
     "get_asr_service",
+    "get_audio_tool_service",
     "get_batch_pipeline_service",
     "get_model_service",
     "get_pipeline_service",
@@ -25,10 +28,12 @@ __all__ = [
     "get_task_service",
     "get_translation_service",
     "get_tts_service",
+    "get_voice_service",
 ]
 
 _EXPORTS = {
     "AsrService": ("src.app.services.asr_service", "AsrService"),
+    "AudioToolService": ("src.app.services.audio_tool_service", "AudioToolService"),
     "BatchPipelineService": ("src.app.services.batch_pipeline_service", "BatchPipelineService"),
     "ModelService": ("src.app.services.model_service", "ModelService"),
     "PipelineService": ("src.app.services.pipeline_service", "PipelineService"),
@@ -41,7 +46,9 @@ _EXPORTS = {
     "TaskService": ("src.app.services.task_service", "TaskService"),
     "TranslationService": ("src.app.services.translation_service", "TranslationService"),
     "TtsService": ("src.app.services.tts_service", "TtsService"),
+    "VoiceService": ("src.app.services.voice_service", "VoiceService"),
     "get_asr_service": ("src.app.services.asr_service", "get_asr_service"),
+    "get_audio_tool_service": ("src.app.services.audio_tool_service", "get_audio_tool_service"),
     "get_batch_pipeline_service": (
         "src.app.services.batch_pipeline_service",
         "get_batch_pipeline_service",
@@ -57,6 +64,7 @@ _EXPORTS = {
     "get_task_service": ("src.app.services.task_service", "get_task_service"),
     "get_translation_service": ("src.app.services.translation_service", "get_translation_service"),
     "get_tts_service": ("src.app.services.tts_service", "get_tts_service"),
+    "get_voice_service": ("src.app.services.voice_service", "get_voice_service"),
 }
 
 

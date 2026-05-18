@@ -130,6 +130,8 @@ def test_app_package_re_exports_phase1_contract():
     from src.app.services.task_service import TaskService, get_task_service
     from src.app.services.translation_service import TranslationService, get_translation_service
     from src.app.services.tts_service import TtsService, get_tts_service
+    from src.app.services.audio_tool_service import AudioToolService, get_audio_tool_service
+    from src.app.services.voice_service import VoiceService, get_voice_service
 
     expected_dto_exports = {
         "SubtitleSegment",
@@ -142,6 +144,28 @@ def test_app_package_re_exports_phase1_contract():
         "BatchPipelineResult",
         "ScriptSubtitleRequest",
         "ScriptSubtitleResult",
+        "ConvertRequest",
+        "ConvertResult",
+        "SeparationRequest",
+        "SeparationResult",
+        "SplitRequest",
+        "SplitResult",
+        "SplitSegment",
+        "SubtitleTranslationRequest",
+        "SubtitleTranslationResult",
+        "VolumePreviewRequest",
+        "VolumePreviewResult",
+        "SegmentAnalyzeRequest",
+        "SegmentAnalyzeResult",
+        "SegmentInfo",
+        "VoiceCloneRequest",
+        "VoiceCloneResult",
+        "VoiceDesignRequest",
+        "VoiceDesignResult",
+        "VoiceProfileSummary",
+        "VoiceProfileView",
+        "VoicePreviewRequest",
+        "VoicePreviewResult",
         "TaskStatus",
         "TranslationResult",
         "SynthesisResult",
@@ -154,6 +178,8 @@ def test_app_package_re_exports_phase1_contract():
     }
     expected_app_bindings = {
         "AsrService": AsrService,
+        "AudioToolService": AudioToolService,
+        "VoiceService": VoiceService,
         "ArtifactSet": ArtifactSet,
         "BatchItemResult": BatchItemResult,
         "BatchPipelineRequest": BatchPipelineRequest,
@@ -187,6 +213,7 @@ def test_app_package_re_exports_phase1_contract():
         "AppExecutionError": AppExecutionError,
         "AppValidationError": AppValidationError,
         "get_asr_service": get_asr_service,
+        "get_audio_tool_service": get_audio_tool_service,
         "get_batch_pipeline_service": get_batch_pipeline_service,
         "get_model_service": get_model_service,
         "get_pipeline_service": get_pipeline_service,
@@ -196,6 +223,7 @@ def test_app_package_re_exports_phase1_contract():
         "get_task_service": get_task_service,
         "get_translation_service": get_translation_service,
         "get_tts_service": get_tts_service,
+        "get_voice_service": get_voice_service,
     }
 
     assert set(dto.__all__) == expected_dto_exports
@@ -224,9 +252,12 @@ def test_services_package_exports_phase1_service_bindings():
     from src.app.services.task_service import TaskService, get_task_service
     from src.app.services.translation_service import TranslationService, get_translation_service
     from src.app.services.tts_service import TtsService, get_tts_service
+    from src.app.services.audio_tool_service import AudioToolService, get_audio_tool_service
+    from src.app.services.voice_service import VoiceService, get_voice_service
 
     expected_service_bindings = {
         "AsrService": AsrService,
+        "AudioToolService": AudioToolService,
         "BatchPipelineService": BatchPipelineService,
         "ModelService": ModelService,
         "PipelineService": PipelineService,
@@ -236,7 +267,9 @@ def test_services_package_exports_phase1_service_bindings():
         "TaskService": TaskService,
         "TranslationService": TranslationService,
         "TtsService": TtsService,
+        "VoiceService": VoiceService,
         "get_asr_service": get_asr_service,
+        "get_audio_tool_service": get_audio_tool_service,
         "get_batch_pipeline_service": get_batch_pipeline_service,
         "get_model_service": get_model_service,
         "get_pipeline_service": get_pipeline_service,
@@ -246,6 +279,7 @@ def test_services_package_exports_phase1_service_bindings():
         "get_task_service": get_task_service,
         "get_translation_service": get_translation_service,
         "get_tts_service": get_tts_service,
+        "get_voice_service": get_voice_service,
     }
 
     assert set(services_module.__all__) == set(expected_service_bindings)
@@ -669,8 +703,8 @@ def test_asr_service_transcribes_file_through_core_runtime(monkeypatch, tmp_path
     captured = {}
 
     class DummyRecognizer:
-        def __init__(self, model_size, language):
-            captured["init"] = (model_size, language)
+        def __init__(self, model_size, language, disable_vad=True):
+            captured["init"] = (model_size, language, disable_vad)
 
         def recognize(self, audio_path, output_path=None):
             captured["recognize"] = (audio_path, output_path)
@@ -688,7 +722,7 @@ def test_asr_service_transcribes_file_through_core_runtime(monkeypatch, tmp_path
         language="en",
     )
 
-    assert captured["init"] == ("small", "en")
+    assert captured["init"] == ("small", "en", True)
     assert captured["recognize"] == (str(input_path), "out/transcript.txt")
     assert result == TranscriptionResult(
         segments=result.segments,

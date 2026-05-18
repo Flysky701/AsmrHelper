@@ -114,3 +114,25 @@ def remove_model(
         status=result.status,
         detail=result.detail,
     )
+
+
+@router.post("/{model_id}/unload", response_model=ModelOperationResponse)
+def unload_model(
+    model_id: str,
+    svc: ModelService = Depends(model_service),
+):
+    result = svc.unload_model(model_id)
+    return ModelOperationResponse(
+        action=result.action,
+        model_id=result.model_id,
+        success=result.success,
+        status=result.status,
+        detail=result.detail,
+    )
+
+
+@router.post("/unload-all", status_code=204)
+def unload_all_models(
+    svc: ModelService = Depends(model_service),
+):
+    svc.unload_all_models()

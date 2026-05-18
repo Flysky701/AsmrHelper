@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.http.errors import register_error_handlers
-from src.api.http.routes import asr, models, pipeline, resources, subtitles, tasks, translation, tts
+from src.api.http.routes import asr, models, pipeline, resources, subtitles, tasks, tools, translation, tts, voice
 
 
 def create_app() -> FastAPI:
@@ -41,6 +41,8 @@ def create_app() -> FastAPI:
     app.include_router(subtitles.router, prefix=api_prefix)
     app.include_router(resources.router, prefix=api_prefix)
     app.include_router(tasks.router, prefix=api_prefix)
+    app.include_router(voice.router, prefix=api_prefix)
+    app.include_router(tools.router, prefix=api_prefix)
 
     @app.get("/health")
     def health():
