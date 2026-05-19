@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AsmrHelper Style Previews</title>
+  <style>
+    :root {
+      --bg: #091018;
+      --panel: rgba(16, 22, 31, 0.84);
+      --panel-strong: #121b26;
+      --line: rgba(139, 168, 182, 0.18);
+      --text: #edf4f7;
+      --muted: #8ea4af;
+      --accent: #66d7b7;
+      --accent-2: #ffc56b;
+      --shadow: 0 26px 72px rgba(0, 0, 0, 0.34);
+      --radius: 24px;
+      --font-display: "Manrope", "Segoe UI", sans-serif;
+      --font-body: "IBM Plex Sans", "Microsoft YaHei UI", sans-serif;
+      --font-mono: "JetBrains Mono", "Consolas", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: var(--font-body);
+      background:
+        radial-gradient(circle at top left, rgba(102, 215, 183, 0.16), transparent 28%),
+        radial-gradient(circle at 88% 12%, rgba(255, 197, 107, 0.12), transparent 24%),
+        linear-gradient(160deg, #071018 0%, #0b131d 48%, #111a24 100%);
+    }
+
+    .page {
+      width: min(1240px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+      gap: 24px;
+      padding: 32px;
+      border: 1px solid var(--line);
+      border-radius: 30px;
+      background: linear-gradient(140deg, rgba(11, 18, 27, 0.92), rgba(22, 31, 42, 0.86));
+      box-shadow: var(--shadow);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(102, 215, 183, 0.28);
+      background: rgba(102, 215, 183, 0.12);
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 18px 0 14px;
+      font-family: var(--font-display);
+      font-size: clamp(42px, 6vw, 72px);
+      line-height: 0.96;
+      letter-spacing: -0.04em;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.8;
+    }
+
+    .hero-side {
+      display: grid;
+      gap: 14px;
+      align-content: end;
+    }
+
+    .stat-card,
+    .preview-card,
+    .note-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+    }
+
+    .stat-card {
+      padding: 18px 20px;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .stat-value {
+      margin-top: 10px;
+      font-family: var(--font-display);
+      font-size: 32px;
+      font-weight: 700;
+    }
+
+    .section-title {
+      margin: 34px 0 16px;
+      font-family: var(--font-display);
+      font-size: 16px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .preview-card {
+      display: grid;
+      gap: 16px;
+      padding: 20px;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+
+    .preview-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(102, 215, 183, 0.34);
+      background: rgba(21, 30, 40, 0.92);
+    }
+
+    .preview-kicker {
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .preview-card h2 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 28px;
+      line-height: 1.02;
+    }
+
+    .preview-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.75;
+      font-size: 14px;
+    }
+
+    .swatch-row,
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .swatch {
+      width: 34px;
+      height: 34px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .tag {
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .note-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .note-card {
+      padding: 22px;
+    }
+
+    .note-card h3 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      font-family: var(--font-display);
+    }
+
+    .note-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 14px;
+    }
+
+    .footer {
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    code {
+      font-family: var(--font-mono);
+      color: var(--accent);
+    }
+
+    @media (max-width: 980px) {
+      .hero,
+      .grid,
+      .note-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div>
+        <span class="eyebrow">Style Direction Review</span>
+        <h1>AsmrHelper<br>Desktop Preview Set</h1>
+        <p>这一组页面专门用来确认桌面端视觉方向。三套预览都围绕同一个产品骨架展开：侧边导航、队列优先工作台、任务中心、资源中心、音色工作室。你可以重点看配色、面板层次、字体气质、信息密度，以及任务状态是否足够清晰。</p>
+      </div>
+      <div class="hero-side">
+        <div class="stat-card">
+          <div class="stat-label">Recommended</div>
+          <div class="stat-value">Queue Cockpit</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Best For</div>
+          <div class="stat-value">Queue-first desktop workflow</div>
+        </div>
+      </div>
+    </section>
+
+    <h2 class="section-title">Preview Pages</h2>
+    <section class="grid">
+      <a class="preview-card" href="./style-preview-queue-cockpit.html">
+        <div class="preview-kicker">Direction A</div>
+        <h2>Queue Cockpit</h2>
+        <p>推荐方向。深色工业控制台风格，强调任务队列、运行状态、系统资源感，最贴近你当前产品的“本地 AI 工作站”定位。</p>
+        <div class="swatch-row">
+          <span class="swatch" style="background:#081019"></span>
+          <span class="swatch" style="background:#14202d"></span>
+          <span class="swatch" style="background:#66d7b7"></span>
+          <span class="swatch" style="background:#ffc56b"></span>
+        </div>
+        <div class="tag-row">
+          <span class="tag">dark</span>
+          <span class="tag">glass panels</span>
+          <span class="tag">queue-first</span>
+        </div>
+      </a>
+
+      <a class="preview-card" href="./style-preview-signal-studio.html">
+        <div class="preview-kicker">Direction B</div>
+        <h2>Signal Studio</h2>
+        <p>更偏编辑化和品牌化，标题更强、留白更大胆、布局更不对称。适合你想让产品显得更“高级创作工具”而不是纯工程台的时候。</p>
+        <div class="swatch-row">
+          <span class="swatch" style="background:#10101a"></span>
+          <span class="swatch" style="background:#1c1630"></span>
+          <span class="swatch" style="background:#ff7f51"></span>
+          <span class="swatch" style="background:#efe5d5"></span>
+        </div>
+        <div class="tag-row">
+          <span class="tag">editorial</span>
+          <span class="tag">brand-heavy</span>
+          <span class="tag">premium</span>
+        </div>
+      </a>
+
+      <a class="preview-card" href="./style-preview-warm-worktable.html">
+        <div class="preview-kicker">Direction C</div>
+        <h2>Warm Worktable</h2>
+        <p>浅色暖调，偏“安静生产力工具”。信息同样完整，但更平和、更日常，适合你希望长期使用时视觉压力更低的方向。</p>
+        <div class="swatch-row">
+          <span class="swatch" style="background:#f3eee5"></span>
+          <span class="swatch" style="background:#fffaf2"></span>
+          <span class="swatch" style="background:#0c766e"></span>
+          <span class="swatch" style="background:#d87b45"></span>
+        </div>
+        <div class="tag-row">
+          <span class="tag">light</span>
+          <span class="tag">calm</span>
+          <span class="tag">workflow desk</span>
+        </div>
+      </a>
+    </section>
+
+    <h2 class="section-title">How To Judge</h2>
+    <section class="note-grid">
+      <article class="note-card">
+        <h3>先看结构，再看装饰</h3>
+        <p>三套页面的核心信息结构故意保持一致，所以你可以专注判断哪一种视觉语言最适合 AsmrHelper：更像控制台、更像创作工作室，还是更像温和工具桌面。</p>
+      </article>
+      <article class="note-card">
+        <h3>重点观察的 4 个点</h3>
+        <p>1. 首页是否像“工作台”而不是表单页。2. 任务状态是否一眼可分。3. 资源中心是否有系统控制塔感觉。4. 音色页是否像资产工作室，而不是普通列表页。</p>
+      </article>
+    </section>
+
+    <p class="footer">页面均位于 <code>prototypes/</code> 目录，可直接在浏览器打开。确认方向后，我可以把其中一套继续收敛成正式的 React 组件设计。</p>
+  </main>
+</body>
+</html>

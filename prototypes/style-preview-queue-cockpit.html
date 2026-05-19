@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Queue Cockpit Preview</title>
+  <style>
+    :root {
+      --bg: #071019;
+      --bg-2: #0d1723;
+      --panel: rgba(18, 25, 35, 0.86);
+      --panel-strong: rgba(22, 31, 43, 0.96);
+      --panel-soft: rgba(27, 37, 50, 0.82);
+      --line: rgba(126, 157, 172, 0.18);
+      --line-strong: rgba(126, 157, 172, 0.32);
+      --text: #eef4f7;
+      --muted: #8da3af;
+      --accent: #66d7b7;
+      --accent-2: #ffc56b;
+      --danger: #ff7c77;
+      --ok: #74dfa0;
+      --radius: 22px;
+      --radius-sm: 16px;
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+      --font-display: "Manrope", "Segoe UI", sans-serif;
+      --font-body: "IBM Plex Sans", "Microsoft YaHei UI", sans-serif;
+      --font-mono: "JetBrains Mono", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: var(--font-body);
+      background:
+        radial-gradient(circle at 10% 10%, rgba(102, 215, 183, 0.16), transparent 24%),
+        radial-gradient(circle at 90% 14%, rgba(255, 197, 107, 0.12), transparent 20%),
+        linear-gradient(160deg, var(--bg) 0%, var(--bg-2) 42%, #101923 100%);
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 20px;
+      padding: 22px;
+      min-height: 100vh;
+    }
+
+    .sidebar,
+    .hero,
+    .panel,
+    .api-card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 20px;
+      border-radius: 26px;
+    }
+
+    .brand {
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand .kicker,
+    .eyebrow,
+    .panel-kicker {
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .brand h1 {
+      margin: 10px 0 8px;
+      font-family: var(--font-display);
+      font-size: 28px;
+      line-height: 1;
+      letter-spacing: -0.03em;
+    }
+
+    .brand p,
+    .status-row,
+    .meta,
+    .api-list li,
+    .tiny {
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 13px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 10px;
+    }
+
+    .nav-item {
+      padding: 14px 16px;
+      border: 1px solid transparent;
+      border-radius: 14px;
+      color: var(--text);
+      background: transparent;
+    }
+
+    .nav-item.active {
+      background: linear-gradient(135deg, rgba(102, 215, 183, 0.18), rgba(102, 215, 183, 0.08));
+      border-color: rgba(102, 215, 183, 0.32);
+    }
+
+    .status-stack {
+      margin-top: auto;
+      display: grid;
+      gap: 12px;
+    }
+
+    .status-card {
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .status-card strong {
+      display: block;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .content {
+      display: grid;
+      gap: 18px;
+      grid-template-rows: auto 1fr auto;
+      min-width: 0;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+      gap: 18px;
+      padding: 24px 26px;
+      border-radius: 28px;
+    }
+
+    .hero h2 {
+      margin: 12px 0 10px;
+      font-family: var(--font-display);
+      font-size: clamp(34px, 4vw, 52px);
+      line-height: 0.96;
+      letter-spacing: -0.04em;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 760px;
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 15px;
+    }
+
+    .hero-stats {
+      display: grid;
+      gap: 12px;
+      align-content: end;
+    }
+
+    .metric {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin-top: 8px;
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .workbench {
+      display: grid;
+      grid-template-columns: 330px minmax(420px, 1fr) 360px;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .panel {
+      border-radius: 24px;
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .panel-head h3 {
+      margin: 6px 0 0;
+      font-size: 18px;
+      font-family: var(--font-display);
+    }
+
+    .panel-body {
+      padding: 18px 20px 20px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .dropzone,
+    .task-card,
+    .detail-card,
+    .api-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--panel-soft);
+    }
+
+    .dropzone,
+    .detail-card,
+    .api-card {
+      padding: 15px;
+    }
+
+    .dropzone {
+      min-height: 126px;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+      border-style: dashed;
+      border-color: rgba(102, 215, 183, 0.34);
+      background: rgba(102, 215, 183, 0.09);
+    }
+
+    .button-grid,
+    .preset-grid,
+    .control-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .button,
+    .preset,
+    .control {
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .button.primary,
+    .preset.active {
+      border-color: rgba(102, 215, 183, 0.34);
+      background: linear-gradient(135deg, rgba(102, 215, 183, 0.18), rgba(102, 215, 183, 0.08));
+    }
+
+    .section {
+      display: grid;
+      gap: 10px;
+    }
+
+    .section h4 {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .queue-tabs,
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip,
+    .tab {
+      padding: 7px 11px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 12px;
+    }
+
+    .tab.active,
+    .chip.ok {
+      color: #cff5db;
+      background: rgba(116, 223, 160, 0.13);
+      border-color: rgba(116, 223, 160, 0.28);
+    }
+
+    .chip.warn {
+      color: #ffe5b3;
+      background: rgba(255, 197, 107, 0.14);
+      border-color: rgba(255, 197, 107, 0.28);
+    }
+
+    .chip.fail {
+      color: #ffc7c3;
+      background: rgba(255, 124, 119, 0.14);
+      border-color: rgba(255, 124, 119, 0.28);
+    }
+
+    .task-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .task-card {
+      padding: 15px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .task-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .task-title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .progress {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+    }
+
+    .progress > div {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #9ce8d4);
+      border-radius: 999px;
+    }
+
+    .detail-card strong,
+    .api-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .log {
+      color: #d5ece6;
+      font-family: var(--font-mono);
+      white-space: pre-wrap;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .api-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .api-card {
+      background: var(--panel-strong);
+    }
+
+    .api-list {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .api-list li + li {
+      margin-top: 6px;
+    }
+
+    .back {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+    }
+
+    @media (max-width: 1420px) {
+      .workbench,
+      .api-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 1120px) {
+      .shell,
+      .hero {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Direction A / Recommended</div>
+        <h1>AsmrHelper</h1>
+        <p>Queue-first desktop cockpit for local ASR, translation, TTS, model control, and voice asset workflows.</p>
+      </div>
+
+      <nav class="nav">
+        <div class="nav-item active">Workbench</div>
+        <div class="nav-item">Task Center</div>
+        <div class="nav-item">Resource Center</div>
+        <div class="nav-item">Voice Lab</div>
+        <div class="nav-item">Settings</div>
+      </nav>
+
+      <div class="status-stack">
+        <div class="status-card">
+          <strong>Runtime Health</strong>
+          <div class="status-row"><span>Python sidecar</span><span style="color:var(--ok)">running</span></div>
+          <div class="status-row"><span>Queue concurrency</span><span>2 active</span></div>
+          <div class="status-row"><span>GPU-heavy lock</span><span style="color:var(--accent-2)">serialized</span></div>
+        </div>
+        <div class="status-card">
+          <strong>Current Session</strong>
+          <div class="status-row"><span>Running jobs</span><span>3</span></div>
+          <div class="status-row"><span>Failed jobs</span><span style="color:var(--danger)">1</span></div>
+          <div class="status-row"><span>Outputs today</span><span>18 files</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <section class="hero">
+        <div>
+          <div class="eyebrow">Queue Cockpit</div>
+          <h2>让桌面端像一台真正的任务控制台</h2>
+          <p>这套方向把 AsmrHelper 定义成“任务编排 + 资源感知 + 音色资产回流”的本地 AI 工作站。首页不是表单，而是工作台。重点优势是状态清晰、层次稳定、长期使用耐看，也最适合和你现有的 Tauri + sidecar 架构结合。</p>
+        </div>
+        <div class="hero-stats">
+          <div class="metric">
+            <div class="metric-label">Tone</div>
+            <div class="metric-value">Industrial Calm</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Best Fit</div>
+            <div class="metric-value">Queue-first Desktop</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="workbench">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">Left Rail</div>
+              <h3>任务编排器</h3>
+            </div>
+            <div class="tiny">Create + preset + submit</div>
+          </div>
+          <div class="panel-body">
+            <div class="section">
+              <h4>导入输入</h4>
+              <div class="dropzone">
+                <strong>拖入音频文件、文件夹、字幕任务或脚本任务</strong>
+                <div class="tiny">目录导入后会自动拆分成多个 Job，并继承统一模板参数。</div>
+              </div>
+              <div class="button-grid">
+                <div class="button">添加文件</div>
+                <div class="button">添加文件夹</div>
+                <div class="button">导入字幕任务</div>
+                <div class="button">导入脚本任务</div>
+              </div>
+            </div>
+
+            <div class="section">
+              <h4>任务模板</h4>
+              <div class="preset-grid">
+                <div class="preset active">标准日语转中文</div>
+                <div class="preset">快速预览</div>
+                <div class="preset">高质量成片</div>
+                <div class="preset">自定义模板</div>
+              </div>
+            </div>
+
+            <div class="section">
+              <h4>核心控制</h4>
+              <div class="control-grid">
+                <div class="control">源语言: ja</div>
+                <div class="control">目标语言: zh</div>
+                <div class="control">TTS 引擎: qwen3</div>
+                <div class="control">输出策略: job folder</div>
+              </div>
+            </div>
+
+            <div class="section">
+              <h4>提交动作</h4>
+              <div class="button-grid">
+                <div class="button primary">添加到队列</div>
+                <div class="button">立即运行</div>
+                <div class="button">保存为模板</div>
+                <div class="button">高级参数</div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">Center Rail</div>
+              <h3>统一任务队列</h3>
+            </div>
+            <div class="tiny">12 jobs in current session</div>
+          </div>
+          <div class="panel-body">
+            <div class="queue-tabs">
+              <div class="tab active">all 12</div>
+              <div class="tab">running 3</div>
+              <div class="tab">pending 6</div>
+              <div class="tab">completed 2</div>
+              <div class="tab">failed 1</div>
+            </div>
+
+            <div class="task-list">
+              <div class="task-card">
+                <div class="task-top">
+                  <div class="task-title">ep12_scene_a.wav</div>
+                  <div class="chip ok">running</div>
+                </div>
+                <div class="meta">完整流水线 · 模板 标准日语转中文 · 当前阶段 TTS 合成</div>
+                <div class="progress"><div style="width:72%"></div></div>
+                <div class="chip-row">
+                  <div class="chip">Qwen3</div>
+                  <div class="chip">Voice A3</div>
+                  <div class="chip">04:18</div>
+                </div>
+              </div>
+
+              <div class="task-card">
+                <div class="task-top">
+                  <div class="task-title">ep12_scene_b.wav</div>
+                  <div class="chip warn">pending</div>
+                </div>
+                <div class="meta">等待 GPU-heavy 资源窗口释放，继承高质量成片模板。</div>
+                <div class="progress"><div style="width:16%"></div></div>
+                <div class="chip-row">
+                  <div class="chip">Demucs</div>
+                  <div class="chip">Whisper base</div>
+                </div>
+              </div>
+
+              <div class="task-card">
+                <div class="task-top">
+                  <div class="task-title">script_repair_job</div>
+                  <div class="chip fail">failed</div>
+                </div>
+                <div class="meta">字幕对齐失败，建议切换更保守的清洗策略后重试。</div>
+                <div class="chip-row">
+                  <div class="chip fail">retry</div>
+                  <div class="chip">duplicate params</div>
+                  <div class="chip">edit preset</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">Right Rail</div>
+              <h3>任务上下文</h3>
+            </div>
+            <div class="tiny">ep12_scene_a.wav</div>
+          </div>
+          <div class="panel-body">
+            <div class="detail-card">
+              <strong>任务概况</strong>
+              <div class="meta">创建于 10:14 · 当前阶段 TTS synthesis · 总进度 72% · 预计剩余 01:52</div>
+            </div>
+            <div class="detail-card">
+              <strong>参数快照</strong>
+              <div class="meta">source=ja · target=zh · separator=htdemucs · asr=base · tts=qwen3 · voice=A3</div>
+            </div>
+            <div class="detail-card">
+              <strong>阶段日志</strong>
+              <div class="log">[OK] vocals separated
+[OK] 182 subtitle segments recognized
+[OK] translation completed
+[RUN] synthesizing segment 141 / 182
+[INFO] GPU queue slot 1 / 1</div>
+            </div>
+            <div class="detail-card">
+              <strong>当前产物</strong>
+              <div class="meta">subtitle_zh.srt · subtitle_bilingual.vtt · tts_temp/ · mix_preview.wav</div>
+            </div>
+            <div class="detail-card">
+              <strong>快捷动作</strong>
+              <div class="chip-row">
+                <div class="chip">open output</div>
+                <div class="chip">duplicate job</div>
+                <div class="chip fail">cancel</div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="api-row">
+        <article class="api-card">
+          <strong>Workbench API</strong>
+          <ul class="api-list">
+            <li>POST /api/v1/jobs</li>
+            <li>GET /api/v1/jobs</li>
+            <li>GET /api/v1/jobs/{job_id}</li>
+            <li>POST /api/v1/jobs/start</li>
+            <li>POST /api/v1/jobs/cancel</li>
+            <li>POST /api/v1/jobs/discover</li>
+          </ul>
+        </article>
+        <article class="api-card">
+          <strong>Task Center API</strong>
+          <ul class="api-list">
+            <li>GET /api/v1/jobs?status=...</li>
+            <li>建议后续补历史任务查询接口</li>
+            <li>建议补批量重试 / 复制队列接口</li>
+          </ul>
+        </article>
+        <article class="api-card">
+          <strong>Resource Center API</strong>
+          <ul class="api-list">
+            <li>GET /api/v1/resources/status</li>
+            <li>GET /api/v1/models</li>
+            <li>GET /api/v1/models/statuses</li>
+            <li>POST /api/v1/models/{model_id}/install</li>
+          </ul>
+        </article>
+        <article class="api-card">
+          <strong>Voice Lab API</strong>
+          <ul class="api-list">
+            <li>GET /api/v1/voice/profiles</li>
+            <li>POST /api/v1/voice/design</li>
+            <li>POST /api/v1/voice/clone</li>
+            <li>POST /api/v1/voice/profiles/{profile_id}/preview</li>
+          </ul>
+        </article>
+      </section>
+
+      <a class="back" href="./style-preview-index.html">← 返回预览总览</a>
+    </main>
+  </div>
+</body>
+</html>

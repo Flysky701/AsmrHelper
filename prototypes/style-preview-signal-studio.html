@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signal Studio Preview</title>
+  <style>
+    :root {
+      --bg: #0d0c16;
+      --panel: rgba(25, 20, 39, 0.88);
+      --panel-2: rgba(34, 28, 52, 0.92);
+      --line: rgba(238, 229, 213, 0.12);
+      --text: #f4efe6;
+      --muted: #b8ab98;
+      --accent: #ff7f51;
+      --accent-2: #f7c873;
+      --ok: #7ce2bc;
+      --danger: #ff8b7c;
+      --shadow: 0 28px 70px rgba(0, 0, 0, 0.42);
+      --radius: 28px;
+      --font-display: "Sora", "Segoe UI", sans-serif;
+      --font-body: "Plus Jakarta Sans", "Microsoft YaHei UI", sans-serif;
+      --font-mono: "IBM Plex Mono", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: var(--font-body);
+      background:
+        radial-gradient(circle at 12% 10%, rgba(255, 127, 81, 0.16), transparent 22%),
+        radial-gradient(circle at 85% 16%, rgba(247, 200, 115, 0.12), transparent 20%),
+        linear-gradient(180deg, #0b0914 0%, #120f1e 54%, #191327 100%);
+    }
+
+    .page {
+      width: min(1360px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 24px 0 42px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+
+    .hero-main,
+    .hero-side,
+    .section,
+    .api-note {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-main {
+      padding: 30px 30px 34px;
+      background:
+        linear-gradient(140deg, rgba(24, 18, 37, 0.96), rgba(43, 31, 63, 0.92)),
+        rgba(25, 20, 39, 0.9);
+    }
+
+    .hero-kicker,
+    .section-kicker {
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .hero-main h1 {
+      margin: 14px 0 14px;
+      max-width: 760px;
+      font-family: var(--font-display);
+      font-size: clamp(42px, 7vw, 82px);
+      line-height: 0.92;
+      letter-spacing: -0.05em;
+    }
+
+    .hero-main p,
+    .copy,
+    .list li,
+    .meta {
+      color: var(--muted);
+      line-height: 1.82;
+      font-size: 15px;
+    }
+
+    .hero-side {
+      display: grid;
+      gap: 14px;
+      padding: 22px;
+      background: rgba(31, 24, 47, 0.92);
+    }
+
+    .score {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .score-label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .score-value {
+      margin-top: 10px;
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 18px;
+    }
+
+    .left-stack,
+    .right-stack {
+      display: grid;
+      gap: 18px;
+    }
+
+    .section {
+      padding: 22px;
+      background: var(--panel);
+      backdrop-filter: blur(14px);
+    }
+
+    .section h2 {
+      margin: 10px 0 12px;
+      font-size: 28px;
+      font-family: var(--font-display);
+      line-height: 1.02;
+    }
+
+    .queue-list,
+    .resource-list,
+    .voice-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .queue-item,
+    .resource-item,
+    .voice-item,
+    .mini-board {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--panel-2);
+      padding: 16px;
+    }
+
+    .queue-top,
+    .mini-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .queue-title,
+    .voice-title,
+    .resource-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .pill {
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 12px;
+    }
+
+    .pill.ok {
+      color: #cff9e8;
+      border-color: rgba(124, 226, 188, 0.26);
+      background: rgba(124, 226, 188, 0.12);
+    }
+
+    .pill.warn {
+      color: #ffe6b5;
+      border-color: rgba(247, 200, 115, 0.26);
+      background: rgba(247, 200, 115, 0.12);
+    }
+
+    .pill.fail {
+      color: #ffd0c9;
+      border-color: rgba(255, 139, 124, 0.24);
+      background: rgba(255, 139, 124, 0.13);
+    }
+
+    .progress {
+      margin-top: 12px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.07);
+      overflow: hidden;
+    }
+
+    .progress > div {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), #f5b36e);
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .mini-board strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .api-note {
+      margin-top: 18px;
+      padding: 18px 22px;
+      background: rgba(30, 24, 45, 0.92);
+    }
+
+    .api-note code {
+      font-family: var(--font-mono);
+      color: var(--accent);
+    }
+
+    .list {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .list li + li {
+      margin-top: 8px;
+    }
+
+    .back {
+      display: inline-block;
+      margin-top: 18px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    @media (max-width: 1100px) {
+      .hero,
+      .layout,
+      .mini-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="topbar">
+      <span>Direction B</span>
+      <span>Signal Studio / editorial premium</span>
+    </div>
+
+    <section class="hero">
+      <article class="hero-main">
+        <div class="hero-kicker">Signal Studio</div>
+        <h1>把 AsmrHelper 做成一间音频后期工作室</h1>
+        <p>这套预览更强调品牌感和创作气质。信息密度没有变少，但通过更大的标题、更强的块面对比和更不对称的布局，让产品看起来不只是“跑任务的工具”，而是有表达感的创作型桌面软件。</p>
+      </article>
+
+      <aside class="hero-side">
+        <div class="score">
+          <div class="score-label">Visual Mood</div>
+          <div class="score-value">Premium / expressive</div>
+        </div>
+        <div class="score">
+          <div class="score-label">Best For</div>
+          <div class="score-value">Brand-heavy creative tool</div>
+        </div>
+        <div class="score">
+          <div class="score-label">Risk</div>
+          <div class="score-value">Less “system console” feeling</div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="layout">
+      <div class="left-stack">
+        <article class="section">
+          <div class="section-kicker">Workbench</div>
+          <h2>首页仍然是工作台，但画面更有舞台感</h2>
+          <p class="copy">左侧保留任务创建，中部保留队列，右侧保留上下文细节；不同的是，这里让主标题、操作区块和关键状态更有“视觉主次”，适合你想要更强品牌记忆点时采用。</p>
+
+          <div class="queue-list">
+            <div class="queue-item">
+              <div class="queue-top">
+                <div class="queue-title">ep14_scene_01.wav</div>
+                <div class="pill ok">running</div>
+              </div>
+              <div class="meta">完整流水线 · 模板 标准日语转中文 · 当前阶段 TTS synthesis</div>
+              <div class="progress"><div style="width:68%"></div></div>
+              <div class="pill-row">
+                <div class="pill">Qwen3</div>
+                <div class="pill">A3 voice</div>
+                <div class="pill">04:12 elapsed</div>
+              </div>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-top">
+                <div class="queue-title">folder import / episode-14</div>
+                <div class="pill warn">expanded</div>
+              </div>
+              <div class="meta">一个文件夹自动拆成 9 个 job，参数继承自“高质量成片”模板。</div>
+              <div class="pill-row">
+                <div class="pill">9 jobs</div>
+                <div class="pill">directory mode</div>
+              </div>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-top">
+                <div class="queue-title">subtitle_fix_03</div>
+                <div class="pill fail">failed</div>
+              </div>
+              <div class="meta">字幕对齐阶段失败，建议切换保守清洗策略后重试。</div>
+              <div class="pill-row">
+                <div class="pill fail">retry</div>
+                <div class="pill">duplicate params</div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="section">
+          <div class="section-kicker">Task Center</div>
+          <h2>历史任务页更像“项目档案馆”</h2>
+          <ul class="list">
+            <li>按模板、失败原因、来源目录筛选历史任务。</li>
+            <li>突出“复跑”和“复制为新队列”这种二次操作。</li>
+            <li>对失败任务给更醒目的诊断入口。</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="right-stack">
+        <article class="section">
+          <div class="section-kicker">Resource Center</div>
+          <h2>资源中心变成状态墙</h2>
+          <div class="resource-list">
+            <div class="resource-item">
+              <div class="resource-title">Qwen3 Base</div>
+              <div class="meta">已安装 · 已加载 · 14.2 GB</div>
+            </div>
+            <div class="resource-item">
+              <div class="resource-title">Whisper Base</div>
+              <div class="meta">可用 · 未加载 · 1.4 GB</div>
+            </div>
+            <div class="resource-item">
+              <div class="resource-title">GPU Scheduler</div>
+              <div class="meta">global concurrency 2 · GPU-heavy serialized</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="section">
+          <div class="section-kicker">Voice Lab</div>
+          <h2>音色页更像资产工作室</h2>
+          <div class="voice-list">
+            <div class="voice-item">
+              <div class="voice-title">A3 治愈低语</div>
+              <div class="meta">Qwen3 custom · 已有参考音频和 prompt cache</div>
+            </div>
+            <div class="voice-item">
+              <div class="voice-title">C2 克隆音色</div>
+              <div class="meta">建议重检参考片段质量后再批量使用</div>
+            </div>
+          </div>
+
+          <div class="mini-grid">
+            <div class="mini-board">
+              <div class="mini-top">
+                <strong>创建入口</strong>
+                <span class="pill">design</span>
+              </div>
+              <div class="meta">自然语言设计、克隆、片段分析、试音回流。</div>
+            </div>
+            <div class="mini-board">
+              <div class="mini-top">
+                <strong>接口贴合</strong>
+                <span class="pill">api</span>
+              </div>
+              <div class="meta">/voice/profiles, /voice/design, /voice/clone, /voice/.../preview</div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="api-note">
+      <div class="section-kicker">API Mapping</div>
+      <p class="copy">这套风格更适合把接口“藏在版面后面”，不需要每页都显得很工程化。核心仍然是：<code>GET /api/v1/jobs</code> 驱动任务视图，<code>GET /api/v1/models/statuses</code> 驱动资源状态，<code>GET /api/v1/voice/profiles</code> 驱动音色资产视图。</p>
+    </section>
+
+    <a class="back" href="./style-preview-index.html">← 返回预览总览</a>
+  </main>
+</body>
+</html>

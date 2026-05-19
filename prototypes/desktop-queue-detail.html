@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Queue Workbench Detail</title>
+  <style>
+    :root {
+      --bg: #0c1217;
+      --panel: #131c23;
+      --panel-soft: #1a252d;
+      --line: rgba(159, 192, 198, 0.18);
+      --text: #edf3f4;
+      --muted: #97aab0;
+      --mint: #6fd2b9;
+      --amber: #f5ba62;
+      --red: #ff7b70;
+      --ok: #7ad99e;
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --shadow: 0 24px 56px rgba(0, 0, 0, 0.34);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(circle at 15% 10%, rgba(111, 210, 185, 0.18), transparent 24%),
+        radial-gradient(circle at 88% 14%, rgba(245, 186, 98, 0.15), transparent 18%),
+        linear-gradient(180deg, #0b1015 0%, #0f161d 100%);
+      padding: 28px;
+    }
+
+    .frame {
+      max-width: 1600px;
+      margin: 0 auto;
+      display: grid;
+      gap: 18px;
+    }
+
+    .hero {
+      padding: 24px 28px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(15, 22, 29, 0.9);
+      box-shadow: var(--shadow);
+    }
+
+    .hero h1 {
+      margin: 0 0 12px;
+      font-size: 34px;
+      line-height: 1.08;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 1100px;
+      color: var(--muted);
+      line-height: 1.75;
+      font-size: 15px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 320px minmax(520px, 1fr) 380px;
+      gap: 18px;
+    }
+
+    .panel {
+      background: rgba(18, 26, 33, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .head {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .head h2 {
+      margin: 0 0 6px;
+      font-size: 18px;
+    }
+
+    .head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .body {
+      padding: 18px 20px 20px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .card,
+    .task,
+    .metric,
+    .log,
+    .artifact {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel-soft);
+    }
+
+    .card,
+    .metric,
+    .artifact,
+    .log {
+      padding: 14px;
+    }
+
+    .drop {
+      min-height: 138px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 8px;
+      border-style: dashed;
+      background: rgba(111, 210, 185, 0.08);
+      border-color: rgba(111, 210, 185, 0.35);
+    }
+
+    .actions,
+    .presets,
+    .metrics,
+    .task-list,
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .actions,
+    .presets,
+    .metrics {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .btn {
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.03);
+      font-size: 14px;
+    }
+
+    .btn.primary {
+      background: linear-gradient(135deg, rgba(111, 210, 185, 0.24), rgba(111, 210, 185, 0.12));
+      border-color: rgba(111, 210, 185, 0.38);
+    }
+
+    .metric strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .metric span {
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .task {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .meta,
+    .tiny {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .chip.ok {
+      color: #cef7da;
+      border-color: rgba(122, 217, 158, 0.28);
+      background: rgba(122, 217, 158, 0.12);
+    }
+
+    .chip.warn {
+      color: #ffe2aa;
+      border-color: rgba(245, 186, 98, 0.28);
+      background: rgba(245, 186, 98, 0.12);
+    }
+
+    .chip.fail {
+      color: #ffc3ba;
+      border-color: rgba(255, 123, 112, 0.26);
+      background: rgba(255, 123, 112, 0.12);
+    }
+
+    .bar {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.07);
+      overflow: hidden;
+    }
+
+    .bar > div {
+      height: 100%;
+      background: linear-gradient(90deg, var(--mint), #9ae8d5);
+    }
+
+    .log code {
+      display: block;
+      white-space: pre-wrap;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.72;
+      color: #d3e8e3;
+    }
+
+    .artifact strong,
+    .log strong,
+    .card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    @media (max-width: 1360px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <section class="hero">
+      <h1>工作台细化预览：把 single / batch 合并成一个队列编排界面</h1>
+      <p>这个页面单独放大了最关键的核心体验。左侧只负责创建任务，中间是持续可操作的运行队列，右侧则展示一个任务的完整上下文。它的目标不是“文件处理页面”，而是一个真正的桌面任务操作台。</p>
+    </section>
+
+    <section class="layout">
+      <div class="panel">
+        <div class="head">
+          <h2>左栏：任务创建</h2>
+          <p>输入、模板、基础参数和高级设置都从这里进入，但不会把所有专业参数一次性堆给用户。</p>
+        </div>
+        <div class="body">
+          <div class="card drop">
+            <strong>拖拽输入源</strong>
+            <div class="tiny">单文件、多文件、目录都可以。目录导入后会被自动展开为多个 Job。</div>
+          </div>
+          <div class="actions">
+            <div class="btn">添加文件</div>
+            <div class="btn">添加文件夹</div>
+            <div class="btn">从字幕创建任务</div>
+            <div class="btn">从台本创建任务</div>
+          </div>
+          <div class="presets">
+            <div class="btn primary">标准日语转中文</div>
+            <div class="btn">高质量成片</div>
+            <div class="btn">快速预览</div>
+            <div class="btn">自定义模板</div>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <strong>任务类型</strong>
+              <span>完整流水线</span>
+            </div>
+            <div class="metric">
+              <strong>TTS 引擎</strong>
+              <span>Qwen3</span>
+            </div>
+            <div class="metric">
+              <strong>源语言</strong>
+              <span>日语</span>
+            </div>
+            <div class="metric">
+              <strong>目标语言</strong>
+              <span>中文</span>
+            </div>
+          </div>
+          <div class="actions">
+            <div class="btn primary">添加到队列</div>
+            <div class="btn">立即运行</div>
+            <div class="btn">保存为模板</div>
+            <div class="btn">展开高级参数</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="head">
+          <h2>中栏：统一任务队列</h2>
+          <p>它既是运行监控区，也是主要操作区。用户可以在不离开页面的情况下查看状态、筛选任务、重试失败项。</p>
+        </div>
+        <div class="body">
+          <div class="metrics">
+            <div class="metric">
+              <strong>运行中</strong>
+              <span>3</span>
+            </div>
+            <div class="metric">
+              <strong>等待中</strong>
+              <span>6</span>
+            </div>
+            <div class="metric">
+              <strong>已完成</strong>
+              <span>14</span>
+            </div>
+            <div class="metric">
+              <strong>失败</strong>
+              <span style="color: var(--red);">2</span>
+            </div>
+          </div>
+
+          <div class="chip-row">
+            <div class="chip ok">仅看运行中</div>
+            <div class="chip">等待中</div>
+            <div class="chip warn">已完成</div>
+            <div class="chip fail">失败</div>
+            <div class="chip">高质量模板</div>
+          </div>
+
+          <div class="task-list">
+            <div class="task">
+              <div class="row">
+                <div class="title">ep14_scene_01.wav</div>
+                <div class="chip ok">运行中</div>
+              </div>
+              <div class="meta">完整流水线 · 当前阶段 TTS 合成 · 模板 标准日语转中文</div>
+              <div class="bar"><div style="width: 68%;"></div></div>
+              <div class="chip-row">
+                <div class="chip">Qwen3</div>
+                <div class="chip">A3 音色</div>
+                <div class="chip">04:12</div>
+              </div>
+            </div>
+
+            <div class="task">
+              <div class="row">
+                <div class="title">episode-14 folder import</div>
+                <div class="chip warn">批量展开</div>
+              </div>
+              <div class="meta">目录已拆分为 9 个任务，统一继承模板与输出策略，不需要进入单独 batch 页面。</div>
+              <div class="chip-row">
+                <div class="chip">9 jobs</div>
+                <div class="chip">按目录归档</div>
+              </div>
+            </div>
+
+            <div class="task">
+              <div class="row">
+                <div class="title">subtitle_fix_03</div>
+                <div class="chip fail">失败</div>
+              </div>
+              <div class="meta">script-to-vtt 对齐失败。建议切换为保守清洗模式后重试。</div>
+              <div class="chip-row">
+                <div class="chip fail">重试</div>
+                <div class="chip">复制参数</div>
+                <div class="chip">编辑模板</div>
+              </div>
+            </div>
+
+            <div class="task">
+              <div class="row">
+                <div class="title">voice_preview_suite</div>
+                <div class="chip">等待中</div>
+              </div>
+              <div class="meta">试音任务组共 6 条句子，将在 GPU-heavy 任务释放后顺序执行。</div>
+              <div class="chip-row">
+                <div class="chip">preview</div>
+                <div class="chip">queue after current</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="head">
+          <h2>右栏：任务上下文</h2>
+          <p>一个任务的参数、日志、阶段和产物都在同一处可见，用户不需要来回打开新的弹窗或二级页面。</p>
+        </div>
+        <div class="body stack">
+          <div class="artifact">
+            <strong>任务概况</strong>
+            <div class="tiny">ep14_scene_01.wav · 创建于 10:14 · 模板 标准日语转中文 · 状态 运行中</div>
+          </div>
+          <div class="artifact">
+            <strong>参数快照</strong>
+            <div class="tiny">source=ja · target=zh · separator=htdemucs · asr=base · tts=qwen3 · voice=A3 · output=job folder</div>
+          </div>
+          <div class="log">
+            <strong>阶段日志</strong>
+            <code>[OK] vocal separation done
+[OK] 176 ASR segments recognized
+[OK] translation finished
+[RUN] synthesizing segment 118 / 176
+[INFO] scheduler slot GPU-heavy: 1/1</code>
+          </div>
+          <div class="artifact">
+            <strong>产物</strong>
+            <div class="tiny">subtitle_zh.srt · bilingual.vtt · tts_temp/ · mix_preview.wav</div>
+          </div>
+          <div class="artifact">
+            <strong>常用动作</strong>
+            <div class="chip-row">
+              <div class="chip">打开输出目录</div>
+              <div class="chip">复制任务</div>
+              <div class="chip fail">取消任务</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

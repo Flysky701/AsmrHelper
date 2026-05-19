@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warm Worktable Preview</title>
+  <style>
+    :root {
+      --bg: #f2ebdf;
+      --bg-soft: #fbf6ee;
+      --panel: rgba(255, 250, 242, 0.92);
+      --panel-strong: #fff9f0;
+      --panel-muted: #f6eee3;
+      --line: rgba(73, 82, 86, 0.12);
+      --line-strong: rgba(73, 82, 86, 0.18);
+      --text: #172127;
+      --muted: #66737a;
+      --accent: #0e766e;
+      --accent-soft: rgba(14, 118, 110, 0.1);
+      --accent-2: #cb7644;
+      --ok: #3e8a63;
+      --warn: #bf7d3a;
+      --danger: #c45748;
+      --shadow: 0 18px 36px rgba(96, 77, 46, 0.1);
+      --radius: 22px;
+      --radius-sm: 16px;
+      --font-display: "Cabinet Grotesk", "Segoe UI", sans-serif;
+      --font-body: "Instrument Sans", "Microsoft YaHei UI", sans-serif;
+      --font-mono: "JetBrains Mono", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: var(--font-body);
+      background:
+        radial-gradient(circle at 12% 10%, rgba(14, 118, 110, 0.08), transparent 24%),
+        radial-gradient(circle at 88% 16%, rgba(203, 118, 68, 0.08), transparent 22%),
+        linear-gradient(180deg, var(--bg) 0%, #f8f2e8 52%, var(--bg-soft) 100%);
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 244px 1fr;
+      gap: 18px;
+      min-height: 100vh;
+      padding: 18px;
+    }
+
+    .sidebar,
+    .strip,
+    .panel,
+    .mini-page,
+    .api-note {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 18px;
+    }
+
+    .brand {
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow,
+    .panel-label,
+    .small-label {
+      color: var(--accent);
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .brand h1 {
+      margin: 10px 0 8px;
+      font-family: var(--font-display);
+      font-size: 30px;
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+    }
+
+    .brand p,
+    .nav-item,
+    .meta,
+    .note,
+    .api-note li {
+      color: var(--muted);
+      line-height: 1.72;
+      font-size: 13px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+    }
+
+    .nav-item {
+      padding: 12px 14px;
+      border: 1px solid transparent;
+      border-radius: 14px;
+      background: transparent;
+    }
+
+    .nav-item.active {
+      color: var(--text);
+      background: var(--accent-soft);
+      border-color: rgba(14, 118, 110, 0.18);
+      font-weight: 600;
+    }
+
+    .side-stack {
+      margin-top: auto;
+      display: grid;
+      gap: 10px;
+    }
+
+    .side-card {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--panel-strong);
+    }
+
+    .side-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .main {
+      display: grid;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) repeat(3, minmax(140px, 1fr));
+      gap: 12px;
+      padding: 16px;
+      align-items: stretch;
+    }
+
+    .strip-main {
+      padding: 8px 4px 8px 6px;
+    }
+
+    .strip-main h2 {
+      margin: 10px 0 8px;
+      font-family: var(--font-display);
+      font-size: 34px;
+      line-height: 0.98;
+      letter-spacing: -0.04em;
+    }
+
+    .strip-main p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.78;
+      font-size: 14px;
+      max-width: 700px;
+    }
+
+    .stat {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel-strong);
+    }
+
+    .stat-value {
+      margin-top: 8px;
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .workbench {
+      display: grid;
+      grid-template-columns: 300px minmax(420px, 1fr) 320px;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .panel {
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.45);
+    }
+
+    .panel-head h3 {
+      margin: 6px 0 0;
+      font-family: var(--font-display);
+      font-size: 18px;
+    }
+
+    .panel-body {
+      padding: 16px 18px 18px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .section {
+      display: grid;
+      gap: 10px;
+    }
+
+    .section-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+    }
+
+    .dropzone,
+    .card,
+    .task,
+    .mini-page,
+    .api-note {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--panel-strong);
+    }
+
+    .dropzone,
+    .card {
+      padding: 14px;
+    }
+
+    .dropzone {
+      min-height: 112px;
+      display: grid;
+      align-content: center;
+      gap: 6px;
+      border-style: dashed;
+      background: rgba(14, 118, 110, 0.05);
+    }
+
+    .button-grid,
+    .control-grid,
+    .preview-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .button,
+    .control,
+    .chip,
+    .tab {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fffaf2;
+      font-size: 13px;
+    }
+
+    .button.primary,
+    .tab.active {
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-color: rgba(14, 118, 110, 0.2);
+      font-weight: 600;
+    }
+
+    .tabs,
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .task-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .task {
+      padding: 14px;
+    }
+
+    .task-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .task-title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .badge {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line-strong);
+      font-size: 12px;
+      background: #fff8ef;
+    }
+
+    .badge.ok {
+      color: var(--ok);
+      background: rgba(62, 138, 99, 0.09);
+      border-color: rgba(62, 138, 99, 0.16);
+    }
+
+    .badge.warn {
+      color: var(--warn);
+      background: rgba(191, 125, 58, 0.1);
+      border-color: rgba(191, 125, 58, 0.16);
+    }
+
+    .badge.fail {
+      color: var(--danger);
+      background: rgba(196, 87, 72, 0.08);
+      border-color: rgba(196, 87, 72, 0.16);
+    }
+
+    .progress {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(23, 33, 39, 0.08);
+      overflow: hidden;
+      margin-top: 10px;
+    }
+
+    .progress > div {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), #6dbab2);
+    }
+
+    .card strong,
+    .mini-page strong,
+    .api-note strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .log {
+      font-family: var(--font-mono);
+      color: #35525d;
+      white-space: pre-wrap;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .subpages {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .mini-page {
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .mini-page h4 {
+      margin: 6px 0 0;
+      font-family: var(--font-display);
+      font-size: 20px;
+    }
+
+    .api-note {
+      padding: 16px 18px;
+    }
+
+    .api-note ul {
+      margin: 10px 0 0;
+      padding-left: 18px;
+    }
+
+    .api-note li + li {
+      margin-top: 6px;
+    }
+
+    .back {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    @media (max-width: 1320px) {
+      .strip,
+      .workbench,
+      .subpages {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 980px) {
+      .shell,
+      .button-grid,
+      .control-grid,
+      .preview-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="eyebrow">Direction C / refined</div>
+        <h1>Warm Worktable</h1>
+        <p>Warm, quiet, and closer to a daily workspace than a flashy concept board.</p>
+      </div>
+
+      <nav class="nav">
+        <div class="nav-item active">Workbench</div>
+        <div class="nav-item">Task Center</div>
+        <div class="nav-item">Resource Center</div>
+        <div class="nav-item">Voice Lab</div>
+        <div class="nav-item">Settings</div>
+      </nav>
+
+      <div class="side-stack">
+        <div class="side-card">
+          <strong>Session State</strong>
+          <div class="row"><span>Sidecar</span><span style="color:var(--ok)">ready</span></div>
+          <div class="row"><span>Running jobs</span><span>3</span></div>
+          <div class="row"><span>Queue mode</span><span>2 active</span></div>
+        </div>
+        <div class="side-card">
+          <strong>Why This Direction</strong>
+          <div class="note">Same queue-first structure, but lower visual pressure and better long-session comfort.</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section class="strip">
+        <div class="strip-main">
+          <div class="eyebrow">Layout corrected</div>
+          <h2>Third direction, rebuilt around the real app shell</h2>
+          <p>This revision drops the poster-like composition. It now follows the actual desktop product shape: fixed sidebar, compact overview strip, true three-column workbench, then lightweight previews of the other pages.</p>
+        </div>
+        <div class="stat">
+          <div class="small-label">Tone</div>
+          <div class="stat-value">Calm</div>
+        </div>
+        <div class="stat">
+          <div class="small-label">Fit</div>
+          <div class="stat-value">Daily use</div>
+        </div>
+        <div class="stat">
+          <div class="small-label">Structure</div>
+          <div class="stat-value">Real desktop</div>
+        </div>
+      </section>
+
+      <section class="workbench">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-label">Left Column</div>
+              <h3>Job Creator</h3>
+            </div>
+            <div class="meta">create + preset + submit</div>
+          </div>
+          <div class="panel-body">
+            <div class="section">
+              <div class="section-title">Import</div>
+              <div class="dropzone">
+                <strong>Drop files, folders, subtitle jobs, or script jobs here</strong>
+                <div class="meta">Directory import expands into multiple jobs and keeps a shared option snapshot.</div>
+              </div>
+            </div>
+            <div class="button-grid">
+              <div class="button">Add file</div>
+              <div class="button">Add folder</div>
+              <div class="button">Subtitle task</div>
+              <div class="button">Script task</div>
+            </div>
+            <div class="section">
+              <div class="section-title">Preset</div>
+              <div class="button-grid">
+                <div class="button primary">JP to ZH standard</div>
+                <div class="button">Fast preview</div>
+                <div class="button">High quality</div>
+                <div class="button">Custom preset</div>
+              </div>
+            </div>
+            <div class="section">
+              <div class="section-title">Core Options</div>
+              <div class="control-grid">
+                <div class="control">Source: ja</div>
+                <div class="control">Target: zh</div>
+                <div class="control">TTS: qwen3</div>
+                <div class="control">Output: job folder</div>
+              </div>
+            </div>
+            <div class="button-grid">
+              <div class="button primary">Add to queue</div>
+              <div class="button">Run now</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-label">Center Column</div>
+              <h3>Job Queue</h3>
+            </div>
+            <div class="meta">current session focus</div>
+          </div>
+          <div class="panel-body">
+            <div class="tabs">
+              <div class="tab active">all 12</div>
+              <div class="tab">running 3</div>
+              <div class="tab">pending 6</div>
+              <div class="tab">completed 2</div>
+              <div class="tab">failed 1</div>
+            </div>
+
+            <div class="task-list">
+              <div class="task">
+                <div class="task-top">
+                  <div class="task-title">ep12_scene_a.wav</div>
+                  <div class="badge ok">running</div>
+                </div>
+                <div class="meta">Standard JP to ZH preset · current stage TTS synthesis</div>
+                <div class="progress"><div style="width:72%"></div></div>
+                <div class="chip-row">
+                  <div class="chip">Qwen3</div>
+                  <div class="chip">A3 voice</div>
+                  <div class="chip">04:18</div>
+                </div>
+              </div>
+
+              <div class="task">
+                <div class="task-top">
+                  <div class="task-title">episode-13 folder import</div>
+                  <div class="badge warn">expanded</div>
+                </div>
+                <div class="meta">Expanded into 8 jobs. All children inherit the quick preview preset.</div>
+                <div class="chip-row">
+                  <div class="chip">8 jobs</div>
+                  <div class="chip">batch import</div>
+                </div>
+              </div>
+
+              <div class="task">
+                <div class="task-top">
+                  <div class="task-title">subtitle_fix_03</div>
+                  <div class="badge fail">failed</div>
+                </div>
+                <div class="meta">Subtitle alignment failed. Retry after switching to a more conservative cleaning strategy.</div>
+                <div class="chip-row">
+                  <div class="chip">copy params</div>
+                  <div class="chip">duplicate job</div>
+                  <div class="chip">retry failed only</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-label">Right Column</div>
+              <h3>Job Context</h3>
+            </div>
+            <div class="meta">selected item</div>
+          </div>
+          <div class="panel-body">
+            <div class="card">
+              <strong>Overview</strong>
+              <div class="meta">Created 10:14 · progress 72% · current stage TTS synthesis · ETA 01:52</div>
+            </div>
+            <div class="card">
+              <strong>Resolved Options</strong>
+              <div class="meta">source=ja · target=zh · separator=htdemucs · asr=base · tts=qwen3 · voice=A3</div>
+            </div>
+            <div class="card">
+              <strong>Stage Log</strong>
+              <div class="log">[OK] vocals separated
+[OK] 182 subtitle segments recognized
+[OK] translation completed
+[RUN] synthesizing segment 141 / 182
+[INFO] GPU queue slot 1 / 1</div>
+            </div>
+            <div class="card">
+              <strong>Artifacts</strong>
+              <div class="meta">subtitle_zh.srt · bilingual.vtt · tts_temp/ · mix_preview.wav</div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="subpages">
+        <article class="mini-page">
+          <div class="panel-label">Task Center</div>
+          <h4>History and replay</h4>
+          <div class="note">This page should handle filters, failed-job replay, history browsing, and queue duplication. It is a management surface, not the main operating surface.</div>
+          <div class="preview-grid">
+            <div class="card">
+              <strong>Primary API</strong>
+              <div class="meta">GET /api/v1/jobs?status=...</div>
+            </div>
+            <div class="card">
+              <strong>Should add</strong>
+              <div class="meta">History filters and retry groups</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mini-page">
+          <div class="panel-label">Resource Center</div>
+          <h4>System checkup</h4>
+          <div class="note">The warm direction still needs a strong operational center. This page should feel like a health dashboard for models, runtime, storage, and scheduling pressure.</div>
+          <div class="preview-grid">
+            <div class="card">
+              <strong>Primary API</strong>
+              <div class="meta">GET /api/v1/resources/status</div>
+            </div>
+            <div class="card">
+              <strong>Model APIs</strong>
+              <div class="meta">GET /api/v1/models and /statuses</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="mini-page">
+          <div class="panel-label">Voice Lab</div>
+          <h4>Voice asset studio</h4>
+          <div class="note">This should not be just a list. It needs profiles, creation entry points, and preview-to-workbench flow so voice assets feel reusable across jobs.</div>
+          <div class="preview-grid">
+            <div class="card">
+              <strong>Primary API</strong>
+              <div class="meta">GET /api/v1/voice/profiles</div>
+            </div>
+            <div class="card">
+              <strong>Creation APIs</strong>
+              <div class="meta">POST /design, /clone, /preview</div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="api-note">
+        <strong>Why This Fix Is Better</strong>
+        <ul>
+          <li>The layout now mirrors the actual app shell in <code>desktop/src/App.tsx</code> and the real three-column workbench in <code>desktop/src/pages/WorkbenchPage.tsx</code>.</li>
+          <li>The warm visual tone stays, but it no longer fights the product's queue-first workflow.</li>
+          <li>You can now judge the style separately from the structure, because the structure is much closer to implementation reality.</li>
+        </ul>
+      </section>
+
+      <a class="back" href="./style-preview-index.html">← Back to preview index</a>
+    </main>
+  </div>
+</body>
+</html>

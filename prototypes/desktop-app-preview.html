@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AsmrHelper Desktop Preview</title>
+  <style>
+    :root {
+      --bg: #0f1418;
+      --panel: rgba(19, 27, 33, 0.84);
+      --panel-strong: #182129;
+      --panel-soft: rgba(28, 37, 46, 0.88);
+      --border: rgba(149, 182, 188, 0.18);
+      --border-strong: rgba(149, 182, 188, 0.34);
+      --text: #eff5f6;
+      --muted: #9db0b5;
+      --accent: #65d0b3;
+      --accent-2: #f6b65a;
+      --danger: #ff7b6f;
+      --ok: #70dd9b;
+      --warning: #ffd372;
+      --shadow: 0 22px 60px rgba(0, 0, 0, 0.36);
+      --radius: 18px;
+      --radius-sm: 12px;
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(101, 208, 179, 0.16), transparent 30%),
+        radial-gradient(circle at 85% 15%, rgba(246, 182, 90, 0.14), transparent 26%),
+        linear-gradient(160deg, #091016 0%, #0f1418 30%, #121a20 100%);
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: 100vh;
+      gap: 24px;
+      padding: 24px;
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background: rgba(12, 18, 23, 0.78);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand-kicker {
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 700;
+    }
+
+    .brand p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 10px;
+    }
+
+    .nav button {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      font-size: 15px;
+      cursor: pointer;
+      transition: 180ms ease;
+    }
+
+    .nav button:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: var(--border);
+    }
+
+    .nav button.active {
+      background: linear-gradient(135deg, rgba(101, 208, 179, 0.2), rgba(101, 208, 179, 0.08));
+      border-color: rgba(101, 208, 179, 0.38);
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      display: grid;
+      gap: 12px;
+    }
+
+    .status-card,
+    .storage-card {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 14px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    .status-chip {
+      color: var(--ok);
+      font-weight: 600;
+    }
+
+    .content {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 24px 26px;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background: linear-gradient(135deg, rgba(14, 20, 25, 0.84), rgba(29, 39, 47, 0.92));
+      box-shadow: var(--shadow);
+    }
+
+    .hero h2 {
+      margin: 0 0 10px;
+      font-size: 30px;
+      line-height: 1.15;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 760px;
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    .hero-stats {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      min-width: 280px;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      padding: 11px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .screen {
+      display: none;
+      gap: 20px;
+      animation: fade 200ms ease;
+    }
+
+    .screen.active {
+      display: grid;
+    }
+
+    .workbench {
+      grid-template-columns: 360px minmax(420px, 1fr) 360px;
+    }
+
+    .task-center {
+      grid-template-columns: 1fr;
+    }
+
+    .resource-center {
+      grid-template-columns: repeat(2, minmax(280px, 1fr));
+    }
+
+    .voice-lab,
+    .settings-screen {
+      grid-template-columns: repeat(2, minmax(320px, 1fr));
+    }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--panel);
+      backdrop-filter: blur(16px);
+      box-shadow: var(--shadow);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-header h3 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .panel-header span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .panel-body {
+      padding: 18px 20px 20px;
+    }
+
+    .cluster {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .cluster:last-child {
+      margin-bottom: 0;
+    }
+
+    .cluster h4 {
+      margin: 0;
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .dropzone {
+      border: 1px dashed rgba(101, 208, 179, 0.45);
+      border-radius: 16px;
+      padding: 22px;
+      background: rgba(101, 208, 179, 0.08);
+      color: var(--text);
+      min-height: 126px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .actions,
+    .segmented,
+    .resource-grid,
+    .settings-list,
+    .voice-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .actions {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .segmented {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .resource-grid,
+    .voice-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .btn,
+    .segment,
+    .mini-card,
+    .task-item,
+    .log-card,
+    .artifact-card,
+    .history-row,
+    .resource-item,
+    .voice-item,
+    .setting-row {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--panel-soft);
+    }
+
+    .btn,
+    .segment {
+      padding: 12px 14px;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .btn.primary {
+      background: linear-gradient(135deg, rgba(101, 208, 179, 0.22), rgba(101, 208, 179, 0.12));
+      border-color: rgba(101, 208, 179, 0.42);
+    }
+
+    .mini-card,
+    .resource-item,
+    .voice-item {
+      padding: 14px;
+    }
+
+    .mini-title {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .mini-value {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .task-list,
+    .history-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .task-item,
+    .history-row {
+      padding: 15px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .task-top,
+    .history-top,
+    .resource-top,
+    .voice-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .task-title,
+    .history-title,
+    .resource-title,
+    .voice-title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .task-meta,
+    .history-meta,
+    .resource-meta,
+    .voice-meta,
+    .hint {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .progress {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.07);
+      overflow: hidden;
+    }
+
+    .progress > div {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), #8be7cf);
+    }
+
+    .task-tags,
+    .history-tags {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .tag {
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+    }
+
+    .tag.ok {
+      color: #c7f7d7;
+      background: rgba(112, 221, 155, 0.12);
+      border-color: rgba(112, 221, 155, 0.3);
+    }
+
+    .tag.warn {
+      color: #ffe3a4;
+      background: rgba(246, 182, 90, 0.12);
+      border-color: rgba(246, 182, 90, 0.3);
+    }
+
+    .tag.fail {
+      color: #ffc1b8;
+      background: rgba(255, 123, 111, 0.12);
+      border-color: rgba(255, 123, 111, 0.28);
+    }
+
+    .detail-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .log-card,
+    .artifact-card,
+    .setting-row {
+      padding: 14px;
+    }
+
+    .log-card code {
+      color: #d8ebe7;
+      display: block;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+
+    .artifact-card strong,
+    .setting-row strong,
+    .resource-item strong,
+    .voice-item strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .resource-item,
+    .voice-item {
+      min-height: 148px;
+    }
+
+    .screen-note {
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(246, 182, 90, 0.28);
+      background: rgba(246, 182, 90, 0.08);
+      color: #ffe3b4;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    @keyframes fade {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 1380px) {
+      .workbench,
+      .voice-lab,
+      .settings-screen {
+        grid-template-columns: 1fr;
+      }
+
+      .resource-center {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        flex-direction: column;
+      }
+    }
+
+    @media (max-width: 1080px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-kicker">Desktop Preview</div>
+        <h1>AsmrHelper</h1>
+        <p>Queue-first media workstation for local AI audio workflows.</p>
+      </div>
+
+      <nav class="nav">
+        <button class="active" data-screen="workbench">工作台</button>
+        <button data-screen="task-center">任务中心</button>
+        <button data-screen="resource-center">资源中心</button>
+        <button data-screen="voice-lab">音色工坊</button>
+        <button data-screen="settings-screen">设置</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="status-card">
+          <strong>本地引擎状态</strong>
+          <div class="status-row"><span>Python sidecar</span><span class="status-chip">Running</span></div>
+          <div class="status-row"><span>任务并发</span><span>2 / GPU serialized</span></div>
+          <div class="status-row"><span>ffmpeg</span><span class="status-chip">Ready</span></div>
+        </div>
+        <div class="storage-card">
+          <strong>当前会话</strong>
+          <div class="status-row"><span>运行中任务</span><span>3</span></div>
+          <div class="status-row"><span>失败待处理</span><span style="color: var(--danger);">1</span></div>
+          <div class="status-row"><span>今日产物</span><span>18 files</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <section class="hero">
+        <div>
+          <h2>从功能页切换到任务工作台</h2>
+          <p>单文件和多文件不再是两套交互。用户先添加输入，再把处理能力组织成任务队列，最后在同一处查看日志、进度、失败原因和输出产物。</p>
+        </div>
+        <div class="hero-stats">
+          <div class="pill">Queue-first</div>
+          <div class="pill">Tauri shell</div>
+          <div class="pill">Python sidecar</div>
+          <div class="pill">Preset-driven</div>
+          <div class="pill">GPU-aware scheduling</div>
+        </div>
+      </section>
+
+      <section class="screen workbench active" id="workbench">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>任务创建器</h3>
+              <span>统一入口，不再区分 single / batch</span>
+            </div>
+            <span>Queue composer</span>
+          </div>
+          <div class="panel-body">
+            <div class="cluster">
+              <h4>导入输入</h4>
+              <div class="dropzone">
+                <strong>拖拽音频文件或文件夹到这里</strong>
+                <div class="hint">支持单文件、多文件、整个目录导入。目录会自动展开为多个任务。</div>
+              </div>
+              <div class="actions">
+                <div class="btn">添加文件</div>
+                <div class="btn">添加文件夹</div>
+                <div class="btn">导入字幕任务</div>
+                <div class="btn">导入台本任务</div>
+              </div>
+            </div>
+
+            <div class="cluster">
+              <h4>任务模板</h4>
+              <div class="segmented">
+                <div class="segment">标准日语转中文</div>
+                <div class="segment">快速预览</div>
+                <div class="segment">高质量成片</div>
+              </div>
+            </div>
+
+            <div class="cluster">
+              <h4>核心参数</h4>
+              <div class="resource-grid">
+                <div class="mini-card">
+                  <div class="mini-title">处理模式</div>
+                  <div class="mini-value">完整流水线</div>
+                </div>
+                <div class="mini-card">
+                  <div class="mini-title">目标语言</div>
+                  <div class="mini-value">中文</div>
+                </div>
+                <div class="mini-card">
+                  <div class="mini-title">TTS 引擎</div>
+                  <div class="mini-value">Qwen3</div>
+                </div>
+                <div class="mini-card">
+                  <div class="mini-title">输出策略</div>
+                  <div class="mini-value">按任务目录归档</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="cluster">
+              <h4>提交动作</h4>
+              <div class="actions">
+                <div class="btn primary">添加到队列</div>
+                <div class="btn">立即运行</div>
+                <div class="btn">另存为模板</div>
+                <div class="btn">高级参数</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>任务队列</h3>
+              <span>当前会话中的待运行、运行中与已完成任务</span>
+            </div>
+            <span>12 jobs</span>
+          </div>
+          <div class="panel-body">
+            <div class="cluster">
+              <div class="task-tags">
+                <div class="tag ok">运行中 3</div>
+                <div class="tag">等待中 6</div>
+                <div class="tag warn">已完成 2</div>
+                <div class="tag fail">失败 1</div>
+              </div>
+            </div>
+            <div class="task-list">
+              <div class="task-item">
+                <div class="task-top">
+                  <div class="task-title">ep12_scene_a.wav</div>
+                  <div class="tag ok">运行中</div>
+                </div>
+                <div class="task-meta">完整流水线 · 模板：标准日语转中文 · 当前阶段：TTS 合成</div>
+                <div class="progress"><div style="width: 72%;"></div></div>
+                <div class="task-tags">
+                  <div class="tag">Qwen3</div>
+                  <div class="tag">Voice A3</div>
+                  <div class="tag">耗时 04:18</div>
+                </div>
+              </div>
+
+              <div class="task-item">
+                <div class="task-top">
+                  <div class="task-title">ep12_scene_b.wav</div>
+                  <div class="tag">等待中</div>
+                </div>
+                <div class="task-meta">完整流水线 · 模板：高质量成片 · 等待 GPU-heavy 资源窗口</div>
+                <div class="progress"><div style="width: 14%;"></div></div>
+                <div class="task-tags">
+                  <div class="tag">Demucs</div>
+                  <div class="tag">Whisper base</div>
+                </div>
+              </div>
+
+              <div class="task-item">
+                <div class="task-top">
+                  <div class="task-title">script_repair_job</div>
+                  <div class="tag fail">失败</div>
+                </div>
+                <div class="task-meta">台本转字幕 · 对齐阶段失败，建议切换更保守的 LLM 清洗策略后重试</div>
+                <div class="task-tags">
+                  <div class="tag fail">对齐异常</div>
+                  <div class="tag">重试</div>
+                  <div class="tag">复制参数</div>
+                </div>
+              </div>
+
+              <div class="task-item">
+                <div class="task-top">
+                  <div class="task-title">folder import / episode-13</div>
+                  <div class="tag warn">批量展开</div>
+                </div>
+                <div class="task-meta">目录已拆分为 8 个任务，参数继承自主模板“快速预览”</div>
+                <div class="task-tags">
+                  <div class="tag">8 jobs</div>
+                  <div class="tag">批量导入</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>任务详情</h3>
+              <span>参数、阶段日志、产物、错误都围绕任务展开</span>
+            </div>
+            <span>ep12_scene_a.wav</span>
+          </div>
+          <div class="panel-body">
+            <div class="detail-grid">
+              <div class="artifact-card">
+                <strong>任务概况</strong>
+                <div class="hint">创建时间 10:14 · 模板 标准日语转中文 · 当前阶段 TTS 合成 · 总进度 72%</div>
+              </div>
+              <div class="artifact-card">
+                <strong>参数快照</strong>
+                <div class="hint">source=ja · target=zh · separator=htdemucs · asr=base · tts=qwen3 · voice_profile=A3 · output=job folder</div>
+              </div>
+              <div class="log-card">
+                <strong>阶段日志</strong>
+                <code>[OK] vocals separated
+[OK] 182 subtitle segments recognized
+[OK] translation completed via deepseek
+[RUN] synthesizing segment 141/182
+[INFO] GPU queue slot: 1/1</code>
+              </div>
+              <div class="artifact-card">
+                <strong>当前产物</strong>
+                <div class="hint">subtitle_zh.srt · subtitle_bilingual.vtt · tts_temp/ · mix_preview.wav</div>
+              </div>
+              <div class="artifact-card">
+                <strong>快捷操作</strong>
+                <div class="task-tags">
+                  <div class="tag">打开输出目录</div>
+                  <div class="tag">复制任务</div>
+                  <div class="tag">取消任务</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen task-center" id="task-center">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>任务中心</h3>
+              <span>从“当前会话队列”扩展到“历史任务档案”</span>
+            </div>
+            <span>History + operations</span>
+          </div>
+          <div class="panel-body">
+            <div class="cluster">
+              <div class="task-tags">
+                <div class="tag">全部</div>
+                <div class="tag ok">运行中</div>
+                <div class="tag">等待中</div>
+                <div class="tag warn">已完成</div>
+                <div class="tag fail">失败</div>
+              </div>
+            </div>
+            <div class="history-list">
+              <div class="history-row">
+                <div class="history-top">
+                  <div class="history-title">episode-10 batch import</div>
+                  <div class="tag warn">已完成</div>
+                </div>
+                <div class="history-meta">8 个任务 · 总耗时 22m · 模板 高质量成片 · 输出 24 个产物</div>
+                <div class="history-tags">
+                  <div class="tag">导出报告</div>
+                  <div class="tag">复制为新队列</div>
+                  <div class="tag">打开产物</div>
+                </div>
+              </div>
+
+              <div class="history-row">
+                <div class="history-top">
+                  <div class="history-title">subtitle repair cluster</div>
+                  <div class="tag fail">失败</div>
+                </div>
+                <div class="history-meta">3 个任务失败于 script-to-vtt 对齐阶段，可批量切换保守模板后重试</div>
+                <div class="history-tags">
+                  <div class="tag fail">仅重试失败项</div>
+                  <div class="tag">编辑模板后重跑</div>
+                </div>
+              </div>
+
+              <div class="history-row">
+                <div class="history-top">
+                  <div class="history-title">voice preview suite</div>
+                  <div class="tag ok">运行中</div>
+                </div>
+                <div class="history-meta">试音任务队列 · 6 个句子正在顺序输出，便于比较不同 voice profile</div>
+                <div class="history-tags">
+                  <div class="tag">暂停</div>
+                  <div class="tag">试听结果</div>
+                </div>
+              </div>
+            </div>
+            <div class="screen-note">任务中心偏管理与回看，工作台偏创建与运行。这样首页不会被历史信息淹没，但用户又能完整追踪任务生命周期。</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen resource-center" id="resource-center">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>模型与引擎</h3>
+              <span>安装、校验、卸载、占用一处完成</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="resource-grid">
+              <div class="resource-item">
+                <div class="resource-top">
+                  <div class="resource-title">Qwen3 Base</div>
+                  <div class="tag ok">已安装</div>
+                </div>
+                <div class="resource-meta">TTS 引擎模型 · 已加载 · 14.2 GB</div>
+              </div>
+              <div class="resource-item">
+                <div class="resource-top">
+                  <div class="resource-title">Faster-Whisper Base</div>
+                  <div class="tag ok">可用</div>
+                </div>
+                <div class="resource-meta">ASR 本地模型 · 未加载 · 1.4 GB</div>
+              </div>
+              <div class="resource-item">
+                <div class="resource-top">
+                  <div class="resource-title">Demucs HTDemucs</div>
+                  <div class="tag warn">运行时加载</div>
+                </div>
+                <div class="resource-meta">分离模型 · 当前由队列调度独占 GPU</div>
+              </div>
+              <div class="resource-item">
+                <div class="resource-top">
+                  <div class="resource-title">DeepSeek Provider</div>
+                  <div class="tag">云端</div>
+                </div>
+                <div class="resource-meta">API key 已配置 · 可用于翻译与清洗</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>运行环境</h3>
+              <span>桌面壳与 Python sidecar 的健康状态</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="settings-list">
+              <div class="setting-row">
+                <strong>Python sidecar</strong>
+                <div class="hint">Running on local port · version 0.6-dev · startup 1.8s</div>
+              </div>
+              <div class="setting-row">
+                <strong>ffmpeg</strong>
+                <div class="hint">Bundled binary ready · codec pack checked</div>
+              </div>
+              <div class="setting-row">
+                <strong>Job scheduler</strong>
+                <div class="hint">Global concurrency 2 · GPU-heavy serialized · lightweight tools parallelized</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>存储</h3>
+              <span>路径与清理策略</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="settings-list">
+              <div class="setting-row">
+                <strong>模型目录</strong>
+                <div class="hint">D:\Models\AsmrHelper</div>
+              </div>
+              <div class="setting-row">
+                <strong>输出目录</strong>
+                <div class="hint">D:\Projects\AsmrOutput</div>
+              </div>
+              <div class="setting-row">
+                <strong>缓存与日志</strong>
+                <div class="hint">14.6 GB cache · auto cleanup after 14 days</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>设备状态</h3>
+              <span>资源感知式调度的前提</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="resource-grid">
+              <div class="mini-card">
+                <div class="mini-title">GPU</div>
+                <div class="mini-value">RTX 4070</div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-title">显存占用</div>
+                <div class="mini-value">8.2 / 12 GB</div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-title">CPU queue</div>
+                <div class="mini-value">2 active</div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-title">I/O pressure</div>
+                <div class="mini-value">Moderate</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen voice-lab" id="voice-lab">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>音色库</h3>
+              <span>把音色从工具参数提升为正式资产</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="voice-grid">
+              <div class="voice-item">
+                <div class="voice-top">
+                  <div class="voice-title">A3 治愈低语</div>
+                  <div class="tag ok">可用</div>
+                </div>
+                <div class="voice-meta">Qwen3 custom · 已生成参考音频与 prompt cache</div>
+              </div>
+              <div class="voice-item">
+                <div class="voice-top">
+                  <div class="voice-title">C2 自定义克隆</div>
+                  <div class="tag warn">需复检</div>
+                </div>
+                <div class="voice-meta">最近导入参考片段过短，建议重新分析后再批量使用</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>创建与试音</h3>
+              <span>设计、克隆、分析与试听汇在同一处</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="cluster">
+              <h4>创建入口</h4>
+              <div class="actions">
+                <div class="btn primary">自然语言设计音色</div>
+                <div class="btn">从参考音频克隆</div>
+                <div class="btn">分析推荐片段</div>
+                <div class="btn">加入试音队列</div>
+              </div>
+            </div>
+            <div class="screen-note">音色工坊保持独立，但产出的 voice profile 会直接回流到工作台模板和任务参数里，而不是困在独立工具页中。</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="screen settings-screen" id="settings-screen">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>全局默认</h3>
+              <span>只保留真正影响系统行为的默认项</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="settings-list">
+              <div class="setting-row">
+                <strong>默认任务模板</strong>
+                <div class="hint">标准日语转中文</div>
+              </div>
+              <div class="setting-row">
+                <strong>默认输出策略</strong>
+                <div class="hint">按任务目录归档</div>
+              </div>
+              <div class="setting-row">
+                <strong>失败后自动保留中间产物</strong>
+                <div class="hint">Enabled</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>调度与诊断</h3>
+              <span>为桌面打包和现场问题处理预留控制位</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="settings-list">
+              <div class="setting-row">
+                <strong>全局并发</strong>
+                <div class="hint">2</div>
+              </div>
+              <div class="setting-row">
+                <strong>GPU-heavy 串行策略</strong>
+                <div class="hint">Enabled</div>
+              </div>
+              <div class="setting-row">
+                <strong>调试日志级别</strong>
+                <div class="hint">Normal</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const navButtons = document.querySelectorAll(".nav button");
+    const screens = document.querySelectorAll(".screen");
+
+    navButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        navButtons.forEach((item) => item.classList.remove("active"));
+        screens.forEach((screen) => screen.classList.remove("active"));
+
+        button.classList.add("active");
+        document.getElementById(button.dataset.screen).classList.add("active");
+      });
+    });
+  </script>
+</body>
+</html>
