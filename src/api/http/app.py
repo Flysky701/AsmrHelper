@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.http.errors import register_error_handlers
-from src.api.http.routes import asr, models, pipeline, resources, subtitles, tasks, tools, translation, tts, voice
+from src.api.http.routes import asr, jobs, models, pipeline, resources, subtitles, tasks, tools, translation, tts, voice
 
 
 def create_app() -> FastAPI:
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
 
     # Routes
     api_prefix = "/api/v1"
+    app.include_router(jobs.router, prefix=api_prefix)
     app.include_router(pipeline.router, prefix=api_prefix)
     app.include_router(asr.router, prefix=api_prefix)
     app.include_router(translation.router, prefix=api_prefix)

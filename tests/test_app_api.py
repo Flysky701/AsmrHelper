@@ -89,6 +89,7 @@ def test_app_package_re_exports_phase1_contract():
     from src.app.dto import (
         ArtifactSet,
         BatchItemResult,
+        Job,
         BatchPipelineRequest,
         BatchPipelineResult,
         ModelOperationResult,
@@ -132,8 +133,11 @@ def test_app_package_re_exports_phase1_contract():
     from src.app.services.tts_service import TtsService, get_tts_service
     from src.app.services.audio_tool_service import AudioToolService, get_audio_tool_service
     from src.app.services.voice_service import VoiceService, get_voice_service
+    from src.app.services.job_service import JobService, get_job_service
+    from src.app.services.queue_runner import QueueRunner, get_queue_runner
 
     expected_dto_exports = {
+        "Job",
         "SubtitleSegment",
         "SubtitleDocument",
         "PipelineRequest",
@@ -179,6 +183,8 @@ def test_app_package_re_exports_phase1_contract():
     expected_app_bindings = {
         "AsrService": AsrService,
         "AudioToolService": AudioToolService,
+        "Job": Job,
+        "JobService": JobService,
         "VoiceService": VoiceService,
         "ArtifactSet": ArtifactSet,
         "BatchItemResult": BatchItemResult,
@@ -192,6 +198,7 @@ def test_app_package_re_exports_phase1_contract():
         "PipelineRequest": PipelineRequest,
         "PipelineResult": PipelineResult,
         "PipelineService": PipelineService,
+        "QueueRunner": QueueRunner,
         "ResourceService": ResourceService,
         "ResourceStatus": ResourceStatus,
         "ResourceUnavailableError": ResourceUnavailableError,
@@ -215,8 +222,10 @@ def test_app_package_re_exports_phase1_contract():
         "get_asr_service": get_asr_service,
         "get_audio_tool_service": get_audio_tool_service,
         "get_batch_pipeline_service": get_batch_pipeline_service,
+        "get_job_service": get_job_service,
         "get_model_service": get_model_service,
         "get_pipeline_service": get_pipeline_service,
+        "get_queue_runner": get_queue_runner,
         "get_resource_service": get_resource_service,
         "get_script_subtitle_service": get_script_subtitle_service,
         "get_subtitle_service": get_subtitle_service,
@@ -254,13 +263,17 @@ def test_services_package_exports_phase1_service_bindings():
     from src.app.services.tts_service import TtsService, get_tts_service
     from src.app.services.audio_tool_service import AudioToolService, get_audio_tool_service
     from src.app.services.voice_service import VoiceService, get_voice_service
+    from src.app.services.job_service import JobService, get_job_service
+    from src.app.services.queue_runner import QueueRunner, get_queue_runner
 
     expected_service_bindings = {
         "AsrService": AsrService,
         "AudioToolService": AudioToolService,
+        "JobService": JobService,
         "BatchPipelineService": BatchPipelineService,
         "ModelService": ModelService,
         "PipelineService": PipelineService,
+        "QueueRunner": QueueRunner,
         "ResourceService": ResourceService,
         "ScriptSubtitleService": ScriptSubtitleService,
         "SubtitleService": SubtitleService,
@@ -271,8 +284,10 @@ def test_services_package_exports_phase1_service_bindings():
         "get_asr_service": get_asr_service,
         "get_audio_tool_service": get_audio_tool_service,
         "get_batch_pipeline_service": get_batch_pipeline_service,
+        "get_job_service": get_job_service,
         "get_model_service": get_model_service,
         "get_pipeline_service": get_pipeline_service,
+        "get_queue_runner": get_queue_runner,
         "get_resource_service": get_resource_service,
         "get_script_subtitle_service": get_script_subtitle_service,
         "get_subtitle_service": get_subtitle_service,
@@ -526,6 +541,93 @@ def test_task_service_create_task_is_safe_for_concurrent_in_process_use():
 
     assert len(created_task_ids) == 20
     assert len(set(created_task_ids)) == 20
+
+
+def test_job_service_cancel_jobs_only_cancels_pending_jobs():
+    from src.app.services.job_service import JobService
+
+    service = JobService()
+    pending = service.create_job("pending.wav", "pending.wav")
+    running = service.create_job("running.wav", "running.wav")
+    service.update_status(running.job_id, status="running", stage="processing", progress=0.5)
+
+    cancelled = service.cancel_jobs([pending.job_id, running.job_id])
+
+    assert [job.job_id for job in cancelled] == [pending.job_id]
+    assert service.get_job(pending.job_id).status == "cancelled"
+    assert service.get_job(pending.job_id).stage == "cancelled"
+    assert service.get_job(running.job_id).status == "running"
+
+
+def test_job_service_create_job_normalizes_wrapped_source_paths():
+    from src.app.services.job_service import JobService
+
+    service = JobService()
+    job = service.create_job(
+        '"D:\\WorkSpace\\AsmrHelper\\功能测试素材\\tc2\\sample.mp3"',
+        '"sample.mp3"',
+    )
+
+    assert job.source_file == r"D:\WorkSpace\AsmrHelper\功能测试素材\tc2\sample.mp3"
+    assert job.source_name == "sample.mp3"
+
+
+def test_queue_runner_auto_start_submits_only_newly_started_jobs(monkeypatch):
+    from src.app.dto.job import Job
+    from src.app.services.queue_runner import QueueRunner
+
+    newly_started = Job(
+        job_id="new-job",
+        job_type="pipeline",
+        source_file="new.wav",
+        source_name="new.wav",
+        status="running",
+        created_at=1.0,
+    )
+
+    class DummyJobs:
+        def start_pending(self, max_concurrent=2):
+            return [newly_started]
+
+    runner = QueueRunner(job_service=None, pipeline_service=object(), max_concurrent=2)
+    runner._jobs = DummyJobs()
+    submitted: list[str] = []
+
+    monkeypatch.setattr(runner, "_submit", lambda job: submitted.append(job.job_id))
+
+    runner._auto_start()
+
+    assert submitted == ["new-job"]
+
+
+def test_queue_runner_run_job_updates_running_state_and_task_id():
+    from src.app.dto import ArtifactSet, PipelineResult
+    from src.app.services.job_service import JobService
+    from src.app.services.queue_runner import QueueRunner
+
+    class DummyPipelineService:
+        def run_audio_pipeline(self, request):
+            return PipelineResult(
+                success=True,
+                input_path=request.input_path,
+                task_id="pipeline-task-1",
+                artifacts=ArtifactSet(files={"mix": "out/final_mix.wav"}, primary_output="out/final_mix.wav"),
+            )
+
+    jobs = JobService()
+    job = jobs.create_job("demo.wav", "demo.wav")
+    jobs.start_pending(max_concurrent=1)
+
+    runner = QueueRunner(job_service=jobs, pipeline_service=DummyPipelineService(), max_concurrent=1)
+    runner._run_job(job.job_id)
+
+    updated = jobs.get_job(job.job_id)
+    assert updated is not None
+    assert updated.status == "completed"
+    assert updated.stage == "done"
+    assert updated.progress == 1.0
+    assert updated.task_id == "pipeline-task-1"
+    assert updated.primary_output == "out/final_mix.wav"
 
 
 def test_subtitle_service_round_trip_preserves_timestamp_entries():

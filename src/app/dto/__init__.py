@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .job import Job
 from .audio_tools import (
     ConvertRequest,
     ConvertResult,
@@ -35,6 +36,7 @@ from .voice import (
 )
 
 __all__ = [
+    "Job",
     "SubtitleSegment",
     "SubtitleDocument",
     "PipelineRequest",

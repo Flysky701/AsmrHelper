@@ -7,6 +7,8 @@ from importlib import import_module
 __all__ = [
     "AsrService",
     "AudioToolService",
+    "JobService",
+    "QueueRunner",
     "BatchPipelineService",
     "ModelService",
     "PipelineService",
@@ -19,6 +21,8 @@ __all__ = [
     "VoiceService",
     "get_asr_service",
     "get_audio_tool_service",
+    "get_job_service",
+    "get_queue_runner",
     "get_batch_pipeline_service",
     "get_model_service",
     "get_pipeline_service",
@@ -34,6 +38,8 @@ __all__ = [
 _EXPORTS = {
     "AsrService": ("src.app.services.asr_service", "AsrService"),
     "AudioToolService": ("src.app.services.audio_tool_service", "AudioToolService"),
+    "JobService": ("src.app.services.job_service", "JobService"),
+    "QueueRunner": ("src.app.services.queue_runner", "QueueRunner"),
     "BatchPipelineService": ("src.app.services.batch_pipeline_service", "BatchPipelineService"),
     "ModelService": ("src.app.services.model_service", "ModelService"),
     "PipelineService": ("src.app.services.pipeline_service", "PipelineService"),
@@ -49,6 +55,8 @@ _EXPORTS = {
     "VoiceService": ("src.app.services.voice_service", "VoiceService"),
     "get_asr_service": ("src.app.services.asr_service", "get_asr_service"),
     "get_audio_tool_service": ("src.app.services.audio_tool_service", "get_audio_tool_service"),
+    "get_job_service": ("src.app.services.job_service", "get_job_service"),
+    "get_queue_runner": ("src.app.services.queue_runner", "get_queue_runner"),
     "get_batch_pipeline_service": (
         "src.app.services.batch_pipeline_service",
         "get_batch_pipeline_service",

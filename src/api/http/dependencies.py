@@ -6,8 +6,10 @@ from src.app.services import (
     get_asr_service,
     get_audio_tool_service,
     get_batch_pipeline_service,
+    get_job_service,
     get_model_service,
     get_pipeline_service,
+    get_queue_runner,
     get_resource_service,
     get_script_subtitle_service,
     get_subtitle_service,
@@ -48,6 +50,14 @@ def task_service():
 
 def resource_service():
     return get_resource_service()
+
+
+def job_service():
+    return get_job_service()
+
+
+def queue_runner():
+    return get_queue_runner()
 
 
 def audio_tool_service():
