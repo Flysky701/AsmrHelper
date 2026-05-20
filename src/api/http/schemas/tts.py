@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -16,3 +18,17 @@ class SynthesizeResponse(BaseModel):
     engine: str
     voice: str
     output_path: str
+
+
+class TtsEngineDescriptorResponse(BaseModel):
+    category: str
+    provider: str
+    display_name: str
+    models: list[str] = Field(default_factory=list)
+    common_options: list[dict[str, Any]] = Field(default_factory=list)
+    provider_options: list[dict[str, Any]] = Field(default_factory=list)
+    supports: dict[str, Any] = Field(default_factory=dict)
+
+
+class TtsEngineListResponse(BaseModel):
+    engines: list[TtsEngineDescriptorResponse] = Field(default_factory=list)

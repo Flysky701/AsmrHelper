@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -18,3 +20,17 @@ class TranslateResponse(BaseModel):
     provider: str = ""
     source_lang: str = ""
     target_lang: str = ""
+
+
+class LlmProviderDescriptorResponse(BaseModel):
+    category: str
+    provider: str
+    display_name: str
+    models: list[str] = Field(default_factory=list)
+    common_options: list[dict[str, Any]] = Field(default_factory=list)
+    provider_options: list[dict[str, Any]] = Field(default_factory=list)
+    supports: dict[str, Any] = Field(default_factory=dict)
+
+
+class LlmProviderListResponse(BaseModel):
+    providers: list[LlmProviderDescriptorResponse] = Field(default_factory=list)

@@ -74,6 +74,7 @@ class BatchPipelineRequest(BaseModel):
 class BatchItemResultResponse(BaseModel):
     file: str
     status: str
+    task_id: str | None = None
     output: str | None = None
     error: str | None = None
     duration: float = 0.0

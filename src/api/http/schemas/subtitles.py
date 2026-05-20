@@ -17,6 +17,16 @@ class SubtitleDocumentModel(BaseModel):
     segments: list[SubtitleSegmentModel] = Field(default_factory=list)
 
 
+class SubtitleParseRequest(BaseModel):
+    content: str = Field(..., description="Raw subtitle text content")
+    fmt: str = Field("srt", description="Subtitle format (currently srt)")
+
+
+class SubtitleParseResponse(BaseModel):
+    document: SubtitleDocumentModel
+    segment_count: int = 0
+
+
 class SubtitleLoadRequest(BaseModel):
     file_path: str = Field(..., description="Path to the subtitle file to load")
 
@@ -30,6 +40,7 @@ class SubtitleExportRequest(BaseModel):
     document: Optional[SubtitleDocumentModel] = None
     segments: list[SubtitleSegmentModel] = Field(default_factory=list)
     output_path: str = Field(..., description="Path to save SRT file")
+    task_id: str | None = Field(None, description="Optional task to attach exported artifact")
 
     @model_validator(mode="after")
     def validate_document_input(self) -> "SubtitleExportRequest":
@@ -46,11 +57,34 @@ class SubtitleExportRequest(BaseModel):
 class SubtitleExportResponse(BaseModel):
     output_path: str
     segment_count: int
+    task_id: str | None = None
+
+
+class SubtitleNormalizeRequest(BaseModel):
+    document: Optional[SubtitleDocumentModel] = None
+    segments: list[SubtitleSegmentModel] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_document_input(self) -> "SubtitleNormalizeRequest":
+        if self.document is None and not self.segments:
+            raise ValueError("either document or segments is required")
+        return self
+
+    def resolved_document(self) -> SubtitleDocumentModel:
+        if self.document is not None:
+            return self.document
+        return SubtitleDocumentModel(segments=self.segments)
+
+
+class SubtitleNormalizeResponse(BaseModel):
+    document: SubtitleDocumentModel
+    segment_count: int = 0
 
 
 class ScriptToVttRequest(BaseModel):
     script_path: str = Field(..., description="Path to the script file")
     output_path: str = Field("", description="Output subtitle file path")
+    task_id: str | None = Field(None, description="Optional task to attach generated artifact")
     audio_path: str | None = Field(None, description="Optional audio file for alignment")
     vtt_path: str | None = Field(None, description="Existing VTT file for re-alignment")
     fmt: str = Field("vtt", description="Output format (vtt/srt/lrc)")
@@ -67,3 +101,4 @@ class ScriptToVttResponse(BaseModel):
     output_path: str | None = None
     text: str = ""
     line_count: int = 0
+    task_id: str | None = None

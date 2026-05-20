@@ -117,6 +117,7 @@ def run_batch(
             BatchItemResultResponse(
                 file=item.file,
                 status=item.status,
+                task_id=item.task_id,
                 output=item.output,
                 error=item.error,
                 duration=item.duration,
