@@ -1,10 +1,28 @@
 """Core pipeline orchestration exports."""
 
-from .models import PipelineExecutionContext
-from .service import LANG_MAP, LegacyPipelineOrchestrator
+from .models import (
+    MixConfig,
+    PipelineExecutionContext,
+    PipelineExecutionPlan,
+    PipelineMode,
+    StageBinding,
+    StageKind,
+    SubtitleConfig,
+)
+from .planner import LANG_MAP, build_execution_plan
+from .result_mapper import ArtifactResultMapper
+from .service import LegacyPipelineOrchestrator
 
 __all__ = [
+    "ArtifactResultMapper",
     "LANG_MAP",
     "LegacyPipelineOrchestrator",
+    "MixConfig",
     "PipelineExecutionContext",
+    "PipelineExecutionPlan",
+    "PipelineMode",
+    "StageBinding",
+    "StageKind",
+    "SubtitleConfig",
+    "build_execution_plan",
 ]

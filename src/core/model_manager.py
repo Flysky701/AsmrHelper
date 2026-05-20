@@ -1,16 +1,11 @@
 """
-统一模型管理器
+统一模型管理器（兼容层）
 
 通过注册表 + 工厂函数 + 单例缓存，统一管理各类模型的实例化和生命周期。
-新增模型只需 register() + 工厂函数，不改现有代码。
 
-用法：
-    from src.core.model_manager import get_model_manager
-
-    mgr = get_model_manager()
-    translator = mgr.get("llm", "deepseek")
-    asr = mgr.get("asr", "faster_whisper", model_size="large-v3")
-    tts = mgr.get("tts", "qwen3", voice="Vivian")
+Phase 2B: ModelManager 现在委托给各引擎域的独立 registry。
+新代码应优先使用各引擎域的 registry（如 get_tts_registry()）。
+ModelManager 保留兼容查询与兼容构造，不再是新代码的默认入口。
 """
 
 import threading
@@ -28,18 +23,28 @@ class _RegistryEntry:
 
 class ModelManager:
     """
-    统一模型管理器
+    统一模型管理器（兼容层）
 
-    - 注册表按 category（llm/asr/tts/separator）分组，每组可有多个 provider
-    - get() 自动从 Config 读取默认参数，调用方可通过 kwargs 覆盖
-    - 每个 (category, name) 组合只创建一次实例（单例）
-    - 工厂函数内延迟 import，不触发重依赖加载
+    Phase 2B: 内部委托给各引擎域的独立 registry。
+    新代码应优先使用：
+        - src.core.engines.tts.get_tts_registry()
+        - src.core.engines.asr.get_asr_registry()
+        - src.core.engines.llm.get_llm_registry()
+        - src.core.engines.separator.get_separator_registry()
     """
 
     _registry: Dict[str, Dict[str, _RegistryEntry]] = {}
     _category_default_config: Dict[str, str] = {
         "llm": "api.provider",
         "tts": "tts.engine",
+    }
+
+    # Domain registry lazy accessors
+    _domain_registries = {
+        "tts": ("src.core.engines.tts", "get_tts_registry"),
+        "asr": ("src.core.engines.asr", "get_asr_registry"),
+        "llm": ("src.core.engines.llm", "get_llm_registry"),
+        "separator": ("src.core.engines.separator", "get_separator_registry"),
     }
 
     def __init__(self):
@@ -70,6 +75,10 @@ class ModelManager:
     @classmethod
     def available(cls, category: str) -> List[str]:
         """列出某 category 下所有已注册的 provider 名称"""
+        # Try domain registry first
+        domain = cls._get_domain_registry(category)
+        if domain is not None:
+            return domain.available()
         return list(cls._registry.get(category, {}).keys())
 
     @classmethod
@@ -85,6 +94,8 @@ class ModelManager:
         """
         获取模型实例（单例 + Config 自动填充 + 调用方 kwargs 覆盖）
 
+        Phase 2B: 优先委托给域 registry，回退到旧注册表。
+
         Args:
             category: 模型类别 ("llm" / "asr" / "tts" / "separator")
             name: provider 名称，为 None 时使用 Config 中的默认值
@@ -96,6 +107,12 @@ class ModelManager:
         if name is None:
             name = self._default_name(category)
 
+        # Try domain registry first
+        domain = self._get_domain_registry(category)
+        if domain is not None and domain.is_registered(name):
+            return domain.get(name, **kwargs)
+
+        # Fallback to legacy registry
         cat_registry = self._registry.get(category)
         if cat_registry is None:
             raise ValueError(f"未知模型类别: '{category}'，可用: {self.categories()}")
@@ -127,8 +144,15 @@ class ModelManager:
         """卸载指定模型实例，释放资源（如 GPU 显存）"""
         if name is None:
             name = self._default_name(category)
-        cache_key = f"{category}/{name}"
 
+        # Try domain registry first
+        domain = self._get_domain_registry(category)
+        if domain is not None and domain.is_registered(name):
+            domain.unload(name)
+            return
+
+        # Fallback to legacy cache
+        cache_key = f"{category}/{name}"
         with self._lock:
             instance = self._instances.pop(cache_key, None)
 
@@ -139,6 +163,13 @@ class ModelManager:
 
     def unload_all(self) -> None:
         """卸载所有已加载的模型实例"""
+        # Delegate to domain registries
+        for cat in self._domain_registries:
+            domain = self._get_domain_registry(cat)
+            if domain is not None:
+                domain.unload_all()
+
+        # Also clear legacy cache
         with self._lock:
             instances = list(self._instances.values())
             self._instances.clear()
@@ -153,6 +184,12 @@ class ModelManager:
         """检查指定模型是否已加载"""
         if name is None:
             name = self._default_name(category)
+
+        # Try domain registry first
+        domain = self._get_domain_registry(category)
+        if domain is not None and domain.is_registered(name):
+            return domain.is_loaded(name)
+
         cache_key = f"{category}/{name}"
         return cache_key in self._instances
 
@@ -216,6 +253,17 @@ class ModelManager:
         except ImportError:
             pass
 
+    @classmethod
+    def _get_domain_registry(cls, category: str) -> Any:
+        """Get the domain registry for a category, if available."""
+        info = cls._domain_registries.get(category)
+        if info is None:
+            return None
+        module_path, func_name = info
+        from importlib import import_module
+        module = import_module(module_path)
+        return getattr(module, func_name)()
+
 
 # ======================================================================
 # 工厂函数（延迟 import，避免加载重依赖）
@@ -266,7 +314,7 @@ def _make_separator(**kwargs):
 
 
 # ======================================================================
-# 内置注册
+# 内置注册（保留兼容）
 # ======================================================================
 
 # --- LLM / 文字处理 ---

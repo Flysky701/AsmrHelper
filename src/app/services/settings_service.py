@@ -60,9 +60,10 @@ class SettingsService:
             "openai": "openai_api_key",
         }
         key_name = provider_key_map.get(provider)
+        api_settings = candidate.get("api", {}) if isinstance(candidate, dict) else {}
         if key_name is None:
             errors.append(f"unsupported provider: {provider}")
-        elif not candidate.get(key_name):
+        elif not api_settings.get(key_name):
             errors.append(f"missing required credential: {key_name}")
         return len(errors) == 0, errors
 

@@ -115,7 +115,8 @@ class SubtitleService:
         target_lang: str = "zh",
         bilingual: bool = True,
     ) -> SubtitleTranslationResult:
-        from src.core.translate import Translator, load_and_clean_subtitle
+        from src.core.subtitles import load_and_clean_subtitle
+        from src.core.translate import Translator
 
         source = Path(input_path)
         if not source.exists():

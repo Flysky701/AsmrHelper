@@ -4,18 +4,24 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from .models import PipelineExecutionContext
-
-
-LANG_MAP = {
-    "ja": ("日文", "中文"),
-    "zh": ("中文", "英文"),
-    "en": ("英文", "中文"),
-}
+from .models import (
+    MixConfig,
+    PipelineExecutionContext,
+    PipelineExecutionPlan,
+    StageBinding,
+    StageKind,
+)
+from .planner import LANG_MAP, build_execution_plan
+from .result_mapper import ArtifactResultMapper
 
 
 class LegacyPipelineOrchestrator:
-    """Build legacy pipeline config objects from task-driven execution context."""
+    """Build legacy pipeline config objects from task-driven execution context.
+
+    This class now uses PipelineExecutionPlan as the intermediate representation
+    before converting to legacy PipelineConfig. The plan is the new primary path;
+    legacy config construction is an adapter for backward compatibility.
+    """
 
     def __init__(
         self,
@@ -31,71 +37,97 @@ class LegacyPipelineOrchestrator:
         progress_callback: Callable[[str], None] | None = None,
         preset: str = "asmr_bilingual",
     ) -> dict[str, Any]:
+        """Run the pipeline using the new execution plan path.
+
+        Builds a PipelineExecutionPlan, converts to legacy config,
+        executes via the legacy Pipeline class, and normalizes results.
+        """
+        plan = build_execution_plan(context)
+        return self._execute_plan(plan, progress_callback=progress_callback, preset=preset)
+
+    def build_plan(self, context: PipelineExecutionContext) -> PipelineExecutionPlan:
+        """Build an execution plan without running it.
+
+        Useful for inspection, validation, or preview before execution.
+        """
+        return build_execution_plan(context)
+
+    def _execute_plan(
+        self,
+        plan: PipelineExecutionPlan,
+        *,
+        progress_callback: Callable[[str], None] | None = None,
+        preset: str = "asmr_bilingual",
+    ) -> dict[str, Any]:
+        """Execute a plan via the legacy pipeline adapter."""
         pipeline_class, _ = self._pipeline_loader()
-        config = self.build_legacy_config(context)
-        return pipeline_class(config).run(
+        config = self._plan_to_legacy_config(plan)
+        raw_results = pipeline_class(config).run(
             preset=preset,
             progress_callback=progress_callback,
         )
+        return ArtifactResultMapper.normalize_results(raw_results)
 
-    def build_legacy_config(self, context: PipelineExecutionContext):
+    def _plan_to_legacy_config(self, plan: PipelineExecutionPlan):
+        """Convert a PipelineExecutionPlan to a legacy PipelineConfig.
+
+        This is the backward-compatibility adapter. New code should
+        work with PipelineExecutionPlan; this method exists only to
+        bridge to the legacy Pipeline class.
+        """
         _, pipeline_config_class = self._pipeline_loader()
-        stage_profiles = dict(context.execution_profile.get("stages", {}))
-        mix_options = dict(context.execution_profile.get("mix", {}))
-        pipeline_options = dict(context.execution_profile.get("pipeline", {}))
-
-        source_lang = pipeline_options.get("source_lang", context.source_lang)
-        target_lang = pipeline_options.get("target_lang", context.target_lang)
-        source_label, _ = LANG_MAP[source_lang]
-        target_label = LANG_MAP[target_lang][0]
-
-        tts_profile = dict(stage_profiles.get("tts", {}))
-        asr_profile = dict(stage_profiles.get("asr", {}))
-        llm_profile = dict(stage_profiles.get("llm", {}))
-        separator_profile = dict(stage_profiles.get("separator", {}))
 
         return pipeline_config_class(
-            input_path=context.input_path,
-            output_dir=context.output_dir,
-            vtt_path=context.companion_subtitle_path,
-            use_vocal_separator=bool(pipeline_options.get("use_vocal_separator", True)),
-            vocal_model=separator_profile.get("model", pipeline_options.get("vocal_model", "htdemucs")),
-            asr_model=asr_profile.get("model", pipeline_options.get("asr_model", "base")),
-            asr_language=source_lang,
-            use_translate=True,
-            translate_provider=llm_profile.get("provider", pipeline_options.get("translate_provider", "deepseek")),
-            source_lang=source_label,
-            target_lang=target_label,
-            use_tts=True,
-            tts_engine=tts_profile.get("provider", pipeline_options.get("tts_engine", "edge")),
-            tts_voice=tts_profile.get("common_options", {}).get(
-                "voice", pipeline_options.get("tts_voice", "zh-CN-XiaoxiaoNeural")
-            ),
-            qwen3_voice=tts_profile.get("common_options", {}).get(
-                "voice", pipeline_options.get("tts_voice", "zh-CN-XiaoxiaoNeural")
-            ),
-            voice_profile_id=tts_profile.get("provider_options", {}).get(
-                "voice_profile_id", pipeline_options.get("voice_profile_id")
-            ),
-            tts_speed=float(
-                tts_profile.get("common_options", {}).get(
-                    "speed", pipeline_options.get("tts_speed", 1.0)
-                )
-            ),
-            use_mixer=True,
-            original_volume=float(
-                mix_options.get("original_volume", pipeline_options.get("original_volume", 0.85))
-            ),
-            tts_volume_ratio=float(
-                mix_options.get("tts_volume_ratio", pipeline_options.get("tts_volume_ratio", 0.5))
-            ),
-            tts_delay_ms=float(
-                mix_options.get("tts_delay", pipeline_options.get("tts_delay", 0.0))
-            ),
-            skip_existing=bool(pipeline_options.get("skip_existing", False)),
-            output_mode=str(pipeline_options.get("output_mode", "single")),
-            batch_root_dir=str(pipeline_options.get("batch_root_dir", "")),
+            # I/O
+            input_path=plan.input_path,
+            output_dir=plan.output_dir,
+            vtt_path=plan.companion_subtitle_path,
+            # Separation
+            use_vocal_separator=plan.separation.enabled,
+            vocal_model=plan.separation.model,
+            # ASR
+            use_asr=plan.asr.enabled,
+            asr_model=plan.asr.model,
+            asr_language=plan.source_lang,
+            # Translation
+            use_translate=plan.translation.enabled,
+            translate_provider=plan.translation.provider,
+            source_lang=plan.source_label,
+            target_lang=plan.target_label,
+            # TTS
+            use_tts=plan.tts.enabled,
+            tts_engine=plan.tts.provider,
+            tts_voice=plan.tts.common_options.get("voice", "zh-CN-XiaoxiaoNeural"),
+            qwen3_voice=plan.tts.common_options.get("voice", "zh-CN-XiaoxiaoNeural"),
+            voice_profile_id=plan.tts.provider_options.get("voice_profile_id"),
+            tts_speed=plan.tts.common_options.get("speed", 1.0),
+            # Mix
+            use_mixer=plan.mix.enabled,
+            original_volume=plan.mix.original_volume,
+            tts_volume_ratio=plan.mix.tts_volume_ratio,
+            tts_delay_ms=plan.mix.tts_delay_ms,
+            # Pipeline behavior
+            skip_existing=plan.skip_existing,
+            output_mode=plan.output_mode,
+            batch_root_dir=plan.batch_root_dir,
+            pipeline_mode=plan.mode.value,
+            # Subtitle
+            clean_subtitle=plan.subtitle.clean_enabled,
+            clean_sound_effects=plan.subtitle.clean_sound_effects,
+            clean_speaker_names=plan.subtitle.clean_speaker_names,
+            export_subtitle_format=plan.subtitle.export_format,
         )
+
+    # --- Legacy compatibility ---
+
+    def build_legacy_config(self, context: PipelineExecutionContext):
+        """Legacy adapter: build a PipelineConfig from context.
+
+        Deprecated: use build_plan() + _plan_to_legacy_config() instead.
+        Kept for backward compatibility with any direct callers.
+        """
+        plan = build_execution_plan(context)
+        return self._plan_to_legacy_config(plan)
 
     @staticmethod
     def _load_pipeline_runtime() -> tuple[type, type]:

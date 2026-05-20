@@ -6,7 +6,12 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from src.core.orchestration import LegacyPipelineOrchestrator, PipelineExecutionContext
+from src.core.orchestration import (
+    LegacyPipelineOrchestrator,
+    PipelineExecutionContext,
+    PipelineExecutionPlan,
+    build_execution_plan,
+)
 
 from ..dto import ArtifactSet, PipelineRequest, PipelineResult
 from ..errors import AppExecutionError, AppValidationError
@@ -119,7 +124,9 @@ class PipelineService:
                 context,
                 progress_callback=on_progress,
             )
-            step_errors = _get_step_errors(results)
+            step_errors = results.get("step_errors", {})
+            if not step_errors:
+                step_errors = _get_step_errors(results)
             if step_errors:
                 detail = "; ".join(
                     f"{step_name}: {error_message}"
@@ -176,6 +183,32 @@ class PipelineService:
     def list_presets(self) -> dict[str, str]:
         pipeline_class, _ = self._orchestrator._load_pipeline_runtime()
         return dict(getattr(pipeline_class, "PRESETS", {}))
+
+    def build_plan(self, task_spec) -> PipelineExecutionPlan:
+        """Build an execution plan from a task spec without running it.
+
+        Useful for inspection, validation, or preview before execution.
+        """
+        session = self._session_service.get_session(task_spec.session_id)
+        input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
+        workspace = self._resource_service.ensure_workspace()
+        output_dir = session.resolved_output_dir or str(workspace["output_dir"])
+
+        pipeline_options = dict(task_spec.execution_profile.get("pipeline", {}))
+        source_lang = pipeline_options.get("source_lang", "ja")
+        target_lang = pipeline_options.get("target_lang", "zh")
+        companion_vtt_path = self._resolve_companion_subtitle_path(session.companion_asset_ids)
+
+        context = PipelineExecutionContext(
+            task_id=task_spec.task_id,
+            input_path=input_asset.absolute_path,
+            output_dir=output_dir,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            companion_subtitle_path=companion_vtt_path,
+            execution_profile=dict(task_spec.execution_profile),
+        )
+        return build_execution_plan(context)
 
     def create_pipeline_task_spec(
         self,

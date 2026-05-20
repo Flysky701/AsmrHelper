@@ -193,7 +193,7 @@ class ScriptToSubtitlePipeline:
 
         # ---- 加载已有字幕 ----
         cb("llm_align", 0, "正在加载已有字幕...")
-        from src.core.translate import load_subtitle_with_timestamps
+        from src.core.subtitles import load_subtitle_with_timestamps
         asr_results = load_subtitle_with_timestamps(str(vtt_path))
         cb("llm_align", 20, f"已加载 {len(asr_results)} 个字幕片段")
         if dbg:

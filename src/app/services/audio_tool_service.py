@@ -409,7 +409,7 @@ class AudioToolService:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            from src.core.translate import load_subtitle_with_timestamps
+            from src.core.subtitles import load_subtitle_with_timestamps
             import soundfile as sf
 
             entries = load_subtitle_with_timestamps(str(subtitle_path))
@@ -461,11 +461,11 @@ class AudioToolService:
             raise AppValidationError(f"subtitle file does not exist: {request.input_path}")
 
         try:
-            from src.core.translate import (
-                Translator,
+            from src.core.subtitles import (
                 load_subtitle_with_timestamps,
                 load_and_clean_subtitle,
             )
+            from src.core.translate import Translator
 
             entries = load_and_clean_subtitle(str(source))
             if not entries:
