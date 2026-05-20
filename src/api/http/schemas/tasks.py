@@ -23,6 +23,7 @@ class TaskStatusResponse(BaseModel):
     task_source: str = ""
     session_id: str = ""
     review_state: ReviewState = ""
+    review_note: str = ""
 
     @classmethod
     def from_task_status(cls, task: TaskStatus) -> "TaskStatusResponse":
@@ -36,6 +37,7 @@ class TaskStatusResponse(BaseModel):
             task_source=task.task_source,
             session_id=task.session_id,
             review_state=task.review_state,
+            review_note=task.review_note,
         )
 
 
@@ -138,3 +140,37 @@ class TaskResultResponse(BaseModel):
 
 class ReviewUpdateRequest(BaseModel):
     review_state: ReviewState
+
+
+class ReviewNoteUpdateRequest(BaseModel):
+    review_note: str = ""
+
+
+class TaskPreviewResponse(BaseModel):
+    task: TaskStatusResponse
+    primary_output: ArtifactRecordResponse | None = None
+    secondary_outputs: list[ArtifactRecordResponse] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    preview_modes: list[str] = Field(default_factory=list)
+    artifact_count: int = 0
+
+
+class TaskQueueStatsResponse(BaseModel):
+    pending: int = 0
+    running: int = 0
+    completed: int = 0
+    failed: int = 0
+    cancelled: int = 0
+    skipped: int = 0
+    max_concurrent: int = 0
+    can_start: bool = True
+
+
+class TaskQueueSnapshotResponse(BaseModel):
+    queued_tasks: list[TaskStatusResponse] = Field(default_factory=list)
+    running_tasks: list[TaskStatusResponse] = Field(default_factory=list)
+    completed_tasks: list[TaskStatusResponse] = Field(default_factory=list)
+    failed_tasks: list[TaskStatusResponse] = Field(default_factory=list)
+    cancelled_tasks: list[TaskStatusResponse] = Field(default_factory=list)
+    skipped_tasks: list[TaskStatusResponse] = Field(default_factory=list)
+    queue_stats: TaskQueueStatsResponse

@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from src.core.engines import SeparatorEngineRuntime
+
 from ..dto import (
     ConvertRequest,
     ConvertResult,
@@ -48,6 +50,7 @@ class AudioToolService:
         session_service: SessionService | None = None,
         artifact_service: ArtifactService | None = None,
         subtitle_service: SubtitleService | None = None,
+        separator_runtime: SeparatorEngineRuntime | None = None,
     ) -> None:
         self._task_service = task_service or get_task_service()
         self._workspace_service = workspace_service or get_workspace_service()
@@ -55,6 +58,7 @@ class AudioToolService:
         self._session_service = session_service or get_session_service()
         self._artifact_service = artifact_service or get_artifact_service()
         self._subtitle_service = subtitle_service or get_subtitle_service()
+        self._separator_runtime = separator_runtime or SeparatorEngineRuntime()
 
     def run_tool_task(self, task_id: str) -> dict[str, Any]:
         task_spec = self._task_service.get_task_spec(task_id)
@@ -275,14 +279,12 @@ class AudioToolService:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         try:
-            from src.core.vocal_separator import VocalSeparator
-
-            separator = VocalSeparator(model_name=request.model)
-            if request.stems:
-                stems = separator.separate(str(source), output_dir, stems=request.stems)
-            else:
-                vocals_path = separator.separate_vocals(str(source), output_dir)
-                stems = {"vocals": vocals_path}
+            stems = self._separator_runtime.separate(
+                input_path=str(source),
+                output_dir=output_dir,
+                model=request.model,
+                stems=request.stems,
+            )
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc
         except Exception as exc:

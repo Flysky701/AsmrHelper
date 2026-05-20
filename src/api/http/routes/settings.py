@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends
 
 from src.api.http.dependencies import settings_service
 from src.api.http.schemas.settings import (
+    ProviderTestRequest,
+    ProviderTestResponse,
     SettingsResponse,
     SettingsUpdateRequest,
     SettingsValidateRequest,
@@ -49,4 +51,17 @@ def validate_settings(
         valid=valid,
         errors=errors,
         settings=masked_settings,
+    )
+
+
+@router.post("/test-provider", response_model=ProviderTestResponse)
+def test_provider(
+    body: ProviderTestRequest,
+    svc: SettingsService = Depends(settings_service),
+):
+    success, errors = svc.test_provider(body.provider, body.settings or None)
+    return ProviderTestResponse(
+        provider=body.provider,
+        success=success,
+        errors=errors,
     )

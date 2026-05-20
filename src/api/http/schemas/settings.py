@@ -23,3 +23,14 @@ class SettingsValidateResponse(BaseModel):
     valid: bool
     errors: list[str]
     settings: dict[str, Any]
+
+
+class ProviderTestRequest(BaseModel):
+    provider: str = Field(..., description="Provider id to test")
+    settings: dict[str, Any] = Field(default_factory=dict, description="Optional override settings")
+
+
+class ProviderTestResponse(BaseModel):
+    provider: str
+    success: bool
+    errors: list[str] = Field(default_factory=list)

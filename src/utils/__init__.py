@@ -5,11 +5,12 @@
 import subprocess
 from pathlib import Path
 from typing import Optional
-import imageio_ffmpeg
 
 
 def get_ffmpeg() -> str:
     """获取 ffmpeg 路径（使用 imageio_ffmpeg 内置版本）"""
+    import imageio_ffmpeg
+
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 

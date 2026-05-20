@@ -6,7 +6,7 @@ import os
 import threading
 from pathlib import Path
 
-from ..dto import ResourceStatus
+from src.core.runtime import ResourceStatus, RuntimeWorkspaceManager
 
 
 class ResourceService:
@@ -14,39 +14,57 @@ class ResourceService:
 
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = (project_root or Path.cwd()).resolve()
+        self._manager = RuntimeWorkspaceManager(self.project_root)
 
     def ensure_workspace(self) -> dict[str, Path]:
-        project_root = self.project_root
-        output_dir = project_root / "output"
-        models_dir = self._get_models_dir()
-
-        project_root.mkdir(parents=True, exist_ok=True)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        models_dir.mkdir(parents=True, exist_ok=True)
-
+        workspace = self._manager.ensure_workspace()
         return {
-            "project_root": project_root,
-            "output_dir": output_dir,
-            "models_dir": models_dir,
+            "project_root": Path(workspace.project_root),
+            "output_dir": Path(workspace.output_dir),
+            "models_dir": Path(workspace.models_dir),
+        }
+
+    def get_runtime_resources(self) -> dict[str, str]:
+        workspace = self._manager.ensure_workspace()
+        return {
+            "project_root": workspace.project_root,
+            "output_dir": workspace.output_dir,
+            "models_dir": workspace.models_dir,
         }
 
     def check_required_resources(self) -> list[ResourceStatus]:
-        workspace = self.ensure_workspace()
-        return [
-            ResourceStatus(
-                name=name,
-                available=path.exists(),
-                detail="ready" if path.exists() else "missing",
-                metadata={"path": str(path)},
-            )
-            for name, path in workspace.items()
-        ]
+        return self._manager.check_required_resources()
 
-    def _get_models_dir(self) -> Path:
-        configured_root = os.getenv("ASMR_HELPER_MODEL_ROOT")
-        if configured_root:
-            return Path(configured_root).expanduser().resolve()
-        return self.project_root / "models"
+    def get_runtime_capabilities(self) -> dict[str, object]:
+        resources = self.get_runtime_resources()
+        statuses = self.check_required_resources()
+        return {
+            "resources": resources,
+            "checks": [
+                {
+                    "name": status.name,
+                    "available": status.available,
+                    "detail": status.detail,
+                    "metadata": dict(status.metadata),
+                }
+                for status in statuses
+            ],
+        }
+
+    def check_task_readiness(
+        self,
+        *,
+        task_type: str,
+        execution_profile: dict | None = None,
+    ) -> dict[str, object]:
+        statuses = self.check_required_resources()
+        missing = [status.name for status in statuses if not status.available]
+        return {
+            "task_type": task_type,
+            "ready": not missing,
+            "missing_requirements": missing,
+            "execution_profile": dict(execution_profile or {}),
+        }
 
 
 _service: ResourceService | None = None

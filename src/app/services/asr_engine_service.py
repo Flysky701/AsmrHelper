@@ -6,6 +6,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from src.core.engines import AsrEngineRuntime
+
 from ..dto import SubtitleSegment, TranscriptionResult
 from ..errors import AppExecutionError, AppValidationError
 from .capability_descriptor_service import CapabilityDescriptorService, get_capability_descriptor_service
@@ -19,9 +21,11 @@ class AsrEngineService:
         self,
         capability_service: CapabilityDescriptorService | None = None,
         profile_builder: ExecutionProfileBuilder | None = None,
+        runtime: AsrEngineRuntime | None = None,
     ) -> None:
         self._capability_service = capability_service or get_capability_descriptor_service()
         self._profile_builder = profile_builder or get_execution_profile_builder()
+        self._runtime = runtime or AsrEngineRuntime()
 
     def list_engines(self) -> list[dict[str, Any]]:
         return self._capability_service.list_descriptors(category="asr")
@@ -67,14 +71,11 @@ class AsrEngineService:
         )
 
         try:
-            from src.core.asr import ASRRecognizer
-
-            recognizer = ASRRecognizer(
-                model_size=profile["model"],
-                language=profile["common_options"].get("language", language),
-                disable_vad=bool(profile["provider_options"].get("disable_vad", True)),
+            document = self._runtime.transcribe_file(
+                input_path=str(source_path),
+                output_path=output_path,
+                profile=profile,
             )
-            entries = recognizer.recognize(str(source_path), output_path)
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc
         except Exception as exc:
@@ -82,11 +83,13 @@ class AsrEngineService:
 
         segments = [
             SubtitleSegment(
-                start=float(entry.get("start", 0.0)),
-                end=float(entry.get("end", 0.0)),
-                text=str(entry.get("text", "")),
+                start=segment.start,
+                end=segment.end,
+                text=segment.text,
+                language=segment.language,
+                confidence=segment.confidence,
             )
-            for entry in entries
+            for segment in document.segments
         ]
         return TranscriptionResult(
             segments=segments,

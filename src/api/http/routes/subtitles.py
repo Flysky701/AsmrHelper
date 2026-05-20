@@ -6,8 +6,13 @@ from fastapi import APIRouter, Depends
 
 from src.api.http.dependencies import artifact_service, script_subtitle_service, subtitle_service
 from src.api.http.schemas.subtitles import (
+    BilingualSubtitleSegmentModel,
+    ScriptToSubtitleRequest,
+    ScriptToSubtitleResponse,
     ScriptToVttRequest,
     ScriptToVttResponse,
+    SubtitleBilingualizeRequest,
+    SubtitleBilingualizeResponse,
     SubtitleDocumentModel,
     SubtitleExportRequest,
     SubtitleExportResponse,
@@ -18,6 +23,8 @@ from src.api.http.schemas.subtitles import (
     SubtitleParseRequest,
     SubtitleParseResponse,
     SubtitleSegmentModel,
+    SubtitleTranslateRequest,
+    SubtitleTranslateResponse,
 )
 from src.app.dto import SubtitleDocument, SubtitleSegment
 from src.app.dto.script_subtitle import ScriptSubtitleRequest
@@ -79,6 +86,78 @@ def normalize_subtitle(
     return SubtitleNormalizeResponse(
         document=response_document,
         segment_count=len(response_document.segments),
+    )
+
+
+@router.post("/translate", response_model=SubtitleTranslateResponse)
+def translate_subtitle(
+    body: SubtitleTranslateRequest,
+    svc: SubtitleService = Depends(subtitle_service),
+    artifact_svc: ArtifactService = Depends(artifact_service),
+):
+    result = svc.translate_subtitle(
+        input_path=body.input_path,
+        output_path=body.output_path or "",
+        provider=body.provider,
+        source_lang=body.source_lang,
+        target_lang=body.target_lang,
+        bilingual=body.bilingual,
+    )
+    if body.task_id and result.output_path:
+        artifact_svc.register_artifact(
+            task_id=body.task_id,
+            artifact_type=f"subtitle.{Path(result.output_path).suffix.lstrip('.') or 'srt'}",
+            path=result.output_path,
+            label="Translated Subtitle",
+            preview_kind="subtitle",
+            stage="translate_subtitle",
+            is_primary=True,
+            metadata={"segment_count": result.total_segments, "provider": result.provider},
+        )
+    return SubtitleTranslateResponse(
+        output_path=result.output_path,
+        total_segments=result.total_segments,
+        provider=result.provider,
+        source_lang=result.source_lang,
+        target_lang=result.target_lang,
+        task_id=body.task_id,
+    )
+
+
+@router.post("/bilingualize", response_model=SubtitleBilingualizeResponse)
+def bilingualize_subtitle(
+    body: SubtitleBilingualizeRequest,
+    svc: SubtitleService = Depends(subtitle_service),
+    artifact_svc: ArtifactService = Depends(artifact_service),
+):
+    segments = [
+        {
+            "start": segment.start,
+            "end": segment.end,
+            "text": segment.text,
+            "translation": segment.translation,
+        }
+        for segment in body.segments
+    ]
+    output_path = svc.bilingualize_segments(
+        segments=segments,
+        output_path=body.output_path,
+    )
+    if body.task_id:
+        artifact_svc.register_artifact(
+            task_id=body.task_id,
+            artifact_type=f"subtitle.{Path(output_path).suffix.lstrip('.') or 'srt'}",
+            path=output_path,
+            label="Bilingual Subtitle",
+            preview_kind="subtitle",
+            stage="subtitle_bilingualize",
+            is_primary=True,
+            metadata={"segment_count": len(body.segments)},
+        )
+    return SubtitleBilingualizeResponse(
+        output_path=output_path,
+        segment_count=len(body.segments),
+        task_id=body.task_id,
     )
 
 
@@ -155,3 +234,17 @@ def script_to_vtt(
         line_count=result.line_count,
         task_id=body.task_id,
     )
+
+
+@router.post("/script-to-subtitle", response_model=ScriptToSubtitleResponse)
+def script_to_subtitle(
+    body: ScriptToSubtitleRequest,
+    svc: ScriptSubtitleService = Depends(script_subtitle_service),
+    artifact_svc: ArtifactService = Depends(artifact_service),
+):
+    result = script_to_vtt(
+        ScriptToVttRequest(**body.model_dump()),
+        svc=svc,
+        artifact_svc=artifact_svc,
+    )
+    return ScriptToSubtitleResponse(**result.model_dump())

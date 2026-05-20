@@ -81,6 +81,41 @@ class SubtitleNormalizeResponse(BaseModel):
     segment_count: int = 0
 
 
+class SubtitleTranslateRequest(BaseModel):
+    input_path: str = Field(..., description="Path to subtitle file")
+    output_path: str | None = Field(None, description="Optional translated subtitle output path")
+    provider: str = Field("deepseek", description="LLM provider id")
+    source_lang: str = Field("ja", description="Source language code")
+    target_lang: str = Field("zh", description="Target language code")
+    bilingual: bool = Field(True, description="Whether to export bilingual subtitle")
+    task_id: str | None = Field(None, description="Optional task to attach generated artifact")
+
+
+class SubtitleTranslateResponse(BaseModel):
+    output_path: str | None = None
+    total_segments: int = 0
+    provider: str = ""
+    source_lang: str = ""
+    target_lang: str = ""
+    task_id: str | None = None
+
+
+class BilingualSubtitleSegmentModel(SubtitleSegmentModel):
+    translation: str | None = None
+
+
+class SubtitleBilingualizeRequest(BaseModel):
+    segments: list[BilingualSubtitleSegmentModel] = Field(default_factory=list)
+    output_path: str = Field(..., description="Output subtitle file path")
+    task_id: str | None = Field(None, description="Optional task to attach generated artifact")
+
+
+class SubtitleBilingualizeResponse(BaseModel):
+    output_path: str
+    segment_count: int = 0
+    task_id: str | None = None
+
+
 class ScriptToVttRequest(BaseModel):
     script_path: str = Field(..., description="Path to the script file")
     output_path: str = Field("", description="Output subtitle file path")
@@ -102,3 +137,11 @@ class ScriptToVttResponse(BaseModel):
     text: str = ""
     line_count: int = 0
     task_id: str | None = None
+
+
+class ScriptToSubtitleRequest(ScriptToVttRequest):
+    pass
+
+
+class ScriptToSubtitleResponse(ScriptToVttResponse):
+    pass

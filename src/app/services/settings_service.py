@@ -48,6 +48,24 @@ class SettingsService:
         valid, errors = self.config.validate(candidate)
         return valid, errors, self._mask_sensitive(candidate)
 
+    def test_provider(self, provider: str, settings: dict[str, Any] | None = None) -> tuple[bool, list[str]]:
+        candidate = (
+            self.config.build_effective_config(config_override=deepcopy(settings))
+            if settings
+            else self.config.to_dict()
+        )
+        errors: list[str] = []
+        provider_key_map = {
+            "deepseek": "deepseek_api_key",
+            "openai": "openai_api_key",
+        }
+        key_name = provider_key_map.get(provider)
+        if key_name is None:
+            errors.append(f"unsupported provider: {provider}")
+        elif not candidate.get(key_name):
+            errors.append(f"missing required credential: {key_name}")
+        return len(errors) == 0, errors
+
     def _mask_sensitive(self, value: Any) -> Any:
         if isinstance(value, dict):
             masked: dict[str, Any] = {}

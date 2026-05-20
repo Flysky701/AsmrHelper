@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from src.api.http.dependencies import artifact_service, task_service
 from src.api.http.schemas.tasks import (
     ArtifactRecordResponse,
+    ReviewNoteUpdateRequest,
     ReviewUpdateRequest,
     TaskBatchCreateRequest,
     TaskBatchCreateResponse,
@@ -14,6 +15,9 @@ from src.api.http.schemas.tasks import (
     TaskCreateResponse,
     TaskArtifactsResponse,
     TaskListResponse,
+    TaskPreviewResponse,
+    TaskQueueSnapshotResponse,
+    TaskQueueStatsResponse,
     TaskResultResponse,
     TaskSpecResponse,
     TaskStatusResponse,
@@ -21,6 +25,7 @@ from src.api.http.schemas.tasks import (
 from src.app.services import ArtifactService, TaskService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+queue_router = APIRouter(tags=["tasks"])
 
 
 @router.post("/{task_id}/cancel", response_model=TaskStatusResponse)
@@ -32,6 +37,15 @@ def cancel_task(
     return TaskStatusResponse.from_task_status(task)
 
 
+@router.post("/{task_id}/retry", response_model=TaskStatusResponse)
+def retry_task(
+    task_id: str,
+    svc: TaskService = Depends(task_service),
+):
+    task = svc.retry_task(task_id)
+    return TaskStatusResponse.from_task_status(task)
+
+
 @router.patch("/{task_id}/review", response_model=TaskStatusResponse)
 def set_review_state(
     task_id: str,
@@ -39,6 +53,36 @@ def set_review_state(
     svc: TaskService = Depends(task_service),
 ):
     task = svc.set_review_state(task_id, body.review_state)
+    return TaskStatusResponse.from_task_status(task)
+
+
+@router.post("/{task_id}/review-status", response_model=TaskStatusResponse)
+def set_review_status(
+    task_id: str,
+    body: ReviewUpdateRequest,
+    svc: TaskService = Depends(task_service),
+):
+    task = svc.set_review_state(task_id, body.review_state)
+    return TaskStatusResponse.from_task_status(task)
+
+
+@router.put("/{task_id}/review-note", response_model=TaskStatusResponse)
+def set_review_note(
+    task_id: str,
+    body: ReviewNoteUpdateRequest,
+    svc: TaskService = Depends(task_service),
+):
+    task = svc.set_review_note(task_id, body.review_note)
+    return TaskStatusResponse.from_task_status(task)
+
+
+@router.post("/{task_id}/review-note", response_model=TaskStatusResponse)
+def post_review_note(
+    task_id: str,
+    body: ReviewNoteUpdateRequest,
+    svc: TaskService = Depends(task_service),
+):
+    task = svc.set_review_note(task_id, body.review_note)
     return TaskStatusResponse.from_task_status(task)
 
 
@@ -94,6 +138,23 @@ def get_running_count(
     svc: TaskService = Depends(task_service),
 ):
     return {"running": svc.running_count(), "can_start": svc.can_start()}
+
+
+@router.get("/queue", response_model=TaskQueueSnapshotResponse)
+@queue_router.get("/task-queue", response_model=TaskQueueSnapshotResponse)
+def get_task_queue(
+    svc: TaskService = Depends(task_service),
+):
+    snapshot = svc.get_queue_snapshot()
+    return TaskQueueSnapshotResponse(
+        queued_tasks=[TaskStatusResponse.from_task_status(task) for task in snapshot["queued_tasks"]],
+        running_tasks=[TaskStatusResponse.from_task_status(task) for task in snapshot["running_tasks"]],
+        completed_tasks=[TaskStatusResponse.from_task_status(task) for task in snapshot["completed_tasks"]],
+        failed_tasks=[TaskStatusResponse.from_task_status(task) for task in snapshot["failed_tasks"]],
+        cancelled_tasks=[TaskStatusResponse.from_task_status(task) for task in snapshot["cancelled_tasks"]],
+        skipped_tasks=[TaskStatusResponse.from_task_status(task) for task in snapshot["skipped_tasks"]],
+        queue_stats=TaskQueueStatsResponse(**snapshot["queue_stats"]),
+    )
 
 
 @router.get("", response_model=TaskListResponse)
@@ -194,4 +255,51 @@ def get_task_result(
             for entry in secondary_outputs
         ],
         warnings=list(result_view["warnings"]),
+    )
+
+
+@router.get("/{task_id}/preview", response_model=TaskPreviewResponse)
+def get_task_preview(
+    task_id: str,
+    task_svc: TaskService = Depends(task_service),
+    artifact_svc: ArtifactService = Depends(artifact_service),
+):
+    task = task_svc.get_task(task_id)
+    preview_view = artifact_svc.get_task_preview_view(task.task_id)
+    primary_output = preview_view["primary_output"]
+    secondary_outputs = preview_view["secondary_outputs"]
+    return TaskPreviewResponse(
+        task=TaskStatusResponse.from_task_status(task),
+        primary_output=(
+            ArtifactRecordResponse(
+                artifact_id=primary_output.artifact_id,
+                task_id=primary_output.task_id,
+                artifact_type=primary_output.artifact_type,
+                path=primary_output.path,
+                label=primary_output.label,
+                preview_kind=primary_output.preview_kind,
+                stage=primary_output.stage,
+                is_primary=primary_output.is_primary,
+                metadata=dict(primary_output.metadata),
+            )
+            if primary_output is not None
+            else None
+        ),
+        secondary_outputs=[
+            ArtifactRecordResponse(
+                artifact_id=entry.artifact_id,
+                task_id=entry.task_id,
+                artifact_type=entry.artifact_type,
+                path=entry.path,
+                label=entry.label,
+                preview_kind=entry.preview_kind,
+                stage=entry.stage,
+                is_primary=entry.is_primary,
+                metadata=dict(entry.metadata),
+            )
+            for entry in secondary_outputs
+        ],
+        warnings=list(preview_view["warnings"]),
+        preview_modes=list(preview_view["preview_modes"]),
+        artifact_count=preview_view["artifact_count"],
     )

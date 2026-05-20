@@ -5,6 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from src.core.artifacts import ArtifactRecord, ArtifactSet
+from src.core.runtime import ResourceStatus
+from src.core.sessions import InputAsset, ProcessingSession, WorkspaceContext
+from src.core.subtitles import SubtitleAsset, SubtitleDocument, SubtitleSegment
+from src.core.tasks import TaskSpec, TaskStatus
+
 from .audio_tools import (
     ConvertRequest,
     ConvertResult,
@@ -86,97 +92,6 @@ __all__ = [
 
 
 @dataclass(slots=True)
-class SubtitleSegment:
-    start: float
-    end: float
-    text: str
-    language: str = ""
-    confidence: float = 0.0
-
-
-@dataclass(slots=True)
-class SubtitleDocument:
-    segments: list[SubtitleSegment] = field(default_factory=list)
-    language: str = ""
-    format: str = ""
-    source_path: str = ""
-    warnings: list[str] = field(default_factory=list)
-
-    @property
-    def line_count(self) -> int:
-        return len(self.segments)
-
-    @property
-    def duration_ms(self) -> float:
-        if not self.segments:
-            return 0.0
-        return max(seg.end for seg in self.segments)
-
-
-@dataclass(slots=True)
-class SubtitleAsset:
-    asset_id: str
-    format: str
-    document: SubtitleDocument = field(default_factory=SubtitleDocument)
-    source_path: str = ""
-    line_count: int = 0
-    warnings: list[str] = field(default_factory=list)
-    language: str = ""
-    companion_of: str = ""
-
-
-@dataclass(slots=True)
-class WorkspaceContext:
-    workspace_id: str
-    workspace_root: str
-    default_output_root: str
-    default_temp_root: str
-    default_models_root: str
-
-
-@dataclass(slots=True)
-class InputAsset:
-    asset_id: str
-    absolute_path: str
-    kind: str
-    display_name: str = ""
-    extension: str = ""
-    exists: bool = False
-    readable: bool = False
-    size_bytes: int = 0
-    warnings: list[str] = field(default_factory=list)
-    related_assets: list[str] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class ProcessingSession:
-    session_id: str
-    workspace_id: str
-    mode: str
-    input_asset_ids: list[str] = field(default_factory=list)
-    primary_input_asset_id: str = ""
-    companion_asset_ids: list[str] = field(default_factory=list)
-    resolved_output_dir: str = ""
-    resolved_temp_dir: str = ""
-    status: str = "ready"
-    validation: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class TaskSpec:
-    task_id: str
-    task_type: str
-    task_source: str
-    session_id: str
-    input_asset_id: str = ""
-    companion_asset_ids: list[str] = field(default_factory=list)
-    execution_profile: dict[str, Any] = field(default_factory=dict)
-    priority: int = 0
-    dedupe_key: str = ""
-    created_at: str = ""
-
-
-@dataclass(slots=True)
 class PipelineRequest:
     input_path: str
     output_dir: str = ""
@@ -215,54 +130,6 @@ class PipelineResult:
 
 
 @dataclass(slots=True)
-class ArtifactSet:
-    files: dict[str, str] = field(default_factory=dict)
-    primary_output: Optional[str] = None
-    entries: list["ArtifactRecord"] = field(default_factory=list)
-
-    @classmethod
-    def from_optional_paths(
-        cls,
-        *,
-        primary_output: Optional[str] = None,
-        **files: Optional[str],
-    ) -> "ArtifactSet":
-        return cls(
-            files={name: path for name, path in files.items() if path},
-            primary_output=primary_output,
-        )
-
-    def get(self, name: str) -> Optional[str]:
-        return self.files.get(name)
-
-
-@dataclass(slots=True)
-class ArtifactRecord:
-    artifact_id: str
-    task_id: str
-    artifact_type: str
-    path: str
-    label: str = ""
-    preview_kind: str = ""
-    stage: str = ""
-    is_primary: bool = False
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class TaskStatus:
-    task_id: str
-    state: str
-    progress: float = 0.0
-    message: str = ""
-    detail: str = ""
-    task_type: str = ""
-    task_source: str = ""
-    session_id: str = ""
-    review_state: str = ""
-
-
-@dataclass(slots=True)
 class TranslationResult:
     items: list[str] = field(default_factory=list)
     provider: str = ""
@@ -282,14 +149,6 @@ class SynthesisResult:
     engine: str
     voice: str
     output_path: str
-
-
-@dataclass(slots=True)
-class ResourceStatus:
-    name: str
-    available: bool
-    detail: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

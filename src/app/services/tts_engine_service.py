@@ -6,6 +6,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from src.core.engines import TtsEngineRuntime
+
 from ..dto import SynthesisResult
 from ..errors import AppExecutionError, AppValidationError
 from .capability_descriptor_service import CapabilityDescriptorService, get_capability_descriptor_service
@@ -19,9 +21,11 @@ class TtsEngineService:
         self,
         capability_service: CapabilityDescriptorService | None = None,
         profile_builder: ExecutionProfileBuilder | None = None,
+        runtime: TtsEngineRuntime | None = None,
     ) -> None:
         self._capability_service = capability_service or get_capability_descriptor_service()
         self._profile_builder = profile_builder or get_execution_profile_builder()
+        self._runtime = runtime or TtsEngineRuntime()
 
     def list_engines(self) -> list[dict[str, Any]]:
         return self._capability_service.list_descriptors(category="tts")
@@ -65,16 +69,12 @@ class TtsEngineService:
         voice = str(profile["common_options"].get("voice", ""))
 
         try:
-            from src.core.tts import TTSEngine
-
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            engine = TTSEngine(
-                engine=engine_id,
-                voice=voice or "zh-CN-XiaoxiaoNeural",
-                speed=float(profile["common_options"].get("speed", 1.0)),
-                voice_profile_id=profile["provider_options"].get("voice_profile_id"),
+            result_path = self._runtime.synthesize_text(
+                text=text,
+                output_path=output_path,
+                profile=profile,
             )
-            result_path = engine.synthesize(text, output_path)
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc
         except Exception as exc:

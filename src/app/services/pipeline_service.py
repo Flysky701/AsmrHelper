@@ -6,6 +6,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from src.core.orchestration import LegacyPipelineOrchestrator, PipelineExecutionContext
+
 from ..dto import ArtifactSet, PipelineRequest, PipelineResult
 from ..errors import AppExecutionError, AppValidationError
 from .artifact_service import ArtifactService, get_artifact_service
@@ -24,22 +26,6 @@ LANG_MAP = {
 
 SUPPORTED_LANGUAGE_CODES = frozenset(LANG_MAP)
 PROGRESS_MESSAGE_DEFAULT = 0.1
-Pipeline = None
-PipelineConfig = None
-
-
-def _load_pipeline_runtime():
-    global Pipeline
-    global PipelineConfig
-    if Pipeline is None or PipelineConfig is None:
-        from src.core import Pipeline as core_pipeline
-        from src.core import PipelineConfig as core_pipeline_config
-
-        if Pipeline is None:
-            Pipeline = core_pipeline
-        if PipelineConfig is None:
-            PipelineConfig = core_pipeline_config
-    return Pipeline, PipelineConfig
 
 
 def _get_step_errors(results: dict) -> dict[str, str]:
@@ -61,6 +47,7 @@ class PipelineService:
         input_catalog_service: InputCatalogService | None = None,
         session_service: SessionService | None = None,
         artifact_service: ArtifactService | None = None,
+        orchestrator: LegacyPipelineOrchestrator | None = None,
     ) -> None:
         self._task_service = task_service or get_task_service()
         self._resource_service = resource_service or get_resource_service()
@@ -68,6 +55,7 @@ class PipelineService:
         self._input_catalog_service = input_catalog_service or get_input_catalog_service()
         self._session_service = session_service or get_session_service()
         self._artifact_service = artifact_service or get_artifact_service()
+        self._orchestrator = orchestrator or LegacyPipelineOrchestrator()
 
     def run_audio_pipeline(self, request: PipelineRequest) -> PipelineResult:
         if not request.input_path:
@@ -100,8 +88,6 @@ class PipelineService:
                 message="preparing workspace",
             )
 
-            stage_profiles = dict(task_spec.execution_profile.get("stages", {}))
-            mix_options = dict(task_spec.execution_profile.get("mix", {}))
             pipeline_options = dict(task_spec.execution_profile.get("pipeline", {}))
 
             source_lang = pipeline_options.get("source_lang", "ja")
@@ -111,41 +97,15 @@ class PipelineService:
             if target_lang not in SUPPORTED_LANGUAGE_CODES:
                 raise AppValidationError(f"unsupported target_lang: {target_lang}")
 
-            source_label, _ = LANG_MAP[source_lang]
-            target_label = LANG_MAP[target_lang][0]
-            pipeline_class, pipeline_config_class = _load_pipeline_runtime()
-
-            tts_profile = dict(stage_profiles.get("tts", {}))
-            asr_profile = dict(stage_profiles.get("asr", {}))
-            llm_profile = dict(stage_profiles.get("llm", {}))
-            separator_profile = dict(stage_profiles.get("separator", {}))
             companion_vtt_path = self._resolve_companion_subtitle_path(session.companion_asset_ids)
-
-            config = pipeline_config_class(
+            context = PipelineExecutionContext(
+                task_id=task_spec.task_id,
                 input_path=input_asset.absolute_path,
                 output_dir=output_dir,
-                vtt_path=companion_vtt_path,
-                use_vocal_separator=bool(pipeline_options.get("use_vocal_separator", True)),
-                vocal_model=separator_profile.get("model", pipeline_options.get("vocal_model", "htdemucs")),
-                asr_model=asr_profile.get("model", pipeline_options.get("asr_model", "base")),
-                asr_language=source_lang,
-                use_translate=True,
-                translate_provider=llm_profile.get("provider", pipeline_options.get("translate_provider", "deepseek")),
-                source_lang=source_label,
-                target_lang=target_label,
-                use_tts=True,
-                tts_engine=tts_profile.get("provider", pipeline_options.get("tts_engine", "edge")),
-                tts_voice=tts_profile.get("common_options", {}).get("voice", pipeline_options.get("tts_voice", "zh-CN-XiaoxiaoNeural")),
-                qwen3_voice=tts_profile.get("common_options", {}).get("voice", pipeline_options.get("tts_voice", "zh-CN-XiaoxiaoNeural")),
-                voice_profile_id=tts_profile.get("provider_options", {}).get("voice_profile_id", pipeline_options.get("voice_profile_id")),
-                tts_speed=float(tts_profile.get("common_options", {}).get("speed", pipeline_options.get("tts_speed", 1.0))),
-                use_mixer=True,
-                original_volume=float(mix_options.get("original_volume", pipeline_options.get("original_volume", 0.85))),
-                tts_volume_ratio=float(mix_options.get("tts_volume_ratio", pipeline_options.get("tts_volume_ratio", 0.5))),
-                tts_delay_ms=float(mix_options.get("tts_delay", pipeline_options.get("tts_delay", 0.0))),
-                skip_existing=bool(pipeline_options.get("skip_existing", False)),
-                output_mode=str(pipeline_options.get("output_mode", "single")),
-                batch_root_dir=str(pipeline_options.get("batch_root_dir", "")),
+                source_lang=source_lang,
+                target_lang=target_lang,
+                companion_subtitle_path=companion_vtt_path,
+                execution_profile=dict(task_spec.execution_profile),
             )
 
             def on_progress(message: str) -> None:
@@ -155,8 +115,8 @@ class PipelineService:
                     message=message,
                 )
 
-            results = pipeline_class(config).run(
-                preset="asmr_bilingual",
+            results = self._orchestrator.run(
+                context,
                 progress_callback=on_progress,
             )
             step_errors = _get_step_errors(results)
@@ -214,7 +174,7 @@ class PipelineService:
         )
 
     def list_presets(self) -> dict[str, str]:
-        pipeline_class, _ = _load_pipeline_runtime()
+        pipeline_class, _ = self._orchestrator._load_pipeline_runtime()
         return dict(getattr(pipeline_class, "PRESETS", {}))
 
     def create_pipeline_task_spec(
