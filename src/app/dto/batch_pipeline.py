@@ -37,6 +37,7 @@ class BatchItemResult:
 
     file: str
     status: str
+    task_id: Optional[str] = None
     output: Optional[str] = None
     error: Optional[str] = None
     duration: float = 0.0

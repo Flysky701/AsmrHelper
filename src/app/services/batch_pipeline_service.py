@@ -12,7 +12,10 @@ from src.utils.constants import AUDIO_EXTENSIONS
 
 from ..dto import BatchItemResult, BatchPipelineRequest, BatchPipelineResult, PipelineRequest
 from ..errors import AppExecutionError, AppValidationError
+from .input_catalog_service import InputCatalogService, get_input_catalog_service
 from .pipeline_service import PipelineService, get_pipeline_service
+from .session_service import SessionService, get_session_service
+from .task_service import TaskService, get_task_service
 
 
 ProgressCallback = Callable[[int, int, BatchItemResult], None]
@@ -21,8 +24,17 @@ ProgressCallback = Callable[[int, int, BatchItemResult], None]
 class BatchPipelineService:
     """Normalize batch orchestration behind the app layer."""
 
-    def __init__(self, pipeline_service: PipelineService | None = None) -> None:
+    def __init__(
+        self,
+        pipeline_service: PipelineService | None = None,
+        task_service: TaskService | None = None,
+        session_service: SessionService | None = None,
+        input_catalog_service: InputCatalogService | None = None,
+    ) -> None:
         self._pipeline_service = pipeline_service or get_pipeline_service()
+        self._task_service = task_service or get_task_service()
+        self._session_service = session_service or get_session_service()
+        self._input_catalog_service = input_catalog_service or get_input_catalog_service()
 
     def discover_audio_files(self, directory: str) -> list[Path]:
         if not directory:
@@ -54,20 +66,21 @@ class BatchPipelineService:
 
         started_at = time.time()
         items: list[BatchItemResult] = []
+        task_specs = self.create_batch_task_specs(request, input_files=input_files)
 
         if request.max_workers == 1:
-            for index, input_path in enumerate(input_files, start=1):
+            for index, task_spec in enumerate(task_specs, start=1):
                 if cancel_event is not None and cancel_event.is_set():
                     break
-                item = self._process_one(input_path, request)
+                item = self._process_one(task_spec.task_id, request)
                 items.append(item)
                 if progress_callback is not None:
                     progress_callback(index, total, item)
         else:
             with ThreadPoolExecutor(max_workers=request.max_workers) as executor:
                 futures = {
-                    executor.submit(self._process_one, input_path, request): input_path
-                    for input_path in input_files
+                    executor.submit(self._process_one, task_spec.task_id, request): task_spec.task_id
+                    for task_spec in task_specs
                 }
                 completed = 0
                 for future in as_completed(futures):
@@ -77,13 +90,14 @@ class BatchPipelineService:
                         break
 
                     completed += 1
-                    input_path = futures[future]
+                    task_id = futures[future]
                     try:
                         item = future.result()
                     except Exception as exc:
                         item = BatchItemResult(
-                            file=str(input_path),
+                            file=task_id,
                             status="failed",
+                            task_id=task_id,
                             error=str(exc),
                         )
                     items.append(item)
@@ -104,45 +118,16 @@ class BatchPipelineService:
             total_duration=time.time() - started_at,
         )
 
-    def _resolve_input_files(self, request: BatchPipelineRequest) -> list[Path]:
-        if request.input_files and request.input_dir:
-            raise AppValidationError("input_files and input_dir are mutually exclusive")
-        if request.input_files:
-            input_files = [Path(path) for path in request.input_files]
-        elif request.input_dir:
-            input_files = self.discover_audio_files(request.input_dir)
-        else:
-            raise AppValidationError("either input_files or input_dir is required")
-
-        missing = [path for path in input_files if not path.exists()]
-        if missing:
-            raise AppValidationError(
-                "input files do not exist: " + ", ".join(str(path) for path in missing)
-            )
-        return input_files
-
-    def _process_one(self, input_path: Path, request: BatchPipelineRequest) -> BatchItemResult:
-        started_at = time.time()
-        try:
-            if request.use_batch_output_structure:
-                output_dir = ""
-                batch_root_dir = request.output_base_dir or str(input_path.parent / "output")
-                expected_output = str(
-                    Path(batch_root_dir) / "Main_Product" / f"{input_path.stem}_mix{input_path.suffix}"
-                )
-            else:
-                output_dir = str(self._resolve_output_dir(input_path, request.output_base_dir))
-                batch_root_dir = ""
-                expected_output = self._resolve_existing_single_output(input_path, Path(output_dir))
-
-            if request.skip_existing and Path(expected_output).exists():
-                return BatchItemResult(
-                    file=str(input_path),
-                    status="skipped",
-                    output=expected_output,
-                    duration=time.time() - started_at,
-                )
-
+    def create_batch_task_specs(
+        self,
+        request: BatchPipelineRequest,
+        *,
+        input_files: list[Path] | None = None,
+    ):
+        resolved_input_files = input_files or self._resolve_input_files(request)
+        task_specs = []
+        for input_path in resolved_input_files:
+            output_dir, batch_root_dir = self._resolve_task_output(request, input_path)
             pipeline_request = PipelineRequest(
                 input_path=str(input_path),
                 output_dir=output_dir,
@@ -163,7 +148,61 @@ class BatchPipelineService:
                 output_mode="batch" if request.use_batch_output_structure else "single",
                 batch_root_dir=batch_root_dir,
             )
-            pipeline_result = self._pipeline_service.run_audio_pipeline(pipeline_request)
+            task_specs.append(
+                self._pipeline_service.create_pipeline_task_spec(
+                    pipeline_request,
+                    task_source="batch-pipeline",
+                )
+            )
+        return task_specs
+
+    def _resolve_input_files(self, request: BatchPipelineRequest) -> list[Path]:
+        if request.input_files and request.input_dir:
+            raise AppValidationError("input_files and input_dir are mutually exclusive")
+        if request.input_files:
+            input_files = [Path(path) for path in request.input_files]
+        elif request.input_dir:
+            input_files = self.discover_audio_files(request.input_dir)
+        else:
+            raise AppValidationError("either input_files or input_dir is required")
+
+        missing = [path for path in input_files if not path.exists()]
+        if missing:
+            raise AppValidationError(
+                "input files do not exist: " + ", ".join(str(path) for path in missing)
+            )
+        return input_files
+
+    def _process_one(self, task_id: str, request: BatchPipelineRequest) -> BatchItemResult:
+        started_at = time.time()
+        try:
+            task_spec = self._task_service.get_task_spec(task_id)
+            session = self._session_service.get_session(task_spec.session_id)
+            input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
+            input_path = Path(input_asset.absolute_path)
+            _, batch_root_dir = self._resolve_task_output(request, input_path)
+            if request.use_batch_output_structure:
+                expected_output = str(
+                    Path(batch_root_dir) / "Main_Product" / f"{input_path.stem}_mix{input_path.suffix}"
+                )
+            else:
+                expected_output = self._resolve_existing_single_output(input_path, Path(session.resolved_output_dir))
+
+            if request.skip_existing and Path(expected_output).exists():
+                self._task_service.skip_task(
+                    task_id,
+                    message="pipeline skipped",
+                    detail=expected_output,
+                )
+                return BatchItemResult(
+                    file=str(input_path),
+                    status="skipped",
+                    task_id=task_id,
+                    output=expected_output,
+                    duration=time.time() - started_at,
+                )
+
+            pipeline_result = self._pipeline_service.run_pipeline_task(task_id)
             output = pipeline_result.mix_path or pipeline_result.artifacts.primary_output
             if not output:
                 raise AppExecutionError("pipeline did not return a primary output")
@@ -171,13 +210,15 @@ class BatchPipelineService:
             return BatchItemResult(
                 file=str(input_path),
                 status="success",
+                task_id=task_id,
                 output=output,
                 duration=time.time() - started_at,
             )
         except Exception as exc:
             return BatchItemResult(
-                file=str(input_path),
+                file=str(task_id),
                 status="failed",
+                task_id=task_id,
                 error=str(exc),
                 duration=time.time() - started_at,
             )
@@ -193,6 +234,11 @@ class BatchPipelineService:
         if output_base_dir:
             return Path(output_base_dir) / safe_name
         return input_path.parent / f"{safe_name}_output"
+
+    def _resolve_task_output(self, request: BatchPipelineRequest, input_path: Path) -> tuple[str, str]:
+        if request.use_batch_output_structure:
+            return "", request.output_base_dir or str(input_path.parent / "output")
+        return str(self._resolve_output_dir(input_path, request.output_base_dir)), ""
 
     def _resolve_existing_single_output(self, input_path: Path, output_dir: Path) -> str:
         task_output = output_dir / f"{input_path.stem}_mix{input_path.suffix}"

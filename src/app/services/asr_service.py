@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 
-from ..dto import SubtitleSegment, TranscriptionResult
-from ..errors import AppExecutionError, AppValidationError
+from ..dto import TranscriptionResult
+from .asr_engine_service import AsrEngineService, get_asr_engine_service
 
 
 class AsrService:
     """Stable application-facing facade for ASR operations."""
+
+    def __init__(self, engine_service: AsrEngineService | None = None) -> None:
+        self._engine_service = engine_service or get_asr_engine_service()
 
     def transcribe_file(
         self,
@@ -20,32 +22,12 @@ class AsrService:
         language: str = "ja",
         disable_vad: bool = True,
     ) -> TranscriptionResult:
-        source_path = Path(input_path)
-        if not source_path.exists():
-            raise AppValidationError(f"input file does not exist: {input_path}")
-
-        try:
-            from src.core.asr import ASRRecognizer
-
-            recognizer = ASRRecognizer(model_size=model, language=language, disable_vad=disable_vad)
-            entries = recognizer.recognize(str(source_path), output_path)
-        except ValueError as exc:
-            raise AppValidationError(str(exc)) from exc
-        except Exception as exc:
-            raise AppExecutionError(str(exc)) from exc
-
-        segments = [
-            SubtitleSegment(
-                start=float(entry.get("start", 0.0)),
-                end=float(entry.get("end", 0.0)),
-                text=str(entry.get("text", "")),
-            )
-            for entry in entries
-        ]
-        return TranscriptionResult(
-            segments=segments,
+        return self._engine_service.transcribe_file(
+            input_path=input_path,
             output_path=output_path,
-            text="\n".join(segment.text for segment in segments if segment.text),
+            model=model,
+            language=language,
+            provider_options={"disable_vad": disable_vad},
         )
 
 

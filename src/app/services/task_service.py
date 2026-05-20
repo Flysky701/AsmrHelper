@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime, UTC
 
-from ..dto import TaskStatus
+from ..dto import TaskSpec, TaskStatus
 from ..errors import AppValidationError
 
 
@@ -13,6 +14,7 @@ class TaskService:
 
     def __init__(self) -> None:
         self._tasks: dict[str, TaskStatus] = {}
+        self._task_specs: dict[str, TaskSpec] = {}
         self._counters: dict[str, int] = {}
         self._lock = threading.Lock()
 
@@ -24,6 +26,45 @@ class TaskService:
             self._tasks[task.task_id] = task
             return self._clone_task(task)
 
+    def create_task_spec(
+        self,
+        *,
+        task_type: str,
+        task_source: str,
+        session_id: str,
+        input_asset_id: str = "",
+        companion_asset_ids: list[str] | None = None,
+        execution_profile: dict | None = None,
+        priority: int = 0,
+        dedupe_key: str = "",
+    ) -> tuple[TaskSpec, TaskStatus]:
+        with self._lock:
+            next_id = self._counters.get(task_type, 0) + 1
+            self._counters[task_type] = next_id
+            task_id = f"{task_type}-{next_id}"
+            task_spec = TaskSpec(
+                task_id=task_id,
+                task_type=task_type,
+                task_source=task_source,
+                session_id=session_id,
+                input_asset_id=input_asset_id,
+                companion_asset_ids=list(companion_asset_ids or []),
+                execution_profile=dict(execution_profile or {}),
+                priority=priority,
+                dedupe_key=dedupe_key,
+                created_at=datetime.now(UTC).isoformat(),
+            )
+            task_status = TaskStatus(
+                task_id=task_id,
+                state="pending",
+                task_type=task_type,
+                task_source=task_source,
+                session_id=session_id,
+            )
+            self._task_specs[task_id] = task_spec
+            self._tasks[task_id] = task_status
+            return self._clone_spec(task_spec), self._clone_task(task_status)
+
     def get_task(self, task_id: str) -> TaskStatus:
         with self._lock:
             try:
@@ -31,6 +72,14 @@ class TaskService:
             except KeyError as exc:
                 raise AppValidationError(f"unknown task id: {task_id}") from exc
             return self._clone_task(task)
+
+    def get_task_spec(self, task_id: str) -> TaskSpec:
+        with self._lock:
+            try:
+                task_spec = self._task_specs[task_id]
+            except KeyError as exc:
+                raise AppValidationError(f"unknown task id: {task_id}") from exc
+            return self._clone_spec(task_spec)
 
     def start_task(self, task_id: str, message: str = "") -> TaskStatus:
         return self._update_task(task_id, state="running", message=message)
@@ -51,6 +100,15 @@ class TaskService:
         return self._update_task(
             task_id,
             state="failed",
+            progress=1.0,
+            message=message,
+            detail=detail,
+        )
+
+    def skip_task(self, task_id: str, message: str = "", detail: str = "") -> TaskStatus:
+        return self._update_task(
+            task_id,
+            state="skipped",
             progress=1.0,
             message=message,
             detail=detail,
@@ -77,6 +135,9 @@ class TaskService:
                 progress=progress if progress is not None else current.progress,
                 message=message if message is not None else current.message,
                 detail=detail if detail is not None else current.detail,
+                task_type=current.task_type,
+                task_source=current.task_source,
+                session_id=current.session_id,
             )
             self._tasks[task_id] = updated
             return self._clone_task(updated)
@@ -93,6 +154,24 @@ class TaskService:
             progress=task.progress,
             message=task.message,
             detail=task.detail,
+            task_type=task.task_type,
+            task_source=task.task_source,
+            session_id=task.session_id,
+        )
+
+    @staticmethod
+    def _clone_spec(task_spec: TaskSpec) -> TaskSpec:
+        return TaskSpec(
+            task_id=task_spec.task_id,
+            task_type=task_spec.task_type,
+            task_source=task_spec.task_source,
+            session_id=task_spec.session_id,
+            input_asset_id=task_spec.input_asset_id,
+            companion_asset_ids=list(task_spec.companion_asset_ids),
+            execution_profile=dict(task_spec.execution_profile),
+            priority=task_spec.priority,
+            dedupe_key=task_spec.dedupe_key,
+            created_at=task_spec.created_at,
         )
 
 

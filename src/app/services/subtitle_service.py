@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import re
 import threading
+from pathlib import Path
 
-from ..dto import SubtitleDocument, SubtitleSegment
+from ..dto import SubtitleAsset, SubtitleDocument, SubtitleSegment
+from ..errors import AppExecutionError, AppValidationError
 
 
 class SubtitleService:
@@ -15,6 +17,11 @@ class SubtitleService:
         r"^\s*\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}\s*$"
     )
     _SRT_CUE_INDEX_PATTERN = re.compile(r"^\s*\d+\s*$")
+
+    def __init__(self) -> None:
+        self._assets: dict[str, SubtitleAsset] = {}
+        self._asset_counter = 0
+        self._lock = threading.Lock()
 
     def from_timestamp_entries(self, entries: list[dict]) -> SubtitleDocument:
         segments = [
@@ -76,6 +83,70 @@ class SubtitleService:
 
         return SubtitleDocument(segments=segments)
 
+    def parse_text(self, content: str, fmt: str = "srt") -> SubtitleDocument:
+        normalized_format = self._normalize_format(fmt)
+        if normalized_format != "srt":
+            raise AppValidationError(f"unsupported subtitle format: {fmt}")
+        return self.load_srt_text(content)
+
+    def load_asset(self, file_path: str) -> SubtitleAsset:
+        path = Path(file_path)
+        if not path.exists():
+            raise AppValidationError(f"subtitle file not found: {file_path}")
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise AppExecutionError(f"failed to read subtitle file: {file_path}: {exc}") from exc
+
+        document = self.parse_text(content, path.suffix.lstrip(".") or "srt")
+        return self.create_asset(
+            document=document,
+            fmt=path.suffix.lstrip(".") or "srt",
+            source_path=str(path),
+        )
+
+    def create_asset(
+        self,
+        *,
+        document: SubtitleDocument,
+        fmt: str = "srt",
+        source_path: str = "",
+        warnings: list[str] | None = None,
+    ) -> SubtitleAsset:
+        normalized_document = self.normalize_document(document)
+        with self._lock:
+            self._asset_counter += 1
+            asset_id = f"subtitle-{self._asset_counter}"
+            asset = SubtitleAsset(
+                asset_id=asset_id,
+                format=self._normalize_format(fmt),
+                document=normalized_document,
+                source_path=source_path,
+                line_count=len([seg for seg in normalized_document.segments if seg.text.strip()]),
+                warnings=list(warnings or []),
+            )
+            self._assets[asset_id] = asset
+        return self._clone_asset(asset)
+
+    def get_asset(self, asset_id: str) -> SubtitleAsset:
+        with self._lock:
+            try:
+                asset = self._assets[asset_id]
+            except KeyError as exc:
+                raise AppValidationError(f"unknown subtitle asset id: {asset_id}") from exc
+        return self._clone_asset(asset)
+
+    def normalize_document(self, document: SubtitleDocument) -> SubtitleDocument:
+        normalized_segments: list[SubtitleSegment] = []
+        for segment in document.segments:
+            text = self._normalize_text(segment.text)
+            start = max(0.0, float(segment.start))
+            end = max(start, float(segment.end))
+            if not text:
+                continue
+            normalized_segments.append(SubtitleSegment(start=start, end=end, text=text))
+        return SubtitleDocument(segments=normalized_segments)
+
     def export_srt_text(self, document: SubtitleDocument) -> str:
         blocks = []
         for index, segment in enumerate(document.segments, start=1):
@@ -95,6 +166,26 @@ class SubtitleService:
         if not blocks:
             return ""
         return "\n\n".join(blocks) + "\n"
+
+    def export_document(
+        self,
+        document: SubtitleDocument,
+        *,
+        output_path: str,
+        fmt: str | None = None,
+    ) -> str:
+        normalized_document = self.normalize_document(document)
+        resolved_format = self._normalize_format(fmt or Path(output_path).suffix.lstrip(".") or "srt")
+        if resolved_format != "srt":
+            raise AppValidationError(f"unsupported subtitle format: {resolved_format}")
+
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            path.write_text(self.export_srt_text(normalized_document), encoding="utf-8")
+        except OSError as exc:
+            raise AppExecutionError(f"failed to write subtitle file: {output_path}: {exc}") from exc
+        return str(path)
 
     def _parse_srt_timestamp(self, value: str) -> float:
         hours_text, minutes_text, seconds_text = value.split(":")
@@ -164,6 +255,30 @@ class SubtitleService:
     def _contains_srt_separator(self, value: str) -> bool:
         left, separator, right = value.partition("-->")
         return bool(separator and left.strip() and right.strip())
+
+    def _normalize_text(self, value: str) -> str:
+        lines = [line.strip() for line in value.replace("\r\n", "\n").split("\n")]
+        compacted = "\n".join(line for line in lines if line)
+        return compacted.strip()
+
+    def _normalize_format(self, value: str) -> str:
+        normalized = value.lower().strip().lstrip(".")
+        return normalized or "srt"
+
+    def _clone_asset(self, asset: SubtitleAsset) -> SubtitleAsset:
+        return SubtitleAsset(
+            asset_id=asset.asset_id,
+            format=asset.format,
+            document=SubtitleDocument(
+                segments=[
+                    SubtitleSegment(start=segment.start, end=segment.end, text=segment.text)
+                    for segment in asset.document.segments
+                ]
+            ),
+            source_path=asset.source_path,
+            line_count=asset.line_count,
+            warnings=list(asset.warnings),
+        )
 
 
 _service: SubtitleService | None = None

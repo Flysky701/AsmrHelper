@@ -6,11 +6,15 @@ import threading
 from pathlib import Path
 
 from ..dto import TranslationResult
-from ..errors import AppExecutionError, AppValidationError
+from ..errors import AppValidationError
+from .llm_capability_service import LlmCapabilityService, get_llm_capability_service
 
 
 class TranslationService:
     """Stable application-facing facade for translation operations."""
+
+    def __init__(self, llm_service: LlmCapabilityService | None = None) -> None:
+        self._llm_service = llm_service or get_llm_capability_service()
 
     def translate_file(
         self,
@@ -29,26 +33,10 @@ class TranslationService:
             for line in source_path.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-        try:
-            from src.core.translate import Translator
-
-            translator = Translator(provider=provider)
-            items = translator.translate_batch(
-                texts,
-                source_lang=source_lang,
-                target_lang=target_lang,
-            )
-        except ValueError as exc:
-            raise AppValidationError(str(exc)) from exc
-        except Exception as exc:
-            raise AppExecutionError(str(exc)) from exc
-
-        if output_path:
-            Path(output_path).write_text("\n".join(items), encoding="utf-8")
-
-        return TranslationResult(
-            items=items,
+        return self._llm_service.translate_texts(
+            texts=texts,
             provider=provider,
+            output_path=output_path,
             source_lang=source_lang,
             target_lang=target_lang,
         )

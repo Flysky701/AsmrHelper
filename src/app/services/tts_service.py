@@ -6,11 +6,15 @@ import threading
 from pathlib import Path
 
 from ..dto import SynthesisResult
-from ..errors import AppExecutionError, AppValidationError
+from ..errors import AppValidationError
+from .tts_engine_service import TtsEngineService, get_tts_engine_service
 
 
 class TtsService:
     """Stable application-facing facade for TTS operations."""
+
+    def __init__(self, engine_service: TtsEngineService | None = None) -> None:
+        self._engine_service = engine_service or get_tts_engine_service()
 
     def synthesize_file(
         self,
@@ -23,21 +27,12 @@ class TtsService:
         if not source_path.exists():
             raise AppValidationError(f"input file does not exist: {input_path}")
 
-        try:
-            from src.core.tts import TTSEngine
-
-            text = source_path.read_text(encoding="utf-8")
-            tts_engine = TTSEngine(engine=engine, voice=voice)
-            result_path = tts_engine.synthesize(text, output_path)
-        except ValueError as exc:
-            raise AppValidationError(str(exc)) from exc
-        except Exception as exc:
-            raise AppExecutionError(str(exc)) from exc
-
-        return SynthesisResult(
-            engine=engine,
-            voice=voice,
-            output_path=result_path,
+        text = source_path.read_text(encoding="utf-8")
+        return self._engine_service.synthesize_text(
+            text=text,
+            output_path=output_path,
+            provider=engine,
+            common_options={"voice": voice},
         )
 
 

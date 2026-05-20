@@ -37,8 +37,14 @@ from .voice import (
 __all__ = [
     "SubtitleSegment",
     "SubtitleDocument",
+    "SubtitleAsset",
+    "WorkspaceContext",
+    "InputAsset",
+    "ProcessingSession",
+    "TaskSpec",
     "PipelineRequest",
     "PipelineResult",
+    "ArtifactRecord",
     "ArtifactSet",
     "BatchPipelineRequest",
     "BatchItemResult",
@@ -92,6 +98,67 @@ class SubtitleDocument:
 
 
 @dataclass(slots=True)
+class SubtitleAsset:
+    asset_id: str
+    format: str
+    document: SubtitleDocument = field(default_factory=SubtitleDocument)
+    source_path: str = ""
+    line_count: int = 0
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class WorkspaceContext:
+    workspace_id: str
+    workspace_root: str
+    default_output_root: str
+    default_temp_root: str
+    default_models_root: str
+
+
+@dataclass(slots=True)
+class InputAsset:
+    asset_id: str
+    absolute_path: str
+    kind: str
+    display_name: str = ""
+    extension: str = ""
+    exists: bool = False
+    readable: bool = False
+    size_bytes: int = 0
+    warnings: list[str] = field(default_factory=list)
+    related_assets: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ProcessingSession:
+    session_id: str
+    workspace_id: str
+    mode: str
+    input_asset_ids: list[str] = field(default_factory=list)
+    primary_input_asset_id: str = ""
+    companion_asset_ids: list[str] = field(default_factory=list)
+    resolved_output_dir: str = ""
+    resolved_temp_dir: str = ""
+    status: str = "ready"
+    validation: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class TaskSpec:
+    task_id: str
+    task_type: str
+    task_source: str
+    session_id: str
+    input_asset_id: str = ""
+    companion_asset_ids: list[str] = field(default_factory=list)
+    execution_profile: dict[str, Any] = field(default_factory=dict)
+    priority: int = 0
+    dedupe_key: str = ""
+    created_at: str = ""
+
+
+@dataclass(slots=True)
 class PipelineRequest:
     input_path: str
     output_dir: str = ""
@@ -133,6 +200,7 @@ class PipelineResult:
 class ArtifactSet:
     files: dict[str, str] = field(default_factory=dict)
     primary_output: Optional[str] = None
+    entries: list["ArtifactRecord"] = field(default_factory=list)
 
     @classmethod
     def from_optional_paths(
@@ -151,12 +219,28 @@ class ArtifactSet:
 
 
 @dataclass(slots=True)
+class ArtifactRecord:
+    artifact_id: str
+    task_id: str
+    artifact_type: str
+    path: str
+    label: str = ""
+    preview_kind: str = ""
+    stage: str = ""
+    is_primary: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class TaskStatus:
     task_id: str
     state: str
     progress: float = 0.0
     message: str = ""
     detail: str = ""
+    task_type: str = ""
+    task_source: str = ""
+    session_id: str = ""
 
 
 @dataclass(slots=True)

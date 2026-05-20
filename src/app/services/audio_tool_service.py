@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 from ..dto import (
     ConvertRequest,
@@ -20,6 +21,11 @@ from ..dto import (
     VolumePreviewResult,
 )
 from ..errors import AppExecutionError, AppValidationError
+from .artifact_service import ArtifactService, get_artifact_service
+from .input_catalog_service import InputCatalogService, get_input_catalog_service
+from .session_service import SessionService, get_session_service
+from .task_service import TaskService, get_task_service
+from .workspace_service import WorkspaceService, get_workspace_service
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,226 @@ _LANG_MAP = {
 
 class AudioToolService:
     """Stable application-facing facade for audio utility operations."""
+
+    def __init__(
+        self,
+        task_service: TaskService | None = None,
+        workspace_service: WorkspaceService | None = None,
+        input_catalog_service: InputCatalogService | None = None,
+        session_service: SessionService | None = None,
+        artifact_service: ArtifactService | None = None,
+    ) -> None:
+        self._task_service = task_service or get_task_service()
+        self._workspace_service = workspace_service or get_workspace_service()
+        self._input_catalog_service = input_catalog_service or get_input_catalog_service()
+        self._session_service = session_service or get_session_service()
+        self._artifact_service = artifact_service or get_artifact_service()
+
+    def run_tool_task(self, task_id: str) -> dict[str, Any]:
+        task_spec = self._task_service.get_task_spec(task_id)
+        if not task_spec.task_type.startswith("tool."):
+            raise AppValidationError(f"task is not a tool task: {task_id}")
+        return self.run_tool_task_spec(task_spec)
+
+    def run_tool_task_spec(self, task_spec) -> dict[str, Any]:
+        session = self._session_service.get_session(task_spec.session_id)
+        input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
+        tool_name = task_spec.task_type.removeprefix("tool.")
+        self._task_service.start_task(task_spec.task_id, message=f"running {tool_name}")
+
+        try:
+            if tool_name == "separate":
+                result = self.separate_vocals(
+                    SeparationRequest(
+                        input_path=input_asset.absolute_path,
+                        output_dir=session.resolved_output_dir,
+                        model=task_spec.execution_profile.get("model", "htdemucs"),
+                        stems=task_spec.execution_profile.get("stems"),
+                    )
+                )
+                if result.primary_output:
+                    self._artifact_service.register_artifact(
+                        task_id=task_spec.task_id,
+                        artifact_type="audio.vocals",
+                        path=result.primary_output,
+                        label="Separated Vocals",
+                        preview_kind="audio",
+                        stage="separation",
+                        is_primary=True,
+                    )
+                detail = result.primary_output or ""
+                summary = {"primary_output": result.primary_output, "stems": dict(result.stems)}
+            elif tool_name == "convert":
+                output_path = task_spec.execution_profile.get("output_path")
+                if not output_path:
+                    extension = task_spec.execution_profile.get("target_format", "wav")
+                    output_path = str(Path(session.resolved_output_dir) / f"{Path(input_asset.display_name).stem}.{extension}")
+                result = self.convert_audio(
+                    ConvertRequest(
+                        input_path=input_asset.absolute_path,
+                        output_path=output_path,
+                        target_format=task_spec.execution_profile.get("target_format", "wav"),
+                        sample_rate=int(task_spec.execution_profile.get("sample_rate", 44100)),
+                        channels=int(task_spec.execution_profile.get("channels", 2)),
+                    )
+                )
+                self._artifact_service.register_artifact(
+                    task_id=task_spec.task_id,
+                    artifact_type=f"audio.{result.format}",
+                    path=result.output_path,
+                    label="Converted Audio",
+                    preview_kind="audio",
+                    stage="convert",
+                    is_primary=True,
+                )
+                detail = result.output_path
+                summary = {
+                    "primary_output": result.output_path,
+                    "format": result.format,
+                    "sample_rate": result.sample_rate,
+                    "channels": result.channels,
+                    "duration": result.duration,
+                }
+            elif tool_name == "translate_subtitle":
+                result = self.translate_subtitle(
+                    SubtitleTranslationRequest(
+                        input_path=input_asset.absolute_path,
+                        output_path=task_spec.execution_profile.get("output_path", ""),
+                        provider=task_spec.execution_profile.get("provider", "deepseek"),
+                        source_lang=task_spec.execution_profile.get("source_lang", "ja"),
+                        target_lang=task_spec.execution_profile.get("target_lang", "zh"),
+                        bilingual=bool(task_spec.execution_profile.get("bilingual", True)),
+                    )
+                )
+                if result.output_path:
+                    self._artifact_service.register_artifact(
+                        task_id=task_spec.task_id,
+                        artifact_type=f"subtitle.{Path(result.output_path).suffix.lstrip('.') or 'srt'}",
+                        path=result.output_path,
+                        label="Translated Subtitle",
+                        preview_kind="subtitle",
+                        stage="translate_subtitle",
+                        is_primary=True,
+                    )
+                detail = result.output_path or ""
+                summary = {"primary_output": result.output_path, "total_segments": result.total_segments}
+            elif tool_name == "split":
+                subtitle_path = self._resolve_subtitle_companion(task_spec.companion_asset_ids)
+                if not subtitle_path:
+                    raise AppValidationError("split tool requires a subtitle companion asset")
+                result = self.split_by_subtitle(
+                    SplitRequest(
+                        audio_path=input_asset.absolute_path,
+                        subtitle_path=subtitle_path,
+                        output_dir=task_spec.execution_profile.get("output_dir", session.resolved_output_dir),
+                        padding=float(task_spec.execution_profile.get("padding", 0.1)),
+                    )
+                )
+                if result.segments:
+                    self._artifact_service.register_artifact(
+                        task_id=task_spec.task_id,
+                        artifact_type="audio.segment_collection",
+                        path=result.segments[0].output_path,
+                        label="Split Segments",
+                        preview_kind="audio",
+                        stage="split",
+                        is_primary=True,
+                        metadata={"total_segments": result.total_segments},
+                    )
+                detail = result.segments[0].output_path if result.segments else ""
+                summary = {
+                    "total_segments": result.total_segments,
+                    "segments": [
+                        {
+                            "index": segment.index,
+                            "start": segment.start,
+                            "end": segment.end,
+                            "text": segment.text,
+                            "output_path": segment.output_path,
+                        }
+                        for segment in result.segments
+                    ],
+                }
+            elif tool_name == "volume_preview":
+                result = self.preview_volume(
+                    VolumePreviewRequest(
+                        audio_path=input_asset.absolute_path,
+                        tts_path=task_spec.execution_profile.get("tts_path"),
+                        original_volume=float(task_spec.execution_profile.get("original_volume", 0.85)),
+                        tts_volume_ratio=float(task_spec.execution_profile.get("tts_volume_ratio", 0.5)),
+                    )
+                )
+                detail = ""
+                summary = {
+                    "rms_volume": result.rms_volume,
+                    "tts_rms_volume": result.tts_rms_volume,
+                    "recommended_original_volume": result.recommended_original_volume,
+                    "recommended_tts_ratio": result.recommended_tts_ratio,
+                }
+            else:
+                raise AppValidationError(f"unsupported tool task type: {task_spec.task_type}")
+        except Exception as exc:
+            self._task_service.fail_task(
+                task_spec.task_id,
+                message=f"{tool_name} failed",
+                detail=str(exc),
+            )
+            raise
+
+        task = self._task_service.complete_task(
+            task_spec.task_id,
+            message=f"{tool_name} completed",
+            detail=detail,
+        )
+        return {
+            "task": task,
+            "tool_name": tool_name,
+            "summary": summary,
+        }
+
+    def create_tool_task_spec(
+        self,
+        *,
+        task_type: str,
+        input_path: str,
+        execution_profile: dict[str, Any],
+        companion_paths: list[str] | None = None,
+        task_source: str = "legacy-tool-route",
+    ):
+        workspace = self._workspace_service.resolve()
+        input_asset = self._input_catalog_service.inspect_paths([input_path])[0]
+        companion_asset_ids: list[str] = []
+        if companion_paths:
+            companion_asset_ids = [
+                asset.asset_id for asset in self._input_catalog_service.inspect_paths(companion_paths)
+            ]
+        session = self._session_service.create_session(
+            workspace_id=workspace.workspace_id,
+            mode="single-audio" if input_asset.kind == "audio" else "subtitle-only",
+            input_asset_ids=[input_asset.asset_id],
+            primary_input_asset_id=input_asset.asset_id,
+            companion_asset_ids=companion_asset_ids,
+            output_policy={
+                "mode": "workspace-default",
+                "custom_output_dir": execution_profile.get("output_dir") or None,
+            },
+        )
+        task_spec, _ = self._task_service.create_task_spec(
+            task_type=task_type,
+            task_source=task_source,
+            session_id=session.session_id,
+            input_asset_id=input_asset.asset_id,
+            companion_asset_ids=companion_asset_ids,
+            execution_profile=dict(execution_profile),
+        )
+        return task_spec
+
+    def _resolve_subtitle_companion(self, companion_asset_ids: list[str]) -> str | None:
+        for asset_id in companion_asset_ids:
+            asset = self._input_catalog_service.get_asset(asset_id)
+            if asset.kind == "subtitle":
+                return asset.absolute_path
+        return None
 
     # --- Vocal Separation ---
 
