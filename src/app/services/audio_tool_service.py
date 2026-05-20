@@ -24,6 +24,7 @@ from ..errors import AppExecutionError, AppValidationError
 from .artifact_service import ArtifactService, get_artifact_service
 from .input_catalog_service import InputCatalogService, get_input_catalog_service
 from .session_service import SessionService, get_session_service
+from .subtitle_service import SubtitleService, get_subtitle_service
 from .task_service import TaskService, get_task_service
 from .workspace_service import WorkspaceService, get_workspace_service
 
@@ -46,12 +47,14 @@ class AudioToolService:
         input_catalog_service: InputCatalogService | None = None,
         session_service: SessionService | None = None,
         artifact_service: ArtifactService | None = None,
+        subtitle_service: SubtitleService | None = None,
     ) -> None:
         self._task_service = task_service or get_task_service()
         self._workspace_service = workspace_service or get_workspace_service()
         self._input_catalog_service = input_catalog_service or get_input_catalog_service()
         self._session_service = session_service or get_session_service()
         self._artifact_service = artifact_service or get_artifact_service()
+        self._subtitle_service = subtitle_service or get_subtitle_service()
 
     def run_tool_task(self, task_id: str) -> dict[str, Any]:
         task_spec = self._task_service.get_task_spec(task_id)
@@ -484,7 +487,7 @@ class AudioToolService:
             output_path = str(source.with_stem(source.stem + f"_{request.target_lang}"))
 
         try:
-            self._write_bilingual_subtitle(segments, output_path, request.bilingual)
+            self._subtitle_service.export_bilingual_subtitle(segments, output_path, request.bilingual)
         except Exception as exc:
             raise AppExecutionError(f"failed to write output subtitle: {exc}") from exc
 
@@ -534,71 +537,6 @@ class AudioToolService:
             recommended_tts_ratio=round(recommended_ratio, 3),
         )
 
-    # --- Internal helpers ---
-
-    @staticmethod
-    def _write_bilingual_subtitle(
-        segments: list[dict],
-        output_path: str,
-        bilingual: bool,
-    ) -> None:
-        ext = Path(output_path).suffix.lower()
-        if ext == ".vtt":
-            AudioToolService._write_bilingual_vtt(segments, output_path, bilingual)
-        elif ext == ".srt":
-            AudioToolService._write_bilingual_srt(segments, output_path, bilingual)
-        else:
-            AudioToolService._write_bilingual_srt(segments, output_path, bilingual)
-
-    @staticmethod
-    def _format_vtt_timestamp(seconds: float) -> str:
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s = seconds % 60
-        return f"{h:02d}:{m:02d}:{s:06.3f}"
-
-    @staticmethod
-    def _format_srt_timestamp(seconds: float) -> str:
-        total_ms = int(round(seconds * 1000))
-        h, remainder = divmod(total_ms, 3_600_000)
-        m, remainder = divmod(remainder, 60_000)
-        s, ms = divmod(remainder, 1000)
-        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-    @staticmethod
-    def _write_bilingual_vtt(
-        segments: list[dict],
-        output_path: str,
-        bilingual: bool,
-    ) -> None:
-        lines = ["WEBVTT", ""]
-        for seg in segments:
-            start = AudioToolService._format_vtt_timestamp(seg["start"])
-            end = AudioToolService._format_vtt_timestamp(seg["end"])
-            lines.append(f"{start} --> {end}")
-            lines.append(seg["text"])
-            if bilingual and seg.get("translation"):
-                lines.append(seg["translation"])
-            lines.append("")
-
-        Path(output_path).write_text("\n".join(lines), encoding="utf-8")
-
-    @staticmethod
-    def _write_bilingual_srt(
-        segments: list[dict],
-        output_path: str,
-        bilingual: bool,
-    ) -> None:
-        blocks = []
-        for i, seg in enumerate(segments, start=1):
-            start = AudioToolService._format_srt_timestamp(seg["start"])
-            end = AudioToolService._format_srt_timestamp(seg["end"])
-            text = seg["text"]
-            if bilingual and seg.get("translation"):
-                text = f"{text}\n{seg['translation']}"
-            blocks.append(f"{i}\n{start} --> {end}\n{text}")
-
-        Path(output_path).write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
 
 
 _service: AudioToolService | None = None

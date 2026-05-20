@@ -167,6 +167,55 @@ class SubtitleService:
             return ""
         return "\n\n".join(blocks) + "\n"
 
+    def export_bilingual_srt_text(self, segments: list[dict]) -> str:
+        blocks = []
+        for i, seg in enumerate(segments, start=1):
+            start = self._format_srt_timestamp(seg["start"])
+            end = self._format_srt_timestamp(seg["end"])
+            text = seg["text"]
+            if seg.get("translation"):
+                text = f"{text}\n{seg['translation']}"
+            blocks.append(f"{i}\n{start} --> {end}\n{text}")
+        if not blocks:
+            return ""
+        return "\n\n".join(blocks) + "\n"
+
+    def export_bilingual_vtt_text(self, segments: list[dict]) -> str:
+        lines = ["WEBVTT", ""]
+        for seg in segments:
+            start = self._format_vtt_timestamp(seg["start"])
+            end = self._format_vtt_timestamp(seg["end"])
+            lines.append(f"{start} --> {end}")
+            lines.append(seg["text"])
+            if seg.get("translation"):
+                lines.append(seg["translation"])
+            lines.append("")
+        return "\n".join(lines)
+
+    def export_bilingual_subtitle(
+        self,
+        segments: list[dict],
+        output_path: str,
+        bilingual: bool = True,
+    ) -> str:
+        ext = Path(output_path).suffix.lower()
+        if not bilingual:
+            doc = self.from_timestamp_entries(segments)
+            return self.export_document(doc, output_path=output_path)
+
+        if ext == ".vtt":
+            content = self.export_bilingual_vtt_text(segments)
+        else:
+            content = self.export_bilingual_srt_text(segments)
+
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            path.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            raise AppExecutionError(f"failed to write subtitle file: {output_path}: {exc}") from exc
+        return str(path)
+
     def export_document(
         self,
         document: SubtitleDocument,
@@ -204,6 +253,13 @@ class SubtitleService:
         minutes, remainder = divmod(remainder, 60_000)
         seconds, milliseconds = divmod(remainder, 1000)
         return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+    @staticmethod
+    def _format_vtt_timestamp(seconds: float) -> str:
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = seconds % 60
+        return f"{h:02d}:{m:02d}:{s:06.3f}"
 
     def _find_srt_timing_line(
         self, lines: list[str], start_index: int
