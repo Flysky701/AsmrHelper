@@ -1,4 +1,9 @@
-"""Application-layer wrapper for standalone translation workflows."""
+"""Compatibility facade for standalone translation (LLM derived operation).
+
+.. deprecated::
+    Use ``LlmCapabilityService`` directly for new code. This service exists only
+    for backward compatibility with callers that expect the old interface.
+"""
 
 from __future__ import annotations
 

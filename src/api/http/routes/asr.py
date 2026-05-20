@@ -1,10 +1,10 @@
-"""ASR routes."""
+"""ASR routes — engine-driven entry point."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from src.api.http.dependencies import asr_engine_service, asr_service
+from src.api.http.dependencies import asr_engine_service
 from src.api.http.schemas.asr import (
     AsrEngineDescriptorResponse,
     AsrEngineListResponse,
@@ -12,7 +12,7 @@ from src.api.http.schemas.asr import (
     TranscribeResponse,
 )
 from src.api.http.schemas.subtitles import SubtitleSegmentModel
-from src.app.services import AsrEngineService, AsrService
+from src.app.services import AsrEngineService
 
 router = APIRouter(prefix="/asr", tags=["asr"])
 
@@ -36,13 +36,16 @@ def get_asr_engine(
 @router.post("/transcribe", response_model=TranscribeResponse)
 def transcribe(
     body: TranscribeRequest,
-    svc: AsrService = Depends(asr_service),
+    svc: AsrEngineService = Depends(asr_engine_service),
 ):
     result = svc.transcribe_file(
         input_path=body.input_path,
         output_path=body.output_path,
+        provider="faster_whisper",
         model=body.model,
         language=body.language,
+        common_options={"language": body.language},
+        provider_options={"disable_vad": True},
     )
     return TranscribeResponse(
         segments=[

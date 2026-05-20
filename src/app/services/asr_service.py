@@ -1,4 +1,9 @@
-"""Application-layer wrapper for standalone ASR workflows."""
+"""Compatibility facade for standalone ASR workflows.
+
+.. deprecated::
+    Use ``AsrEngineService`` directly for new code. This service exists only
+    for backward compatibility with callers that expect the old interface.
+"""
 
 from __future__ import annotations
 

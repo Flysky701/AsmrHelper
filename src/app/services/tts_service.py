@@ -1,4 +1,9 @@
-"""Application-layer wrapper for standalone TTS workflows."""
+"""Compatibility facade for standalone TTS workflows.
+
+.. deprecated::
+    Use ``TtsEngineService`` directly for new code. This service exists only
+    for backward compatibility with callers that expect the old interface.
+"""
 
 from __future__ import annotations
 
