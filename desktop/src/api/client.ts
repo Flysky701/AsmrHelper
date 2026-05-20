@@ -1,4 +1,5 @@
-const API_BASE = 'http://localhost:8000/api/v1'
+const DEFAULT_API_BASE = 'http://127.0.0.1:8000/api/v1'
+const API_BASE = import.meta.env.VITE_API_BASE?.trim() || DEFAULT_API_BASE
 
 export class ApiError extends Error {
   code: string
@@ -13,11 +14,21 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown network error'
+    throw new ApiError(
+      'NETWORK_ERROR',
+      `Cannot connect to backend at ${API_BASE}: ${message}`,
+      0,
+    )
+  }
 
   if (!res.ok) {
     const err = await res
