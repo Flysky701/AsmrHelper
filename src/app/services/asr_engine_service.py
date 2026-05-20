@@ -29,6 +29,18 @@ class AsrEngineService:
     def get_engine(self, engine_id: str) -> dict[str, Any]:
         return self._capability_service.get_descriptor("asr", engine_id)
 
+    def list_supported_models(self, engine_id: str) -> list[str]:
+        descriptor = self.get_engine(engine_id)
+        return descriptor.get("supported_models", [])
+
+    def get_default_model(self, engine_id: str) -> str:
+        descriptor = self.get_engine(engine_id)
+        return descriptor.get("default_model", "")
+
+    def engine_supports(self, engine_id: str, feature: str) -> bool:
+        descriptor = self.get_engine(engine_id)
+        return bool(descriptor.get("supports", {}).get(feature, False))
+
     def transcribe_file(
         self,
         *,

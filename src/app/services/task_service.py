@@ -12,10 +12,13 @@ from ..errors import AppValidationError
 class TaskService:
     """Track application tasks in memory for the current process."""
 
-    def __init__(self) -> None:
+    _TERMINAL_STATES = frozenset({"completed", "failed", "cancelled", "skipped"})
+
+    def __init__(self, max_concurrent: int = 4) -> None:
         self._tasks: dict[str, TaskStatus] = {}
         self._task_specs: dict[str, TaskSpec] = {}
         self._counters: dict[str, int] = {}
+        self._max_concurrent = max_concurrent
         self._lock = threading.Lock()
 
     def create_task(self, kind: str) -> TaskStatus:
@@ -113,6 +116,26 @@ class TaskService:
             message=message,
             detail=detail,
         )
+
+    def cancel_task(self, task_id: str, message: str = "cancelled by user") -> TaskStatus:
+        with self._lock:
+            current = self._tasks.get(task_id)
+            if current is None:
+                raise AppValidationError(f"unknown task id: {task_id}")
+            if current.state in self._TERMINAL_STATES:
+                raise AppValidationError(f"cannot cancel task in state: {current.state}")
+        return self._update_task(
+            task_id,
+            state="cancelled",
+            message=message,
+        )
+
+    def running_count(self) -> int:
+        with self._lock:
+            return sum(1 for t in self._tasks.values() if t.state == "running")
+
+    def can_start(self) -> bool:
+        return self.running_count() < self._max_concurrent
 
     def _update_task(
         self,

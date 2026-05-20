@@ -22,6 +22,15 @@ from src.app.services import ArtifactService, TaskService
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
+@router.post("/{task_id}/cancel", response_model=TaskStatusResponse)
+def cancel_task(
+    task_id: str,
+    svc: TaskService = Depends(task_service),
+):
+    task = svc.cancel_task(task_id)
+    return TaskStatusResponse.from_task_status(task)
+
+
 @router.post("", response_model=TaskCreateResponse)
 def create_task(
     body: TaskCreateRequest,
@@ -67,6 +76,13 @@ def create_tasks_batch(
             )
         )
     return TaskBatchCreateResponse(items=items)
+
+
+@router.get("/running-count")
+def get_running_count(
+    svc: TaskService = Depends(task_service),
+):
+    return {"running": svc.running_count(), "can_start": svc.can_start()}
 
 
 @router.get("", response_model=TaskListResponse)

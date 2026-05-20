@@ -29,6 +29,21 @@ class TtsEngineService:
     def get_engine(self, engine_id: str) -> dict[str, Any]:
         return self._capability_service.get_descriptor("tts", engine_id)
 
+    def list_supported_models(self, engine_id: str) -> list[str]:
+        descriptor = self.get_engine(engine_id)
+        return descriptor.get("supported_models", [])
+
+    def get_default_voice(self, engine_id: str) -> str:
+        descriptor = self.get_engine(engine_id)
+        for opt in descriptor.get("common_option_schema", []):
+            if opt.get("name") == "voice":
+                return str(opt.get("default", ""))
+        return ""
+
+    def engine_supports(self, engine_id: str, feature: str) -> bool:
+        descriptor = self.get_engine(engine_id)
+        return bool(descriptor.get("supports", {}).get(feature, False))
+
     def synthesize_text(
         self,
         *,

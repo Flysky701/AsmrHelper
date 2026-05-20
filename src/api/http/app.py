@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.http.errors import register_error_handlers
 from src.api.http.routes import (
+    artifacts,
     asr,
     capabilities,
     inputs,
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(subtitles.router, prefix=api_prefix)
     app.include_router(resources.router, prefix=api_prefix)
     app.include_router(tasks.router, prefix=api_prefix)
+    app.include_router(artifacts.router, prefix=api_prefix)
     app.include_router(tool_runs.router, prefix=api_prefix)
     app.include_router(voice.router, prefix=api_prefix)
     app.include_router(tools.router, prefix=api_prefix)

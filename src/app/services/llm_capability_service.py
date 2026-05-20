@@ -29,6 +29,18 @@ class LlmCapabilityService:
     def get_provider(self, provider_id: str) -> dict[str, Any]:
         return self._capability_service.get_descriptor("llm", provider_id)
 
+    def list_supported_models(self, provider_id: str) -> list[str]:
+        descriptor = self.get_provider(provider_id)
+        return descriptor.get("supported_models", [])
+
+    def get_default_model(self, provider_id: str) -> str:
+        descriptor = self.get_provider(provider_id)
+        return descriptor.get("default_model", "")
+
+    def provider_supports(self, provider_id: str, feature: str) -> bool:
+        descriptor = self.get_provider(provider_id)
+        return bool(descriptor.get("supports", {}).get(feature, False))
+
     def translate_texts(
         self,
         *,
