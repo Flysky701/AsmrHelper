@@ -13,6 +13,7 @@ class TaskService:
     """Track application tasks in memory for the current process."""
 
     _TERMINAL_STATES = frozenset({"completed", "failed", "cancelled", "skipped"})
+    _VALID_REVIEW_STATES = frozenset({"", "accepted", "needs_review", "needs_rework"})
 
     def __init__(self, max_concurrent: int = 4) -> None:
         self._tasks: dict[str, TaskStatus] = {}
@@ -130,6 +131,22 @@ class TaskService:
             message=message,
         )
 
+    def set_review_state(self, task_id: str, review_state: str) -> TaskStatus:
+        if review_state not in self._VALID_REVIEW_STATES:
+            raise AppValidationError(
+                f"invalid review_state: {review_state!r}, "
+                f"expected one of: {', '.join(sorted(self._VALID_REVIEW_STATES - {''}))}"
+            )
+        with self._lock:
+            current = self._tasks.get(task_id)
+            if current is None:
+                raise AppValidationError(f"unknown task id: {task_id}")
+            if current.state not in self._TERMINAL_STATES:
+                raise AppValidationError(
+                    f"cannot set review_state on task in state: {current.state}"
+                )
+        return self._update_task(task_id, review_state=review_state)
+
     def running_count(self) -> int:
         with self._lock:
             return sum(1 for t in self._tasks.values() if t.state == "running")
@@ -145,6 +162,7 @@ class TaskService:
         progress: float | None = None,
         message: str | None = None,
         detail: str | None = None,
+        review_state: str | None = None,
     ) -> TaskStatus:
         with self._lock:
             try:
@@ -161,13 +179,17 @@ class TaskService:
                 task_type=current.task_type,
                 task_source=current.task_source,
                 session_id=current.session_id,
+                review_state=review_state if review_state is not None else current.review_state,
             )
             self._tasks[task_id] = updated
             return self._clone_task(updated)
 
-    def list_tasks(self) -> list[TaskStatus]:
+    def list_tasks(self, *, state: str | None = None) -> list[TaskStatus]:
         with self._lock:
-            return [self._clone_task(t) for t in self._tasks.values()]
+            tasks = self._tasks.values()
+            if state is not None:
+                tasks = [t for t in tasks if t.state == state]
+            return [self._clone_task(t) for t in tasks]
 
     @staticmethod
     def _clone_task(task: TaskStatus) -> TaskStatus:
@@ -180,6 +202,7 @@ class TaskService:
             task_type=task.task_type,
             task_source=task.task_source,
             session_id=task.session_id,
+            review_state=task.review_state,
         )
 
     @staticmethod

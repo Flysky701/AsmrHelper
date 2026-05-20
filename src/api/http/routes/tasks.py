@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from src.api.http.dependencies import artifact_service, task_service
 from src.api.http.schemas.tasks import (
     ArtifactRecordResponse,
+    ReviewUpdateRequest,
     TaskBatchCreateRequest,
     TaskBatchCreateResponse,
     TaskCreateRequest,
@@ -28,6 +29,16 @@ def cancel_task(
     svc: TaskService = Depends(task_service),
 ):
     task = svc.cancel_task(task_id)
+    return TaskStatusResponse.from_task_status(task)
+
+
+@router.patch("/{task_id}/review", response_model=TaskStatusResponse)
+def set_review_state(
+    task_id: str,
+    body: ReviewUpdateRequest,
+    svc: TaskService = Depends(task_service),
+):
+    task = svc.set_review_state(task_id, body.review_state)
     return TaskStatusResponse.from_task_status(task)
 
 
@@ -87,9 +98,10 @@ def get_running_count(
 
 @router.get("", response_model=TaskListResponse)
 def list_tasks(
+    state: str | None = Query(None, description="Filter by task state"),
     svc: TaskService = Depends(task_service),
 ):
-    tasks = svc.list_tasks()
+    tasks = svc.list_tasks(state=state)
     return TaskListResponse.from_tasks(tasks)
 
 

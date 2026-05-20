@@ -259,6 +259,7 @@ class TaskStatus:
     task_type: str = ""
     task_source: str = ""
     session_id: str = ""
+    review_state: str = ""
 
 
 @dataclass(slots=True)

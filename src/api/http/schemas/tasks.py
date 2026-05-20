@@ -10,6 +10,7 @@ from src.app.dto import TaskSpec, TaskStatus
 
 
 TaskState = Literal["pending", "running", "completed", "failed", "cancelled", "skipped"]
+ReviewState = Literal["", "accepted", "needs_review", "needs_rework"]
 
 
 class TaskStatusResponse(BaseModel):
@@ -21,6 +22,7 @@ class TaskStatusResponse(BaseModel):
     task_type: str = ""
     task_source: str = ""
     session_id: str = ""
+    review_state: ReviewState = ""
 
     @classmethod
     def from_task_status(cls, task: TaskStatus) -> "TaskStatusResponse":
@@ -33,6 +35,7 @@ class TaskStatusResponse(BaseModel):
             task_type=task.task_type,
             task_source=task.task_source,
             session_id=task.session_id,
+            review_state=task.review_state,
         )
 
 
@@ -131,3 +134,7 @@ class TaskResultResponse(BaseModel):
     primary_output: ArtifactRecordResponse | None = None
     secondary_outputs: list[ArtifactRecordResponse] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class ReviewUpdateRequest(BaseModel):
+    review_state: ReviewState
