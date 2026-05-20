@@ -25,13 +25,5 @@
     "security": {
       "csp": null
     }
-  },
-  "plugins": {
-    "dialog": {},
-    "http": {
-      "scope": {
-        "url": "http://localhost:8000/**"
-      }
-    }
   }
 }

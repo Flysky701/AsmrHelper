@@ -28,8 +28,9 @@ class _DummyPipeline:
 
 def _patch_pipeline(monkeypatch, pipeline: _DummyPipeline) -> None:
     monkeypatch.setattr(
-        "src.app.services.script_subtitle_service._load_pipeline_runtime",
-        lambda: lambda: pipeline,
+        ScriptSubtitleService,
+        "_build_pipeline",
+        lambda self: pipeline,
     )
 
 
