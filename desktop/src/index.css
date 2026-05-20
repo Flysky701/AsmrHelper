@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+/* ============================================
+   Neumorphism Design System - ASMR Helper
+   ============================================ */
+
+:root {
+  /* Base Colors */
+  --bg-base: #e8e8e8;
+  --bg-surface: #f0f0f3;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e0e0e5;
+
+  /* Text Colors */
+  --text-primary: #4a4a4a;
+  --text-secondary: #8a8a8a;
+
+  /* Accent Colors */
+  --accent: #c8e0f4;
+  --accent-hover: #b0d4f0;
+  --accent-text: #3a7cc0;
+
+  /* Semantic Colors */
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-error: #f87171;
+
+  /* Neumorphism Shadows */
+  --shadow-raised: -5px -5px 15px rgba(255, 255, 255, 0.8),
+    5px 5px 15px rgba(0, 0, 0, 0.1);
+  --shadow-pressed: inset -3px -3px 8px rgba(255, 255, 255, 0.8),
+    inset 3px 3px 8px rgba(0, 0, 0, 0.08);
+
+  /* Border Radius */
+  --radius-panel: 16px;
+  --radius-card: 14px;
+  --radius-button: 12px;
+  --radius-tag: 10px;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI",
+    "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}

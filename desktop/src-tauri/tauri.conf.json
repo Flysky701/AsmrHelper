@@ -1,0 +1,37 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui/multi-user-tailwind/refs/heads/main/src-tauri/schemas/desktop-schema.json",
+  "productName": "ASMR Helper",
+  "version": "0.1.0",
+  "identifier": "com.asmrhelper.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ASMR Helper",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 1200,
+        "minHeight": 700,
+        "center": true,
+        "decorations": true,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "dialog": {},
+    "http": {
+      "scope": {
+        "url": "http://localhost:8000/**"
+      }
+    }
+  }
+}
