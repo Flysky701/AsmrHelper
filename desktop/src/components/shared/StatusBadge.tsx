@@ -6,6 +6,8 @@ const STATUS_VARIANT: Record<TaskStatus, 'default' | 'info' | 'success' | 'error
   running: 'info',
   completed: 'success',
   failed: 'error',
+  cancelled: 'default',
+  skipped: 'default',
 }
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -13,6 +15,8 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
   running: '运行中',
   completed: '已完成',
   failed: '失败',
+  cancelled: '已取消',
+  skipped: '已跳过',
 }
 
 interface StatusBadgeProps {

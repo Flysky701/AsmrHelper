@@ -5,7 +5,13 @@ export interface HealthResponse {
 }
 
 // ── Tasks ──────────────────────────────────────────────
-export type TaskState = 'pending' | 'running' | 'completed' | 'failed'
+export type TaskState =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'skipped'
 
 export interface TaskStatusResponse {
   task_id: string
@@ -87,6 +93,7 @@ export interface BatchPipelineRequest {
 export interface BatchItemResultResponse {
   file: string
   status: string
+  task_id: string | null
   output: string | null
   error: string | null
   duration: number

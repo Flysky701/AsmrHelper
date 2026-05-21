@@ -6,6 +6,7 @@ import { useFileSelector } from '@/hooks/useFileSelector'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
 import { pipelineApi } from '@/api/pipeline'
 import type { PipelineRunRequest } from '@/api/types'
+import type { TaskStatus } from '@/stores/taskStore'
 import {
   NeuButton,
   NeuCard,
@@ -65,6 +66,7 @@ export default function Workbench() {
   } = useWorkbenchStore()
 
   const addTask = useTaskStore((s) => s.addTask)
+  const updateTask = useTaskStore((s) => s.updateTask)
   const addLog = useLogStore((s) => s.addLog)
   const { selectFiles } = useFileSelector()
 
@@ -115,6 +117,10 @@ export default function Workbench() {
         sourcePath: filePath,
         params: request as unknown as Record<string, unknown>,
       })
+      updateTask(taskId, {
+        status: 'running',
+        message: 'request dispatched',
+      })
 
       addLog({ level: 'info', content: `任务已创建: ${filePath}`, taskId })
 
@@ -122,16 +128,21 @@ export default function Workbench() {
       pipelineApi
         .run(request)
         .then((res) => {
+          const serverTaskId = res.task_id ?? res.task?.task_id ?? undefined
+          const finalStatus: TaskStatus = (res.task?.state ?? (res.success ? 'completed' : 'failed')) as TaskStatus
           useTaskStore.getState().updateTask(taskId, {
-            status: res.success ? 'completed' : 'failed',
-            progress: res.success ? 1 : 0,
+            serverTaskId,
+            status: finalStatus,
+            progress: res.task?.progress ?? (res.success ? 1 : 0),
+            message: res.task?.message ?? '',
+            detail: res.task?.detail ?? '',
             artifacts: res.artifacts
               ? { files: res.artifacts.files, primaryOutput: res.artifacts.primary_output ?? undefined }
               : undefined,
             errorMessage: res.error_message ?? undefined,
           })
           addLog({
-            level: res.success ? 'info' : 'error',
+            level: finalStatus === 'completed' || finalStatus === 'skipped' ? 'info' : 'error',
             content: res.success
               ? `任务完成: ${res.input_path}`
               : `任务失败: ${res.error_message}`,

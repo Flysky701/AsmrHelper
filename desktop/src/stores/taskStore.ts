@@ -13,10 +13,17 @@ export type JobType =
   | 'voice-clone'
   | 'voice-preview'
 
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type TaskStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'skipped'
 
 export interface Task {
   id: string
+  serverTaskId?: string
   jobType: JobType
   sourceName: string
   sourcePath: string
@@ -32,7 +39,7 @@ export interface Task {
   params: Record<string, unknown>
 }
 
-type FilterType = 'all' | 'running' | 'completed' | 'failed'
+type FilterType = 'all' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped'
 
 interface TaskStore {
   tasks: Task[]
@@ -107,10 +114,13 @@ export const useTaskStore = create<TaskStore>((set) => ({
   syncFromServer: (serverTasks) =>
     set((s) => ({
       tasks: s.tasks.map((local) => {
-        const remote = serverTasks.find((st) => st.task_id === local.id)
+        const remote = serverTasks.find(
+          (st) => st.task_id === (local.serverTaskId ?? local.id)
+        )
         if (!remote) return local
         return {
           ...local,
+          serverTaskId: remote.task_id,
           status: remote.state as TaskStatus,
           progress: remote.progress,
           message: remote.message,

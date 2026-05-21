@@ -9,11 +9,13 @@ import EmptyState from '@/components/shared/EmptyState'
 import LogEntryComp from '@/components/sidebar/LogEntry'
 import type { LogLevel } from '@/stores/logStore'
 
-const FILTER_OPTIONS: { value: 'all' | 'running' | 'completed' | 'failed'; label: string }[] = [
+const FILTER_OPTIONS: { value: 'all' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped'; label: string }[] = [
     { value: 'all', label: '全部' },
     { value: 'running', label: '运行中' },
     { value: 'completed', label: '已完成' },
     { value: 'failed', label: '失败' },
+    { value: 'cancelled', label: '已取消' },
+    { value: 'skipped', label: '已跳过' },
 ]
 
 const LOG_LEVEL_OPTIONS: { value: LogLevel; label: string }[] = [
@@ -58,20 +60,42 @@ export default function TaskCenter() {
     }
 
     const handleCancel = async (taskId: string) => {
+        const task = tasks.find((t) => t.id === taskId)
+        const serverTaskId = task?.serverTaskId
+        if (!serverTaskId) {
+            addLog({ level: 'warn', content: `任务尚未绑定后端 ID，暂不可取消: ${taskId}`, taskId })
+            return
+        }
         try {
-            await tasksApi.cancel(taskId)
-            updateTask(taskId, { status: 'failed', message: 'cancelled' })
-            addLog({ level: 'info', content: `任务已取消: ${taskId}`, taskId })
+            const res = await tasksApi.cancel(serverTaskId)
+            updateTask(taskId, {
+                status: 'cancelled',
+                progress: res.progress,
+                message: res.message || 'cancelled',
+                detail: res.detail,
+            })
+            addLog({ level: 'info', content: `任务已取消: ${serverTaskId}`, taskId })
         } catch (err) {
             addLog({ level: 'error', content: `取消失败: ${err}`, taskId })
         }
     }
 
     const handleRetry = async (taskId: string) => {
+        const task = tasks.find((t) => t.id === taskId)
+        const serverTaskId = task?.serverTaskId
+        if (!serverTaskId) {
+            addLog({ level: 'warn', content: `任务尚未绑定后端 ID，暂不可重试: ${taskId}`, taskId })
+            return
+        }
         try {
-            await tasksApi.retry(taskId)
-            updateTask(taskId, { status: 'pending', progress: 0, message: 'queued for retry' })
-            addLog({ level: 'info', content: `任务已重试: ${taskId}`, taskId })
+            const res = await tasksApi.retry(serverTaskId)
+            updateTask(taskId, {
+                status: 'pending',
+                progress: res.progress,
+                message: res.message || 'queued for retry',
+                detail: res.detail,
+            })
+            addLog({ level: 'info', content: `任务已重试: ${serverTaskId}`, taskId })
         } catch (err) {
             addLog({ level: 'error', content: `重试失败: ${err}`, taskId })
         }
@@ -126,6 +150,11 @@ export default function TaskCenter() {
                                                 {new Date(task.createdAt).toLocaleTimeString()}
                                             </span>
                                         </div>
+                                        {task.serverTaskId && (
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                                后端任务: {task.serverTaskId}
+                                            </div>
+                                        )}
                                         {task.status === 'running' && (
                                             <div style={{ marginTop: '8px' }}>
                                                 <NeuProgress value={task.progress} />
@@ -160,12 +189,22 @@ export default function TaskCenter() {
                                     </div>
                                     <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                         {(task.status === 'pending' || task.status === 'running') && (
-                                            <NeuButton size="sm" variant="ghost" onClick={() => handleCancel(task.id)}>
+                                            <NeuButton
+                                                size="sm"
+                                                variant="ghost"
+                                                disabled={!task.serverTaskId}
+                                                onClick={() => handleCancel(task.id)}
+                                            >
                                                 取消
                                             </NeuButton>
                                         )}
-                                        {(task.status === 'failed') && (
-                                            <NeuButton size="sm" variant="ghost" onClick={() => handleRetry(task.id)}>
+                                        {(task.status === 'failed' || task.status === 'cancelled') && (
+                                            <NeuButton
+                                                size="sm"
+                                                variant="ghost"
+                                                disabled={!task.serverTaskId}
+                                                onClick={() => handleRetry(task.id)}
+                                            >
                                                 重试
                                             </NeuButton>
                                         )}
