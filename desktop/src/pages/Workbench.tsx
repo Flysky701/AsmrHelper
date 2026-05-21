@@ -3,6 +3,7 @@ import { useWorkbenchStore } from '@/stores/workbenchStore'
 import { useTaskStore } from '@/stores/taskStore'
 import { useLogStore } from '@/stores/logStore'
 import { useFileSelector } from '@/hooks/useFileSelector'
+import { useTaskPolling } from '@/hooks/useTaskPolling'
 import { pipelineApi } from '@/api/pipeline'
 import type { PipelineRunRequest } from '@/api/types'
 import {
@@ -45,6 +46,9 @@ const VOCAL_MODEL_OPTIONS = [
 ]
 
 export default function Workbench() {
+  // Enable task polling for real-time progress
+  useTaskPolling(3000)
+
   const {
     selectedFiles,
     preset,
