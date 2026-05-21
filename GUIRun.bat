@@ -10,6 +10,7 @@ set BACKEND_PORT=8000
 set BACKEND_HEALTH_URL=http://127.0.0.1:%BACKEND_PORT%/health
 set EXE_PATH=%DESKTOP_DIR%\src-tauri\target\debug\asmr-helper.exe
 set DIST_INDEX=%DESKTOP_DIR%\dist\index.html
+set LAUNCH_MODE=%1
 
 cd /d "%PROJECT_ROOT%"
 
@@ -73,19 +74,23 @@ echo   Launching ASMR Helper Desktop...
 echo ========================================
 echo.
 
-:: Try built exe first, fallback to dev mode only when dist is unavailable.
-if exist "%EXE_PATH%" if exist "%DIST_INDEX%" (
+:: --release flag: build first, then launch the exe
+if /I "%LAUNCH_MODE%"=="--release" (
+    echo [INFO] Building frontend before launch...
+    cd /d "%DESKTOP_DIR%"
+    call npx tauri build
+    if errorlevel 1 (
+        echo [ERROR] Build failed.
+        pause
+        exit /b 1
+    )
     echo [INFO] Launching built application...
-    start "" "%EXE_PATH%"
+    start "" "%DESKTOP_DIR%\src-tauri\target\release\asmr-helper.exe"
     exit /b 0
 )
 
-if not exist "%EXE_PATH%" (
-    echo [INFO] No built app found, starting dev mode...
-) else (
-    echo [INFO] Built app found but frontend dist is missing, starting dev mode...
-)
-echo [INFO] This may take a moment on first run.
+:: Default: always use dev mode (loads latest source, no stale exe issue)
+echo [INFO] Starting dev mode (loads latest source)...
 cd /d "%DESKTOP_DIR%"
 set VITE_API_BASE=http://127.0.0.1:%BACKEND_PORT%/api/v1
 npx tauri dev
