@@ -188,7 +188,7 @@ class ScriptToSubtitleTool:
             dbg.mkdir(parents=True, exist_ok=True)
             (dbg / "01_rough_clean.txt").write_text(rough_text, encoding="utf-8")
         try:
-            from .llm_processor import LLMProcessor
+            from src.core.engines.llm.script_cleaner import LLMProcessor
             processor = LLMProcessor()
             result = processor.clean_script(rough_text, debug_dir=debug_dir)
             if debug_dir:
@@ -219,7 +219,7 @@ class ScriptToSubtitleTool:
         Returns:
             字幕条目列表 [{"start": float, "end": float, "text": str}, ...]
         """
-        from .llm_processor import LLMProcessor
+        from src.core.engines.llm.script_cleaner import LLMProcessor
         processor = LLMProcessor(debug_dir=debug_dir)
         script_lines = [line.strip() for line in clean_text.split('\n') if line.strip()]
         entries = processor.align_and_reorder(script_lines, asr_results)

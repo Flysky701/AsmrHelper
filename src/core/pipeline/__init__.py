@@ -1,11 +1,23 @@
 """
-流水线模块 - 统一调度 ASMR 处理流程
+流水线模块 - 统一调度 ASMR 处理流程（DEPRECATED）
+
+此模块已被 src.core.orchestration.pipeline 取代。
+新代码应使用 PipelineExecutor 而非直接使用 Pipeline/PipelineConfig。
 
 功能：
 1. 串联人声分离、ASR、翻译、TTS、混音
 2. 支持多种预设流程（asmr_bilingual, auto_subtitle 等）
 3. DAG 任务调度
 """
+
+import warnings as _warnings
+
+_warnings.warn(
+    "src.core.pipeline is deprecated. "
+    "Use src.core.orchestration.pipeline (PipelineExecutor) instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import time
 from pathlib import Path

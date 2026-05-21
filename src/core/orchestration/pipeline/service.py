@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from .executor import PipelineExecutor
 from .models import (
     MixConfig,
     PipelineExecutionContext,
@@ -16,18 +17,20 @@ from .result_mapper import ArtifactResultMapper
 
 
 class LegacyPipelineOrchestrator:
-    """Build legacy pipeline config objects from task-driven execution context.
+    """Orchestrator that delegates to PipelineExecutor by default.
 
-    This class now uses PipelineExecutionPlan as the intermediate representation
-    before converting to legacy PipelineConfig. The plan is the new primary path;
-    legacy config construction is an adapter for backward compatibility.
+    This class now serves as a compatibility wrapper. The default `run()`
+    method uses the new PipelineExecutor. The legacy path (via PipelineConfig
+    and the old Pipeline class) is available through `run_legacy()`.
     """
 
     def __init__(
         self,
         *,
+        executor: PipelineExecutor | None = None,
         pipeline_loader: Callable[[], tuple[type, type]] | None = None,
     ) -> None:
+        self._executor = executor or PipelineExecutor()
         self._pipeline_loader = pipeline_loader or self._load_pipeline_runtime
 
     def run(
@@ -37,13 +40,28 @@ class LegacyPipelineOrchestrator:
         progress_callback: Callable[[str], None] | None = None,
         preset: str = "asmr_bilingual",
     ) -> dict[str, Any]:
-        """Run the pipeline using the new execution plan path.
+        """Run the pipeline using the new PipelineExecutor.
 
-        Builds a PipelineExecutionPlan, converts to legacy config,
-        executes via the legacy Pipeline class, and normalizes results.
+        Builds a PipelineExecutionPlan and executes via the new executor
+        that drives engine runtimes directly.
         """
         plan = build_execution_plan(context)
-        return self._execute_plan(plan, progress_callback=progress_callback, preset=preset)
+        return self._executor.execute(plan, progress_callback=progress_callback)
+
+    def run_legacy(
+        self,
+        context: PipelineExecutionContext,
+        *,
+        progress_callback: Callable[[str], None] | None = None,
+        preset: str = "asmr_bilingual",
+    ) -> dict[str, Any]:
+        """Run the pipeline using the legacy Pipeline class path.
+
+        This is the explicit backward-compatibility path for callers that
+        need the old PipelineConfig-based execution.
+        """
+        plan = build_execution_plan(context)
+        return self._execute_plan_legacy(plan, progress_callback=progress_callback, preset=preset)
 
     def build_plan(self, context: PipelineExecutionContext) -> PipelineExecutionPlan:
         """Build an execution plan without running it.
@@ -52,7 +70,7 @@ class LegacyPipelineOrchestrator:
         """
         return build_execution_plan(context)
 
-    def _execute_plan(
+    def _execute_plan_legacy(
         self,
         plan: PipelineExecutionPlan,
         *,
@@ -124,7 +142,7 @@ class LegacyPipelineOrchestrator:
     def build_legacy_config(self, context: PipelineExecutionContext):
         """Legacy adapter: build a PipelineConfig from context.
 
-        Deprecated: use build_plan() + _plan_to_legacy_config() instead.
+        Deprecated: use build_plan() instead.
         Kept for backward compatibility with any direct callers.
         """
         plan = build_execution_plan(context)
@@ -132,7 +150,10 @@ class LegacyPipelineOrchestrator:
 
     @staticmethod
     def _load_pipeline_runtime() -> tuple[type, type]:
-        from src.core import Pipeline as core_pipeline
-        from src.core import PipelineConfig as core_pipeline_config
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            from src.core import Pipeline as core_pipeline
+            from src.core import PipelineConfig as core_pipeline_config
 
         return core_pipeline, core_pipeline_config

@@ -6,6 +6,7 @@ from importlib import import_module
 
 __all__ = [
     "CleanerConfig",
+    "ScriptProcessor",
     "SoundEffectPatterns",
     "SubtitleAsset",
     "SubtitleCleaner",
@@ -13,6 +14,7 @@ __all__ = [
     "SubtitleDomainService",
     "SubtitleExporter",
     "SubtitleFormatValidator",
+    "SubtitleGenerator",
     "SubtitleNormalizer",
     "SubtitleParser",
     "SubtitleSegment",
@@ -34,6 +36,7 @@ __all__ = [
 
 _EXPORTS = {
     "CleanerConfig": ("src.core.subtitles.cleaner", "CleanerConfig"),
+    "ScriptProcessor": ("src.core.subtitles.script_processor", "ScriptProcessor"),
     "SoundEffectPatterns": ("src.core.subtitles.cleaner", "SoundEffectPatterns"),
     "SubtitleAsset": ("src.core.subtitles.models", "SubtitleAsset"),
     "SubtitleCleaner": ("src.core.subtitles.cleaner", "SubtitleCleaner"),
@@ -41,6 +44,7 @@ _EXPORTS = {
     "SubtitleDomainService": ("src.core.subtitles.service", "SubtitleDomainService"),
     "SubtitleExporter": ("src.core.subtitles.exporter", "SubtitleExporter"),
     "SubtitleFormatValidator": ("src.core.subtitles.cleaner", "SubtitleFormatValidator"),
+    "SubtitleGenerator": ("src.core.subtitles.generator", "SubtitleGenerator"),
     "SubtitleNormalizer": ("src.core.subtitles.normalizer", "SubtitleNormalizer"),
     "SubtitleParser": ("src.core.subtitles.parser", "SubtitleParser"),
     "SubtitleSegment": ("src.core.subtitles.models", "SubtitleSegment"),

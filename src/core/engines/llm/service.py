@@ -44,7 +44,7 @@ class LlmOperationRuntime:
         text: str,
         profile: dict[str, Any],
     ) -> str:
-        from src.core.script_to_subtitle.llm_processor import LLMProcessor
+        from src.core.engines.llm.script_cleaner import LLMProcessor
 
         translator = self._get_translator(profile)
         processor = LLMProcessor(translator=translator)

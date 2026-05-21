@@ -144,15 +144,15 @@ class TestPipelineRoutes:
 class TestAsrRoutes:
     def test_transcribe_success(self, client):
         mock_svc = MagicMock()
-        mock_svc.transcribe_file.return_value = TranscriptionResult(
-            segments=[
-                SubtitleSegment(start=0.0, end=2.5, text="こんにちは"),
-                SubtitleSegment(start=2.5, end=5.0, text="世界"),
-            ],
-            output_path=None,
-            text="こんにちは\n世界",
-        )
-        client.app.dependency_overrides[dependencies.asr_service] = _mock_dep(mock_svc)
+        result_mock = MagicMock()
+        result_mock.segments = [
+            MagicMock(start=0.0, end=2.5, text="こんにちは"),
+            MagicMock(start=2.5, end=5.0, text="世界"),
+        ]
+        result_mock.output_path = None
+        result_mock.text = "こんにちは\n世界"
+        mock_svc.transcribe_file.return_value = result_mock
+        client.app.dependency_overrides[dependencies.asr_engine_service] = _mock_dep(mock_svc)
 
         resp = client.post(
             "/api/v1/asr/transcribe",
@@ -166,7 +166,7 @@ class TestAsrRoutes:
     def test_transcribe_validation_error(self, client):
         mock_svc = MagicMock()
         mock_svc.transcribe_file.side_effect = AppValidationError("file not found")
-        client.app.dependency_overrides[dependencies.asr_service] = _mock_dep(mock_svc)
+        client.app.dependency_overrides[dependencies.asr_engine_service] = _mock_dep(mock_svc)
 
         resp = client.post(
             "/api/v1/asr/transcribe",
@@ -203,18 +203,22 @@ class TestTranslationRoutes:
 
 
 class TestTtsRoutes:
-    def test_synthesize_success(self, client):
+    def test_synthesize_success(self, client, tmp_path):
         mock_svc = MagicMock()
-        mock_svc.synthesize_file.return_value = SynthesisResult(
-            engine="edge",
-            voice="zh-CN-XiaoxiaoNeural",
-            output_path="/test/output.wav",
-        )
-        client.app.dependency_overrides[dependencies.tts_service] = _mock_dep(mock_svc)
+        result_mock = MagicMock()
+        result_mock.engine = "edge"
+        result_mock.voice = "zh-CN-XiaoxiaoNeural"
+        result_mock.output_path = "/test/output.wav"
+        mock_svc.synthesize_text.return_value = result_mock
+        client.app.dependency_overrides[dependencies.tts_engine_service] = _mock_dep(mock_svc)
+
+        # Create a real input file since the route checks existence
+        input_file = tmp_path / "text.txt"
+        input_file.write_text("hello world", encoding="utf-8")
 
         resp = client.post(
             "/api/v1/tts/synthesize",
-            json={"input_path": "/test/text.txt", "output_path": "/test/output.wav"},
+            json={"input_path": str(input_file), "output_path": "/test/output.wav"},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -341,7 +345,7 @@ class TestSubtitleRoutes:
 
     def test_export_subtitle(self, client, tmp_path):
         mock_svc = MagicMock()
-        mock_svc.export_srt_text.return_value = "1\n00:00:00,000 --> 00:00:02,500\nHello\n"
+        mock_svc.export_document.return_value = str(tmp_path / "test.srt")
         client.app.dependency_overrides[dependencies.subtitle_service] = _mock_dep(mock_svc)
 
         output_file = str(tmp_path / "test.srt")
@@ -358,7 +362,7 @@ class TestSubtitleRoutes:
 
     def test_export_subtitle_accepts_document_shape(self, client, tmp_path):
         mock_svc = MagicMock()
-        mock_svc.export_srt_text.return_value = "1\n00:00:00,000 --> 00:00:02,500\nHello\n"
+        mock_svc.export_document.return_value = str(tmp_path / "document-shape.srt")
         client.app.dependency_overrides[dependencies.subtitle_service] = _mock_dep(mock_svc)
 
         output_file = str(tmp_path / "document-shape.srt")

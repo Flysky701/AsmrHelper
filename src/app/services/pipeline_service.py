@@ -10,6 +10,7 @@ from src.core.orchestration import (
     LegacyPipelineOrchestrator,
     PipelineExecutionContext,
     PipelineExecutionPlan,
+    PipelineExecutor,
     build_execution_plan,
 )
 
@@ -45,6 +46,9 @@ class PipelineService:
         session_service: SessionService | None = None,
         artifact_service: ArtifactService | None = None,
         orchestrator: LegacyPipelineOrchestrator | None = None,
+        executor: PipelineExecutor | None = None,
+        *,
+        use_legacy: bool = False,
     ) -> None:
         self._task_service = task_service or get_task_service()
         self._resource_service = resource_service or get_resource_service()
@@ -53,6 +57,8 @@ class PipelineService:
         self._session_service = session_service or get_session_service()
         self._artifact_service = artifact_service or get_artifact_service()
         self._orchestrator = orchestrator or LegacyPipelineOrchestrator()
+        self._executor = executor or PipelineExecutor()
+        self._use_legacy = use_legacy
 
     def run_audio_pipeline(self, request: PipelineRequest) -> PipelineResult:
         if not request.input_path:
@@ -112,10 +118,16 @@ class PipelineService:
                     message=message,
                 )
 
-            results = self._orchestrator.run(
-                context,
-                progress_callback=on_progress,
-            )
+            # Use new executor by default, legacy path as fallback
+            if self._use_legacy:
+                results = self._orchestrator.run_legacy(
+                    context,
+                    progress_callback=on_progress,
+                )
+            else:
+                plan = build_execution_plan(context)
+                results = self._executor.execute(plan, progress_callback=on_progress)
+
             step_errors = results.get("step_errors", {})
             if step_errors:
                 detail = "; ".join(

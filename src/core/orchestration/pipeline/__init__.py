@@ -1,5 +1,6 @@
 """Core pipeline orchestration exports."""
 
+from .executor import PipelineExecutor
 from .models import (
     MixConfig,
     PipelineExecutionContext,
@@ -20,6 +21,7 @@ __all__ = [
     "MixConfig",
     "PipelineExecutionContext",
     "PipelineExecutionPlan",
+    "PipelineExecutor",
     "PipelineMode",
     "StageBinding",
     "StageKind",
