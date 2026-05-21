@@ -60,7 +60,13 @@ class PipelineService:
         self._executor = executor or PipelineExecutor()
         self._use_legacy = use_legacy
 
-    def run_audio_pipeline(self, request: PipelineRequest) -> PipelineResult:
+    def run_audio_pipeline(
+        self,
+        request: PipelineRequest,
+        *,
+        progress_callback=None,
+        cancel_event=None,
+    ) -> PipelineResult:
         if not request.input_path:
             raise AppValidationError("input_path is required")
         if request.source_lang not in SUPPORTED_LANGUAGE_CODES:
@@ -69,15 +75,35 @@ class PipelineService:
             raise AppValidationError(f"unsupported target_lang: {request.target_lang}")
 
         task_spec = self.create_pipeline_task_spec(request)
-        return self.run_pipeline_task(task_spec.task_id)
+        return self.run_pipeline_task_spec(
+            task_spec,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+        )
 
-    def run_pipeline_task(self, task_id: str) -> PipelineResult:
+    def run_pipeline_task(
+        self,
+        task_id: str,
+        *,
+        progress_callback=None,
+        cancel_event=None,
+    ) -> PipelineResult:
         task_spec = self._task_service.get_task_spec(task_id)
         if task_spec.task_type != "pipeline":
             raise AppValidationError(f"task is not a pipeline task: {task_id}")
-        return self.run_pipeline_task_spec(task_spec)
+        return self.run_pipeline_task_spec(
+            task_spec,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+        )
 
-    def run_pipeline_task_spec(self, task_spec) -> PipelineResult:
+    def run_pipeline_task_spec(
+        self,
+        task_spec,
+        *,
+        progress_callback=None,
+        cancel_event=None,
+    ) -> PipelineResult:
         session = self._session_service.get_session(task_spec.session_id)
         input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
         self._task_service.start_task(task_spec.task_id, message="running pipeline")
@@ -117,6 +143,8 @@ class PipelineService:
                     progress=PROGRESS_MESSAGE_DEFAULT,
                     message=message,
                 )
+                if progress_callback is not None:
+                    progress_callback(message)
 
             # Use new executor by default, legacy path as fallback
             if self._use_legacy:
@@ -126,7 +154,11 @@ class PipelineService:
                 )
             else:
                 plan = build_execution_plan(context)
-                results = self._executor.execute(plan, progress_callback=on_progress)
+                results = self._executor.execute(
+                    plan,
+                    progress_callback=on_progress,
+                    cancel_event=cancel_event,
+                )
 
             step_errors = results.get("step_errors", {})
             if step_errors:
@@ -136,11 +168,22 @@ class PipelineService:
                 )
                 raise AppExecutionError(f"pipeline reported step errors: {detail}")
         except Exception as exc:
-            self._task_service.fail_task(
-                task_spec.task_id,
-                message="pipeline failed",
-                detail=str(exc),
+            is_cancelled = (
+                (cancel_event is not None and cancel_event.is_set())
+                or "用户取消" in str(exc)
+                or "cancel" in str(exc).lower()
             )
+            if is_cancelled:
+                self._task_service.cancel_task(
+                    task_spec.task_id,
+                    message="cancelled by user",
+                )
+            else:
+                self._task_service.fail_task(
+                    task_spec.task_id,
+                    message="pipeline failed",
+                    detail=str(exc),
+                )
             if isinstance(exc, (AppValidationError, AppExecutionError)):
                 raise
             raise AppExecutionError(str(exc)) from exc

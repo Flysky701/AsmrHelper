@@ -72,14 +72,19 @@ class BatchPipelineService:
             for index, task_spec in enumerate(task_specs, start=1):
                 if cancel_event is not None and cancel_event.is_set():
                     break
-                item = self._process_one(task_spec.task_id, request)
+                item = self._process_one(task_spec.task_id, request, cancel_event=cancel_event)
                 items.append(item)
                 if progress_callback is not None:
                     progress_callback(index, total, item)
         else:
             with ThreadPoolExecutor(max_workers=request.max_workers) as executor:
                 futures = {
-                    executor.submit(self._process_one, task_spec.task_id, request): task_spec.task_id
+                    executor.submit(
+                        self._process_one,
+                        task_spec.task_id,
+                        request,
+                        cancel_event=cancel_event,
+                    ): task_spec.task_id
                     for task_spec in task_specs
                 }
                 completed = 0
@@ -128,9 +133,11 @@ class BatchPipelineService:
         task_specs = []
         for input_path in resolved_input_files:
             output_dir, batch_root_dir = self._resolve_task_output(request, input_path)
+            subtitle_path = self._discover_companion_subtitle(input_path)
             pipeline_request = PipelineRequest(
                 input_path=str(input_path),
                 output_dir=output_dir,
+                vtt_path=subtitle_path,
                 source_lang=request.source_lang,
                 target_lang=request.target_lang,
                 use_vocal_separator=request.use_vocal_separator,
@@ -173,7 +180,13 @@ class BatchPipelineService:
             )
         return input_files
 
-    def _process_one(self, task_id: str, request: BatchPipelineRequest) -> BatchItemResult:
+    def _process_one(
+        self,
+        task_id: str,
+        request: BatchPipelineRequest,
+        *,
+        cancel_event=None,
+    ) -> BatchItemResult:
         started_at = time.time()
         try:
             task_spec = self._task_service.get_task_spec(task_id)
@@ -202,7 +215,10 @@ class BatchPipelineService:
                     duration=time.time() - started_at,
                 )
 
-            pipeline_result = self._pipeline_service.run_pipeline_task(task_id)
+            pipeline_result = self._pipeline_service.run_pipeline_task(
+                task_id,
+                cancel_event=cancel_event,
+            )
             output = pipeline_result.mix_path or pipeline_result.artifacts.primary_output
             if not output:
                 raise AppExecutionError("pipeline did not return a primary output")
@@ -246,6 +262,14 @@ class BatchPipelineService:
         if task_output.exists():
             return str(task_output)
         return str(legacy_output)
+
+    def _discover_companion_subtitle(self, input_path: Path) -> str | None:
+        primary_asset = self._input_catalog_service.inspect_paths([str(input_path)])[0]
+        companions = self._input_catalog_service.discover_companions(primary_asset.asset_id)
+        for asset in companions:
+            if asset.kind == "subtitle":
+                return asset.absolute_path
+        return None
 
 
 _service: BatchPipelineService | None = None

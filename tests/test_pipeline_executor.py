@@ -252,14 +252,44 @@ class TestPipelineExecutorResultShape:
         assert results["total_duration"] > 0
 
 
+class TestPipelineExecutorOutputPaths:
+    """Test output path layout matches legacy planner semantics."""
+
+    def test_single_mode_uses_main_dir_plus_by_product_subdir(self, tmp_path, mock_asr):
+        (tmp_path / "input.wav").write_bytes(b"audio")
+        plan = _make_plan(tmp_path, separation=False, translation=False, tts=False, mix=False)
+
+        executor = PipelineExecutor(asr=mock_asr)
+        results = executor.execute(plan)
+
+        assert results["output_dir"].endswith(str(Path("output") / "BY_Product"))
+        assert results["transcript_path"].endswith(str(Path("output") / "BY_Product" / "asr_result.txt"))
+
+    def test_batch_mode_uses_main_product_and_task_scoped_by_product_dir(self, tmp_path, mock_asr):
+        (tmp_path / "input.wav").write_bytes(b"audio")
+        batch_root = tmp_path / "batch-output"
+        plan = _make_plan(tmp_path, separation=False, translation=False, tts=False, mix=False)
+        plan.output_mode = "batch"
+        plan.batch_root_dir = str(batch_root)
+
+        executor = PipelineExecutor(asr=mock_asr)
+        results = executor.execute(plan)
+
+        assert results["output_dir"].endswith(str(Path("BY_Product") / "input_by"))
+        assert results["transcript_path"].endswith(
+            str(Path("batch-output") / "BY_Product" / "input_by" / "asr_result.txt")
+        )
+
+
 class TestPipelineExecutorSkipExisting:
     """Test skip_existing logic."""
 
     def test_skip_existing_separation(self, tmp_path):
         (tmp_path / "input.wav").write_bytes(b"audio")
         output_dir = tmp_path / "output"
-        output_dir.mkdir()
-        (output_dir / "vocal.wav").write_bytes(b"existing_vocal")
+        by_product_dir = output_dir / "BY_Product"
+        by_product_dir.mkdir(parents=True)
+        (by_product_dir / "vocal.wav").write_bytes(b"existing_vocal")
 
         plan = _make_plan(tmp_path, asr=False, translation=False, tts=False, mix=False)
         plan.skip_existing = True

@@ -57,6 +57,7 @@ class PipelineExecutor:
         plan: PipelineExecutionPlan,
         *,
         progress_callback: Callable[[str], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> dict[str, Any]:
         """Run all enabled stages and return normalized results.
 
@@ -85,9 +86,6 @@ class PipelineExecutor:
             "error": None,
         }
 
-        by_product_dir = Path(plan.output_dir)
-        by_product_dir.mkdir(parents=True, exist_ok=True)
-
         t0 = time.time()
         current_step = 0
         total_steps = len(plan.active_stage_kinds)
@@ -97,18 +95,16 @@ class PipelineExecutor:
                 progress_callback(msg)
 
         def _check_cancel() -> None:
-            if self._cancel_event and self._cancel_event.is_set():
+            effective_cancel_event = cancel_event or self._cancel_event
+            if effective_cancel_event and effective_cancel_event.is_set():
                 raise RuntimeError("用户取消操作")
 
         timestamped_segments: list[dict[str, Any]] = []
         translations: list[str] = []
         vocal_path = Path(plan.input_path)
+        mix_path, by_product_dir = self._resolve_output_paths(plan)
         tts_audio_path = by_product_dir / "tts_output.wav"
-
-        # Resolve mix output path
-        input_stem = Path(plan.input_path).stem
-        input_ext = Path(plan.input_path).suffix or ".wav"
-        mix_path = by_product_dir.parent / f"{input_stem}_mix{input_ext}"
+        results["output_dir"] = str(by_product_dir)
 
         try:
             # === SEPARATION ===
@@ -504,3 +500,24 @@ class PipelineExecutor:
                 torch.cuda.empty_cache()
         except ImportError:
             pass
+
+    @staticmethod
+    def _resolve_output_paths(plan: PipelineExecutionPlan) -> tuple[Path, Path]:
+        """Mirror legacy PathPlanner output semantics for new executor runs."""
+        input_path = Path(plan.input_path)
+        task_name = input_path.stem
+        input_ext = input_path.suffix or ".wav"
+
+        if plan.output_mode == "batch" and plan.batch_root_dir:
+            root_dir = Path(plan.batch_root_dir)
+            main_product_dir = root_dir / "Main_Product"
+            by_product_dir = root_dir / "BY_Product" / f"{task_name}_by"
+        else:
+            base_dir = Path(plan.output_dir) if plan.output_dir else input_path.parent / f"{task_name}_output"
+            main_product_dir = base_dir
+            by_product_dir = base_dir / "BY_Product"
+
+        main_product_dir.mkdir(parents=True, exist_ok=True)
+        by_product_dir.mkdir(parents=True, exist_ok=True)
+        mix_path = main_product_dir / f"{task_name}_mix{input_ext}"
+        return mix_path, by_product_dir

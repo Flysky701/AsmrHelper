@@ -7,6 +7,8 @@ with their current interfaces.
 from __future__ import annotations
 
 import threading
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -183,3 +185,124 @@ class TestPipelineServiceImport:
         from src.app.services.pipeline_service import PipelineService
         service = PipelineService(use_legacy=True)
         assert service._use_legacy is True
+
+
+class TestPipelineServiceCallbacks:
+    """Test PipelineService progress/cancel passthrough semantics."""
+
+    def _make_service(self):
+        from src.app.services.pipeline_service import PipelineService
+
+        task_service = MagicMock()
+        task_service.complete_task.return_value = MagicMock(task_id="pipeline-1", state="completed")
+        resource_service = MagicMock()
+        resource_service.ensure_workspace.return_value = {"output_dir": Path("/tmp/output")}
+        input_catalog_service = MagicMock()
+        input_catalog_service.get_asset.return_value = MagicMock(absolute_path="/tmp/input.wav")
+        session_service = MagicMock()
+        session_service.get_session.return_value = MagicMock(
+            resolved_output_dir="/tmp/output",
+            companion_asset_ids=[],
+        )
+        artifact_service = MagicMock()
+        executor = MagicMock()
+
+        service = PipelineService(
+            task_service=task_service,
+            resource_service=resource_service,
+            input_catalog_service=input_catalog_service,
+            session_service=session_service,
+            artifact_service=artifact_service,
+            executor=executor,
+        )
+        task_spec = MagicMock(
+            task_id="pipeline-1",
+            session_id="session-1",
+            input_asset_id="asset-1",
+            execution_profile={"pipeline": {"source_lang": "ja", "target_lang": "zh"}},
+        )
+        return service, executor, task_service, task_spec
+
+    def test_progress_callback_and_cancel_event_are_forwarded(self):
+        service, executor, task_service, task_spec = self._make_service()
+        cancel_event = threading.Event()
+        messages: list[str] = []
+
+        def run(plan, *, progress_callback=None, cancel_event=None):
+            assert cancel_event is not None
+            progress_callback("[1/5] 人声分离...")
+            return {
+                "input": "/tmp/input.wav",
+                "mix_path": "/tmp/output/input_mix.wav",
+                "exported_subtitle": None,
+                "primary_output": "/tmp/output/input_mix.wav",
+                "steps": {},
+                "step_errors": {},
+                "total_duration": 1.23,
+                "error": None,
+            }
+
+        executor.execute.side_effect = run
+
+        result = service.run_pipeline_task_spec(
+            task_spec,
+            progress_callback=messages.append,
+            cancel_event=cancel_event,
+        )
+
+        assert messages == ["[1/5] 人声分离..."]
+        task_service.update_progress.assert_any_call(
+            "pipeline-1",
+            progress=0.1,
+            message="[1/5] 人声分离...",
+        )
+        assert result.mix_path == "/tmp/output/input_mix.wav"
+
+    def test_cancellation_marks_task_cancelled(self):
+        from src.app.errors import AppExecutionError
+
+        service, executor, task_service, task_spec = self._make_service()
+        cancel_event = threading.Event()
+        cancel_event.set()
+        executor.execute.side_effect = RuntimeError("用户取消操作")
+
+        with pytest.raises(AppExecutionError, match="用户取消操作"):
+            service.run_pipeline_task_spec(task_spec, cancel_event=cancel_event)
+
+        task_service.cancel_task.assert_called_once_with(
+            "pipeline-1",
+            message="cancelled by user",
+        )
+        task_service.fail_task.assert_not_called()
+
+
+class TestBatchPipelineServiceCompanions:
+    """Test companion subtitle discovery in batch task creation."""
+
+    def test_create_batch_task_specs_passes_auto_discovered_subtitle(self, tmp_path):
+        from src.app.dto.batch_pipeline import BatchPipelineRequest
+        from src.app.services.batch_pipeline_service import BatchPipelineService
+
+        audio_file = tmp_path / "sample.wav"
+        audio_file.write_bytes(b"audio")
+
+        pipeline_service = MagicMock()
+        pipeline_service.create_pipeline_task_spec.return_value = MagicMock(task_id="pipeline-1")
+        input_catalog_service = MagicMock()
+        input_catalog_service.inspect_paths.return_value = [
+            MagicMock(asset_id="asset-1", absolute_path=str(audio_file))
+        ]
+        input_catalog_service.discover_companions.return_value = [
+            MagicMock(kind="subtitle", absolute_path=str(tmp_path / "sample.vtt"))
+        ]
+
+        service = BatchPipelineService(
+            pipeline_service=pipeline_service,
+            input_catalog_service=input_catalog_service,
+        )
+        request = BatchPipelineRequest(input_files=[str(audio_file)])
+
+        service.create_batch_task_specs(request)
+
+        request_arg = pipeline_service.create_pipeline_task_spec.call_args.args[0]
+        assert request_arg.vtt_path == str(tmp_path / "sample.vtt")

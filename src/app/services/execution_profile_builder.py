@@ -69,7 +69,11 @@ class ExecutionProfileBuilder:
 
     def _default_model(self, category: str, descriptor: dict[str, Any], settings: dict[str, Any]) -> str:
         if category == "asr":
-            return str(settings.get("processing", {}).get("asr_model", descriptor["default_model"]))
+            candidate = str(settings.get("processing", {}).get("asr_model", descriptor["default_model"]))
+            supported = descriptor.get("supported_models", [])
+            if supported and candidate not in supported:
+                return str(descriptor["default_model"])
+            return candidate
         if category == "separator":
             return str(settings.get("processing", {}).get("vocal_model", descriptor["default_model"]))
         return str(descriptor["default_model"])

@@ -38,9 +38,9 @@ class ModelInstaller:
 
     def remove_local_model(self, entry: ModelEntry) -> None:
         if entry.kind != "local":
-            raise ValueError(f"云端模型不支持删除: {entry.id}")
+            raise ValueError(f"cloud models cannot be removed: {entry.id}")
         if not entry.supports_remove:
-            raise ValueError(f"模型不支持删除: {entry.id}")
+            raise ValueError(f"model cannot be removed: {entry.id}")
 
         install_dir = entry.resolved_install_dir()
         if install_dir.exists():
@@ -48,9 +48,9 @@ class ModelInstaller:
 
     def install_local_model(self, entry: ModelEntry, mirror: Optional[str] = None, force: bool = False) -> bool:
         if entry.kind != "local":
-            raise ValueError(f"云端模型不支持安装: {entry.id}")
+            raise ValueError(f"cloud models cannot be installed: {entry.id}")
         if not entry.supports_install:
-            raise ValueError(f"模型不支持安装: {entry.id}")
+            raise ValueError(f"model cannot be installed: {entry.id}")
 
         status = self._status.resolve(entry)
         if status.status == ModelState.INSTALLED and not force:
@@ -64,7 +64,9 @@ class ModelInstaller:
             return self._download_whisper(entry, mirror)
         if strategy == "qwen3":
             return self._download_qwen3(entry, mirror)
-        raise ValueError(f"未知安装策略: {strategy}")
+        if strategy == "huggingface_snapshot":
+            return self._download_huggingface_snapshot(entry, mirror)
+        raise ValueError(f"unknown install strategy: {strategy}")
 
     def _download_whisper(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
         env = os.environ.copy()
@@ -108,6 +110,36 @@ class ModelInstaller:
             "os.environ['PYTHONIOENCODING'] = 'utf-8'\n"
             "from huggingface_hub import snapshot_download\n"
             f"snapshot_download({repo!r}, local_dir={str(target_dir)!r})\n",
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=str(self.project_root),
+            env=env,
+            timeout=3600,
+        )
+        return result.returncode == 0 and self.verify_local_model(entry)
+
+    def _download_huggingface_snapshot(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
+        env = os.environ.copy()
+        if mirror:
+            env["HF_ENDPOINT"] = mirror
+            os.environ["HF_ENDPOINT"] = mirror
+
+        repo = entry.upstream_name
+        if not repo:
+            raise ValueError(f"model entry missing upstream_name: {entry.id}")
+
+        target_dir = entry.resolved_install_dir()
+        cmd = [
+            sys.executable,
+            "-c",
+            "import os\n"
+            "os.environ['PYTHONUTF8'] = '1'\n"
+            "os.environ['PYTHONIOENCODING'] = 'utf-8'\n"
+            "from huggingface_hub import snapshot_download\n"
+            f"snapshot_download(repo_id={repo!r}, local_dir={str(target_dir)!r})\n",
         ]
         result = subprocess.run(
             cmd,
