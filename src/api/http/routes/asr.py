@@ -38,14 +38,20 @@ def transcribe(
     body: TranscribeRequest,
     svc: AsrEngineService = Depends(asr_engine_service),
 ):
+    common_options = dict(body.common_options)
+    common_options.setdefault("language", body.language)
+    provider_options = dict(body.provider_options)
+    if body.provider == "faster_whisper":
+        provider_options.setdefault("disable_vad", True)
+
     result = svc.transcribe_file(
         input_path=body.input_path,
         output_path=body.output_path,
-        provider="faster_whisper",
+        provider=body.provider,
         model=body.model,
         language=body.language,
-        common_options={"language": body.language},
-        provider_options={"disable_vad": True},
+        common_options=common_options,
+        provider_options=provider_options,
     )
     return TranscribeResponse(
         segments=[

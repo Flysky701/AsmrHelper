@@ -33,9 +33,12 @@ class AsrEngineRuntime:
 
         recognizer = self._registry.get(
             provider,
-            model_size=str(profile.get("model", "")),
-            language=str(common_options.get("language", "ja")),
-            disable_vad=bool(provider_options.get("disable_vad", True)),
+            **self._build_provider_kwargs(
+                provider=provider,
+                model=str(profile.get("model", "")),
+                common_options=common_options,
+                provider_options=provider_options,
+            ),
         )
         entries = recognizer.recognize(str(source_path), output_path)
         segments = [
@@ -52,3 +55,57 @@ class AsrEngineRuntime:
             format="srt" if output_path else "",
             source_path=output_path or "",
         )
+
+    @staticmethod
+    def _build_provider_kwargs(
+        *,
+        provider: str,
+        model: str,
+        common_options: dict[str, Any],
+        provider_options: dict[str, Any],
+    ) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "model_size": model,
+            "language": str(common_options.get("language", "ja")),
+        }
+
+        if provider == "faster_whisper":
+            kwargs["disable_vad"] = bool(provider_options.get("disable_vad", True))
+            return kwargs
+
+        if provider == "fun_asr":
+            supported = (
+                "hub",
+                "device",
+                "batch_size",
+                "sentence_timestamp",
+                "trust_remote_code",
+                "remote_code_path",
+                "hotwords",
+                "vad_model",
+                "vad_kwargs",
+            )
+            for key in supported:
+                if key in provider_options:
+                    kwargs[key] = provider_options[key]
+            return kwargs
+
+        if provider == "qwen3_asr":
+            supported = (
+                "device_map",
+                "dtype",
+                "attn_implementation",
+                "max_inference_batch_size",
+                "max_new_tokens",
+                "forced_aligner",
+                "forced_aligner_kwargs",
+                "return_time_stamps",
+                "context",
+            )
+            for key in supported:
+                if key in provider_options:
+                    kwargs[key] = provider_options[key]
+            return kwargs
+
+        kwargs.update(provider_options)
+        return kwargs

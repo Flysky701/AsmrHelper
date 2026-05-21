@@ -41,6 +41,14 @@ class AsrRegistry:
             factory=self._make_asr,
             config_defaults={"model_size": "processing.asr_model"},
         )
+        self.register(
+            "fun_asr",
+            factory=self._make_fun_asr,
+        )
+        self.register(
+            "qwen3_asr",
+            factory=self._make_qwen3_asr,
+        )
 
     def register(
         self,
@@ -119,6 +127,18 @@ class AsrRegistry:
     def _make_asr(**kwargs: Any) -> Any:
         from src.core.asr import ASRRecognizer
         return ASRRecognizer(**kwargs)
+
+    @staticmethod
+    def _make_fun_asr(**kwargs: Any) -> Any:
+        from .fun_asr import FunAsrRecognizer
+
+        return FunAsrRecognizer(**kwargs)
+
+    @staticmethod
+    def _make_qwen3_asr(**kwargs: Any) -> Any:
+        from .qwen3_asr import Qwen3AsrRecognizer
+
+        return Qwen3AsrRecognizer(**kwargs)
 
 
 def get_asr_registry() -> AsrRegistry:
