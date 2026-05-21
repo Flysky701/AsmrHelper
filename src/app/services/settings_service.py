@@ -6,7 +6,7 @@ import threading
 from copy import deepcopy
 from typing import Any
 
-from src.config import config
+from src.core.config import config
 
 from ..errors import AppExecutionError, AppValidationError
 
