@@ -48,6 +48,14 @@ class ModelManager:
     }
 
     def __init__(self):
+        import warnings
+        warnings.warn(
+            "ModelManager is deprecated. Use engine registries directly: "
+            "get_tts_registry(), get_asr_registry(), get_llm_registry(), get_separator_registry(). "
+            "See src.core.engines for details.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._instances: Dict[str, Any] = {}
         self._lock = threading.Lock()
 
@@ -358,10 +366,20 @@ _manager_lock = threading.Lock()
 
 
 def get_model_manager() -> ModelManager:
-    """获取全局 ModelManager 单例"""
+    """获取全局 ModelManager 单例（已弃用，请使用各引擎域 registry）"""
+    import warnings
+    warnings.warn(
+        "get_model_manager() is deprecated. Use engine registries directly.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     global _manager
     if _manager is None:
         with _manager_lock:
             if _manager is None:
-                _manager = ModelManager()
+                # Suppress the __init__ warning since we already warned above
+                import warnings as _w
+                with _w.catch_warnings():
+                    _w.simplefilter("ignore", DeprecationWarning)
+                    _manager = ModelManager()
     return _manager

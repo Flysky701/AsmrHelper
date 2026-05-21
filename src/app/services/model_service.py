@@ -21,9 +21,8 @@ logger = logging.getLogger(__name__)
 class ModelService:
     """Stable application-facing facade for model operations."""
 
-    def __init__(self, core_service=None, model_manager=None):
+    def __init__(self, core_service=None):
         self.core_service = core_service or get_core_model_service()
-        self._model_manager = model_manager
 
     def list_models(self, kind: str | None = None, category: str | None = None) -> list[ModelSummary]:
         entries = self.core_service.list_models(kind=kind, category=category)
@@ -131,7 +130,9 @@ class ModelService:
             raise AppValidationError(f"model '{model_id}' has no provider, cannot unload")
 
         try:
-            self._get_model_manager().unload(category, provider)
+            registry = self._get_registry(category)
+            registry.unload(provider)
+            self._try_clear_gpu()
         except Exception as exc:
             raise AppExecutionError(f"failed to unload model '{model_id}': {exc}") from exc
 
@@ -148,7 +149,9 @@ class ModelService:
     def unload_all_models(self) -> None:
         """Unload all runtime model instances, releasing GPU memory."""
         try:
-            self._get_model_manager().unload_all()
+            for registry in self._all_registries():
+                registry.unload_all()
+            self._try_clear_gpu()
         except Exception as exc:
             raise AppExecutionError(f"failed to unload all models: {exc}") from exc
         logger.info("unloaded all models")
@@ -161,11 +164,44 @@ class ModelService:
         except Exception as exc:
             raise AppExecutionError(str(exc)) from exc
 
-    def _get_model_manager(self):
-        if self._model_manager is None:
-            from src.core.model_manager import get_model_manager
-            self._model_manager = get_model_manager()
-        return self._model_manager
+    @staticmethod
+    def _get_registry(category: str):
+        """Get the engine registry for a given category."""
+        from src.core.engines.tts import get_tts_registry
+        from src.core.engines.asr import get_asr_registry
+        from src.core.engines.llm import get_llm_registry
+        from src.core.engines.separator import get_separator_registry
+
+        registries = {
+            "tts": get_tts_registry,
+            "asr": get_asr_registry,
+            "llm": get_llm_registry,
+            "separator": get_separator_registry,
+        }
+        getter = registries.get(category)
+        if not getter:
+            raise AppValidationError(f"unknown model category: {category}")
+        return getter()
+
+    @staticmethod
+    def _all_registries():
+        """Return all engine registry instances."""
+        from src.core.engines.tts import get_tts_registry
+        from src.core.engines.asr import get_asr_registry
+        from src.core.engines.llm import get_llm_registry
+        from src.core.engines.separator import get_separator_registry
+
+        return [get_tts_registry(), get_asr_registry(), get_llm_registry(), get_separator_registry()]
+
+    @staticmethod
+    def _try_clear_gpu():
+        """Attempt to clear GPU cache after unload."""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
 
     def _get_core_status(self, model_id: str):
         try:
