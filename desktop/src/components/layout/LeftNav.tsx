@@ -2,11 +2,11 @@ import { useNavStore, PAGE_ORDER, PAGE_LABELS } from '@/stores/navStore'
 import type { PageId } from '@/stores/navStore'
 
 const NAV_ICONS: Record<PageId, string> = {
-  workbench: '⚙',   // ⚙ — will use text labels primarily
-  tools: '⚒',
+  workbench: '⚙',
+  'subtitle-workshop': '📝',
   'voice-lab': '♫',
-  tasks: '☰',
-  resources: '⬜',
+  'task-center': '☰',
+  engines: '⬡',
   settings: '⚙',
 }
 
@@ -72,7 +72,7 @@ export default function LeftNav() {
             </span>
             <span
               style={{
-                fontSize: '12px',
+                fontSize: '11px',
                 fontWeight: isActive ? 600 : 400,
                 color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
                 lineHeight: 1.3,

@@ -2,27 +2,27 @@ import { create } from 'zustand'
 
 export type PageId =
   | 'workbench'
-  | 'tools'
+  | 'subtitle-workshop'
   | 'voice-lab'
-  | 'tasks'
-  | 'resources'
+  | 'task-center'
+  | 'engines'
   | 'settings'
 
 export const PAGE_LABELS: Record<PageId, string> = {
-  workbench: '汉化工作台',
-  tools: '工具箱',
+  workbench: '工作台',
+  'subtitle-workshop': '字幕工坊',
   'voice-lab': '音色实验室',
-  tasks: '任务/日志',
-  resources: '资源中心',
+  'task-center': '任务中心',
+  engines: '引擎与资源',
   settings: '设置',
 }
 
 export const PAGE_ORDER: PageId[] = [
   'workbench',
-  'tools',
+  'subtitle-workshop',
   'voice-lab',
-  'tasks',
-  'resources',
+  'task-center',
+  'engines',
   'settings',
 ]
 

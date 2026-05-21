@@ -3,18 +3,18 @@ import type { PageId } from '@/stores/navStore'
 import type { ComponentType } from 'react'
 
 import Workbench from '@/pages/Workbench'
-import Tools from '@/pages/tools/Tools'
+import SubtitleWorkshop from '@/pages/SubtitleWorkshop'
 import VoiceLab from '@/pages/voice-lab/VoiceLab'
-import Tasks from '@/pages/Tasks'
-import Resources from '@/pages/Resources'
+import TaskCenter from '@/pages/TaskCenter'
+import EnginesResources from '@/pages/EnginesResources'
 import Settings from '@/pages/Settings'
 
 const PAGES: Record<PageId, ComponentType> = {
   workbench: Workbench,
-  tools: Tools,
+  'subtitle-workshop': SubtitleWorkshop,
   'voice-lab': VoiceLab,
-  tasks: Tasks,
-  resources: Resources,
+  'task-center': TaskCenter,
+  engines: EnginesResources,
   settings: Settings,
 }
 

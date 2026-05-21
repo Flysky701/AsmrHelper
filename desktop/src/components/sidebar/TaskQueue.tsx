@@ -13,7 +13,7 @@ export default function TaskQueue() {
 
   const handleTaskClick = (id: string) => {
     selectTask(id)
-    setPage('tasks')
+    setPage('task-center')
   }
 
   return (
