@@ -7,9 +7,14 @@ from typing import Any
 
 from src.core.subtitles import SubtitleDocument, SubtitleSegment
 
+from .registry import get_asr_registry
+
 
 class AsrEngineRuntime:
     """Execute ASR transcription against the legacy recognizer."""
+
+    def __init__(self, registry=None) -> None:
+        self._registry = registry or get_asr_registry()
 
     def transcribe_file(
         self,
@@ -18,16 +23,16 @@ class AsrEngineRuntime:
         output_path: str | None,
         profile: dict[str, Any],
     ) -> SubtitleDocument:
-        from src.core.asr import ASRRecognizer
-
         source_path = Path(input_path)
         if not source_path.exists():
             raise ValueError(f"input file does not exist: {input_path}")
 
         common_options = dict(profile.get("common_options", {}))
         provider_options = dict(profile.get("provider_options", {}))
+        provider = str(profile.get("provider", "faster_whisper"))
 
-        recognizer = ASRRecognizer(
+        recognizer = self._registry.get(
+            provider,
             model_size=str(profile.get("model", "")),
             language=str(common_options.get("language", "ja")),
             disable_vad=bool(provider_options.get("disable_vad", True)),

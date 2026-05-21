@@ -23,14 +23,18 @@ class ArtifactResultMapper:
             if isinstance(step_result, dict) and step_result.get("error"):
                 step_errors[step_name] = str(step_result["error"])
 
+        mix_path = raw.get("mix_path")
+        exported_subtitle = raw.get("exported_subtitle")
+
         return {
             "input": raw.get("input", ""),
             "output_dir": raw.get("output_dir", ""),
-            "mix_path": raw.get("mix_path"),
-            "exported_subtitle": raw.get("exported_subtitle"),
+            "mix_path": mix_path,
+            "exported_subtitle": exported_subtitle,
+            "primary_output": mix_path or exported_subtitle,
             "vocal_path": raw.get("vocal_path"),
-            "tts_audio_path": raw.get("tts_audio_path"),
-            "transcript_path": raw.get("transcript_path"),
+            "tts_audio_path": raw.get("tts_audio_path") or raw.get("tts_path"),
+            "transcript_path": raw.get("transcript_path") or raw.get("asr_text_path"),
             "steps": steps,
             "step_errors": step_errors,
             "subtitle_lang": raw.get("subtitle_lang"),

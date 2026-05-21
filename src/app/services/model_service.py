@@ -130,9 +130,8 @@ class ModelService:
         if not provider:
             raise AppValidationError(f"model '{model_id}' has no provider, cannot unload")
 
-        mgr = self._get_model_manager()
         try:
-            mgr.unload(category, provider)
+            self._get_model_manager().unload(category, provider)
         except Exception as exc:
             raise AppExecutionError(f"failed to unload model '{model_id}': {exc}") from exc
 
@@ -148,9 +147,8 @@ class ModelService:
 
     def unload_all_models(self) -> None:
         """Unload all runtime model instances, releasing GPU memory."""
-        mgr = self._get_model_manager()
         try:
-            mgr.unload_all()
+            self._get_model_manager().unload_all()
         except Exception as exc:
             raise AppExecutionError(f"failed to unload all models: {exc}") from exc
         logger.info("unloaded all models")

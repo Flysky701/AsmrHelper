@@ -110,7 +110,8 @@ class LegacyPipelineOrchestrator:
             skip_existing=plan.skip_existing,
             output_mode=plan.output_mode,
             batch_root_dir=plan.batch_root_dir,
-            pipeline_mode=plan.mode.value,
+            pipeline_mode="custom",
+            forced_active_steps=plan.legacy_active_steps,
             # Subtitle
             clean_subtitle=plan.subtitle.clean_enabled,
             clean_sound_effects=plan.subtitle.clean_sound_effects,

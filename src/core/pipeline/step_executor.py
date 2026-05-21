@@ -48,7 +48,7 @@ class StepExecutor:
             self.progress_callback(msg)
 
     def execute_separation(self, active_steps, subtitle_ctx, task_name, input_path, by_product_dir):
-        from src.core.vocal_separator import VocalSeparator
+        from src.core.engines.separator import SeparatorEngineRuntime
         
         if "vocal_separator" not in active_steps:
             self.current_step += 1
@@ -70,8 +70,16 @@ class StepExecutor:
                 self._report(f"\n[{self.current_step}/{self.total_steps}] 人声分离 (Demucs)...")
                 t1 = time.time()
                 try:
-                    separator = self._injected_separator or VocalSeparator(model_name=self.config.vocal_model)
-                    sep_results = separator.separate(str(input_path), str(by_product_dir), stems=["vocals"])
+                    separator = self._injected_separator or SeparatorEngineRuntime()
+                    if hasattr(separator, "separate") and separator.__class__.__name__ == "SeparatorEngineRuntime":
+                        sep_results = separator.separate(
+                            input_path=str(input_path),
+                            output_dir=str(by_product_dir),
+                            model=self.config.vocal_model,
+                            stems=["vocals"],
+                        )
+                    else:
+                        sep_results = separator.separate(str(input_path), str(by_product_dir), stems=["vocals"])
                     vocals = sep_results.get("vocals")
                     if not vocals:
                         raise ValueError("人声分离未返回 vocals 路径")
@@ -97,7 +105,7 @@ class StepExecutor:
         return Path(self.results["vocal_path"])
 
     def execute_asr(self, active_steps, subtitle_ctx, vocal_path, by_product_dir):
-        from src.core.asr import ASRRecognizer
+        from src.core.engines.asr import AsrEngineRuntime
         
         asr_text_path = by_product_dir / "asr_result.txt"
         timestamped_segments = []
@@ -112,6 +120,7 @@ class StepExecutor:
                     "duration": 0, "skipped": True, "source": subtitle_ctx.subtitle_type.lower(), 
                     "segments": len(timestamped_segments), "cleaned": self.config.clean_subtitle
                 }
+                self.results["transcript_path"] = subtitle_ctx.subtitle_path
         else:
             self.current_step += 1
             if self.config.skip_existing and asr_text_path.exists():
@@ -120,13 +129,28 @@ class StepExecutor:
             self._report(f"\n[{self.current_step}/{self.total_steps}] ASR 语音识别 (Whisper)...")
             t1 = time.time()
             try:
-                recognizer = self._injected_recognizer or ASRRecognizer(
-                    model_size=self.config.asr_model, language=self.config.asr_language
-                )
-                asr_results = recognizer.recognize(str(vocal_path), str(asr_text_path))
-                timestamped_segments = asr_results.copy()
+                recognizer = self._injected_recognizer or AsrEngineRuntime()
+                if hasattr(recognizer, "transcribe_file"):
+                    document = recognizer.transcribe_file(
+                        input_path=str(vocal_path),
+                        output_path=str(asr_text_path),
+                        profile={
+                            "provider": "faster_whisper",
+                            "model": self.config.asr_model,
+                            "common_options": {"language": self.config.asr_language},
+                            "provider_options": {"disable_vad": True},
+                        },
+                    )
+                    timestamped_segments = [
+                        {"start": segment.start, "end": segment.end, "text": segment.text}
+                        for segment in document.segments
+                    ]
+                else:
+                    asr_results = recognizer.recognize(str(vocal_path), str(asr_text_path))
+                    timestamped_segments = asr_results.copy()
+                self.results["transcript_path"] = str(asr_text_path)
                 self.results["steps"]["asr"] = {
-                    "duration": time.time() - t1, "segments": len(asr_results), "output": str(asr_text_path)
+                    "duration": time.time() - t1, "segments": len(timestamped_segments), "output": str(asr_text_path)
                 }
             except Exception as e:
                 self._report(f"[WARN] ASR识别失败: {e}")
@@ -144,7 +168,7 @@ class StepExecutor:
         return timestamped_segments
 
     def execute_translate(self, active_steps, subtitle_ctx, timestamped_segments, by_product_dir):
-        from src.core.translate import Translator
+        from src.core.engines.llm import LlmOperationRuntime
         
         translated_path = by_product_dir / "translated.txt"
         translations = []
@@ -185,15 +209,25 @@ class StepExecutor:
                 try:
                     source_texts = [seg.get("text", "") for seg in timestamped_segments]
                     
-                    translator = self._injected_translator or Translator(
-                        provider=self.config.translate_provider,
-                        model=self.config.translate_model,
-                    )
-                    translations = translator.translate_batch(
-                        source_texts,
-                        source_lang=self.config.source_lang,
-                        target_lang=self.config.target_lang,
-                    )
+                    translator = self._injected_translator or LlmOperationRuntime()
+                    if hasattr(translator, "translate_texts"):
+                        translations = translator.translate_texts(
+                            texts=source_texts,
+                            profile={
+                                "provider": self.config.translate_provider,
+                                "model": self.config.translate_model,
+                                "common_options": {},
+                                "provider_options": {},
+                            },
+                            source_lang=self.config.source_lang,
+                            target_lang=self.config.target_lang,
+                        )
+                    else:
+                        translations = translator.translate_batch(
+                            source_texts,
+                            source_lang=self.config.source_lang,
+                            target_lang=self.config.target_lang,
+                        )
                     # 写入翻译文件
                     translated_path.write_text("\n".join(translations), encoding="utf-8")
                     _attach(timestamped_segments, translations)
@@ -208,7 +242,7 @@ class StepExecutor:
         return translations
 
     def execute_tts(self, active_steps, timestamped_segments, by_product_dir, input_path=None):
-        from src.core.tts import TTSEngine
+        from src.core.engines.tts import TtsEngineRuntime
 
         tts_audio_path = by_product_dir / "tts_output.wav"
 
@@ -226,12 +260,7 @@ class StepExecutor:
                 self._report(f"\n[{self.current_step}/{self.total_steps}] TTS 语音合成 ({self.config.tts_engine})...")
                 t1 = time.time()
                 try:
-                    engine = self._injected_tts_engine or TTSEngine(
-                        engine=self.config.tts_engine,
-                        voice=self.config.tts_voice,
-                        speed=self.config.tts_speed,
-                        voice_profile_id=self.config.voice_profile_id
-                    )
+                    runtime = self._injected_tts_engine or TtsEngineRuntime()
 
                     voice_segments = []
                     for i, seg in enumerate(timestamped_segments, 1):
@@ -258,13 +287,36 @@ class StepExecutor:
                         except Exception:
                             pass
 
-                    engine.synthesize_segments(
-                        voice_segments, str(by_product_dir), str(tts_audio_path),
-                        reference_duration=reference_duration,
-                        sample_rate=sample_rate,
-                        max_tts_ratio=self.config.max_tts_ratio,
-                        compress_ratio=self.config.compress_ratio,
-                    )
+                    if hasattr(runtime, "synthesize_segments"):
+                        _, engine = runtime.synthesize_segments(
+                            segments=voice_segments,
+                            output_dir=str(by_product_dir),
+                            output_path=str(tts_audio_path),
+                            profile={
+                                "provider": self.config.tts_engine,
+                                "model": "default",
+                                "common_options": {
+                                    "voice": self.config.tts_voice,
+                                    "speed": self.config.tts_speed,
+                                },
+                                "provider_options": {
+                                    "voice_profile_id": self.config.voice_profile_id,
+                                },
+                            },
+                            reference_duration=reference_duration,
+                            sample_rate=sample_rate,
+                            max_tts_ratio=self.config.max_tts_ratio,
+                            compress_ratio=self.config.compress_ratio,
+                        )
+                    else:
+                        engine = runtime
+                        engine.synthesize_segments(
+                            voice_segments, str(by_product_dir), str(tts_audio_path),
+                            reference_duration=reference_duration,
+                            sample_rate=sample_rate,
+                            max_tts_ratio=self.config.max_tts_ratio,
+                            compress_ratio=self.config.compress_ratio,
+                        )
                     self.results["steps"]["tts"] = {
                         "duration": time.time() - t1,
                         "segments": len(voice_segments),
@@ -291,6 +343,7 @@ class StepExecutor:
                         pass
 
         self.results["tts_path"] = str(tts_audio_path)
+        self.results["tts_audio_path"] = str(tts_audio_path)
         return tts_audio_path
 
     def execute_mix(self, active_steps, input_path, tts_audio_path, mix_path):

@@ -12,10 +12,6 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable
 from dataclasses import dataclass, field
 
-from ..vocal_separator import VocalSeparator
-from ..asr import ASRRecognizer
-from ..translate import Translator
-from ..tts import TTSEngine
 from ...mixer import Mixer
 
 from .path_planner import PathPlanner
@@ -80,6 +76,7 @@ class PipelineConfig:
     # "tts_only"      -> ASR + 翻译 + TTS (不混音)
     # "custom"        -> 严格按 use_* 布尔开关决定
     pipeline_mode: str = "full"
+    forced_active_steps: Optional[List[str]] = None
     export_subtitle_format: str = "srt"  # srt | vtt | lrc
 
     # 字幕清理 (report_18)
@@ -290,6 +287,9 @@ class Pipeline:
             raise
         finally:
             executor.results["total_duration"] = time.time() - t0
+            executor.results["primary_output"] = (
+                executor.results.get("mix_path") or executor.results.get("exported_subtitle")
+            )
             executor._report(f"\n[完成] 总耗时: {executor.results['total_duration']:.1f}s")
             executor._report("=" * 60)
 

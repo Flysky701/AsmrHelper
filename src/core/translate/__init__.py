@@ -145,12 +145,19 @@ class Translator:
             return config.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
         return ""
 
-    def _get_client(self) -> OpenAI:
-        """每次调用都重新构建客户端（保证 api_key 始终是最新的）"""
+    def get_client(self) -> OpenAI:
+        """返回一个新的 OpenAI 客户端（api_key 始终是最新的）
+
+        Public API: external callers (e.g. LlmOperationRuntime) should use
+        this instead of the private ``_get_client`` helper.
+        """
         key = self.api_key
         if not key:
             raise ValueError(f"未设置 {self.provider} API 密钥，请在设置中配置")
         return OpenAI(api_key=key, base_url=self.base_url)
+
+    # Keep backward-compatible alias so existing internal callers still work.
+    _get_client = get_client
 
     def translate(
         self,

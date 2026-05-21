@@ -16,6 +16,16 @@ class StepResolver:
 
     def resolve_active_steps(self, has_subtitle: bool, is_chinese_subtitle: bool) -> List[str]:
         config = self.config
+        if config.forced_active_steps:
+            steps = list(config.forced_active_steps)
+            # Keep a small amount of subtitle-aware behavior in the legacy layer
+            # until subtitle preflight is fully migrated into orchestration.
+            if has_subtitle and "vocal_separator" in steps:
+                steps.remove("vocal_separator")
+            if is_chinese_subtitle and "translate" in steps:
+                steps.remove("translate")
+            return steps
+
         mode = config.pipeline_mode
 
         if mode == "full":

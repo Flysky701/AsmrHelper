@@ -99,8 +99,8 @@ class ScriptToSubtitlePipeline:
 
         # ---- Stage 2: asr_recognize - 音频 → ASR ----
         cb("asr_recognize", 0, "正在语音识别...")
-        from src.core.model_manager import get_model_manager
-        asr = get_model_manager().get_asr(
+        from src.core.engines.asr import get_asr_registry
+        asr = get_asr_registry().get(
             "faster_whisper",
             model_size=asr_model_size,
             language=asr_language,

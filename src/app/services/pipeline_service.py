@@ -33,14 +33,6 @@ SUPPORTED_LANGUAGE_CODES = frozenset(LANG_MAP)
 PROGRESS_MESSAGE_DEFAULT = 0.1
 
 
-def _get_step_errors(results: dict) -> dict[str, str]:
-    step_errors: dict[str, str] = {}
-    for step_name, step_result in results.get("steps", {}).items():
-        if isinstance(step_result, dict) and step_result.get("error"):
-            step_errors[step_name] = str(step_result["error"])
-    return step_errors
-
-
 class PipelineService:
     """Wrap core pipeline invocation behind stable request/result DTOs."""
 
@@ -125,8 +117,6 @@ class PipelineService:
                 progress_callback=on_progress,
             )
             step_errors = results.get("step_errors", {})
-            if not step_errors:
-                step_errors = _get_step_errors(results)
             if step_errors:
                 detail = "; ".join(
                     f"{step_name}: {error_message}"
@@ -150,10 +140,11 @@ class PipelineService:
         )
         mix_path = results.get("mix_path")
         exported_subtitle = results.get("exported_subtitle")
+        primary_output = results.get("primary_output") or mix_path or exported_subtitle
         completed_task = self._task_service.complete_task(
             task_spec.task_id,
             message="pipeline completed",
-            detail=mix_path or exported_subtitle or "",
+            detail=primary_output or "",
         )
         self._register_pipeline_artifacts(
             task_id=task_spec.task_id,
@@ -169,7 +160,7 @@ class PipelineService:
             task_id=completed_task.task_id,
             task_state=completed_task.state,
             artifacts=ArtifactSet.from_optional_paths(
-                primary_output=mix_path or exported_subtitle,
+                primary_output=primary_output,
                 mix=mix_path,
                 subtitle=exported_subtitle,
             ),

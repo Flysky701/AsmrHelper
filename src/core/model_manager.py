@@ -145,16 +145,12 @@ class ModelManager:
         if name is None:
             name = self._default_name(category)
 
+        instance = self._pop_legacy_instance(category, name)
+
         # Try domain registry first
         domain = self._get_domain_registry(category)
         if domain is not None and domain.is_registered(name):
             domain.unload(name)
-            return
-
-        # Fallback to legacy cache
-        cache_key = f"{category}/{name}"
-        with self._lock:
-            instance = self._instances.pop(cache_key, None)
 
         if instance is not None and hasattr(instance, "unload"):
             instance.unload()
@@ -252,6 +248,12 @@ class ModelManager:
                 torch.cuda.empty_cache()
         except ImportError:
             pass
+
+    def _pop_legacy_instance(self, category: str, name: str) -> Any:
+        """Remove a legacy cached instance without touching domain registries."""
+        cache_key = f"{category}/{name}"
+        with self._lock:
+            return self._instances.pop(cache_key, None)
 
     @classmethod
     def _get_domain_registry(cls, category: str) -> Any:

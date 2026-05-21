@@ -27,7 +27,13 @@ class SubtitleStrategy:
         self.config = config
 
     def preload(self) -> SubtitleContext:
-        from ..translate import clean_subtitle_batch, deduplicate_text, detect_subtitle_language, load_subtitle_translations, traditional_to_simplified
+        from ..subtitles import (
+            clean_subtitle_batch,
+            deduplicate_text,
+            detect_subtitle_language,
+            load_subtitle_translations,
+            traditional_to_simplified,
+        )
 
         subtitle_path = self.config.vtt_path
         subtitle_type = Path(subtitle_path).suffix.upper().lstrip(".") if subtitle_path else "VTT"
@@ -79,7 +85,7 @@ class SubtitleStrategy:
 
     def load_entries(self, subtitle_path: str) -> List[Dict]:
         """Load subtitle entries with timestamps using current clean strategy."""
-        from ..translate import load_and_clean_subtitle, load_subtitle_with_timestamps
+        from ..subtitles import load_and_clean_subtitle, load_subtitle_with_timestamps
 
         if self.config.clean_subtitle:
             return load_and_clean_subtitle(

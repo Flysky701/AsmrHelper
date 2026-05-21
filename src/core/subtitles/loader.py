@@ -402,7 +402,7 @@ def load_and_clean_subtitle(
     Returns: [{start, end, text, original_text?}, ...]
     """
     try:
-        from src.core.translate.subtitle_cleaner import SubtitleCleaner, CleanerConfig
+        from src.core.subtitles.cleaner import CleanerConfig, SubtitleCleaner
     except ImportError:
         print("[WARN] 字幕清理模块不可用，返回原始字幕")
         return load_subtitle_with_timestamps(subtitle_path)
@@ -453,7 +453,7 @@ def clean_subtitle_batch(
 ) -> List[str]:
     """Batch clean subtitle text."""
     try:
-        from src.core.translate.subtitle_cleaner import SubtitleCleaner, CleanerConfig
+        from src.core.subtitles.cleaner import CleanerConfig, SubtitleCleaner
     except ImportError:
         return texts
 

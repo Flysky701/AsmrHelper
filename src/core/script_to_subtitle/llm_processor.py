@@ -67,8 +67,10 @@ class LLMProcessor:
     @property
     def translator(self):
         if self._translator is None:
-            from src.core.model_manager import get_model_manager
-            self._translator = get_model_manager().get_llm()
+            from src.config import config
+            from src.core.engines.llm import get_llm_registry
+            provider = config.get("api.provider") or "deepseek"
+            self._translator = get_llm_registry().get(provider)
         return self._translator
 
     # ------------------------------------------------------------------
@@ -463,7 +465,7 @@ class LLMProcessor:
         Returns:
             LLM 响应文本
         """
-        client = self.translator._get_client()
+        client = self.translator.get_client()
         response = client.chat.completions.create(
             model=self.translator.model,
             messages=[

@@ -465,20 +465,33 @@ class AudioToolService:
                 load_subtitle_with_timestamps,
                 load_and_clean_subtitle,
             )
-            from src.core.translate import Translator
+            from src.core.engines.llm import LlmOperationRuntime
 
             entries = load_and_clean_subtitle(str(source))
             if not entries:
                 raise AppValidationError("subtitle file contains no entries")
 
-            translator = Translator(provider=request.provider)
+            runtime = LlmOperationRuntime()
             source_label = _LANG_MAP.get(request.source_lang, request.source_lang)
             target_label = _LANG_MAP.get(request.target_lang, request.target_lang)
-            segments = translator.translate_segments(
-                entries,
+            translations = runtime.translate_texts(
+                texts=[str(entry.get("text", "")) for entry in entries],
+                profile={
+                    "provider": request.provider,
+                    "model": "",
+                    "common_options": {},
+                    "provider_options": {},
+                },
                 source_lang=source_label,
                 target_lang=target_label,
             )
+            segments = [
+                {
+                    **entry,
+                    "translation": translations[index] if index < len(translations) else "",
+                }
+                for index, entry in enumerate(entries)
+            ]
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc
         except Exception as exc:

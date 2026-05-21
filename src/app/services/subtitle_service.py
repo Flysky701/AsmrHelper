@@ -116,7 +116,7 @@ class SubtitleService:
         bilingual: bool = True,
     ) -> SubtitleTranslationResult:
         from src.core.subtitles import load_and_clean_subtitle
-        from src.core.translate import Translator
+        from src.core.engines.llm import LlmOperationRuntime
 
         source = Path(input_path)
         if not source.exists():
@@ -129,12 +129,25 @@ class SubtitleService:
 
             source_label = self._map_language(source_lang)
             target_label = self._map_language(target_lang)
-            translator = Translator(provider=provider)
-            segments = translator.translate_segments(
-                entries,
+            runtime = LlmOperationRuntime()
+            translations = runtime.translate_texts(
+                texts=[str(entry.get("text", "")) for entry in entries],
+                profile={
+                    "provider": provider,
+                    "model": "",
+                    "common_options": {},
+                    "provider_options": {},
+                },
                 source_lang=source_label,
                 target_lang=target_label,
             )
+            segments = [
+                {
+                    **entry,
+                    "translation": translations[index] if index < len(translations) else "",
+                }
+                for index, entry in enumerate(entries)
+            ]
         except AppValidationError:
             raise
         except ValueError as exc:
