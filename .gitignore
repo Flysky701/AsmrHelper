@@ -101,10 +101,12 @@ config/config.json
 config/voice_profiles.json
 
 # =====================
-# WorkBuddy (IDE workspace data)
+# IDE workspace data
 # =====================
 .trae
 .github/
+.claude/
+.kiro/
 .workbuddy/
 .codebuddy/
 CODEBUDDY.md
@@ -112,7 +114,7 @@ CODEBUDDY.md
 # =====================
 # Development Docx
 # =====================
-docx/
+docs/plan/archived/
 功能测试素材/
 
 # =====================
