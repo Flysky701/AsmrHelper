@@ -58,4 +58,5 @@ class ModelStatusResolver:
     def _has_required_file(install_dir: Path, required_file: str) -> bool:
         if (install_dir / required_file).exists():
             return True
-        return any(path.name.endswith(required_file) for path in install_dir.glob(f"*{required_file}*"))
+        # Strict: match by exact filename, not substring
+        return any(p.name == required_file for p in install_dir.rglob("*") if p.name == required_file)

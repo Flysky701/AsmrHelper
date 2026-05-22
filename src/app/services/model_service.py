@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 class ModelService:
     """Stable application-facing facade for model operations."""
 
-    def __init__(self, core_service=None):
+    def __init__(self, core_service=None, task_service=None):
         self.core_service = core_service or get_core_model_service()
+        self._task_service = task_service
 
     def list_models(self, kind: str | None = None, category: str | None = None) -> list[ModelSummary]:
         entries = self.core_service.list_models(kind=kind, category=category)
@@ -101,6 +102,48 @@ class ModelService:
                 allow_fallback_variant=allow_fallback_variant,
             ),
         )
+
+    def install_model_async(
+        self,
+        model_id: str,
+        mirror: str | None = None,
+        force: bool = False,
+        install_mode: str = "single",
+        install_dependencies: bool = True,
+        install_recommended_assets: bool = False,
+        allow_fallback_variant: bool = False,
+    ) -> str:
+        """Start async model installation, returns task_id for SSE subscription."""
+        self._get_model_entry(model_id)
+        task_svc = self._get_task_service()
+        _spec, task = task_svc.create_task_spec(
+            task_type="model_install",
+            task_source="api",
+            session_id="",
+        )
+        task_id = task.task_id
+
+        def _run():
+            try:
+                task_svc.start_task(task_id, "installing")
+                self.core_service.install(
+                    model_id,
+                    mirror=mirror,
+                    force=force,
+                    install_mode=install_mode,
+                    install_dependencies=install_dependencies,
+                    install_recommended_assets=install_recommended_assets,
+                    allow_fallback_variant=allow_fallback_variant,
+                    on_progress=lambda frac, msg: task_svc.update_progress(task_id, frac, msg),
+                )
+                task_svc.complete_task(task_id, "installed")
+            except Exception as exc:
+                logger.error("async install failed for %s: %s", model_id, exc)
+                task_svc.fail_task(task_id, str(exc))
+
+        thread = threading.Thread(target=_run, name=f"install-{model_id}", daemon=True)
+        thread.start()
+        return task_id
 
     def verify_models(self, model_id: str | None = None) -> list[ModelVerificationResult]:
         if model_id:
@@ -188,6 +231,12 @@ class ModelService:
             raise AppValidationError(str(exc)) from exc
         except Exception as exc:
             raise AppExecutionError(str(exc)) from exc
+
+    def _get_task_service(self):
+        if self._task_service is not None:
+            return self._task_service
+        from .task_service import get_task_service
+        return get_task_service()
 
     @staticmethod
     def _get_registry(category: str):

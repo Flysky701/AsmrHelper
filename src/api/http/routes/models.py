@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from src.api.http.dependencies import model_service
 from src.api.http.schemas.models import (
+    ModelInstallAsyncResponse,
     ModelInstallRequest,
     ModelOperationResponse,
     ModelStatusResponse,
@@ -79,10 +80,11 @@ def get_model_status(
     )
 
 
-@router.post("/{model_id}/install", response_model=ModelOperationResponse)
+@router.post("/{model_id}/install")
 def install_model(
     model_id: str,
     body: ModelInstallRequest | None = None,
+    sync: bool = Query(False, description="Synchronous install (blocking). Default is async."),
     svc: ModelService = Depends(model_service),
 ):
     mirror = body.mirror if body else None
@@ -91,7 +93,26 @@ def install_model(
     install_dependencies = body.install_dependencies if body else True
     install_recommended_assets = body.install_recommended_assets if body else False
     allow_fallback_variant = body.allow_fallback_variant if body else False
-    result = svc.install_model(
+
+    if sync:
+        result = svc.install_model(
+            model_id,
+            mirror=mirror,
+            force=force,
+            install_mode=install_mode,
+            install_dependencies=install_dependencies,
+            install_recommended_assets=install_recommended_assets,
+            allow_fallback_variant=allow_fallback_variant,
+        )
+        return ModelOperationResponse(
+            action=result.action,
+            model_id=result.model_id,
+            success=result.success,
+            status=result.status,
+            detail=result.detail,
+        )
+
+    task_id = svc.install_model_async(
         model_id,
         mirror=mirror,
         force=force,
@@ -100,13 +121,7 @@ def install_model(
         install_recommended_assets=install_recommended_assets,
         allow_fallback_variant=allow_fallback_variant,
     )
-    return ModelOperationResponse(
-        action=result.action,
-        model_id=result.model_id,
-        success=result.success,
-        status=result.status,
-        detail=result.detail,
-    )
+    return ModelInstallAsyncResponse(task_id=task_id, status="pending")
 
 
 @router.post("/{model_id}/verify", response_model=list[ModelVerificationResponse])

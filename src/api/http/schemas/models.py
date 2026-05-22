@@ -54,3 +54,8 @@ class ModelInstallRequest(BaseModel):
     install_dependencies: bool = Field(True, description="Install required runtime dependencies when supported")
     install_recommended_assets: bool = Field(False, description="Install recommended companion assets")
     allow_fallback_variant: bool = Field(False, description="Allow family-level fallback selection when available")
+
+
+class ModelInstallAsyncResponse(BaseModel):
+    task_id: str
+    status: str = "pending"

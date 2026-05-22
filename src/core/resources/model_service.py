@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import logging
+import subprocess
+import sys
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from .model_catalog import DEFAULT_CATALOG_PATH, ModelCatalog, ModelEntry
 from .model_installer import ModelInstaller
 from .model_status import ModelStatus, ModelStatusResolver
+
+logger = logging.getLogger(__name__)
 
 
 class ModelService:
@@ -40,6 +45,7 @@ class ModelService:
         install_dependencies: bool = True,
         install_recommended_assets: bool = False,
         allow_fallback_variant: bool = False,
+        on_progress: Callable[[float, str], None] | None = None,
     ) -> bool:
         entry = self.get_model(model_id)
         if entry.kind == "cloud":
@@ -51,6 +57,7 @@ class ModelService:
             mirror=mirror,
             force=force,
             allow_fallback_variant=allow_fallback_variant,
+            on_progress=on_progress,
         )
 
         if not success:
@@ -68,7 +75,13 @@ class ModelService:
         )
         # Filter out the primary model (already installed above)
         remaining = [e for e in plan if e.id != entry.id]
-        return all(self.installer.install_local_model(target, mirror=mirror, force=force) for target in remaining)
+        results = []
+        for target in remaining:
+            ok = self.installer.install_local_model(target, mirror=mirror, force=force)
+            if not ok:
+                logger.warning("failed to install dependency: %s", target.id)
+            results.append(ok)
+        return all(results)
 
     def remove(self, model_id: str) -> None:
         entry = self.get_model(model_id)
@@ -86,9 +99,16 @@ class ModelService:
         mirror: str | None,
         force: bool,
         allow_fallback_variant: bool,
+        on_progress: Callable[[float, str], None] | None = None,
     ) -> bool:
         """Install model, optionally falling back to other variants in the same group."""
-        if self.installer.install_local_model(entry, mirror=mirror, force=force):
+        install_fn = (
+            (lambda e: self.installer.install_with_progress(e, mirror=mirror, force=force, on_progress=on_progress))
+            if on_progress
+            else (lambda e: self.installer.install_local_model(e, mirror=mirror, force=force))
+        )
+
+        if install_fn(entry):
             return True
 
         if not allow_fallback_variant or not entry.variant_group:
@@ -104,24 +124,28 @@ class ModelService:
         candidates.sort(key=lambda e: (not e.is_primary_variant, e.variant_tier or ""))
 
         for candidate in candidates:
-            if self.installer.install_local_model(candidate, mirror=mirror, force=force):
+            if install_fn(candidate):
                 return True
         return False
 
     def _install_runtime_packages(self, entry: ModelEntry) -> None:
         """Install required runtime packages for a model."""
-        import subprocess
-        import sys
-
         packages = list(entry.required_runtime_packages)
         if not packages:
             return
 
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", *packages],
-            check=False,
-            capture_output=True,
-        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--quiet", *packages],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if result.returncode != 0:
+                logger.warning("pip install failed for %s: %s", entry.id, (result.stderr or "")[-300:])
+        except Exception as exc:
+            logger.warning("pip install error for %s: %s", entry.id, exc)
 
     def _resolve_install_plan(
         self,

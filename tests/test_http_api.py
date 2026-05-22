@@ -317,7 +317,7 @@ class TestModelRoutes:
         data = resp.json()
         assert data["status"] == "installed"
 
-    def test_install_model(self, client):
+    def test_install_model_sync(self, client):
         mock_svc = MagicMock()
         mock_svc.install_model.return_value = ModelOperationResult(
             action="install",
@@ -329,7 +329,7 @@ class TestModelRoutes:
         client.app.dependency_overrides[dependencies.model_service] = _mock_dep(mock_svc)
 
         resp = client.post(
-            "/api/v1/models/whisper-base/install",
+            "/api/v1/models/whisper-base/install?sync=true",
             json={
                 "install_mode": "recommended",
                 "install_dependencies": False,
@@ -349,6 +349,21 @@ class TestModelRoutes:
             install_recommended_assets=True,
             allow_fallback_variant=True,
         )
+
+    def test_install_model_async(self, client):
+        mock_svc = MagicMock()
+        mock_svc.install_model_async.return_value = "model_install-1"
+        client.app.dependency_overrides[dependencies.model_service] = _mock_dep(mock_svc)
+
+        resp = client.post(
+            "/api/v1/models/whisper-base/install",
+            json={"install_mode": "single"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["task_id"] == "model_install-1"
+        assert data["status"] == "pending"
+        mock_svc.install_model_async.assert_called_once()
 
     def test_verify_model(self, client):
         mock_svc = MagicMock()
@@ -527,7 +542,7 @@ class TestErrorHandling:
         mock_svc.install_model.side_effect = AppExecutionError("download failed")
         client.app.dependency_overrides[dependencies.model_service] = _mock_dep(mock_svc)
 
-        resp = client.post("/api/v1/models/whisper-base/install")
+        resp = client.post("/api/v1/models/whisper-base/install?sync=true")
         assert resp.status_code == 500
         assert resp.json()["error"]["code"] == "EXECUTION_ERROR"
 

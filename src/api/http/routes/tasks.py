@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import time
+
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 
 from src.api.http.dependencies import artifact_service, task_service
 from src.api.http.schemas.tasks import (
@@ -22,6 +26,7 @@ from src.api.http.schemas.tasks import (
     TaskSpecResponse,
     TaskStatusResponse,
 )
+from src.app.dto import TaskStatus
 from src.app.services import ArtifactService, TaskService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -173,6 +178,40 @@ def get_task(
 ):
     task = svc.get_task(task_id)
     return TaskStatusResponse.from_task_status(task)
+
+
+@router.get("/{task_id}/events")
+def stream_task_events(
+    task_id: str,
+    svc: TaskService = Depends(task_service),
+):
+    """SSE endpoint that streams task status updates until terminal state."""
+    _TERMINAL = frozenset({"completed", "failed", "cancelled", "skipped"})
+
+    def _event_stream():
+        last_state = ""
+        last_progress = -1.0
+        try:
+            while True:
+                task = svc.get_task(task_id)
+                changed = task.state != last_state or abs(task.progress - last_progress) > 0.001
+                if changed:
+                    payload = TaskStatusResponse.from_task_status(task).model_dump_json()
+                    yield f"data: {payload}\n\n"
+                    last_state = task.state
+                    last_progress = task.progress
+                if task.state in _TERMINAL:
+                    yield "event: done\ndata: {}\n\n"
+                    return
+                time.sleep(0.5)
+        except Exception:
+            yield "event: error\ndata: {}\n\n"
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{task_id}/spec", response_model=TaskSpecResponse)
