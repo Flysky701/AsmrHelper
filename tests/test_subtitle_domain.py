@@ -177,41 +177,19 @@ class TestSubtitleLoader:
 
 
 class TestDeprecationWarnings:
-    """Test that deprecated import paths emit DeprecationWarning."""
+    """Verify that legacy modules have been removed (Phase 2 cleanup complete)."""
 
-    def test_subtitle_generator_deprecated(self):
-        import warnings
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            import importlib
-            import sys
-            # Remove cached module to trigger fresh import
-            sys.modules.pop("src.core.subtitle_generator", None)
-            importlib.import_module("src.core.subtitle_generator")
-            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(deprecation_warnings) >= 1
-            assert "deprecated" in str(deprecation_warnings[0].message).lower()
+    def test_legacy_subtitle_generator_removed(self):
+        """Legacy src.core.subtitle_generator has been deleted."""
+        from pathlib import Path
+        assert not Path("src/core/subtitle_generator.py").exists()
 
-    def test_script_processor_deprecated(self):
-        import warnings
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            import importlib
-            import sys
-            sys.modules.pop("src.core.script_processor", None)
-            importlib.import_module("src.core.script_processor")
-            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(deprecation_warnings) >= 1
-            assert "deprecated" in str(deprecation_warnings[0].message).lower()
+    def test_legacy_script_processor_removed(self):
+        """Legacy src.core.script_processor has been deleted."""
+        from pathlib import Path
+        assert not Path("src/core/script_processor.py").exists()
 
-    def test_script_to_subtitle_deprecated(self):
-        import warnings
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            import importlib
-            import sys
-            sys.modules.pop("src.core.script_to_subtitle", None)
-            importlib.import_module("src.core.script_to_subtitle")
-            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(deprecation_warnings) >= 1
-            assert "deprecated" in str(deprecation_warnings[0].message).lower()
+    def test_legacy_script_to_subtitle_removed(self):
+        """Legacy src.core.script_to_subtitle/ has been deleted."""
+        from pathlib import Path
+        assert not Path("src/core/script_to_subtitle/__init__.py").exists()
