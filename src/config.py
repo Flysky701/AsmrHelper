@@ -70,7 +70,7 @@ class Config:
                 "tts_volume": 0.5,
                 "tts_delay": 0,
                 "vocal_model": "htdemucs",
-                "asr_model": "base",
+                "asr_model": "faster-whisper-base",
             },
         }
 
@@ -204,8 +204,8 @@ class Config:
 
         # 验证 TTS 配置
         tts_engine = self._get_from_mapping(target, "tts.engine", "")
-        if tts_engine not in ("edge", "qwen3"):
-            errors.append(f"tts.engine 必须是 'edge' 或 'qwen3'，当前: {tts_engine}")
+        if tts_engine not in ("edge", "qwen3", "kokoro"):
+            errors.append(f"tts.engine 必须是 'edge'、'qwen3' 或 'kokoro'，当前: {tts_engine}")
 
         speed = self._get_from_mapping(target, "tts.speed", 1.0)
         if not isinstance(speed, (int, float)) or speed < 0.1 or speed > 3.0:

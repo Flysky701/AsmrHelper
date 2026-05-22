@@ -48,6 +48,28 @@ class TtsEngineService:
         descriptor = self.get_engine(engine_id)
         return bool(descriptor.get("supports", {}).get(feature, False))
 
+    def synthesize_file(
+        self,
+        input_path: str,
+        output_path: str,
+        provider: str | None = None,
+        voice: str | None = None,
+    ) -> SynthesisResult:
+        """Convenience wrapper: read text file and synthesize."""
+        source_path = Path(input_path)
+        if not source_path.exists():
+            raise AppValidationError(f"input file does not exist: {input_path}")
+        text = source_path.read_text(encoding="utf-8")
+        common_options: dict[str, Any] = {}
+        if voice is not None:
+            common_options["voice"] = voice
+        return self.synthesize_text(
+            text=text,
+            output_path=output_path,
+            provider=provider,
+            common_options=common_options if common_options else None,
+        )
+
     def synthesize_text(
         self,
         *,

@@ -102,7 +102,7 @@ class PipelineRequest:
     tts_engine: str = "edge"
     tts_voice: str = "zh-CN-XiaoxiaoNeural"
     vocal_model: str = "htdemucs"
-    asr_model: str = "base"
+    asr_model: str = "faster-whisper-base"
     translate_provider: str = "deepseek"
     tts_speed: float = 1.0
     original_volume: float = 0.85
@@ -158,6 +158,19 @@ class ModelSummary:
     category: str
     backend: str
     display_name: str
+    family_id: str | None = None
+    variant_group: str | None = None
+    variant_tier: str | None = None
+    is_primary_variant: bool = False
+    dependency_group: str | None = None
+    runtime_profile: str | None = None
+    preferred_runtime: str | None = None
+    install_modes: list[str] = field(default_factory=list)
+    default_install_mode: str | None = None
+    required_assets: list[str] = field(default_factory=list)
+    recommended_assets: list[str] = field(default_factory=list)
+    required_system_tools: list[str] = field(default_factory=list)
+    supported_os: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

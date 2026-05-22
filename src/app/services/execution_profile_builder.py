@@ -32,10 +32,18 @@ class ExecutionProfileBuilder:
         provider_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         settings = self.settings_service.get_effective_settings(masked=False)
-        resolved_provider = provider or self._default_provider(category, settings)
+
+        # Resolve model first so provider can be inferred from model_id.
+        resolved_model = model or self._default_model(category, settings=settings)
+        resolved_provider = provider or self._default_provider(category, settings, resolved_model)
         descriptor = self.descriptor_service.get_descriptor(category, resolved_provider)
 
-        resolved_model = model or self._default_model(category, descriptor, settings)
+        # Re-resolve model against descriptor if it was not explicitly provided.
+        if not model:
+            resolved_model = self._default_model(category, settings, descriptor)
+
+        self._validate_supported_model(descriptor, resolved_model)
+
         resolved_common = self._fill_defaults(
             descriptor["common_option_schema"],
             common_options or {},
@@ -45,8 +53,6 @@ class ExecutionProfileBuilder:
             provider_options or {},
         )
 
-        self._validate_supported_model(descriptor, resolved_model)
-
         return {
             "category": category,
             "provider": resolved_provider,
@@ -55,7 +61,16 @@ class ExecutionProfileBuilder:
             "provider_options": resolved_provider_options,
         }
 
-    def _default_provider(self, category: str, settings: dict[str, Any]) -> str:
+    def _default_provider(
+        self, category: str, settings: dict[str, Any], model: str | None = None,
+    ) -> str:
+        if category == "asr" and model:
+            if model.startswith("faster-whisper-"):
+                return "faster_whisper"
+            if model.startswith("fun-asr-"):
+                return "fun_asr"
+            if model.startswith("qwen3-asr-"):
+                return "qwen3_asr"
         if category == "tts":
             return settings.get("tts", {}).get("engine", "edge")
         if category == "llm":
@@ -67,16 +82,23 @@ class ExecutionProfileBuilder:
             return "mdx" if str(vocal_model).startswith("mdx") else "htdemucs"
         raise AppValidationError(f"unsupported execution profile category: {category}")
 
-    def _default_model(self, category: str, descriptor: dict[str, Any], settings: dict[str, Any]) -> str:
+    def _default_model(
+        self,
+        category: str,
+        settings: dict[str, Any],
+        descriptor: dict[str, Any] | None = None,
+    ) -> str:
+        fallback = descriptor["default_model"] if descriptor else None
         if category == "asr":
-            candidate = str(settings.get("processing", {}).get("asr_model", descriptor["default_model"]))
-            supported = descriptor.get("supported_models", [])
-            if supported and candidate not in supported:
-                return str(descriptor["default_model"])
+            candidate = str(settings.get("processing", {}).get("asr_model", fallback or "faster-whisper-base"))
+            if descriptor:
+                supported = descriptor.get("supported_models", [])
+                if supported and candidate not in supported:
+                    return str(descriptor["default_model"])
             return candidate
         if category == "separator":
-            return str(settings.get("processing", {}).get("vocal_model", descriptor["default_model"]))
-        return str(descriptor["default_model"])
+            return str(settings.get("processing", {}).get("vocal_model", fallback or "htdemucs"))
+        return str(fallback or "default")
 
     def _fill_defaults(
         self,

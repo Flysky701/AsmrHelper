@@ -85,7 +85,7 @@ class PipelineExecutionPlan:
         kind=StageKind.SEPARATION, provider="builtin", model="htdemucs",
     ))
     asr: StageBinding = field(default_factory=lambda: StageBinding(
-        kind=StageKind.ASR, provider="faster_whisper", model="base",
+        kind=StageKind.ASR, provider="faster_whisper", model="faster-whisper-base",
     ))
     translation: StageBinding = field(default_factory=lambda: StageBinding(
         kind=StageKind.TRANSLATION, provider="deepseek", model="default",

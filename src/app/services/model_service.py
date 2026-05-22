@@ -33,6 +33,19 @@ class ModelService:
                 category=entry.category,
                 backend=entry.provider or entry.engine or "-",
                 display_name=entry.display_name,
+                family_id=entry.family_id,
+                variant_group=entry.variant_group,
+                variant_tier=entry.variant_tier,
+                is_primary_variant=entry.is_primary_variant,
+                dependency_group=entry.dependency_group,
+                runtime_profile=entry.runtime_profile,
+                preferred_runtime=entry.preferred_runtime,
+                install_modes=entry.install_modes,
+                default_install_mode=entry.default_install_mode,
+                required_assets=entry.required_assets,
+                recommended_assets=entry.recommended_assets,
+                required_system_tools=entry.required_system_tools,
+                supported_os=entry.supported_os,
             )
             for entry in entries
         ]
@@ -70,11 +83,23 @@ class ModelService:
         model_id: str,
         mirror: str | None = None,
         force: bool = False,
+        install_mode: str = "single",
+        install_dependencies: bool = True,
+        install_recommended_assets: bool = False,
+        allow_fallback_variant: bool = False,
     ) -> ModelOperationResult:
         return self._run_model_operation(
             action="install",
             model_id=model_id,
-            runner=lambda: self.core_service.install(model_id, mirror=mirror, force=force),
+            runner=lambda: self.core_service.install(
+                model_id,
+                mirror=mirror,
+                force=force,
+                install_mode=install_mode,
+                install_dependencies=install_dependencies,
+                install_recommended_assets=install_recommended_assets,
+                allow_fallback_variant=allow_fallback_variant,
+            ),
         )
 
     def verify_models(self, model_id: str | None = None) -> list[ModelVerificationResult]:

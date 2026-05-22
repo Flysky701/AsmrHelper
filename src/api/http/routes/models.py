@@ -31,6 +31,19 @@ def list_models(
             category=m.category,
             backend=m.backend,
             display_name=m.display_name,
+            family_id=m.family_id,
+            variant_group=m.variant_group,
+            variant_tier=m.variant_tier,
+            is_primary_variant=m.is_primary_variant,
+            dependency_group=m.dependency_group,
+            runtime_profile=m.runtime_profile,
+            preferred_runtime=m.preferred_runtime,
+            install_modes=m.install_modes,
+            default_install_mode=m.default_install_mode,
+            required_assets=m.required_assets,
+            recommended_assets=m.recommended_assets,
+            required_system_tools=m.required_system_tools,
+            supported_os=m.supported_os,
         )
         for m in models
     ]
@@ -74,7 +87,19 @@ def install_model(
 ):
     mirror = body.mirror if body else None
     force = body.force if body else False
-    result = svc.install_model(model_id, mirror=mirror, force=force)
+    install_mode = body.install_mode if body else "single"
+    install_dependencies = body.install_dependencies if body else True
+    install_recommended_assets = body.install_recommended_assets if body else False
+    allow_fallback_variant = body.allow_fallback_variant if body else False
+    result = svc.install_model(
+        model_id,
+        mirror=mirror,
+        force=force,
+        install_mode=install_mode,
+        install_dependencies=install_dependencies,
+        install_recommended_assets=install_recommended_assets,
+        allow_fallback_variant=allow_fallback_variant,
+    )
     return ModelOperationResponse(
         action=result.action,
         model_id=result.model_id,

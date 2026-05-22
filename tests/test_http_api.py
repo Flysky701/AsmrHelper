@@ -203,11 +203,38 @@ class TestTranslationRoutes:
 
 
 class TestTtsRoutes:
+    def test_list_tts_engines(self, client):
+        mock_svc = MagicMock()
+        mock_svc.list_engines.return_value = [
+            {
+                "category": "tts",
+                "provider": "kokoro",
+                "display_name": "Kokoro TTS",
+                "kind": "local",
+                "supported_models": ["default"],
+                "default_model": "default",
+                "common_option_schema": [
+                    {"name": "voice", "type": "string", "required": False, "default": "af_heart", "description": ""},
+                ],
+                "provider_option_schema": [
+                    {"name": "lang_code", "type": "string", "required": False, "default": None, "description": ""},
+                ],
+                "supports": {"voice_list": True, "lightweight_local": True},
+            }
+        ]
+        client.app.dependency_overrides[dependencies.tts_engine_service] = _mock_dep(mock_svc)
+
+        resp = client.get("/api/v1/tts/engines")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["engines"][0]["provider"] == "kokoro"
+        assert data["engines"][0]["common_option_schema"][0]["name"] == "voice"
+
     def test_synthesize_success(self, client, tmp_path):
         mock_svc = MagicMock()
         result_mock = MagicMock()
-        result_mock.engine = "edge"
-        result_mock.voice = "zh-CN-XiaoxiaoNeural"
+        result_mock.engine = "kokoro"
+        result_mock.voice = "af_heart"
         result_mock.output_path = "/test/output.wav"
         mock_svc.synthesize_text.return_value = result_mock
         client.app.dependency_overrides[dependencies.tts_engine_service] = _mock_dep(mock_svc)
@@ -218,12 +245,28 @@ class TestTtsRoutes:
 
         resp = client.post(
             "/api/v1/tts/synthesize",
-            json={"input_path": str(input_file), "output_path": "/test/output.wav"},
+            json={
+                "input_path": str(input_file),
+                "output_path": "/test/output.wav",
+                "engine": "kokoro",
+                "model": "default",
+                "voice": "af_heart",
+                "speed": 1.1,
+                "provider_options": {"lang_code": "a"},
+            },
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["engine"] == "edge"
+        assert data["engine"] == "kokoro"
         assert data["output_path"] == "/test/output.wav"
+        mock_svc.synthesize_text.assert_called_once_with(
+            text="hello world",
+            output_path="/test/output.wav",
+            provider="kokoro",
+            model="default",
+            common_options={"voice": "af_heart", "speed": 1.1},
+            provider_options={"lang_code": "a"},
+        )
 
 
 # ─── Models ───────────────────────────────────────────────────────────
@@ -248,6 +291,8 @@ class TestModelRoutes:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["model_id"] == "whisper-base"
+        assert data[0]["family_id"] is None
+        assert data[0]["install_modes"] == []
 
     def test_get_model_status(self, client):
         mock_svc = MagicMock()
@@ -274,10 +319,27 @@ class TestModelRoutes:
         )
         client.app.dependency_overrides[dependencies.model_service] = _mock_dep(mock_svc)
 
-        resp = client.post("/api/v1/models/whisper-base/install")
+        resp = client.post(
+            "/api/v1/models/whisper-base/install",
+            json={
+                "install_mode": "recommended",
+                "install_dependencies": False,
+                "install_recommended_assets": True,
+                "allow_fallback_variant": True,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
+        mock_svc.install_model.assert_called_once_with(
+            "whisper-base",
+            mirror=None,
+            force=False,
+            install_mode="recommended",
+            install_dependencies=False,
+            install_recommended_assets=True,
+            allow_fallback_variant=True,
+        )
 
     def test_verify_model(self, client):
         mock_svc = MagicMock()

@@ -99,6 +99,31 @@ class CapabilityDescriptorService:
                 },
             },
             {
+                "category": "tts",
+                "provider": "kokoro",
+                "display_name": "Kokoro TTS",
+                "kind": "local",
+                "supported_models": ["default"],
+                "default_model": "default",
+                "common_option_schema": [
+                    _option("voice", "string", required=False, default="af_heart", description="Kokoro voice id"),
+                    _option("speed", "number", required=False, default=1.0, description="Synthesis speed"),
+                ],
+                "provider_option_schema": [
+                    _option("lang_code", "string", required=False, description="Optional Kokoro language code"),
+                    _option("repo_id", "string", required=False, description="Optional custom Hugging Face repo id"),
+                    _option("split_pattern", "string", required=False, default="\\n+", description="Chunk split regex"),
+                    _option("sample_rate", "integer", required=False, default=24000, description="Output sample rate"),
+                ],
+                "supports": {
+                    "voice_list": True,
+                    "voice_clone": False,
+                    "preview": False,
+                    "streaming": False,
+                    "lightweight_local": True,
+                },
+            },
+            {
                 "category": "llm",
                 "provider": "deepseek",
                 "display_name": "DeepSeek",
@@ -141,8 +166,14 @@ class CapabilityDescriptorService:
                 "provider": "faster_whisper",
                 "display_name": "faster-whisper",
                 "kind": "local",
-                "supported_models": ["tiny", "base", "small", "medium", "large-v3"],
-                "default_model": "base",
+                "supported_models": [
+                    "faster-whisper-tiny",
+                    "faster-whisper-base",
+                    "faster-whisper-small",
+                    "faster-whisper-medium",
+                    "faster-whisper-large-v3",
+                ],
+                "default_model": "faster-whisper-base",
                 "common_option_schema": [
                     _option("language", "string", required=False, default="ja", description="Language hint"),
                 ],
@@ -165,10 +196,10 @@ class CapabilityDescriptorService:
                 "display_name": "Fun-ASR",
                 "kind": "local",
                 "supported_models": [
-                    "FunAudioLLM/Fun-ASR-Nano-2512",
-                    "FunAudioLLM/Fun-ASR-MLT-Nano-2512",
+                    "fun-asr-nano-2512",
+                    "fun-asr-mlt-nano-2512",
                 ],
-                "default_model": "FunAudioLLM/Fun-ASR-Nano-2512",
+                "default_model": "fun-asr-nano-2512",
                 "common_option_schema": [
                     _option("language", "string", required=False, default="ja", description="Language hint"),
                 ],
@@ -217,10 +248,10 @@ class CapabilityDescriptorService:
                 "display_name": "Qwen3-ASR",
                 "kind": "local",
                 "supported_models": [
-                    "Qwen/Qwen3-ASR-0.6B",
-                    "Qwen/Qwen3-ASR-1.7B",
+                    "qwen3-asr-0.6b",
+                    "qwen3-asr-1.7b",
                 ],
-                "default_model": "Qwen/Qwen3-ASR-0.6B",
+                "default_model": "qwen3-asr-0.6b",
                 "common_option_schema": [
                     _option("language", "string", required=False, default="ja", description="Language hint"),
                 ],

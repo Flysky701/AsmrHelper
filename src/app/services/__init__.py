@@ -5,7 +5,6 @@ from __future__ import annotations
 from importlib import import_module
 
 __all__ = [
-    "AsrService",
     "AsrEngineService",
     "ArtifactService",
     "AudioToolService",
@@ -26,10 +25,8 @@ __all__ = [
     "ToolRegistry",
     "TranslationService",
     "TtsEngineService",
-    "TtsService",
     "VoiceService",
     "WorkspaceService",
-    "get_asr_service",
     "get_asr_engine_service",
     "get_artifact_service",
     "get_audio_tool_service",
@@ -50,13 +47,11 @@ __all__ = [
     "get_tool_registry",
     "get_translation_service",
     "get_tts_engine_service",
-    "get_tts_service",
     "get_voice_service",
     "get_workspace_service",
 ]
 
 _EXPORTS = {
-    "AsrService": ("src.app.services.asr_service", "AsrService"),
     "AsrEngineService": ("src.app.services.asr_engine_service", "AsrEngineService"),
     "ArtifactService": ("src.app.services.artifact_service", "ArtifactService"),
     "AudioToolService": ("src.app.services.audio_tool_service", "AudioToolService"),
@@ -92,10 +87,8 @@ _EXPORTS = {
     "ToolRegistry": ("src.app.services.tool_registry", "ToolRegistry"),
     "TranslationService": ("src.app.services.translation_service", "TranslationService"),
     "TtsEngineService": ("src.app.services.tts_engine_service", "TtsEngineService"),
-    "TtsService": ("src.app.services.tts_service", "TtsService"),
     "VoiceService": ("src.app.services.voice_service", "VoiceService"),
     "WorkspaceService": ("src.app.services.workspace_service", "WorkspaceService"),
-    "get_asr_service": ("src.app.services.asr_service", "get_asr_service"),
     "get_asr_engine_service": ("src.app.services.asr_engine_service", "get_asr_engine_service"),
     "get_artifact_service": ("src.app.services.artifact_service", "get_artifact_service"),
     "get_audio_tool_service": ("src.app.services.audio_tool_service", "get_audio_tool_service"),
@@ -137,7 +130,6 @@ _EXPORTS = {
     "get_tool_registry": ("src.app.services.tool_registry", "get_tool_registry"),
     "get_translation_service": ("src.app.services.translation_service", "get_translation_service"),
     "get_tts_engine_service": ("src.app.services.tts_engine_service", "get_tts_engine_service"),
-    "get_tts_service": ("src.app.services.tts_service", "get_tts_service"),
     "get_voice_service": ("src.app.services.voice_service", "get_voice_service"),
     "get_workspace_service": ("src.app.services.workspace_service", "get_workspace_service"),
 }

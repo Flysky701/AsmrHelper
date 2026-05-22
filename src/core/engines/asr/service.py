@@ -5,9 +5,33 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from src.core.resources.model_catalog import DEFAULT_CATALOG_PATH, ModelCatalog
 from src.core.subtitles import SubtitleDocument, SubtitleSegment
 
 from .registry import get_asr_registry
+
+_catalog = ModelCatalog(DEFAULT_CATALOG_PATH)
+
+_MODEL_ID_PREFIX_MAP = {
+    "faster-whisper-": "faster_whisper",
+    "fun-asr-": "fun_asr",
+    "qwen3-asr-": "qwen3_asr",
+}
+
+
+def _resolve_model_name(provider: str, model_id: str) -> str:
+    """Convert a catalog model_id to the upstream name the engine library expects."""
+    if not model_id:
+        return model_id
+
+    if provider == "faster_whisper":
+        prefix = "faster-whisper-"
+        return model_id[len(prefix) :] if model_id.startswith(prefix) else model_id
+
+    entry = _catalog.get(model_id)
+    if entry and entry.upstream_name:
+        return entry.upstream_name
+    return model_id
 
 
 class AsrEngineRuntime:
@@ -65,7 +89,7 @@ class AsrEngineRuntime:
         provider_options: dict[str, Any],
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
-            "model_size": model,
+            "model_size": _resolve_model_name(provider, model),
             "language": str(common_options.get("language", "ja")),
         }
 

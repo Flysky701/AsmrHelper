@@ -8,7 +8,6 @@ __all__ = [
     "AppError",
     "AppExecutionError",
     "AppValidationError",
-    "AsrService",
     "AudioToolService",
     "ArtifactSet",
     "BatchItemResult",
@@ -38,9 +37,7 @@ __all__ = [
     "TranscriptionResult",
     "TranslationService",
     "TranslationResult",
-    "TtsService",
     "VoiceService",
-    "get_asr_service",
     "get_audio_tool_service",
     "get_batch_pipeline_service",
     "get_model_service",
@@ -50,7 +47,6 @@ __all__ = [
     "get_subtitle_service",
     "get_task_service",
     "get_translation_service",
-    "get_tts_service",
     "get_voice_service",
 ]
 
@@ -58,7 +54,6 @@ _EXPORTS = {
     "AppError": ("src.app.errors", "AppError"),
     "AppExecutionError": ("src.app.errors", "AppExecutionError"),
     "AppValidationError": ("src.app.errors", "AppValidationError"),
-    "AsrService": ("src.app.services", "AsrService"),
     "AudioToolService": ("src.app.services", "AudioToolService"),
     "ArtifactSet": ("src.app.dto", "ArtifactSet"),
     "BatchItemResult": ("src.app.dto", "BatchItemResult"),
@@ -88,9 +83,7 @@ _EXPORTS = {
     "TranscriptionResult": ("src.app.dto", "TranscriptionResult"),
     "TranslationService": ("src.app.services", "TranslationService"),
     "TranslationResult": ("src.app.dto", "TranslationResult"),
-    "TtsService": ("src.app.services", "TtsService"),
     "VoiceService": ("src.app.services", "VoiceService"),
-    "get_asr_service": ("src.app.services", "get_asr_service"),
     "get_audio_tool_service": ("src.app.services", "get_audio_tool_service"),
     "get_batch_pipeline_service": ("src.app.services", "get_batch_pipeline_service"),
     "get_model_service": ("src.app.services", "get_model_service"),
@@ -100,7 +93,6 @@ _EXPORTS = {
     "get_subtitle_service": ("src.app.services", "get_subtitle_service"),
     "get_task_service": ("src.app.services", "get_task_service"),
     "get_translation_service": ("src.app.services", "get_translation_service"),
-    "get_tts_service": ("src.app.services", "get_tts_service"),
     "get_voice_service": ("src.app.services", "get_voice_service"),
 }
 

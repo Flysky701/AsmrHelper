@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -36,6 +36,36 @@ class ModelEntry:
     install_strategy: Optional[str] = None
     upstream_name: Optional[str] = None
     api_key_config: Optional[str] = None
+    family_id: Optional[str] = None
+    variant_group: Optional[str] = None
+    variant_tier: Optional[str] = None
+    is_primary_variant: bool = False
+    dependency_group: Optional[str] = None
+    required_python_extras: List[str] = field(default_factory=list)
+    required_runtime_packages: List[str] = field(default_factory=list)
+    recommended_runtime_packages: List[str] = field(default_factory=list)
+    optional_runtime_packages: List[str] = field(default_factory=list)
+    required_assets: List[str] = field(default_factory=list)
+    recommended_assets: List[str] = field(default_factory=list)
+    optional_assets: List[str] = field(default_factory=list)
+    runtime_profile: Optional[str] = None
+    supported_os: List[str] = field(default_factory=list)
+    supported_python: Dict[str, str] = field(default_factory=dict)
+    requires_gpu: bool = False
+    min_cuda: Optional[str] = None
+    preferred_runtime: Optional[str] = None
+    required_system_tools: List[str] = field(default_factory=list)
+    required_binary_assets: List[str] = field(default_factory=list)
+    required_vcs_features: List[str] = field(default_factory=list)
+    install_modes: List[str] = field(default_factory=list)
+    default_install_mode: Optional[str] = None
+    auto_install_dependencies: bool = False
+    install_recommended_by_default: bool = False
+    allow_remote_code: bool = False
+    download_sources: List[Dict[str, Any]] = field(default_factory=list)
+    post_install_checks: List[Dict[str, Any]] = field(default_factory=list)
+    sample_inference_policy: Dict[str, Any] = field(default_factory=dict)
+    healthcheck_timeout_seconds: Optional[int] = None
 
     def resolved_install_root(self) -> Path:
         override_root = None
@@ -80,24 +110,24 @@ class ModelCatalog:
         try:
             return self._entries[model_id]
         except KeyError as exc:
-            raise ModelCatalogError(f"未知模型: {model_id}") from exc
+            raise ModelCatalogError(f"unknown model: {model_id}") from exc
 
 
 def _validate_entry(raw: Dict[str, Any]) -> ModelEntry:
     required = ["id", "kind", "category", "display_name", "description"]
     missing = [key for key in required if not raw.get(key)]
     if missing:
-        raise ModelCatalogError(f"模型定义缺少字段: {', '.join(missing)}")
+        raise ModelCatalogError(f"model definition missing fields: {', '.join(missing)}")
 
     kind = raw["kind"]
     category = raw["category"]
     if kind not in VALID_KINDS:
-        raise ModelCatalogError(f"非法模型 kind: {kind}")
+        raise ModelCatalogError(f"invalid model kind: {kind}")
     if category not in VALID_CATEGORIES:
-        raise ModelCatalogError(f"非法模型 category: {category}")
+        raise ModelCatalogError(f"invalid model category: {category}")
 
     if kind == "local" and not raw.get("install_path"):
-        raise ModelCatalogError(f"本地模型缺少 install_path: {raw['id']}")
+        raise ModelCatalogError(f"local model missing install_path: {raw['id']}")
 
     return ModelEntry(
         id=raw["id"],
@@ -109,32 +139,108 @@ def _validate_entry(raw: Dict[str, Any]) -> ModelEntry:
         engine=raw.get("engine"),
         install_root=raw.get("install_root"),
         install_path=raw.get("install_path"),
-        required_files=list(raw.get("required_files", [])),
-        required_dirs=list(raw.get("required_dirs", [])),
+        required_files=_list_of_strings(raw.get("required_files")),
+        required_dirs=_list_of_strings(raw.get("required_dirs")),
         supports_install=bool(raw.get("supports_install", False)),
         supports_remove=bool(raw.get("supports_remove", False)),
         install_strategy=raw.get("install_strategy"),
         upstream_name=raw.get("upstream_name"),
         api_key_config=raw.get("api_key_config"),
+        family_id=raw.get("family_id"),
+        variant_group=raw.get("variant_group"),
+        variant_tier=raw.get("variant_tier"),
+        is_primary_variant=bool(raw.get("is_primary_variant", False)),
+        dependency_group=raw.get("dependency_group"),
+        required_python_extras=_list_of_strings(raw.get("required_python_extras")),
+        required_runtime_packages=_list_of_strings(raw.get("required_runtime_packages")),
+        recommended_runtime_packages=_list_of_strings(raw.get("recommended_runtime_packages")),
+        optional_runtime_packages=_list_of_strings(raw.get("optional_runtime_packages")),
+        required_assets=_list_of_strings(raw.get("required_assets")),
+        recommended_assets=_list_of_strings(raw.get("recommended_assets")),
+        optional_assets=_list_of_strings(raw.get("optional_assets")),
+        runtime_profile=raw.get("runtime_profile"),
+        supported_os=_list_of_strings(raw.get("supported_os")),
+        supported_python=_string_dict(raw.get("supported_python")),
+        requires_gpu=bool(raw.get("requires_gpu", False)),
+        min_cuda=raw.get("min_cuda"),
+        preferred_runtime=raw.get("preferred_runtime"),
+        required_system_tools=_list_of_strings(raw.get("required_system_tools")),
+        required_binary_assets=_list_of_strings(raw.get("required_binary_assets")),
+        required_vcs_features=_list_of_strings(raw.get("required_vcs_features")),
+        install_modes=_list_of_strings(raw.get("install_modes")),
+        default_install_mode=raw.get("default_install_mode"),
+        auto_install_dependencies=bool(raw.get("auto_install_dependencies", False)),
+        install_recommended_by_default=bool(raw.get("install_recommended_by_default", False)),
+        allow_remote_code=bool(raw.get("allow_remote_code", False)),
+        download_sources=_list_of_dicts(raw.get("download_sources")),
+        post_install_checks=_list_of_dicts(raw.get("post_install_checks")),
+        sample_inference_policy=_string_keyed_dict(raw.get("sample_inference_policy")),
+        healthcheck_timeout_seconds=_optional_int(raw.get("healthcheck_timeout_seconds")),
     )
+
+
+def _list_of_strings(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ModelCatalogError("metadata field must be a list of strings")
+    return [str(item) for item in value if item not in (None, "")]
+
+
+def _list_of_dicts(value: Any) -> List[Dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise ModelCatalogError("metadata field must be a list of objects")
+    return [dict(item) for item in value]
+
+
+def _string_dict(value: Any) -> Dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ModelCatalogError("supported_python must be an object")
+    result: Dict[str, str] = {}
+    for key, item in value.items():
+        if item in (None, ""):
+            continue
+        result[str(key)] = str(item)
+    return result
+
+
+def _string_keyed_dict(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ModelCatalogError("metadata field must be an object")
+    return {str(key): item for key, item in value.items()}
+
+
+def _optional_int(value: Any) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ModelCatalogError("healthcheck_timeout_seconds must be an integer") from exc
 
 
 def load_catalog_file(path: Path) -> ModelCatalog:
     if not Path(path).exists():
-        raise ModelCatalogError(f"模型注册表不存在: {path}")
+        raise ModelCatalogError(f"model catalog does not exist: {path}")
 
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
 
     models = data.get("models")
     if not isinstance(models, list):
-        raise ModelCatalogError("models.yaml 缺少 models 列表")
+        raise ModelCatalogError("models.yaml is missing the models list")
 
     entries: Dict[str, ModelEntry] = {}
     for raw in models:
         entry = _validate_entry(raw)
         if entry.id in entries:
-            raise ModelCatalogError(f"重复模型 ID: {entry.id}")
+            raise ModelCatalogError(f"duplicate model id: {entry.id}")
         entries[entry.id] = entry
 
     catalog = object.__new__(ModelCatalog)

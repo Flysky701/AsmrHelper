@@ -149,7 +149,11 @@ export interface SynthesizeRequest {
   input_path: string
   output_path: string
   engine?: string
+  model?: string
   voice?: string
+  speed?: number
+  common_options?: Record<string, unknown>
+  provider_options?: Record<string, unknown>
 }
 
 export interface SynthesizeResponse {
@@ -165,6 +169,19 @@ export interface ModelSummaryResponse {
   category: string
   backend: string
   display_name: string
+  family_id?: string | null
+  variant_group?: string | null
+  variant_tier?: string | null
+  is_primary_variant?: boolean
+  dependency_group?: string | null
+  runtime_profile?: string | null
+  preferred_runtime?: string | null
+  install_modes?: string[]
+  default_install_mode?: string | null
+  required_assets?: string[]
+  recommended_assets?: string[]
+  required_system_tools?: string[]
+  supported_os?: string[]
 }
 
 export interface ModelStatusResponse {
@@ -184,6 +201,10 @@ export interface ModelOperationResponse {
 export interface ModelInstallRequest {
   mirror?: string
   force?: boolean
+  install_mode?: string
+  install_dependencies?: boolean
+  install_recommended_assets?: boolean
+  allow_fallback_variant?: boolean
 }
 
 export interface ModelVerificationResponse {

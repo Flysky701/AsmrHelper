@@ -50,6 +50,11 @@ class TtsRegistry:
             factory=self._make_qwen3_tts,
             config_defaults={"voice": "tts.voice", "speed": "tts.speed"},
         )
+        self.register(
+            "kokoro",
+            factory=self._make_kokoro_tts,
+            config_defaults={},
+        )
 
     def register(
         self,
@@ -133,6 +138,12 @@ class TtsRegistry:
     def _make_qwen3_tts(**kwargs: Any) -> Any:
         from src.core.tts import TTSEngine
         return TTSEngine(engine="qwen3", **kwargs)
+
+    @staticmethod
+    def _make_kokoro_tts(**kwargs: Any) -> Any:
+        from .kokoro import KokoroTtsEngine
+
+        return KokoroTtsEngine(**kwargs)
 
 
 def get_tts_registry() -> TtsRegistry:

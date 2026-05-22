@@ -15,10 +15,10 @@ if str(project_root) not in sys.path:
 
 from src.app.errors import AppError
 from src.app import PipelineRequest
-from src.app.services import get_asr_service
+from src.app.services import get_asr_engine_service
 from src.app.services import get_model_service as get_app_model_service
 from src.app.services import get_pipeline_service
-from src.app.services import get_translation_service, get_tts_service
+from src.app.services import get_translation_service, get_tts_engine_service
 
 
 def _run_app_command(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -104,10 +104,10 @@ def pipeline_group():
 @click.option("--output", "-o", "output_dir", default=None, help="Output directory")
 @click.option("--source-lang", default="ja", help="Source language code (ja/zh/en)")
 @click.option("--target-lang", default="zh", help="Target language code")
-@click.option("--tts-engine", default="edge", type=click.Choice(["edge", "qwen3"]), help="TTS engine")
+@click.option("--tts-engine", default="edge", type=click.Choice(["edge", "qwen3", "kokoro"]), help="TTS engine")
 @click.option("--tts-voice", default="zh-CN-XiaoxiaoNeural", help="TTS voice")
 @click.option("--vocal-model", default="htdemucs", help="Separator model")
-@click.option("--asr-model", default="base", help="ASR model size")
+@click.option("--asr-model", default="faster-whisper-base", help="ASR model id")
 @click.option("--translate-provider", default="deepseek", help="Translation provider")
 @click.option("--tts-delay", default=0, type=float, help="TTS delay (ms)")
 @click.option("--skip-existing", is_flag=True, help="Skip steps whose outputs already exist")
@@ -156,13 +156,13 @@ def pipeline_presets():
 @cli.command(name="asr")
 @click.option("--input", "-i", "input_path", required=True, help="Input audio file path")
 @click.option("--output", "-o", "output_path", default=None, help="Output text file path")
-@click.option("--model", default="base", help="Whisper model size")
+@click.option("--model", default="faster-whisper-base", help="ASR model id")
 @click.option("--language", default="ja", help="Language code")
 def asr_cmd(input_path: str, output_path: Optional[str], model: str, language: str):
     """Run standalone ASR through the application API layer."""
     click.echo(f"Recognizing audio: {input_path}")
     result = _run_app_command(
-        get_asr_service().transcribe_file,
+        get_asr_engine_service().transcribe_file,
         input_path=input_path,
         output_path=output_path,
         model=model,
@@ -197,16 +197,16 @@ def translate_cmd(input_path: str, output_path: Optional[str], provider: str):
 @cli.command(name="tts")
 @click.option("--input", "-i", "input_path", required=True, help="Input text file path")
 @click.option("--output", "-o", "output_path", required=True, help="Output audio file path")
-@click.option("--engine", default="edge", type=click.Choice(["edge", "qwen3"]), help="TTS engine")
-@click.option("--voice", default="zh-CN-XiaoxiaoNeural", help="TTS voice")
-def tts_cmd(input_path: str, output_path: str, engine: str, voice: str):
+@click.option("--engine", default="edge", type=click.Choice(["edge", "qwen3", "kokoro"]), help="TTS engine")
+@click.option("--voice", default=None, help="TTS voice")
+def tts_cmd(input_path: str, output_path: str, engine: str, voice: Optional[str]):
     """Run standalone TTS through the application API layer."""
     click.echo(f"Synthesizing audio: {input_path}")
     result = _run_app_command(
-        get_tts_service().synthesize_file,
+        get_tts_engine_service().synthesize_file,
         input_path=input_path,
         output_path=output_path,
-        engine=engine,
+        provider=engine,
         voice=voice,
     )
 

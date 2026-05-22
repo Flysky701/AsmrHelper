@@ -93,7 +93,7 @@ def _build_asr(
     return StageBinding(
         kind=StageKind.ASR,
         provider=asr_profile.get("provider", "faster_whisper"),
-        model=asr_profile.get("model", pipeline_opts.get("asr_model", "base")),
+        model=asr_profile.get("model", pipeline_opts.get("asr_model", "faster-whisper-base")),
         enabled=enabled,
         common_options={"language": source_lang, **dict(asr_profile.get("common_options", {}))},
         provider_options=dict(asr_profile.get("provider_options", {})),

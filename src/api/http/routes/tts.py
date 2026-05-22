@@ -44,11 +44,18 @@ def synthesize(
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"input file does not exist: {body.input_path}")
     text = source.read_text(encoding="utf-8")
+    common_options = dict(body.common_options)
+    if body.voice is not None:
+        common_options["voice"] = body.voice
+    if body.speed is not None:
+        common_options["speed"] = body.speed
     result = svc.synthesize_text(
         text=text,
         output_path=body.output_path,
         provider=body.engine,
-        common_options={"voice": body.voice},
+        model=body.model,
+        common_options=common_options,
+        provider_options=body.provider_options,
     )
     return SynthesizeResponse(
         engine=result.engine,

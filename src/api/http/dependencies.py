@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from src.app.services import (
-    get_asr_service,
     get_asr_engine_service,
     get_artifact_service,
     get_audio_tool_service,
@@ -24,7 +23,6 @@ from src.app.services import (
     get_tool_registry,
     get_translation_service,
     get_tts_engine_service,
-    get_tts_service,
     get_voice_service,
     get_workspace_service,
 )
@@ -32,10 +30,6 @@ from src.app.services import (
 
 def pipeline_service():
     return get_pipeline_service()
-
-
-def asr_service():
-    return get_asr_service()
 
 
 def asr_engine_service():
@@ -52,10 +46,6 @@ def translation_service():
 
 def llm_capability_service():
     return get_llm_capability_service()
-
-
-def tts_service():
-    return get_tts_service()
 
 
 def tts_engine_service():
