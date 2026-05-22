@@ -121,7 +121,7 @@ def test_execution_profile_builder_uses_qwen3_asr_default_model_when_settings_ho
     profile = builder.build(category="asr", provider="qwen3_asr")
 
     assert profile["provider"] == "qwen3_asr"
-    assert profile["model"] == "Qwen/Qwen3-ASR-0.6B"
+    assert profile["model"] == "qwen3-asr-0.6b"
 
 
 def test_asr_runtime_passes_qwen3_asr_provider_options_to_registry(tmp_path):

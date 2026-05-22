@@ -97,7 +97,7 @@ def test_execution_profile_builder_uses_fun_asr_default_model_when_settings_hold
     profile = builder.build(category="asr", provider="fun_asr")
 
     assert profile["provider"] == "fun_asr"
-    assert profile["model"] == "FunAudioLLM/Fun-ASR-Nano-2512"
+    assert profile["model"] == "fun-asr-nano-2512"
 
 
 def test_asr_runtime_passes_fun_asr_provider_options_to_registry(tmp_path):

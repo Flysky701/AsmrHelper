@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from src.core.resources.model_catalog import DEFAULT_CATALOG_PATH, ModelCatalog
+from src.core.resources.model_catalog import DEFAULT_CATALOG_PATH, ModelCatalog, ModelCatalogError
 from src.core.subtitles import SubtitleDocument, SubtitleSegment
 
 from .registry import get_asr_registry
@@ -20,7 +20,12 @@ _MODEL_ID_PREFIX_MAP = {
 
 
 def _resolve_model_name(provider: str, model_id: str) -> str:
-    """Convert a catalog model_id to the upstream name the engine library expects."""
+    """Convert a catalog model_id to the upstream name the engine library expects.
+
+    Supports both catalog IDs (e.g. 'fun-asr-nano-2512') and upstream names
+    (e.g. 'FunAudioLLM/Fun-ASR-Nano-2512'). If the model_id is not found in
+    the catalog, it is returned as-is for backwards compatibility.
+    """
     if not model_id:
         return model_id
 
@@ -28,9 +33,15 @@ def _resolve_model_name(provider: str, model_id: str) -> str:
         prefix = "faster-whisper-"
         return model_id[len(prefix) :] if model_id.startswith(prefix) else model_id
 
-    entry = _catalog.get(model_id)
-    if entry and entry.upstream_name:
-        return entry.upstream_name
+    # Try catalog lookup; if found, return upstream_name
+    try:
+        entry = _catalog.get(model_id)
+        if entry and entry.upstream_name:
+            return entry.upstream_name
+    except ModelCatalogError:
+        # model_id might be an upstream name (e.g. 'FunAudioLLM/Fun-ASR-Nano-2512')
+        # pass through to engine as-is
+        pass
     return model_id
 
 

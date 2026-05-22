@@ -109,54 +109,32 @@ class TestTranslationServiceSlimmed:
         mock_llm_svc.translate_texts.assert_called_once()
 
 
-class TestAsrServiceSlimmed:
-    """Verify AsrService has no legacy ASRRecognizer import."""
+class TestAsrServiceRemoved:
+    """Verify AsrService facade has been removed in favor of AsrEngineService."""
 
-    def test_no_asr_recognizer_import(self):
-        source_code = open(
-            "src/app/services/asr_service.py", encoding="utf-8"
-        ).read()
-        assert "from src.core.asr import ASRRecognizer" not in source_code
-        assert "ASRRecognizer" not in source_code
+    def test_asr_service_module_removed(self):
+        """AsrService facade should no longer exist."""
+        import os
+        assert not os.path.exists("src/app/services/asr_service.py")
 
-    def test_delegates_to_engine_service(self):
-        from src.app.services.asr_service import AsrService
-
-        mock_engine_svc = MagicMock()
-        mock_engine_svc.transcribe_file.return_value = MagicMock(
-            segments=[], output_path=None, text=""
-        )
-
-        service = AsrService(engine_service=mock_engine_svc)
-        service.transcribe_file("/fake/audio.wav")
-
-        mock_engine_svc.transcribe_file.assert_called_once()
+    def test_asr_engine_service_is_primary(self):
+        """AsrEngineService should be the primary ASR service."""
+        from src.app.services import AsrEngineService
+        assert AsrEngineService is not None
 
 
-class TestTtsServiceSlimmed:
-    """Verify TtsService has no legacy TTSEngine import."""
+class TestTtsServiceRemoved:
+    """Verify TtsService facade has been removed in favor of TtsEngineService."""
 
-    def test_no_tts_engine_import(self):
-        source_code = open(
-            "src/app/services/tts_service.py", encoding="utf-8"
-        ).read()
-        assert "from src.core.tts import TTSEngine" not in source_code
+    def test_tts_service_module_removed(self):
+        """TtsService facade should no longer exist."""
+        import os
+        assert not os.path.exists("src/app/services/tts_service.py")
 
-    def test_delegates_to_engine_service(self, tmp_path):
-        from src.app.services.tts_service import TtsService
-
-        input_file = tmp_path / "text.txt"
-        input_file.write_text("hello", encoding="utf-8")
-
-        mock_engine_svc = MagicMock()
-        mock_engine_svc.synthesize_text.return_value = MagicMock(
-            engine="edge", voice="zh-CN-XiaoxiaoNeural", output_path="/out.wav"
-        )
-
-        service = TtsService(engine_service=mock_engine_svc)
-        service.synthesize_file(str(input_file), "/out.wav")
-
-        mock_engine_svc.synthesize_text.assert_called_once()
+    def test_tts_engine_service_is_primary(self):
+        """TtsEngineService should be the primary TTS service."""
+        from src.app.services import TtsEngineService
+        assert TtsEngineService is not None
 
 
 class TestAudioToolServiceDispatch:

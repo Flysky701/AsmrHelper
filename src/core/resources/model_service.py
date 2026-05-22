@@ -41,18 +41,34 @@ class ModelService:
         install_recommended_assets: bool = False,
         allow_fallback_variant: bool = False,
     ) -> bool:
-        del install_dependencies, allow_fallback_variant
-
         entry = self.get_model(model_id)
         if entry.kind == "cloud":
             raise ValueError(f"{model_id} is a cloud model and cannot be installed")
 
+        # Try installing the primary model
+        success = self._install_with_fallback(
+            entry,
+            mirror=mirror,
+            force=force,
+            allow_fallback_variant=allow_fallback_variant,
+        )
+
+        if not success:
+            return False
+
+        # Install dependencies if requested
+        if install_dependencies:
+            self._install_runtime_packages(entry)
+
+        # Install additional models/assets based on install_mode
         plan = self._resolve_install_plan(
             entry,
             install_mode=install_mode,
             install_recommended_assets=install_recommended_assets,
         )
-        return all(self.installer.install_local_model(target, mirror=mirror, force=force) for target in plan)
+        # Filter out the primary model (already installed above)
+        remaining = [e for e in plan if e.id != entry.id]
+        return all(self.installer.install_local_model(target, mirror=mirror, force=force) for target in remaining)
 
     def remove(self, model_id: str) -> None:
         entry = self.get_model(model_id)
@@ -62,6 +78,50 @@ class ModelService:
 
     def resolve_install_dir(self, model_id: str) -> Path:
         return self.get_model(model_id).resolved_install_dir()
+
+    def _install_with_fallback(
+        self,
+        entry: ModelEntry,
+        *,
+        mirror: str | None,
+        force: bool,
+        allow_fallback_variant: bool,
+    ) -> bool:
+        """Install model, optionally falling back to other variants in the same group."""
+        if self.installer.install_local_model(entry, mirror=mirror, force=force):
+            return True
+
+        if not allow_fallback_variant or not entry.variant_group:
+            return False
+
+        # Find fallback variants in the same group (prefer primary variant)
+        candidates = [
+            e
+            for e in self.list_models(kind="local", category=entry.category)
+            if e.variant_group == entry.variant_group and e.id != entry.id
+        ]
+        # Sort: primary variants first, then by tier
+        candidates.sort(key=lambda e: (not e.is_primary_variant, e.variant_tier or ""))
+
+        for candidate in candidates:
+            if self.installer.install_local_model(candidate, mirror=mirror, force=force):
+                return True
+        return False
+
+    def _install_runtime_packages(self, entry: ModelEntry) -> None:
+        """Install required runtime packages for a model."""
+        import subprocess
+        import sys
+
+        packages = list(entry.required_runtime_packages)
+        if not packages:
+            return
+
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", *packages],
+            check=False,
+            capture_output=True,
+        )
 
     def _resolve_install_plan(
         self,
