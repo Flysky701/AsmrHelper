@@ -51,8 +51,15 @@ class PipelineRunResponse(BaseModel):
     error_message: str | None = None
 
 
+class PresetItem(BaseModel):
+    id: str
+    label: str
+    description: str
+    stages: list[str] = Field(default_factory=list)
+
+
 class PipelinePresetsResponse(BaseModel):
-    presets: list[str]
+    presets: list[PresetItem]
 
 
 class BatchPipelineRequest(BaseModel):

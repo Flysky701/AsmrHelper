@@ -12,6 +12,8 @@ from src.api.http.schemas.tts import (
     SynthesizeResponse,
     TtsEngineDescriptorResponse,
     TtsEngineListResponse,
+    TtsVoiceItem,
+    TtsVoicesResponse,
 )
 from src.app.services import TtsEngineService
 
@@ -32,6 +34,18 @@ def get_tts_engine(
     svc: TtsEngineService = Depends(tts_engine_service),
 ):
     return TtsEngineDescriptorResponse(**svc.get_engine(engine_id))
+
+
+@router.get("/engines/{engine_id}/voices", response_model=TtsVoicesResponse)
+def list_engine_voices(
+    engine_id: str,
+    svc: TtsEngineService = Depends(tts_engine_service),
+):
+    voices = svc.list_voices(engine_id)
+    return TtsVoicesResponse(
+        engine_id=engine_id,
+        voices=[TtsVoiceItem(**v) for v in voices],
+    )
 
 
 @router.post("/synthesize", response_model=SynthesizeResponse)

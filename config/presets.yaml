@@ -1,0 +1,17 @@
+presets:
+  - id: asmr_bilingual
+    label: ASMR 双语处理
+    description: 分离+ASR+翻译+TTS+混音，完整双语汉化流程
+    stages: [separation, asr, translation, tts, mix]
+  - id: asr_only
+    label: 仅语音识别
+    description: 仅执行语音识别，输出文字稿
+    stages: [separation, asr]
+  - id: translate_only
+    label: 仅翻译
+    description: 仅执行翻译，需要已有字幕输入
+    stages: [asr, translation]
+  - id: tts_only
+    label: 仅语音合成
+    description: 仅执行语音合成，需要已有字幕
+    stages: [asr, translation, tts]

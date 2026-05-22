@@ -40,3 +40,14 @@ class TtsEngineDescriptorResponse(BaseModel):
 
 class TtsEngineListResponse(BaseModel):
     engines: list[TtsEngineDescriptorResponse] = Field(default_factory=list)
+
+
+class TtsVoiceItem(BaseModel):
+    id: str
+    name: str
+    language: str = ""
+
+
+class TtsVoicesResponse(BaseModel):
+    engine_id: str
+    voices: list[TtsVoiceItem] = Field(default_factory=list)

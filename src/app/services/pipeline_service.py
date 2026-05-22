@@ -213,15 +213,18 @@ class PipelineService:
             error_message=results.get("error"),
         )
 
-    def list_presets(self) -> dict[str, str]:
-        # Presets are now defined in the execution profile builder
-        # Return a static set of supported presets
-        return {
-            "asmr_bilingual": "ASMR 双语处理（分离+ASR+翻译+TTS+混音）",
-            "asr_only": "仅语音识别",
-            "translate_only": "仅翻译",
-            "tts_only": "仅语音合成",
-        }
+    def list_presets(self) -> list[dict[str, Any]]:
+        """Load presets from config/presets.yaml."""
+        import yaml
+
+        from src.config import PROJECT_ROOT
+
+        presets_path = PROJECT_ROOT / "config" / "presets.yaml"
+        if not presets_path.exists():
+            return []
+        with open(presets_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return data.get("presets", [])
 
     def build_plan(self, task_spec) -> PipelineExecutionPlan:
         """Build an execution plan from a task spec without running it.

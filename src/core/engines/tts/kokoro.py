@@ -18,6 +18,21 @@ class KokoroTtsEngine:
         "zm_": "z",
     }
 
+    VOICES = [
+        {"id": "af_heart", "name": "Heart (American Female)", "language": "en"},
+        {"id": "af_bella", "name": "Bella (American Female)", "language": "en"},
+        {"id": "am_adam", "name": "Adam (American Male)", "language": "en"},
+        {"id": "bf_emma", "name": "Emma (British Female)", "language": "en"},
+        {"id": "bm_george", "name": "George (British Male)", "language": "en"},
+        {"id": "zf_001", "name": "中文女声 001", "language": "zh"},
+        {"id": "zf_002", "name": "中文女声 002", "language": "zh"},
+        {"id": "zm_001", "name": "中文男声 001", "language": "zh"},
+    ]
+
+    @classmethod
+    def list_voices(cls) -> list[dict]:
+        return list(cls.VOICES)
+
     def __init__(
         self,
         *,

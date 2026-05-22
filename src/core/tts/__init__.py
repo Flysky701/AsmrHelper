@@ -71,6 +71,13 @@ class EdgeTTSEngine:
         "en-US-JennyNeural": "Jenny（英语女）",
     }
 
+    @classmethod
+    def list_voices(cls) -> list[dict]:
+        return [
+            {"id": vid, "name": desc, "language": vid.split("-")[0] + "-" + vid.split("-")[1] if "-" in vid else ""}
+            for vid, desc in cls.VOICES.items()
+        ]
+
     def __init__(
         self,
         voice: str = "zh-CN-XiaoxiaoNeural",
@@ -301,6 +308,13 @@ class Qwen3TTSEngine:
         "Ono_Anna": "Ono_Anna（日语女声）",
         "Sohee": "Sohee（女声，柔和）",
     }
+
+    @classmethod
+    def list_voices(cls) -> list[dict]:
+        return [
+            {"id": v, "name": cls.VOICE_DESC.get(v, v), "language": "zh" if not v.startswith("Ono") and not v.startswith("Sohee") else "ja"}
+            for v in cls.VOICES
+        ]
 
     def __init__(
         self,

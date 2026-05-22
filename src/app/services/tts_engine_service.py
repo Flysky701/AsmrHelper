@@ -44,6 +44,12 @@ class TtsEngineService:
                 return str(opt.get("default", ""))
         return ""
 
+    def list_voices(self, engine_id: str) -> list[dict]:
+        """Return available voices for a TTS engine."""
+        from src.core.engines.tts.registry import get_tts_registry
+        registry = get_tts_registry()
+        return registry.list_voices(engine_id)
+
     def engine_supports(self, engine_id: str, feature: str) -> bool:
         descriptor = self.get_engine(engine_id)
         return bool(descriptor.get("supports", {}).get(feature, False))

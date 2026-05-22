@@ -13,6 +13,7 @@ from src.api.http.schemas.pipeline import (
     PipelineRunRequest,
     PipelineRunResponse,
     ArtifactSetResponse,
+    PresetItem,
     TaskStatusResponse,
 )
 from src.app.dto import BatchPipelineRequest as BatchPipelineDTO, PipelineRequest
@@ -77,13 +78,18 @@ def run_pipeline(
 def list_presets(
     svc: PipelineService = Depends(pipeline_service),
 ):
+    raw = svc.list_presets()
     return PipelinePresetsResponse(
-        presets=list(_run_presets(svc))
+        presets=[
+            PresetItem(
+                id=p["id"],
+                label=p["label"],
+                description=p.get("description", ""),
+                stages=p.get("stages", []),
+            )
+            for p in raw
+        ]
     )
-
-
-def _run_presets(svc: PipelineService) -> list[str]:
-    return list(svc.list_presets().keys())
 
 
 @router.post("/batch", response_model=BatchPipelineResponse)
