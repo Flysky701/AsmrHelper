@@ -30,8 +30,6 @@ dependencies = [
     "imageio-ffmpeg>=0.4.0",
     "pytsmod>=0.3.0,<1.0.0",
     "numpy>=1.24.0",
-    # GUI (可选)
-    "PySide6>=6.5.0",
     # 工具
     "click>=8.1.0",
     "pyyaml>=6.0.0",
@@ -82,9 +80,6 @@ packages = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-markers = [
-    "gui: GUI runtime and interaction tests",
-]
 
 [tool.black]
 line-length = 100

@@ -179,12 +179,6 @@ class TestPipelineServiceImport:
         # Should not raise
         service = PipelineService()
         assert service._executor is not None
-        assert service._use_legacy is False
-
-    def test_use_legacy_flag(self):
-        from src.app.services.pipeline_service import PipelineService
-        service = PipelineService(use_legacy=True)
-        assert service._use_legacy is True
 
 
 class TestPipelineServiceCallbacks:

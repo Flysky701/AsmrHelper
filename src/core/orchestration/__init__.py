@@ -7,7 +7,6 @@ from importlib import import_module
 __all__ = [
     "ArtifactResultMapper",
     "LANG_MAP",
-    "LegacyPipelineOrchestrator",
     "MixConfig",
     "PipelineExecutionContext",
     "PipelineExecutionPlan",
@@ -24,7 +23,6 @@ __all__ = [
 _EXPORTS = {
     "ArtifactResultMapper": ("src.core.orchestration.pipeline", "ArtifactResultMapper"),
     "LANG_MAP": ("src.core.orchestration.pipeline", "LANG_MAP"),
-    "LegacyPipelineOrchestrator": ("src.core.orchestration.pipeline", "LegacyPipelineOrchestrator"),
     "MixConfig": ("src.core.orchestration.pipeline", "MixConfig"),
     "PipelineExecutionContext": ("src.core.orchestration.pipeline", "PipelineExecutionContext"),
     "PipelineExecutionPlan": ("src.core.orchestration.pipeline", "PipelineExecutionPlan"),

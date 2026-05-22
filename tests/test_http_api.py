@@ -175,23 +175,32 @@ class TestAsrRoutes:
         assert resp.status_code == 400
 
 
-# ─── Translation ──────────────────────────────────────────────────────
+# ─── Translation (via LLM) ────────────────────────────────────────────
 
 
 class TestTranslationRoutes:
-    def test_translate_success(self, client):
+    def test_translate_via_llm_success(self, client, tmp_path):
         mock_svc = MagicMock()
-        mock_svc.translate_file.return_value = TranslationResult(
+        mock_svc.translate_texts.return_value = TranslationResult(
             items=["你好", "世界"],
             provider="deepseek",
             source_lang="ja",
             target_lang="zh",
         )
-        client.app.dependency_overrides[dependencies.translation_service] = _mock_dep(mock_svc)
+        client.app.dependency_overrides[dependencies.llm_capability_service] = _mock_dep(mock_svc)
+
+        # Create a real input file since the route checks existence
+        input_file = tmp_path / "input.txt"
+        input_file.write_text("こんにちは\n世界\n", encoding="utf-8")
 
         resp = client.post(
-            "/api/v1/translation/translate",
-            json={"input_path": "/test/text.txt"},
+            "/api/v1/llm/translate",
+            json={
+                "input_path": str(input_file),
+                "source_lang": "ja",
+                "target_lang": "zh",
+                "provider": "deepseek",
+            },
         )
         assert resp.status_code == 200
         data = resp.json()

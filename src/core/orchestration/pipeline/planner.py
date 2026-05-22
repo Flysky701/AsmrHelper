@@ -153,11 +153,7 @@ def _build_subtitle(pipeline_opts: dict[str, Any]) -> SubtitleConfig:
 
 
 def build_execution_plan(context: PipelineExecutionContext) -> PipelineExecutionPlan:
-    """Build a PipelineExecutionPlan from an execution context.
-
-    This is the new primary path that replaces direct PipelineConfig
-    construction in LegacyPipelineOrchestrator.build_legacy_config().
-    """
+    """Build a PipelineExecutionPlan from an execution context."""
     profile = dict(context.execution_profile)
     stage_profiles = dict(profile.get("stages", {}))
     pipeline_opts = dict(profile.get("pipeline", {}))

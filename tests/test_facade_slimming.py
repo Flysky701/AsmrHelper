@@ -79,34 +79,18 @@ class TestModelServiceNoModelManager:
         assert result.success is True
 
 
-class TestTranslationServiceSlimmed:
-    """Verify TranslationService has no legacy Translator import."""
+class TestTranslationServiceRemoved:
+    """Verify TranslationService has been removed in favor of LlmCapabilityService."""
 
-    def test_no_translator_import(self):
-        import inspect
-        from src.app.services.translation_service import TranslationService
-        source = inspect.getsource(sys.modules["src.app.services.translation_service"])
-        # Should not have "from src.core.translate import Translator"
-        assert "from src.core.translate import Translator" not in source
+    def test_translation_service_module_removed(self):
+        """TranslationService facade should no longer exist."""
+        import os
+        assert not os.path.exists("src/app/services/translation_service.py")
 
-    def test_delegates_to_llm_service(self, tmp_path):
-        from src.app.services.translation_service import TranslationService
-
-        input_file = tmp_path / "input.txt"
-        input_file.write_text("line1\nline2\n", encoding="utf-8")
-
-        mock_llm_svc = MagicMock()
-        mock_llm_svc.translate_texts.return_value = MagicMock(
-            items=["翻译1", "翻译2"],
-            provider="deepseek",
-            source_lang="ja",
-            target_lang="zh",
-        )
-
-        service = TranslationService(llm_service=mock_llm_svc)
-        result = service.translate_file(str(input_file), provider="deepseek")
-
-        mock_llm_svc.translate_texts.assert_called_once()
+    def test_llm_capability_service_is_primary(self):
+        """LlmCapabilityService should be the primary translation service."""
+        from src.app.services import LlmCapabilityService
+        assert LlmCapabilityService is not None
 
 
 class TestAsrServiceRemoved:

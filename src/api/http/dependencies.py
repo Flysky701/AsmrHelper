@@ -21,7 +21,6 @@ from src.app.services import (
     get_subtitle_service,
     get_task_service,
     get_tool_registry,
-    get_translation_service,
     get_tts_engine_service,
     get_voice_service,
     get_workspace_service,
@@ -38,10 +37,6 @@ def asr_engine_service():
 
 def artifact_service():
     return get_artifact_service()
-
-
-def translation_service():
-    return get_translation_service()
 
 
 def llm_capability_service():

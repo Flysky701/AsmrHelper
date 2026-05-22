@@ -35,7 +35,6 @@ __all__ = [
     "TaskService",
     "TaskStatus",
     "TranscriptionResult",
-    "TranslationService",
     "TranslationResult",
     "VoiceService",
     "get_audio_tool_service",
@@ -46,7 +45,6 @@ __all__ = [
     "get_script_subtitle_service",
     "get_subtitle_service",
     "get_task_service",
-    "get_translation_service",
     "get_voice_service",
 ]
 
@@ -81,7 +79,6 @@ _EXPORTS = {
     "TaskService": ("src.app.services", "TaskService"),
     "TaskStatus": ("src.app.dto", "TaskStatus"),
     "TranscriptionResult": ("src.app.dto", "TranscriptionResult"),
-    "TranslationService": ("src.app.services", "TranslationService"),
     "TranslationResult": ("src.app.dto", "TranslationResult"),
     "VoiceService": ("src.app.services", "VoiceService"),
     "get_audio_tool_service": ("src.app.services", "get_audio_tool_service"),
@@ -92,7 +89,6 @@ _EXPORTS = {
     "get_script_subtitle_service": ("src.app.services", "get_script_subtitle_service"),
     "get_subtitle_service": ("src.app.services", "get_subtitle_service"),
     "get_task_service": ("src.app.services", "get_task_service"),
-    "get_translation_service": ("src.app.services", "get_translation_service"),
     "get_voice_service": ("src.app.services", "get_voice_service"),
 }
 

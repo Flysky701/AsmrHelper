@@ -22,7 +22,6 @@ from src.api.http.routes import (
     tasks,
     tool_runs,
     tools,
-    translation,
     tts,
     voice,
     workspaces,
@@ -57,7 +56,6 @@ def create_app() -> FastAPI:
     app.include_router(pipeline_runs.router, prefix=api_prefix)
     app.include_router(asr.router, prefix=api_prefix)
     app.include_router(llm.router, prefix=api_prefix)
-    app.include_router(translation.router, prefix=api_prefix)
     app.include_router(tts.router, prefix=api_prefix)
     app.include_router(models.router, prefix=api_prefix)
     app.include_router(capabilities.router, prefix=api_prefix)

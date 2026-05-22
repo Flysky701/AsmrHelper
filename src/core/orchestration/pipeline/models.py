@@ -56,9 +56,7 @@ class SubtitleConfig:
 class PipelineExecutionPlan:
     """Structured execution plan for a pipeline run.
 
-    This is the new domain object that replaces direct PipelineConfig
-    construction. It captures execution intent without coupling to
-    legacy provider semantics.
+    This domain object captures execution intent for the pipeline executor.
     """
     # Identity
     task_id: str

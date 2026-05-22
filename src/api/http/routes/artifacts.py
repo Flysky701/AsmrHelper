@@ -84,35 +84,3 @@ def download_artifact_file(
         filename=file_path.name,
         media_type="application/octet-stream",
     )
-
-
-@router.get("/{task_id}", response_model=ArtifactSetResponse, include_in_schema=False)
-def get_task_artifacts_legacy(
-    task_id: str,
-    svc: ArtifactService = Depends(artifact_service),
-):
-    return get_task_artifacts_by_task(task_id=task_id, svc=svc)
-
-
-@router.get("/{task_id}/result", response_model=TaskResultViewResponse, include_in_schema=False)
-def get_task_result_view_legacy(
-    task_id: str,
-    svc: ArtifactService = Depends(artifact_service),
-):
-    return get_task_result_view_by_task(task_id=task_id, svc=svc)
-
-
-@router.get("/detail/{artifact_id}", response_model=ArtifactRecordResponse, include_in_schema=False)
-def get_artifact_legacy(
-    artifact_id: str,
-    svc: ArtifactService = Depends(artifact_service),
-):
-    return get_artifact(artifact_id=artifact_id, svc=svc)
-
-
-@router.get("/detail/{artifact_id}/file", include_in_schema=False)
-def download_artifact_file_legacy(
-    artifact_id: str,
-    svc: ArtifactService = Depends(artifact_service),
-):
-    return download_artifact_file(artifact_id=artifact_id, svc=svc)

@@ -1,9 +1,7 @@
-"""New pipeline executor — runs stages via engine runtimes directly.
+"""Pipeline executor — runs stages via engine runtimes directly.
 
-This module replaces the legacy Pipeline class execution path.
-It accepts a PipelineExecutionPlan and drives each enabled stage
-through the corresponding EngineRuntime, without constructing
-a PipelineConfig or invoking the legacy Pipeline class.
+This module accepts a PipelineExecutionPlan and drives each enabled stage
+through the corresponding EngineRuntime.
 """
 
 from __future__ import annotations

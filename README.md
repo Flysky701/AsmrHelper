@@ -2,16 +2,20 @@
 
 ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、语音合成和智能混音，输出双语双轨音频。
 
+## 入口说明
+
+- **正式入口**: HTTP API (`/api/v1/*`) - 唯一正式产品接口
+- **实验入口**: Desktop 桌面应用 (`desktop/`) 和 CLI (`src/cli.py`) - 仅作为实验性入口保留
+
 ## 功能特性
 
 - **人声分离** - 基于 Demucs 从背景音中提取纯净人声
-- **语音识别** - Faster-Whisper 高精度日文 ASR，支持 存在字幕文件时跳过优化
-- **翻译引擎** - DeepSeek / OpenAI API，批量翻译 + 质量检测 + 翻译缓存
-- **语音合成** - Edge-TTS (免费) / Qwen3-TTS (高质量)
+- **语音识别** - Faster-Whisper / Fun-ASR / Qwen3-ASR 高精度日文 ASR
+- **翻译引擎** - DeepSeek / OpenAI API，批量翻译 + 质量检测
+- **语音合成** - Edge-TTS (免费) / Qwen3-TTS / Kokoro-TTS (高质量)
 - **智能混音** - 时间轴对齐 + 音量平衡，输出原声+中文配音双轨
-- **GUI 界面** - PySide6 桌面应用，支持单文件/批量处理/音色工坊/工具箱
+- **HTTP API** - FastAPI RESTful API，支持完整流水线和单步操作
 - **工具箱** - 独立的单步工具：音频分离、音频切分、ASR识别、格式转换、字幕生成、字幕翻译
-- **嵌入式播放器** - 内置音频播放器，支持试音预览和片段播放
 
 ## 系统要求
 
@@ -98,55 +102,28 @@ uv run python scripts/batch_process.py --input-dir "D:/ASMR"
 AsmrHelper/
 ├── src/                          # 核心源代码
 │   ├── core/                     # 核心处理模块
-│   │   ├── asr/                 # Faster-Whisper ASR 语音识别
+│   │   ├── asr/                 # ASR 语音识别 (Faster-Whisper/Fun-ASR/Qwen3-ASR)
 │   │   ├── translate/            # 翻译引擎 + 缓存 + 术语库
-│   │   ├── tts/                  # TTS (Edge/Qwen3)
+│   │   ├── tts/                  # TTS (Edge/Qwen3/Kokoro)
 │   │   ├── vocal_separator/      # Demucs 人声分离
-│   │   ├── pipeline/             # 统一流水线调度
-│   │   ├── subtitle_generator.py # 字幕生成工具
-│   │   └── gpu_manager.py        # GPU 管理
+│   │   ├── orchestration/        # 流水线编排 (PipelineExecutor)
+│   │   ├── engines/              # 引擎运行时
+│   │   └── resources/            # 模型资源管理
+│   ├── api/                      # HTTP API (FastAPI)
+│   │   └── http/                 # RESTful API 路由和服务
+│   ├── app/                      # 应用层服务
+│   │   ├── services/             # 业务服务
+│   │   ├── dto/                  # 数据传输对象
+│   │   └── errors/               # 错误定义
 │   ├── mixer/                    # 智能混音 + 时间轴对齐
-│   ├── utils/                    # 工具模块
-│   │   ├── audio_player.py       # 嵌入式音频播放器
-│   │   ├── constants.py          # 常量定义
-│   │   ├── formatters.py         # 格式化工具
-│   │   ├── gpu_context.py        # GPU 上下文
-│   │   └── patterns.py           # 正则表达式模式
-│   ├── gui/                     # PySide6 GUI 界面 (MVC 架构)
-│   │   ├── app.py                # 主应用入口
-│   │   ├── views/                # 视图层 (Tab 页面)
-│   │   ├── controllers/           # 控制器
-│   │   ├── components/            # 通用组件
-│   │   ├── services/              # 服务层
-│   │   ├── workers/               # 后台工作线程
-│   │   └── utils/                 # GUI 工具
-│   ├── cli.py                    # Click CLI 入口
+│   ├── cli.py                    # Click CLI 入口 (实验性)
 │   └── config.py                 # 配置管理
+├── desktop/                      # Electron 桌面应用 (实验性)
 ├── config/                       # 配置文件
+│   ├── models.yaml               # 模型配置
 │   ├── config.example.json       # 配置模板
-│   ├── config.json               # 用户配置 (git ignored)
-│   ├── asmr_terms.json           # ASMR 术语库
-│   ├── voice_profiles.json       # 音色配置 (git ignored)
-│   └── voice_profiles.example.json # 音色模板
-├── scripts/                      # 独立脚本
-│   ├── asmr_bilingual.py         # 双语双轨完整流程
-│   ├── batch_process.py          # 批量处理
-│   ├── install_models.py         # 模型下载工具
-│   ├── verify_env.py             # 环境验证
-│   ├── verify_models.py          # 模型验证
-│   └── generate_voice_profiles.py # 音色配置文件生成
-├── models/                       # 模型文件 (git ignored)
+│   └── config.json               # 用户配置 (git ignored)
 ├── tests/                        # 测试
-│   ├── test_core.py             # 核心模块测试
-│   ├── test_fixes.py            # Bug 修复测试
-│   ├── conftest.py              # pytest 配置
-│   ├── records/                  # 测试录音
-│   ├── scripts/                  # 测试脚本
-│   ├── setup/                   # 安装测试
-│   └── test_output/              # 测试输出
-├── 音色描述词指南.md              # 音色描述词参考
-├── setup.ps1                     # 一键环境配置
-├── run.bat                       # Windows 启动器
 ├── pyproject.toml                # 项目依赖
 └── uv.lock                       # 依赖锁定文件
 ```
@@ -276,30 +253,30 @@ MIT License
 
 ### 核心模块 (src/core)
 
-- `asr/` - Faster-Whisper 语音识别，支持 VAD 检测和多语言
+- `asr/` - ASR 语音识别，支持 Faster-Whisper、Fun-ASR、Qwen3-ASR
 - `translate/` - 翻译引擎，支持 DeepSeek/OpenAI，包含缓存和术语库
-- `tts/` - 语音合成，支持 Edge-TTS、Qwen3-TTS
+- `tts/` - 语音合成，支持 Edge-TTS、Qwen3-TTS、Kokoro-TTS
 - `vocal_separator/` - Demucs 人声分离
-- `pipeline/` - 统一处理流水线
-- `subtitle_generator.py` - 字幕生成工具
+- `orchestration/` - 流水线编排，使用 PipelineExecutor 执行
+- `engines/` - 引擎运行时，统一管理各引擎生命周期
+- `resources/` - 模型资源管理，支持模型安装和状态查询
 
-### GUI 架构 (src/gui) - MVC 模式
+### HTTP API (src/api/http)
 
-```
-views/       # 视图层：各 Tab 页面 (单文件、批量、音色工坊、工具箱)
-controllers/ # 控制器：处理用户交互逻辑
-services/    # 服务层：业务逻辑封装
-workers/     # 工作线程：后台任务处理，避免 UI 阻塞
-components/  # 通用组件：可复用 UI 组件
-```
+FastAPI RESTful API，提供以下端点：
+- `/api/v1/pipeline/*` - 流水线执行
+- `/api/v1/asr/*` - 语音识别
+- `/api/v1/llm/*` - LLM 翻译
+- `/api/v1/tts/*` - 语音合成
+- `/api/v1/models/*` - 模型管理
+- `/api/v1/tasks/*` - 任务管理
+- `/api/v1/artifacts/*` - 产物管理
 
-### 工具模块 (src/utils)
+### 应用层 (src/app)
 
-- `audio_player.py` - 嵌入式音频播放器
-- `constants.py` - 常量定义
-- `formatters.py` - 格式化工具
-- `gpu_context.py` - GPU 上下文管理
-- `patterns.py` - 正则表达式模式库
+- `services/` - 业务服务层，封装核心功能
+- `dto/` - 数据传输对象，定义 API 契约
+- `errors/` - 错误定义和处理
 
 ### TODO LIST（优先级从高到低）
 

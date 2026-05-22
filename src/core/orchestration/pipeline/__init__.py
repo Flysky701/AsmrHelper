@@ -12,12 +12,10 @@ from .models import (
 )
 from .planner import LANG_MAP, build_execution_plan
 from .result_mapper import ArtifactResultMapper
-from .service import LegacyPipelineOrchestrator
 
 __all__ = [
     "ArtifactResultMapper",
     "LANG_MAP",
-    "LegacyPipelineOrchestrator",
     "MixConfig",
     "PipelineExecutionContext",
     "PipelineExecutionPlan",

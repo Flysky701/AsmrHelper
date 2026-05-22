@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from src.core.orchestration import (
-    LegacyPipelineOrchestrator,
     PipelineExecutionContext,
     PipelineExecutionPlan,
     PipelineExecutor,
@@ -45,10 +44,7 @@ class PipelineService:
         input_catalog_service: InputCatalogService | None = None,
         session_service: SessionService | None = None,
         artifact_service: ArtifactService | None = None,
-        orchestrator: LegacyPipelineOrchestrator | None = None,
         executor: PipelineExecutor | None = None,
-        *,
-        use_legacy: bool = False,
     ) -> None:
         self._task_service = task_service or get_task_service()
         self._resource_service = resource_service or get_resource_service()
@@ -56,9 +52,7 @@ class PipelineService:
         self._input_catalog_service = input_catalog_service or get_input_catalog_service()
         self._session_service = session_service or get_session_service()
         self._artifact_service = artifact_service or get_artifact_service()
-        self._orchestrator = orchestrator or LegacyPipelineOrchestrator()
         self._executor = executor or PipelineExecutor()
-        self._use_legacy = use_legacy
 
     def run_audio_pipeline(
         self,
@@ -146,19 +140,12 @@ class PipelineService:
                 if progress_callback is not None:
                     progress_callback(message)
 
-            # Use new executor by default, legacy path as fallback
-            if self._use_legacy:
-                results = self._orchestrator.run_legacy(
-                    context,
-                    progress_callback=on_progress,
-                )
-            else:
-                plan = build_execution_plan(context)
-                results = self._executor.execute(
-                    plan,
-                    progress_callback=on_progress,
-                    cancel_event=cancel_event,
-                )
+            plan = build_execution_plan(context)
+            results = self._executor.execute(
+                plan,
+                progress_callback=on_progress,
+                cancel_event=cancel_event,
+            )
 
             step_errors = results.get("step_errors", {})
             if step_errors:
@@ -227,8 +214,14 @@ class PipelineService:
         )
 
     def list_presets(self) -> dict[str, str]:
-        pipeline_class, _ = self._orchestrator._load_pipeline_runtime()
-        return dict(getattr(pipeline_class, "PRESETS", {}))
+        # Presets are now defined in the execution profile builder
+        # Return a static set of supported presets
+        return {
+            "asmr_bilingual": "ASMR 双语处理（分离+ASR+翻译+TTS+混音）",
+            "asr_only": "仅语音识别",
+            "translate_only": "仅翻译",
+            "tts_only": "仅语音合成",
+        }
 
     def build_plan(self, task_spec) -> PipelineExecutionPlan:
         """Build an execution plan from a task spec without running it.

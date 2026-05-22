@@ -16,9 +16,10 @@ if str(project_root) not in sys.path:
 from src.app.errors import AppError
 from src.app import PipelineRequest
 from src.app.services import get_asr_engine_service
+from src.app.services import get_llm_capability_service
 from src.app.services import get_model_service as get_app_model_service
 from src.app.services import get_pipeline_service
-from src.app.services import get_translation_service, get_tts_engine_service
+from src.app.services import get_tts_engine_service
 
 
 def _run_app_command(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -177,21 +178,33 @@ def asr_cmd(input_path: str, output_path: Optional[str], model: str, language: s
 @click.option("--input", "-i", "input_path", required=True, help="Input text file path")
 @click.option("--output", "-o", "output_path", default=None, help="Output file path")
 @click.option("--provider", default="deepseek", help="Translation provider")
-def translate_cmd(input_path: str, output_path: Optional[str], provider: str):
+@click.option("--source-lang", default="ja", help="Source language code")
+@click.option("--target-lang", default="zh", help="Target language code")
+def translate_cmd(input_path: str, output_path: Optional[str], provider: str, source_lang: str, target_lang: str):
     """Run standalone translation through the application API layer."""
+    # Read input text
+    with open(input_path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    # Use LlmCapabilityService for translation
+    llm_service = get_llm_capability_service()
     result = _run_app_command(
-        get_translation_service().translate_file,
-        input_path=input_path,
-        output_path=output_path,
+        llm_service.translate_texts,
+        texts=[text],
+        source_lang=source_lang,
+        target_lang=target_lang,
         provider=provider,
     )
 
-    click.echo(f"Translating {len(result.items)} lines...")
+    translated = result.items[0] if result.items else ""
+    click.echo(f"Translation completed via {result.provider}")
+
     if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(translated)
         _emit_saved_output(output_path)
     else:
-        for item in result.items:
-            click.echo(item)
+        click.echo(translated)
 
 
 @cli.command(name="tts")
