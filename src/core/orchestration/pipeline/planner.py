@@ -116,6 +116,9 @@ def _build_tts(profile: dict[str, Any], pipeline_opts: dict[str, Any], *, enable
     tts_profile = dict(profile.get("tts", {}))
     common = dict(tts_profile.get("common_options", {}))
     provider_opts = dict(tts_profile.get("provider_options", {}))
+    # Backward compat: fall back to pipeline_opts for voice_profile_id
+    if "voice_profile_id" not in provider_opts:
+        provider_opts["voice_profile_id"] = pipeline_opts.get("voice_profile_id")
     return StageBinding(
         kind=StageKind.TTS,
         provider=tts_profile.get("provider", pipeline_opts.get("tts_engine", "edge")),
@@ -125,11 +128,7 @@ def _build_tts(profile: dict[str, Any], pipeline_opts: dict[str, Any], *, enable
             "voice": common.get("voice", pipeline_opts.get("tts_voice", "zh-CN-XiaoxiaoNeural")),
             "speed": float(common.get("speed", pipeline_opts.get("tts_speed", 1.0))),
         },
-        provider_options={
-            "voice_profile_id": provider_opts.get(
-                "voice_profile_id", pipeline_opts.get("voice_profile_id"),
-            ),
-        },
+        provider_options=provider_opts,
     )
 
 

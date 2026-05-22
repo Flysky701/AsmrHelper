@@ -303,7 +303,10 @@ class PipelineService:
                     "provider": request.tts_engine,
                     "model": "default",
                     "common_options": {"voice": request.tts_voice, "speed": request.tts_speed},
-                    "provider_options": {"voice_profile_id": request.voice_profile_id},
+                    "provider_options": {
+                        "voice_profile_id": request.voice_profile_id,
+                        **request.engine_params.get(request.tts_engine, {}),
+                    },
                 },
             },
             "mix": {

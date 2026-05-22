@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -16,9 +16,6 @@ from .model_catalog import ModelEntry
 from .model_status import ModelState, ModelStatusResolver
 
 logger = logging.getLogger(__name__)
-
-# Matches huggingface_hub progress: "45%|████████" or "model.bin: 45%|..."
-_PROGRESS_RE = re.compile(r"(\d+)%\|")
 
 
 WHISPER_REPOS = {
@@ -200,7 +197,11 @@ class ModelInstaller:
         if on_progress:
             on_progress(0.0, "starting download")
 
-        success = self._run_with_progress(cmd, env, timeout, on_progress, cwd=str(self.project_root))
+        success = self._run_with_progress(
+            cmd, env, timeout, on_progress,
+            cwd=str(self.project_root),
+            monitor_dir=str(install_dir),
+        )
         if not success:
             logger.error("%s download failed", entry.id)
             return False
@@ -258,8 +259,9 @@ class ModelInstaller:
         timeout: int,
         on_progress: Optional[Callable[[float, str], None]],
         cwd: str = ".",
+        monitor_dir: str = "",
     ) -> bool:
-        """Run a subprocess, parsing stderr for huggingface_hub progress."""
+        """Run a subprocess with directory-size-based progress monitoring."""
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -273,27 +275,20 @@ class ModelInstaller:
             logger.error("failed to start subprocess: %s", exc)
             return False
 
-        last_progress = 0.0
+        if on_progress and monitor_dir:
+            def _monitor():
+                monitor_path = Path(monitor_dir)
+                while proc.poll() is None:
+                    try:
+                        if monitor_path.exists():
+                            size = sum(f.stat().st_size for f in monitor_path.rglob("*") if f.is_file())
+                            size_mb = size / (1024 * 1024)
+                            on_progress(0.0, f"downloading... {size_mb:.0f} MB")
+                    except (OSError, ValueError):
+                        pass
+                    time.sleep(2)
 
-        def _read_stderr():
-            nonlocal last_progress
-            try:
-                for line in proc.stderr:  # type: ignore[union-attr]
-                    line = line.strip()
-                    if not line:
-                        continue
-                    match = _PROGRESS_RE.search(line)
-                    if match and on_progress:
-                        pct = int(match.group(1))
-                        frac = pct / 100.0
-                        if frac > last_progress:
-                            last_progress = frac
-                            on_progress(frac, f"{pct}%")
-            except (ValueError, OSError):
-                pass
-
-        reader_thread = threading.Thread(target=_read_stderr, daemon=True)
-        reader_thread.start()
+            threading.Thread(target=_monitor, daemon=True).start()
 
         try:
             proc.wait(timeout=timeout)
@@ -302,5 +297,4 @@ class ModelInstaller:
             logger.error("download timed out after %ds", timeout)
             return False
 
-        reader_thread.join(timeout=5)
         return proc.returncode == 0

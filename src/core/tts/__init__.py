@@ -307,6 +307,7 @@ class Qwen3TTSEngine:
         voice: str = "Vivian",
         speed: float = 1.0,
         voice_profile_id: str = None,
+        **kwargs,
     ):
         """
         初始化 Qwen3-TTS 引擎
@@ -317,10 +318,12 @@ class Qwen3TTSEngine:
                   注：qwen_tts 0.1.1 不支持 speed 参数，此字段保留供未来版本使用。
                   当前通过 mixer 的时域压缩/拉伸来对齐时长。
             voice_profile_id: 音色配置 ID（优先级高于 voice）
+            **kwargs: 额外引擎参数（emotion, temperature 等），透传至 qwen_tts API
         """
         self.voice = voice
         self.speed = max(0.5, min(2.0, speed))
         self.voice_profile_id = voice_profile_id
+        self.extra_options = kwargs
         self.profile = None
         self.instruct = ""
         self.prompt_cache = None
@@ -452,15 +455,25 @@ class Qwen3TTSEngine:
             # 预设音色：支持 instruct 参数
             model = self._get_custom_model()
             import torch
-            
+
             # 使用 torch.no_grad() 禁用梯度计算，提高推理速度并减少显存占用
             with torch.no_grad():
-                wavs, sr = model.generate_custom_voice(
-                    text,
-                    speaker=self.voice,
-                    language="chinese",
-                    instruct=instruct,
-                )
+                try:
+                    wavs, sr = model.generate_custom_voice(
+                        text,
+                        speaker=self.voice,
+                        language="chinese",
+                        instruct=instruct,
+                        **self.extra_options,
+                    )
+                except TypeError:
+                    # Fallback: qwen_tts version doesn't accept extra options
+                    wavs, sr = model.generate_custom_voice(
+                        text,
+                        speaker=self.voice,
+                        language="chinese",
+                        instruct=instruct,
+                    )
             if wavs and len(wavs) > 0:
                 audio = wavs[0].astype(np.float32)
                 sf.write(str(output_path), audio, sr, subtype="FLOAT")

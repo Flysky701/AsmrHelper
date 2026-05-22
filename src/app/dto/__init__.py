@@ -112,6 +112,7 @@ class PipelineRequest:
     voice_profile_id: Optional[str] = None
     output_mode: str = "single"
     batch_root_dir: str = ""
+    engine_params: dict = field(default_factory=dict)
 
 
 @dataclass(slots=True)

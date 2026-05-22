@@ -52,6 +52,7 @@ def run_pipeline(
         tts_delay=body.tts_delay,
         skip_existing=body.skip_existing,
         voice_profile_id=body.voice_profile_id,
+        engine_params=body.engine_params,
     )
     result = svc.run_audio_pipeline(request)
     task = _build_task_response(result)

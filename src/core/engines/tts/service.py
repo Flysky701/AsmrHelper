@@ -77,8 +77,13 @@ class TtsEngineRuntime:
                 "sample_rate": int(provider_options.get("sample_rate", 24000)),
             }
 
-        return {
+        kwargs = {
             "voice": voice or "zh-CN-XiaoxiaoNeural",
             "speed": speed,
             "voice_profile_id": provider_options.get("voice_profile_id"),
         }
+        # Pass through all extra provider options (emotion, temperature, etc.)
+        for key, value in provider_options.items():
+            if key not in kwargs:
+                kwargs[key] = value
+        return kwargs

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from .tasks import TaskStatusResponse
@@ -25,6 +27,10 @@ class PipelineRunRequest(BaseModel):
     tts_delay: float = Field(0.0, description="TTS delay in seconds")
     skip_existing: bool = Field(False, description="Skip if output already exists")
     voice_profile_id: str | None = Field(None, description="Voice profile ID for Qwen3-TTS")
+    engine_params: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Per-engine parameters keyed by engine ID, e.g. {qwen3: {emotion: 'happy'}}",
+    )
 
 
 class ArtifactSetResponse(BaseModel):
