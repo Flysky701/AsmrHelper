@@ -385,6 +385,37 @@ models:
     default_install_mode: single
     auto_install_dependencies: true
 
+  - id: voxcpm2
+    kind: local
+    category: tts
+    provider: voxcpm2
+    family_id: voxcpm2
+    variant_group: voxcpm2_main
+    variant_tier: standard
+    is_primary_variant: true
+    dependency_group: voxcpm2
+    required_runtime_packages: [voxcpm>=2.0.0, soundfile>=0.12.0]
+    display_name: VoxCPM2
+    description: "2B-parameter tokenizer-free TTS by OpenBMB. 30 languages, voice design, controllable cloning, 48kHz output."
+    install_root: models
+    install_path: voxcpm2
+    required_files:
+      - config.json
+    required_dirs: []
+    supports_install: true
+    supports_remove: true
+    install_strategy: huggingface_snapshot
+    upstream_name: openbmb/VoxCPM2
+    runtime_profile: python_package_local
+    supported_os: [windows, linux, macos]
+    supported_python:
+      min: "3.10"
+      max: "3.13"
+    requires_gpu: true
+    min_cuda: "12.0"
+    install_modes: [single]
+    default_install_mode: single
+
   - id: kokoro-82m
     kind: local
     category: tts

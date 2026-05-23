@@ -1,2 +1,17 @@
 kokoro TTS model
 https://github.com/hexgrad/kokoro
+安装: pip install kokoro soundfile
+系统依赖: espeak-ng (Windows: https://github.com/espeak-ng/espeak-ng/releases)
+
+VoxCPM2 TTS model
+https://github.com/OpenBMB/VoxCPM
+HuggingFace: openbmb/VoxCPM2
+安装: pip install voxcpm
+要求: Python>=3.10, PyTorch>=2.5.0, CUDA>=12.0, ~8GB VRAM
+特色: 30语言, 音色设计, 可控克隆, 48kHz输出
+
+
+
+模型注意事项：
+Qwen3TTS优化日转英文
+zero-shot 加 vertot-X only

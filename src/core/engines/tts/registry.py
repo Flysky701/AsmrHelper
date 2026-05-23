@@ -55,6 +55,11 @@ class TtsRegistry:
             factory=self._make_kokoro_tts,
             config_defaults={},
         )
+        self.register(
+            "voxcpm2",
+            factory=self._make_voxcpm2_tts,
+            config_defaults={},
+        )
 
     def register(
         self,
@@ -90,6 +95,9 @@ class TtsRegistry:
         if name == "kokoro":
             from .kokoro import KokoroTtsEngine
             return KokoroTtsEngine.list_voices()
+        if name == "voxcpm2":
+            from .voxcpm2 import VoxCPM2Engine
+            return VoxCPM2Engine.list_voices()
         return []
 
     def is_registered(self, name: str) -> bool:
@@ -162,8 +170,12 @@ class TtsRegistry:
     @staticmethod
     def _make_kokoro_tts(**kwargs: Any) -> Any:
         from .kokoro import KokoroTtsEngine
-
         return KokoroTtsEngine(**kwargs)
+
+    @staticmethod
+    def _make_voxcpm2_tts(**kwargs: Any) -> Any:
+        from .voxcpm2 import VoxCPM2Engine
+        return VoxCPM2Engine(**kwargs)
 
 
 def get_tts_registry() -> TtsRegistry:

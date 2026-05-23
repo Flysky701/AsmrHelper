@@ -67,6 +67,7 @@ class TtsEngineRuntime:
 
         voice = str(common_options.get("voice", "")).strip()
         speed = float(common_options.get("speed", 1.0))
+
         if engine_id == "kokoro":
             return {
                 "voice": voice or "af_heart",
@@ -75,6 +76,18 @@ class TtsEngineRuntime:
                 "repo_id": provider_options.get("repo_id"),
                 "split_pattern": provider_options.get("split_pattern", r"\n+"),
                 "sample_rate": int(provider_options.get("sample_rate", 24000)),
+            }
+
+        if engine_id == "voxcpm2":
+            return {
+                "model_dir": provider_options.get("model_dir"),
+                "cfg_value": float(provider_options.get("cfg_value", 2.0)),
+                "inference_timesteps": int(provider_options.get("inference_timesteps", 10)),
+                "load_denoiser": bool(provider_options.get("load_denoiser", True)),
+                "device_map": str(provider_options.get("device_map", "auto")),
+                "reference_wav_path": provider_options.get("reference_wav_path"),
+                "prompt_wav_path": provider_options.get("prompt_wav_path"),
+                "prompt_text": provider_options.get("prompt_text"),
             }
 
         kwargs = {
