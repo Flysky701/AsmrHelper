@@ -1,6 +1,5 @@
 import LeftNav from './LeftNav'
 import MainContent from './MainContent'
-import RightSidebar from './RightSidebar'
 import AudioPlayerBar from './AudioPlayerBar'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 
@@ -11,7 +10,7 @@ export default function AppShell() {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '180px 1fr 280px',
+        gridTemplateColumns: '180px 1fr',
         gridTemplateRows: '1fr auto',
         height: '100vh',
         background: 'var(--bg)',
@@ -20,7 +19,6 @@ export default function AppShell() {
     >
       <LeftNav />
       <MainContent />
-      <RightSidebar />
       {playerVisible && <AudioPlayerBar />}
     </div>
   )
