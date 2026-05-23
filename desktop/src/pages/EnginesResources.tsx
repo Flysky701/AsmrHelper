@@ -101,23 +101,8 @@ export default function EnginesResources() {
     }
   }
 
-  const handleUnload = async (modelId: string) => {
-    await modelsApi.unload(modelId).catch(() => { })
-    loadData()
-  }
-
   const handleVerify = async (modelId: string) => {
     await modelsApi.verify(modelId).catch(() => { })
-    loadData()
-  }
-
-  const handleRemove = async (modelId: string) => {
-    await modelsApi.remove(modelId).catch(() => { })
-    loadData()
-  }
-
-  const handleUnloadAll = async () => {
-    await modelsApi.unloadAll().catch(() => { })
     loadData()
   }
 
@@ -193,14 +178,6 @@ export default function EnginesResources() {
           color: 'var(--fg)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px',
         }}>
           刷新状态
-        </button>
-        <div style={{ flex: 1 }} />
-        <button onClick={handleUnloadAll} style={{
-          fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
-          borderRadius: '6px', border: '1px solid oklch(85% 0.08 80)', background: 'oklch(92% 0.06 80)',
-          color: 'oklch(40% 0.12 60)', cursor: 'pointer',
-        }}>
-          卸载全部模型
         </button>
       </div>
 
@@ -376,30 +353,14 @@ export default function EnginesResources() {
                                       {status?.status === 'invalid' ? '重新安装' : '安装'}
                                     </button>
                                   ) : (
-                                    <>
-                                      <button onClick={() => handleVerify(model.model_id)} style={{
-                                        fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
-                                        borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                                        color: 'var(--fg)', cursor: 'pointer',
-                                      }}>
-                                        验证
-                                      </button>
-                                      <button onClick={() => handleUnload(model.model_id)} style={{
-                                        fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
-                                        borderRadius: '6px', border: '1px solid oklch(85% 0.08 80)', background: 'oklch(92% 0.06 80)',
-                                        color: 'oklch(40% 0.12 60)', cursor: 'pointer',
-                                      }}>
-                                        卸载
-                                      </button>
-                                    </>
+                                    <button onClick={() => handleVerify(model.model_id)} style={{
+                                      fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
+                                      borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
+                                      color: 'var(--fg)', cursor: 'pointer',
+                                    }}>
+                                      验证
+                                    </button>
                                   )}
-                                  <button onClick={() => handleRemove(model.model_id)} style={{
-                                    fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
-                                    borderRadius: '6px', border: '1px solid oklch(85% 0.06 25)', background: 'var(--surface)',
-                                    color: 'oklch(55% 0.18 25)', cursor: 'pointer',
-                                  }}>
-                                    删除
-                                  </button>
                                 </>
                               )}
                             </div>
