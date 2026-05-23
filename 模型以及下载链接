@@ -1,17 +1,43 @@
-kokoro TTS model
-https://github.com/hexgrad/kokoro
-安装: pip install kokoro soundfile
-系统依赖: espeak-ng (Windows: https://github.com/espeak-ng/espeak-ng/releases)
+========================================
+TTS 模型
+========================================
 
-VoxCPM2 TTS model
-https://github.com/OpenBMB/VoxCPM
+--- Kokoro TTS ---
+GitHub:    https://github.com/hexgrad/kokoro
+安装:      pip install kokoro soundfile
+系统依赖:  espeak-ng
+           Windows 安装包: https://github.com/espeak-ng/espeak-ng/releases
+状态:      需手动安装 pip 包 + espeak-ng，不支持一键下载
+
+--- VoxCPM2 ---
+GitHub:    https://github.com/OpenBMB/VoxCPM
 HuggingFace: openbmb/VoxCPM2
-安装: pip install voxcpm
-要求: Python>=3.10, PyTorch>=2.5.0, CUDA>=12.0, ~8GB VRAM
-特色: 30语言, 音色设计, 可控克隆, 48kHz输出
+安装:      pip install voxcpm
+要求:      Python>=3.10, PyTorch>=2.5.0, CUDA>=12.0, ~8GB VRAM
+特色:      30语言, 音色设计, 可控克隆, 48kHz输出
+状态:      已接入，支持一键下载
 
+--- GPT-SoVITS ---
+GitHub:    https://github.com/RVC-Boss/GPT-SoVITS
+HuggingFace 预训练模型: lj1995/GPT-SoVITS
+Windows 整合包: https://huggingface.co/lj1995/GPT-SoVITS-windows-package
+安装:      需 clone 整个仓库，依赖复杂（torch, ffmpeg, 特定 CUDA）
+           pip install -r requirements.txt（仓库内）
+要求:      Python 3.9/3.10, PyTorch 2.0+, CUDA 11/12, ~6-8GB VRAM
+特色:      1分钟音频克隆, 中文优化, 支持微调训练
+状态:      待接入，接入复杂度高（无简单 pip 包，需 clone repo）
 
+--- IndexTTS ---
+GitHub:    https://github.com/index-tts/index-tts
+HuggingFace: IndexTeam/Index-TTS
+安装:      pip install indextts（或 clone repo）
+要求:      Python>=3.10, PyTorch>=2.0, CUDA, ~4-6GB VRAM
+特色:      工业级零样本克隆, 中文拼音控制, 24kHz输出
+状态:      待接入，接入复杂度低
 
-模型注意事项：
+========================================
+模型注意事项
+========================================
+
 Qwen3TTS优化日转英文
 zero-shot 加 vertot-X only
