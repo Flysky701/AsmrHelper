@@ -135,9 +135,26 @@ export default function Workbench() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
-    const dropped = Array.from(e.dataTransfer.files).map((f) => f.name)
+    const dropped = Array.from(e.dataTransfer.files)
     if (dropped.length > 0) {
-      setFiles([...selectedFiles, ...dropped.filter((f) => !selectedFiles.includes(f))])
+      // In Tauri, dataTransfer.files may have full paths via .path
+      // In browser, only .name is available — prompt for directory
+      const paths = dropped.map((f) => (f as File & { path?: string }).path || f.name)
+      const hasFullPath = paths.some((p) => p.includes('/') || p.includes('\\'))
+      if (hasFullPath) {
+        setFiles([...selectedFiles, ...paths.filter((f) => !selectedFiles.includes(f))])
+      } else {
+        const dir = prompt(
+          '浏览器模式无法获取完整路径。请输入文件所在目录：\n' +
+          `（文件：${paths.join(', ')}）`,
+          'D:\\Asmr'
+        )
+        if (dir) {
+          const sep = dir.includes('/') ? '/' : '\\'
+          const fullPaths = paths.map((name) => `${dir}${sep}${name}`)
+          setFiles([...selectedFiles, ...fullPaths.filter((f) => !selectedFiles.includes(f))])
+        }
+      }
     }
   }, [selectedFiles, setFiles])
 
