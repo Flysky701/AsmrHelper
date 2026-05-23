@@ -41,6 +41,9 @@ interface WorkbenchStore {
   params: WorkbenchParams
   layer2Expanded: boolean
   layer3Expanded: boolean
+  commonExpanded: boolean
+  modelExpanded: boolean
+  advExpanded: boolean
   presetsLoading: boolean
   presets: string[]
 
@@ -53,6 +56,9 @@ interface WorkbenchStore {
   updateParam: <K extends keyof WorkbenchParams>(key: K, value: WorkbenchParams[K]) => void
   toggleLayer2: () => void
   toggleLayer3: () => void
+  toggleCommon: () => void
+  toggleModel: () => void
+  toggleAdv: () => void
   reset: () => void
 }
 
@@ -63,6 +69,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
   params: { ...DEFAULT_PARAMS },
   layer2Expanded: true,
   layer3Expanded: false,
+  commonExpanded: true,
+  modelExpanded: true,
+  advExpanded: false,
   presetsLoading: false,
   presets: [],
 
@@ -79,6 +88,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
     set((s) => ({ params: { ...s.params, [key]: value } })),
   toggleLayer2: () => set((s) => ({ layer2Expanded: !s.layer2Expanded })),
   toggleLayer3: () => set((s) => ({ layer3Expanded: !s.layer3Expanded })),
+  toggleCommon: () => set((s) => ({ commonExpanded: !s.commonExpanded })),
+  toggleModel: () => set((s) => ({ modelExpanded: !s.modelExpanded })),
+  toggleAdv: () => set((s) => ({ advExpanded: !s.advExpanded })),
   reset: () =>
     set({
       selectedFiles: [],
@@ -87,5 +99,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
       params: { ...DEFAULT_PARAMS },
       layer2Expanded: true,
       layer3Expanded: false,
+      commonExpanded: true,
+      modelExpanded: true,
+      advExpanded: false,
     }),
 }))

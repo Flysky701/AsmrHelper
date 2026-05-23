@@ -1,8 +1,8 @@
-import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 import LeftNav from './LeftNav'
 import MainContent from './MainContent'
 import RightSidebar from './RightSidebar'
 import AudioPlayerBar from './AudioPlayerBar'
+import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 
 export default function AppShell() {
   const playerVisible = useAudioPlayerStore((s) => s.visible)
@@ -11,10 +11,11 @@ export default function AppShell() {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '100px 1fr 280px',
-        gridTemplateRows: playerVisible ? '1fr auto' : '1fr',
+        gridTemplateColumns: '180px 1fr 280px',
+        gridTemplateRows: '1fr auto',
         height: '100vh',
-        background: 'var(--bg-base)',
+        background: 'var(--bg)',
+        overflow: 'hidden',
       }}
     >
       <LeftNav />

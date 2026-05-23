@@ -1,46 +1,48 @@
 @import "tailwindcss";
 
 /* ============================================
-   Neumorphism Design System - ASMR Helper
+   Modern Minimal Design System - ASMR Helper
+   Direction: Linear / Vercel
    ============================================ */
 
 :root {
-  /* Base Colors */
-  --bg-base: #e8e8e8;
-  --bg-surface: #f0f0f3;
-  --bg-elevated: #ffffff;
-  --bg-hover: #e0e0e5;
+  --bg:      oklch(99% 0.002 240);
+  --surface: oklch(100% 0 0);
+  --fg:      oklch(18% 0.012 250);
+  --muted:   oklch(54% 0.012 250);
+  --border:  oklch(92% 0.005 250);
+  --accent:  oklch(58% 0.18 255);
+  --accent-hover: oklch(52% 0.18 255);
+  --accent-subtle: oklch(95% 0.02 255);
 
-  /* Text Colors */
-  --text-primary: #4a4a4a;
-  --text-secondary: #8a8a8a;
+  /* Semantic */
+  --success: oklch(60% 0.16 145);
+  --warning: oklch(70% 0.16 85);
+  --error:   oklch(55% 0.18 25);
 
-  /* Accent Colors */
-  --accent: #c8e0f4;
-  --accent-hover: #b0d4f0;
-  --accent-text: #3a7cc0;
+  /* Radius */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-button: 6px;
+  --radius-card: 8px;
+  --radius-tag: 4px;
 
-  /* Semantic Colors */
-  --color-success: #34d399;
-  --color-warning: #fbbf24;
-  --color-error: #f87171;
-
-  /* Neumorphism Shadows */
-  --shadow-raised: -5px -5px 15px rgba(255, 255, 255, 0.8),
-    5px 5px 15px rgba(0, 0, 0, 0.1);
-  --shadow-pressed: inset -3px -3px 8px rgba(255, 255, 255, 0.8),
-    inset 3px 3px 8px rgba(0, 0, 0, 0.08);
-
-  /* Border Radius */
-  --radius-panel: 16px;
-  --radius-card: 14px;
-  --radius-button: 12px;
-  --radius-tag: 10px;
+  /* Neu component aliases (legacy compat) */
+  --bg-surface: var(--surface);
+  --bg-base: var(--bg);
+  --bg-elevated: var(--surface);
+  --bg-hover: oklch(96% 0.004 250);
+  --text-primary: var(--fg);
+  --text-secondary: var(--muted);
+  --accent-text: oklch(99% 0.002 255);
+  --color-error: var(--error);
+  --shadow-raised: 0 1px 3px oklch(0% 0 0 / 0.06), 0 1px 2px oklch(0% 0 0 / 0.04);
+  --shadow-pressed: inset 0 1px 3px oklch(0% 0 0 / 0.1);
 
   /* Typography */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI",
-    "PingFang SC", "Noto Sans CJK SC", sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
 }
 
 * {
@@ -50,16 +52,18 @@
 }
 
 body {
-  font-family: var(--font-sans);
-  font-size: 16px;
-  line-height: 1.6;
-  color: var(--text-primary);
-  background: var(--bg-base);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
-/* Scrollbar styling */
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -70,10 +74,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: oklch(80% 0.005 250);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: oklch(70% 0.01 250);
 }

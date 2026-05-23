@@ -39,7 +39,7 @@ export interface Task {
   params: Record<string, unknown>
 }
 
-type FilterType = 'all' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped'
+type FilterType = 'all' | 'running' | 'pending' | 'completed' | 'failed' | 'cancelled' | 'skipped'
 
 interface TaskStore {
   tasks: Task[]

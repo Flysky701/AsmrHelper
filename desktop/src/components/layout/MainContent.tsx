@@ -26,18 +26,12 @@ export default function MainContent() {
     <main
       style={{
         flex: 1,
-        overflow: 'auto',
-        padding: '20px',
-        animation: 'fadeIn 200ms ease-out',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
       <Page />
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-      `}</style>
     </main>
   )
 }

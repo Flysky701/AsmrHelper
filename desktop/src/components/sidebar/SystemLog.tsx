@@ -21,7 +21,7 @@ export default function SystemLog() {
       <div
         style={{
           padding: '8px 12px',
-          borderBottom: '1px solid rgba(0,0,0,0.05)',
+          borderBottom: '1px solid var(--border)',
           fontWeight: 600,
           fontSize: '0.8125rem',
           color: 'var(--text-primary)',

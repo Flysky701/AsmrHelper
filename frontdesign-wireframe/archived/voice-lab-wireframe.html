@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASMR Helper — 音色实验室线框稿 v2</title>
+<style>
+:root {
+  --bg:      oklch(99% 0.002 240);
+  --surface: oklch(100% 0 0);
+  --fg:      oklch(18% 0.012 250);
+  --muted:   oklch(54% 0.012 250);
+  --border:  oklch(92% 0.005 250);
+  --accent:  oklch(58% 0.18 255);
+  --success: oklch(60% 0.16 145);
+  --warning: oklch(65% 0.14 85);
+  --danger:  oklch(55% 0.18 25);
+
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+  --radius: 8px;
+  --radius-sm: 6px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--fg);
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  grid-template-rows: 1fr;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* === Left Tab Sidebar === */
+.tab-sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 0;
+}
+.tab-sidebar-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0 16px;
+  margin-bottom: 8px;
+}
+.tab-item {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.12s, color 0.12s;
+  border-left: 3px solid transparent;
+}
+.tab-item:hover { background: var(--bg); color: var(--fg); }
+.tab-item.active { color: var(--accent); background: oklch(97% 0.01 255); border-left-color: var(--accent); }
+.tab-item svg { flex-shrink: 0; }
+.tab-spacer { flex: 1; }
+
+/* === Main === */
+.main { display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; }
+
+/* Action Bar */
+.action-bar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.action-bar h1 {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-right: 8px;
+}
+.action-spacer { flex: 1; }
+
+/* Status pill */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.status-pill.gpu { background: oklch(95% 0.02 255); color: var(--accent); }
+.status-pill.ready { background: oklch(95% 0.03 145); color: oklch(40% 0.12 145); }
+
+/* === Player Bar (bottom) === */
+.player-bar {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+}
+.player-controls { display: flex; align-items: center; gap: 8px; }
+.player-btn {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+}
+.player-btn:hover { background: var(--bg); }
+.player-btn.play { background: var(--accent); color: white; border-color: var(--accent); }
+.player-btn.play:hover { background: oklch(52% 0.18 255); }
+.player-waveform {
+  flex: 1;
+  height: 32px;
+  background: var(--bg);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+.waveform-progress {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 35%;
+  background: oklch(95% 0.03 255);
+  border-right: 2px solid var(--accent);
+}
+.waveform-bars {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  gap: 1px;
+  padding: 0 4px;
+}
+.waveform-bars span {
+  flex: 1;
+  background: oklch(85% 0.01 250);
+  border-radius: 1px;
+  min-width: 2px;
+}
+.waveform-progress + .waveform-bars span { background: oklch(75% 0.04 255); }
+.player-time {
+  font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 80px;
+  text-align: center;
+}
+.player-track-name {
+  font-size: 12px;
+  font-weight: 500;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Content: profile list + work panel */
+.content { display: grid; grid-template-columns: 240px 1fr; overflow: hidden; }
+
+/* === Profile List (left) === */
+.profile-list {
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  background: var(--surface);
+}
+
+.profile-list-header {
+  padding: 12px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Filter tabs */
+.filter-bar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 2px;
+  background: var(--surface);
+  flex-wrap: wrap;
+}
+.filter-tab {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+}
+.filter-tab:hover { color: var(--fg); }
+.filter-tab.active { background: var(--bg); color: var(--fg); }
+.filter-tab .count { margin-left: 3px; font-size: 10px; opacity: 0.7; }
+
+/* Model group */
+.model-group {
+  border-bottom: 1px solid var(--border);
+}
+.model-group-title {
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.model-group-title:hover { background: var(--bg); }
+.model-badge {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.badge-qwen { background: oklch(95% 0.02 255); color: var(--accent); }
+.badge-edge { background: oklch(93% 0.03 145); color: oklch(40% 0.12 145); }
+.badge-count {
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: auto;
+}
+
+/* Profile item */
+.profile-item {
+  padding: 9px 16px 9px 32px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  border-left: 3px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+.profile-item:hover { background: var(--bg); }
+.profile-item.selected {
+  background: oklch(97% 0.01 255);
+  border-left-color: var(--accent);
+  padding-left: 29px;
+}
+.profile-item .avail-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.profile-item .avail-dot.yes { background: var(--success); }
+.profile-item .avail-dot.no { background: oklch(70% 0.08 50); }
+.profile-item .item-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-item .item-desc {
+  font-size: 10px;
+  color: var(--muted);
+  max-width: 100px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* === Work Panel (right) === */
+.work-panel {
+  padding: 20px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Panel */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.panel-header {
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel-header .subtitle {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12px;
+}
+.panel-body { padding: 16px; }
+
+/* Detail rows */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.detail-field .label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.detail-field .value {
+  font-size: 13px;
+  font-weight: 500;
+}
+.detail-field.full { grid-column: 1 / -1; }
+
+/* Form */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.form-field.full { grid-column: 1 / -1; }
+.form-field label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.form-field input,
+.form-field select,
+.form-field textarea {
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  width: 100%;
+  resize: vertical;
+}
+.form-field textarea { min-height: 56px; line-height: 1.5; }
+.form-field .hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* Preview bar */
+.preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+}
+.preview-input {
+  flex: 1;
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* Upload zone */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.upload-zone:hover { border-color: var(--accent); }
+.upload-hint { font-size: 11px; margin-top: 4px; }
+
+/* Buttons */
+.btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.12s;
+}
+.btn:hover { background: var(--bg); }
+.btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+.btn-primary:hover { background: oklch(52% 0.18 255); }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-danger { color: var(--danger); border-color: oklch(85% 0.06 25); }
+.btn-danger:hover { background: oklch(97% 0.02 25); }
+
+/* Actions row */
+.actions-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-top: 8px;
+}
+
+/* Segment list (for analyze-segments result) */
+.segment-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.segment-row {
+  display: grid;
+  grid-template-columns: 40px 80px 1fr 50px;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.segment-row:last-child { border-bottom: none; }
+.segment-row:hover { background: var(--bg); }
+.segment-row .seg-idx { color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+.segment-row .seg-time { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.segment-row .seg-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.segment-row .seg-score { font-weight: 500; text-align: right; }
+.segment-row.recommended { background: oklch(97% 0.01 145); }
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 13px;
+  gap: 8px;
+}
+.empty-state svg { opacity: 0.3; }
+</style>
+</head>
+<body>
+
+<!-- === Left Tab Sidebar === -->
+<nav class="tab-sidebar">
+  <div class="tab-sidebar-title">ASMR Helper</div>
+
+  <div class="tab-item" data-page="workbench" onclick="location.href='workbench-wireframe-v2.html'">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2.5"/><path d="M2 7h12"/></svg>
+    工作台
+  </div>
+  <div class="tab-item" data-page="task-center" onclick="location.href='task-center-wireframe.html'">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5h10M3 8h10M3 11h6"/></svg>
+    任务中心
+  </div>
+  <div class="tab-item" data-page="subtitle-workshop" onclick="location.href='subtitle-workshop-wireframe.html'">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="8" rx="2"/><path d="M5 7.5h6M5 10h3"/></svg>
+    字幕工坊
+  </div>
+  <div class="tab-item active" data-page="voice-lab">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v12M5 5v6M11 4v8M14 7v2M2 7v2"/></svg>
+    音色实验室
+  </div>
+
+  <div class="tab-spacer"></div>
+
+  <div class="tab-item" data-page="engines-resources" onclick="location.href='engines-resources-wireframe.html'">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="10" height="10" rx="2"/><circle cx="8" cy="8" r="2.5"/></svg>
+    引擎与资源
+  </div>
+  <div class="tab-item" data-page="settings" onclick="location.href='settings-wireframe.html'">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M4.2 4.2l1.1 1.1M10.7 10.7l1.1 1.1M4.2 11.8l1.1-1.1M10.7 5.3l1.1-1.1"/></svg>
+    设置
+  </div>
+</nav>
+
+<!-- === Main Content === -->
+<div class="main">
+
+  <!-- Action Bar -->
+  <header class="action-bar">
+    <h1>音色实验室</h1>
+    <!-- API: GET /runtime/capabilities → checks for GPU -->
+    <span class="status-pill gpu">CUDA 可用</span>
+    <div class="action-spacer"></div>
+    <!-- API: POST /voice/design -->
+    <button class="btn">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 3v8M3 7h8"/></svg>
+      设计新音色
+    </button>
+    <!-- API: POST /voice/clone -->
+    <button class="btn">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a4 4 0 0 1 8 0M7 3v1M3.5 5l.5.5M10.5 5l-.5.5"/></svg>
+      克隆音色
+    </button>
+  </header>
+
+  <div class="content">
+
+    <!-- Profile List (left) -->
+    <!-- API: GET /voice/profiles → list[VoiceProfileSummaryResponse] -->
+    <div class="profile-list">
+      <div class="profile-list-header">
+        <span>音色列表</span>
+        <span style="font-size:11px; color:var(--muted); font-weight:400; text-transform:none; letter-spacing:0">15 个</span>
+      </div>
+
+      <!-- Filter tabs -->
+      <!-- API: GET /voice/profiles?kind=preset|custom|clone -->
+      <div class="filter-bar">
+        <button class="filter-tab active">全部<span class="count">15</span></button>
+        <button class="filter-tab">预设<span class="count">7</span></button>
+        <button class="filter-tab">设计<span class="count">3</span></button>
+        <button class="filter-tab">克隆<span class="count">2</span></button>
+        <button class="filter-tab">云端<span class="count">3</span></button>
+      </div>
+
+      <!-- Qwen3 CustomVoice presets -->
+      <!-- API: GET /voice/profiles?kind=preset → category: "qwen3_custom" -->
+      <div class="model-group">
+        <div class="model-group-title">
+          <span class="model-badge badge-qwen">Qwen3</span>
+          CustomVoice 预设
+          <span class="badge-count">7</span>
+        </div>
+        <!-- API: GET /voice/profiles/{id} → {id, name, category, engine, speaker, instruct, available} -->
+        <div class="profile-item selected">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">温柔姐姐</span>
+          <span class="item-desc">Serena</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">甜美少女</span>
+          <span class="item-desc">Vivian</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">成熟大叔</span>
+          <span class="item-desc">YunjianNeural</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">清爽少年</span>
+          <span class="item-desc">Chelsie</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">活力青年</span>
+          <span class="item-desc">default</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">英文男声</span>
+          <span class="item-desc">en-US</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">日语少女</span>
+          <span class="item-desc">ja-JP</span>
+        </div>
+      </div>
+
+      <!-- Qwen3 VoiceDesign -->
+      <!-- API: GET /voice/profiles?kind=custom → category: "qwen3_design" -->
+      <div class="model-group">
+        <div class="model-group-title">
+          <span class="model-badge badge-qwen">Qwen3</span>
+          VoiceDesign 设计
+          <span class="badge-count">3</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">低沉御姐</span>
+          <span class="item-desc">已生成</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">耳语气声</span>
+          <span class="item-desc">已生成</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot no"></span>
+          <span class="item-name">元气少女</span>
+          <span class="item-desc">待生成</span>
+        </div>
+      </div>
+
+      <!-- Qwen3 Clone -->
+      <!-- API: GET /voice/profiles?kind=clone → category: "qwen3_clone" -->
+      <div class="model-group">
+        <div class="model-group-title">
+          <span class="model-badge badge-qwen">Qwen3</span>
+          克隆音色
+          <span class="badge-count">2</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">克隆-参考音A</span>
+          <span class="item-desc">已缓存</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot no"></span>
+          <span class="item-name">克隆-参考音B</span>
+          <span class="item-desc">未缓存</span>
+        </div>
+      </div>
+
+      <!-- Edge-TTS cloud voices -->
+      <!-- API: GET /voice/profiles → engine: "edge-tts" -->
+      <div class="model-group">
+        <div class="model-group-title">
+          <span class="model-badge badge-edge">Edge</span>
+          Edge-TTS 云端
+          <span class="badge-count">3</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">XiaoxiaoNeural</span>
+          <span class="item-desc">云端</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">XiaoyiNeural</span>
+          <span class="item-desc">云端</span>
+        </div>
+        <div class="profile-item">
+          <span class="avail-dot yes"></span>
+          <span class="item-name">YunxiNeural</span>
+          <span class="item-desc">云端</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Work Panel (right) -->
+    <div class="work-panel">
+
+      <!-- Profile Detail -->
+      <!-- API: GET /voice/profiles/{profile_id} → VoiceProfileResponse -->
+      <div class="panel">
+        <div class="panel-header">
+          音色详情
+          <span class="subtitle">— Qwen3 CustomVoice 预设</span>
+        </div>
+        <div class="panel-body">
+          <div class="detail-grid">
+            <div class="detail-field">
+              <div class="label">名称</div>
+              <div class="value">温柔姐姐</div>
+            </div>
+            <div class="detail-field">
+              <div class="label">ID</div>
+              <div class="value" style="font-family: var(--font-mono); font-size: 12px;">profile-a2</div>
+            </div>
+            <div class="detail-field">
+              <div class="label">引擎</div>
+              <div class="value">qwen3_custom</div>
+            </div>
+            <div class="detail-field">
+              <div class="label">分类</div>
+              <div class="value">preset</div>
+            </div>
+            <div class="detail-field">
+              <div class="label">Speaker</div>
+              <div class="value">Serena</div>
+            </div>
+            <div class="detail-field">
+              <div class="label">状态</div>
+              <div class="value"><span class="status-pill ready">可用</span></div>
+            </div>
+            <div class="detail-field full">
+              <div class="label">Instruct</div>
+              <div class="value">用温柔体贴的语气说</div>
+            </div>
+            <div class="detail-field full">
+              <div class="label">描述</div>
+              <div class="value" style="font-weight:400; color:var(--muted);">温暖、温柔、贴心的年轻女声，适合治愈系 ASMR</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview / Audition -->
+      <!-- API: POST /voice/profiles/{profile_id}/preview {text, speed} -->
+      <div class="panel">
+        <div class="panel-header">试听</div>
+        <div class="preview-bar">
+          <input class="preview-input" type="text" value="哥哥，今天给你做个特别的按摩哦，先从肩膀开始，放松一下吧。" placeholder="输入试听文本">
+          <button class="btn btn-primary btn-sm">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 2l7 4-7 4V2z" fill="currentColor" stroke="none"/></svg>
+            试听
+          </button>
+        </div>
+      </div>
+
+      <!-- Instruct editing (for CustomVoice presets) -->
+      <!-- API: PUT /voice/profiles/{profile_id} or save locally -->
+      <div class="panel">
+        <div class="panel-header">语气控制 (Instruct)</div>
+        <div class="panel-body">
+          <div class="form-grid">
+            <div class="form-field full">
+              <label>Instruct 指令</label>
+              <input type="text" value="用温柔体贴的语气说" placeholder="如：用撒娇的语气说、用低沉性感的声音说">
+              <span class="hint">控制 CustomVoice 的语气和情感表达</span>
+            </div>
+          </div>
+          <div class="actions-row">
+            <button class="btn btn-sm">保存修改</button>
+            <!-- API: DELETE /voice/profiles/{profile_id} -->
+            <button class="btn btn-sm btn-danger">删除音色</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================ -->
+      <!-- 以下面板根据选中的分类动态切换显示 -->
+      <!-- ============================================ -->
+
+      <!-- [仅 VoiceDesign 分类显示] 音色设计面板 -->
+      <!-- API: POST /voice/design {name, description, ref_text?} -->
+      <div class="panel" style="display:none;" id="panel-design">
+        <div class="panel-header">音色设计 — 自然语言描述生成</div>
+        <div class="panel-body">
+          <div class="form-grid">
+            <div class="form-field">
+              <label>配置名称</label>
+              <input type="text" placeholder="给这个音色起个名字">
+            </div>
+            <div class="form-field">
+              <label>参考文本 (可选)</label>
+              <input type="text" placeholder="生成时朗读的文本">
+            </div>
+            <div class="form-field full">
+              <label>音色描述 (design_instruct)</label>
+              <textarea placeholder="用自然语言描述想要的声音特征，如：温柔的成年女性声音，语速偏慢，带有轻微的气声感，适合耳语场景"></textarea>
+              <span class="hint">VoiceDesign 模型会根据描述生成对应音色的参考音频</span>
+            </div>
+          </div>
+          <div class="actions-row">
+            <button class="btn btn-primary btn-sm">生成音色</button>
+            <button class="btn btn-sm">保存</button>
+            <!-- API: DELETE /voice/profiles/{profile_id} -->
+            <button class="btn btn-sm btn-danger">删除</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- [仅 Clone 分类显示] 音色克隆面板 -->
+      <!-- API: POST /voice/clone {audio_path, name, ref_text?} -->
+      <!-- API: POST /voice/analyze-segments {audio_path, subtitle_path?, audio_language?} -->
+      <div class="panel" style="display:none;" id="panel-clone">
+        <div class="panel-header">音色克隆 — 从参考音频提取</div>
+        <div class="panel-body">
+          <div class="form-grid">
+            <div class="form-field">
+              <label>配置名称</label>
+              <input type="text" placeholder="克隆音色名称">
+            </div>
+            <div class="form-field">
+              <label>参考文本 (可选)</label>
+              <input type="text" placeholder="参考音频中说的内容，提升克隆质量">
+            </div>
+            <div class="form-field full">
+              <label>参考音频</label>
+              <div class="upload-zone">
+                拖入参考音频文件 (.wav / .mp3)<br>
+                <span class="upload-hint">建议 5-30 秒清晰人声，无背景音</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Segment analysis result -->
+          <!-- API: POST /voice/analyze-segments → SegmentAnalyzeResponse -->
+          <div style="margin-top: 12px;">
+            <div style="font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:8px;">分析结果</div>
+            <div class="segment-list">
+              <div class="segment-row">
+                <span class="seg-idx">#0</span>
+                <span class="seg-time">0.0 – 3.2s</span>
+                <span class="seg-text">お兄ちゃん、今日は特別な…</span>
+                <span class="seg-score" style="color:var(--success)">92</span>
+              </div>
+              <div class="segment-row recommended">
+                <span class="seg-idx">#1</span>
+                <span class="seg-time">3.5 – 7.1s</span>
+                <span class="seg-text">まずは肩から始めるよ…</span>
+                <span class="seg-score" style="color:var(--success)">88</span>
+              </div>
+              <div class="segment-row">
+                <span class="seg-idx">#2</span>
+                <span class="seg-time">7.3 – 10.8s</span>
+                <span class="seg-text">ここ凝ってるね…</span>
+                <span class="seg-score" style="color:var(--warning)">65</span>
+              </div>
+            </div>
+            <div style="font-size:11px; color:var(--muted); margin-top:4px;">推荐片段: #0, #1 (高评分 + 无人声重叠)</div>
+          </div>
+
+          <div class="actions-row">
+            <button class="btn btn-sm">分析片段</button>
+            <button class="btn btn-primary btn-sm">开始克隆</button>
+            <!-- API: DELETE /voice/profiles/{profile_id} -->
+            <button class="btn btn-sm btn-danger">删除</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- [仅 Edge-TTS 分类显示] Edge 音色信息 -->
+      <div class="panel" style="display:none;" id="panel-edge">
+        <div class="panel-header">Edge-TTS 云端音色</div>
+        <div class="panel-body">
+          <div class="detail-grid">
+            <div class="detail-field full">
+              <div class="label">说明</div>
+              <div class="value" style="font-weight:400;">Edge-TTS 为微软免费云端服务，无需 GPU，音色固定不可自定义。在工作台中选择 TTS 引擎为 Edge 后即可使用。</div>
+            </div>
+            <div class="detail-field">
+              <div class="label">引擎</div>
+              <div class="value">edge-tts</div>
+            </div>
+            <div class="detail-field">
+              <div class="label">状态</div>
+              <div class="value"><span class="status-pill ready">云端可用</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Player Bar (bottom) -->
+  <div class="player-bar">
+    <div class="player-controls">
+      <button class="player-btn" title="上一个">
+        <svg width="14" height="14" fill="currentColor"><path d="M12 3L5 7l7 4V3zM3 3h2v8H3"/></svg>
+      </button>
+      <button class="player-btn play" title="播放">
+        <svg width="14" height="14" fill="currentColor"><path d="M4 2l9 5-9 5V2z"/></svg>
+      </button>
+      <button class="player-btn" title="下一个">
+        <svg width="14" height="14" fill="currentColor"><path d="M2 3l7 4-7 4V3zM11 3h2v8h-2"/></svg>
+      </button>
+    </div>
+    <span class="player-track-name">preview-a2.wav</span>
+    <div class="player-waveform">
+      <div class="waveform-progress"></div>
+      <div class="waveform-bars">
+        <span style="height:40%"></span><span style="height:60%"></span><span style="height:45%"></span>
+        <span style="height:80%"></span><span style="height:55%"></span><span style="height:70%"></span>
+        <span style="height:90%"></span><span style="height:65%"></span><span style="height:50%"></span>
+        <span style="height:75%"></span><span style="height:85%"></span><span style="height:60%"></span>
+        <span style="height:40%"></span><span style="height:55%"></span><span style="height:70%"></span>
+        <span style="height:95%"></span><span style="height:80%"></span><span style="height:65%"></span>
+        <span style="height:50%"></span><span style="height:75%"></span><span style="height:60%"></span>
+        <span style="height:85%"></span><span style="height:45%"></span><span style="height:70%"></span>
+        <span style="height:55%"></span><span style="height:80%"></span><span style="height:65%"></span>
+        <span style="height:90%"></span><span style="height:50%"></span><span style="height:75%"></span>
+      </div>
+    </div>
+    <span class="player-time">00:04 / 00:08</span>
+  </div>
+
+</div>
+
+<!-- Profile item selection + filter tab switching -->
+<script>
+document.querySelectorAll('.profile-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelector('.profile-item.selected')?.classList.remove('selected');
+    item.classList.add('selected');
+    // In real app: GET /voice/profiles/{id} and update detail panel
+  });
+});
+
+document.querySelectorAll('.filter-bar .filter-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelector('.filter-bar .filter-tab.active')?.classList.remove('active');
+    tab.classList.add('active');
+    // In real app: GET /voice/profiles?kind=...
+  });
+});
+</script>
+
+</body>
+</html>

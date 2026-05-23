@@ -24,7 +24,7 @@ export default function TaskQueue() {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '8px 12px',
-          borderBottom: '1px solid rgba(0,0,0,0.05)',
+          borderBottom: '1px solid var(--border)',
         }}
       >
         <span

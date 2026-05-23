@@ -64,8 +64,15 @@ export interface PipelineRunResponse {
   error_message: string | null
 }
 
+export interface PresetItem {
+  id: string
+  label: string
+  description: string
+  stages: string[]
+}
+
 export interface PipelinePresetsResponse {
-  presets: string[]
+  presets: PresetItem[]
 }
 
 export interface BatchPipelineRequest {

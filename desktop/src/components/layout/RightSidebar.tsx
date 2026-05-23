@@ -5,11 +5,12 @@ export default function RightSidebar() {
   return (
     <aside
       style={{
-        width: '280px',
-        background: 'var(--bg-surface)',
-        borderLeft: '1px solid rgba(0,0,0,0.05)',
+        width: 280,
+        background: 'var(--surface)',
+        borderLeft: '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
       <div style={{ flex: 6, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -17,8 +18,8 @@ export default function RightSidebar() {
       </div>
       <div
         style={{
-          height: '1px',
-          background: 'rgba(0,0,0,0.06)',
+          height: 1,
+          background: 'var(--border)',
           margin: '0 8px',
         }}
       />

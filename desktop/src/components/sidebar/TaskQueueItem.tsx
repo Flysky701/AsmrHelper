@@ -22,7 +22,7 @@ export default function TaskQueueItem({ task, onClick }: TaskQueueItemProps) {
         display: 'flex',
         flexDirection: 'column',
         gap: '6px',
-        borderBottom: '1px solid rgba(0,0,0,0.04)',
+        borderBottom: '1px solid var(--border)',
         transition: 'background 150ms',
       }}
       onMouseEnter={(e) => {
