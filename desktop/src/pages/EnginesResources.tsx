@@ -39,7 +39,7 @@ export default function EnginesResources() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<CategoryTab>('llm')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const [installing, setInstalling] = useState<Record<string, boolean>>({})
+  const [installing, setInstalling] = useState<Record<string, { active: boolean; message?: string; progress?: number }>>({})
 
   useEffect(() => { loadData() }, [])
 
@@ -60,32 +60,43 @@ export default function EnginesResources() {
   }
 
   const handleInstall = async (modelId: string) => {
-    setInstalling(prev => ({ ...prev, [modelId]: true }))
+    setInstalling(prev => ({ ...prev, [modelId]: { active: true, message: '准备下载...' } }))
     try {
-      // Use async install to get a task_id, then poll for progress
       const res = await modelsApi.installAsync(modelId)
       if (res.task_id) {
-        // Poll task status until complete
         const pollInterval = setInterval(async () => {
           try {
             const taskRes = await tasksApi.get(res.task_id)
-            if (taskRes.state === 'completed' || taskRes.state === 'failed') {
+            if (taskRes.state === 'completed') {
               clearInterval(pollInterval)
-              setInstalling(prev => ({ ...prev, [modelId]: false }))
+              setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
               loadData()
+            } else if (taskRes.state === 'failed') {
+              clearInterval(pollInterval)
+              setInstalling(prev => ({ ...prev, [modelId]: { active: false, message: taskRes.message || '安装失败' } }))
+              loadData()
+            } else {
+              setInstalling(prev => ({
+                ...prev,
+                [modelId]: {
+                  active: true,
+                  message: taskRes.message || '下载中...',
+                  progress: taskRes.progress,
+                },
+              }))
             }
           } catch {
             clearInterval(pollInterval)
-            setInstalling(prev => ({ ...prev, [modelId]: false }))
+            setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
             loadData()
           }
         }, 2000)
       } else {
-        setInstalling(prev => ({ ...prev, [modelId]: false }))
+        setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
         loadData()
       }
     } catch {
-      setInstalling(prev => ({ ...prev, [modelId]: false }))
+      setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
       loadData()
     }
   }
@@ -309,7 +320,8 @@ export default function EnginesResources() {
                       {groupModels.map(model => {
                         const status = getStatus(model.model_id)
                         const statusInfo = status ? STATUS_STYLES[status.status] || STATUS_STYLES.not_installed : null
-                        const isInstalling = !!installing[model.model_id] || status?.status === 'installing'
+                        const installState = installing[model.model_id]
+                        const isInstalling = !!installState?.active || status?.status === 'installing'
                         return (
                           <div key={model.model_id} style={{
                             display: 'grid', gridTemplateColumns: '1fr auto auto',
@@ -392,11 +404,25 @@ export default function EnginesResources() {
                               )}
                             </div>
                             {isInstalling && (
-                              <div style={{ gridColumn: '1 / -1', height: '3px', background: 'var(--border)', borderRadius: '2px', marginTop: '6px', overflow: 'hidden' }}>
-                                <div style={{
-                                  height: '100%', background: 'var(--accent)', borderRadius: '2px', width: '45%',
-                                  animation: 'progress-indeterminate 1.5s infinite',
-                                }} />
+                              <div style={{ gridColumn: '1 / -1', marginTop: '6px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                                    {installState?.message || '安装中...'}
+                                  </span>
+                                  {installState?.progress != null && installState.progress > 0 && (
+                                    <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                                      {Math.round(installState.progress * 100)}%
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ height: '3px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
+                                  <div style={{
+                                    height: '100%', background: 'var(--accent)', borderRadius: '2px',
+                                    width: installState?.progress ? `${Math.round(installState.progress * 100)}%` : '45%',
+                                    animation: !installState?.progress ? 'progress-indeterminate 1.5s infinite' : 'none',
+                                    transition: installState?.progress ? 'width 0.5s ease' : 'none',
+                                  }} />
+                                </div>
                               </div>
                             )}
                           </div>
