@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { modelsApi } from '@/api/models'
+import { tasksApi } from '@/api/tasks'
 import { resourcesApi } from '@/api/resources'
 import type { ModelSummaryResponse, ModelStatusResponse, ResourceStatusResponse } from '@/api/types'
 
@@ -61,8 +62,29 @@ export default function EnginesResources() {
   const handleInstall = async (modelId: string) => {
     setInstalling(prev => ({ ...prev, [modelId]: true }))
     try {
-      await modelsApi.install(modelId).catch(() => { })
-    } finally {
+      // Use async install to get a task_id, then poll for progress
+      const res = await modelsApi.installAsync(modelId)
+      if (res.task_id) {
+        // Poll task status until complete
+        const pollInterval = setInterval(async () => {
+          try {
+            const taskRes = await tasksApi.get(res.task_id)
+            if (taskRes.state === 'completed' || taskRes.state === 'failed') {
+              clearInterval(pollInterval)
+              setInstalling(prev => ({ ...prev, [modelId]: false }))
+              loadData()
+            }
+          } catch {
+            clearInterval(pollInterval)
+            setInstalling(prev => ({ ...prev, [modelId]: false }))
+            loadData()
+          }
+        }, 2000)
+      } else {
+        setInstalling(prev => ({ ...prev, [modelId]: false }))
+        loadData()
+      }
+    } catch {
       setInstalling(prev => ({ ...prev, [modelId]: false }))
       loadData()
     }
