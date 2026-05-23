@@ -394,6 +394,7 @@ models:
     variant_tier: standard
     is_primary_variant: true
     dependency_group: voxcpm2
+    required_python_extras: [voxcpm2]
     required_runtime_packages: [voxcpm>=2.0.0, soundfile>=0.12.0]
     display_name: VoxCPM2
     description: "2B-parameter tokenizer-free TTS by OpenBMB. 30 languages, voice design, controllable cloning, 48kHz output."

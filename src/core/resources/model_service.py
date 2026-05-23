@@ -129,23 +129,98 @@ class ModelService:
         return False
 
     def _install_runtime_packages(self, entry: ModelEntry) -> None:
-        """Install required runtime packages for a model."""
+        """Install required runtime packages for a model.
+
+        Resolution priority:
+        1. required_python_extras: install via project extras
+           (uses optional-dependencies groups from pyproject.toml — preferred)
+        2. required_runtime_packages: direct pip install of explicit package list
+
+        Both can be combined; extras are installed first, then explicit packages.
+        Prefers uv if available, falls back to pip.
+        """
+        from src.config import PROJECT_ROOT
+
+        extras = list(entry.required_python_extras)
         packages = list(entry.required_runtime_packages)
-        if not packages:
+
+        if not extras and not packages:
             return
 
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--quiet", *packages],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-            if result.returncode != 0:
-                logger.warning("pip install failed for %s: %s", entry.id, (result.stderr or "")[-300:])
-        except Exception as exc:
-            logger.warning("pip install error for %s: %s", entry.id, exc)
+        installer = self._resolve_installer()
+
+        # Install via project extras (preferred — resolves all transitive deps)
+        if extras:
+            try:
+                logger.info("installing extras for %s: %s", entry.id, extras)
+                cmd = installer["extras_cmd"](extras, str(PROJECT_ROOT))
+                result = subprocess.run(
+                    cmd,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                    cwd=str(PROJECT_ROOT),
+                )
+                if result.returncode != 0:
+                    logger.warning(
+                        "install extras failed for %s: %s",
+                        entry.id, (result.stderr or "")[-500:],
+                    )
+            except Exception as exc:
+                logger.warning("install extras error for %s: %s", entry.id, exc)
+
+        # Install explicit packages (e.g. for models without project extras)
+        if packages:
+            try:
+                logger.info("installing packages for %s: %s", entry.id, packages)
+                cmd = installer["packages_cmd"](packages)
+                result = subprocess.run(
+                    cmd,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    cwd=str(PROJECT_ROOT),
+                )
+                if result.returncode != 0:
+                    logger.warning(
+                        "install packages failed for %s: %s",
+                        entry.id, (result.stderr or "")[-300:],
+                    )
+            except Exception as exc:
+                logger.warning("install packages error for %s: %s", entry.id, exc)
+
+    @staticmethod
+    def _resolve_installer() -> dict:
+        """Determine whether to use uv or pip for package installation.
+
+        Returns dict with 'extras_cmd' and 'packages_cmd' callables that
+        take (args, cwd) and (packages,) respectively, returning command lists.
+        """
+        import shutil
+
+        uv_path = shutil.which("uv")
+        if uv_path:
+            return {
+                "extras_cmd": lambda extras, cwd: [
+                    uv_path, "pip", "install",
+                    *[f"{cwd}[{','.join(extras)}]"],
+                ],
+                "packages_cmd": lambda packages: [
+                    uv_path, "pip", "install", *packages,
+                ],
+            }
+
+        return {
+            "extras_cmd": lambda extras, cwd: [
+                sys.executable, "-m", "pip", "install", "--quiet",
+                "-e", f"{cwd}[{','.join(extras)}]",
+            ],
+            "packages_cmd": lambda packages: [
+                sys.executable, "-m", "pip", "install", "--quiet", *packages,
+            ],
+        }
 
     def _resolve_install_plan(
         self,
