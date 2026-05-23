@@ -80,6 +80,12 @@ class ModelInstaller:
 
         repo = WHISPER_REPOS[entry.id]
         target_dir = entry.resolved_install_dir()
+
+        # Clean stale cache that may block re-download
+        cache_dir = target_dir / ".cache"
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir, ignore_errors=True)
+
         cmd = [
             sys.executable,
             "-c",
