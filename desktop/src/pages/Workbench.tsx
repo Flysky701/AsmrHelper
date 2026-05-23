@@ -39,13 +39,6 @@ const VOCAL_MODEL_OPTIONS = [
   { value: 'htdemucs_ft', label: 'htdemucs_ft' },
 ]
 
-const PRESET_LABELS: Record<string, string> = {
-  asmr_bilingual: 'ASMR 双语双轨',
-  auto_subtitle: '自动字幕',
-  asr_only: '仅 ASR 识别',
-  tts_only: '仅 TTS 合成',
-}
-
 // ── SVG Icons ───────────────────────────────────────────
 
 const PlayIcon = () => (
@@ -120,9 +113,9 @@ export default function Workbench() {
     pipelineApi.presets().then((res) => {
       useWorkbenchStore.getState().setPresets(res.presets)
       if (res.presets.length > 0 && !preset) {
-        setPreset(res.presets[0]!)
+        setPreset(res.presets[0]!.id)
       }
-    }).catch(() => {})
+    }).catch(() => { })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Task stats
@@ -210,22 +203,22 @@ export default function Workbench() {
   }
 
   const presetOptions = presets.length > 0
-    ? presets.map((p) => ({ value: p, label: PRESET_LABELS[p] ?? p }))
+    ? presets.map((p) => ({ value: p.id, label: p.label || p.id }))
     : [{ value: '', label: '加载中...' }]
 
   const ttsVoiceOptions = params.ttsEngine === 'qwen3'
     ? [
-        { value: 'Serena', label: 'Serena (预设)' },
-        { value: 'Vivian', label: 'Vivian (预设)' },
-        { value: 'Chelsie', label: 'Chelsie (预设)' },
-      ]
+      { value: 'Serena', label: 'Serena (预设)' },
+      { value: 'Vivian', label: 'Vivian (预设)' },
+      { value: 'Chelsie', label: 'Chelsie (预设)' },
+    ]
     : [
-        { value: 'zh-CN-XiaoxiaoNeural', label: 'XiaoxiaoNeural' },
-        { value: 'zh-CN-YunxiNeural', label: 'YunxiNeural' },
-        { value: 'zh-CN-XiaoyiNeural', label: 'XiaoyiNeural' },
-        { value: 'ja-JP-NanamiNeural', label: 'NanamiNeural' },
-        { value: 'en-US-JennyNeural', label: 'JennyNeural' },
-      ]
+      { value: 'zh-CN-XiaoxiaoNeural', label: 'XiaoxiaoNeural' },
+      { value: 'zh-CN-YunxiNeural', label: 'YunxiNeural' },
+      { value: 'zh-CN-XiaoyiNeural', label: 'XiaoyiNeural' },
+      { value: 'ja-JP-NanamiNeural', label: 'NanamiNeural' },
+      { value: 'en-US-JennyNeural', label: 'JennyNeural' },
+    ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -557,8 +550,8 @@ export default function Workbench() {
                       width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
                       background: task.status === 'running' ? 'oklch(65% 0.16 255)'
                         : task.status === 'pending' ? 'oklch(70% 0.08 60)'
-                        : task.status === 'completed' ? 'oklch(60% 0.16 145)'
-                        : 'oklch(55% 0.18 25)',
+                          : task.status === 'completed' ? 'oklch(60% 0.16 145)'
+                            : 'oklch(55% 0.18 25)',
                     }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -567,8 +560,8 @@ export default function Workbench() {
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
                         {task.status === 'running' ? `${task.message || '运行中'} · ${Math.round((task.progress ?? 0) * 100)}%`
                           : task.status === 'pending' ? '排队中'
-                          : task.status === 'completed' ? '已完成'
-                          : '失败'}
+                            : task.status === 'completed' ? '已完成'
+                              : '失败'}
                       </div>
                     </div>
                   </div>
@@ -592,7 +585,7 @@ export default function Workbench() {
               当前选择的参数
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
-              <ParamRow label="预设" value={PRESET_LABELS[preset] ?? preset} />
+              <ParamRow label="预设" value={presets.find(p => p.id === preset)?.label ?? preset} />
               <ParamRow label="ASR" value={params.asrModel} />
               <ParamRow label="TTS" value={params.ttsEngine === 'edge' ? 'Edge-TTS' : 'Qwen3-TTS'} />
               <ParamRow label="音色" value={params.ttsVoice.split('-').pop() ?? params.ttsVoice} />

@@ -17,7 +17,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<SettingsTab>('api')
-  const [presets, setPresets] = useState<string[]>([])
+  const [presets, setPresets] = useState<Array<{ id: string; label: string }>>([])
 
   // API test state
   const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null)
@@ -367,11 +367,11 @@ export default function Settings() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {presets.map(preset => (
-                    <div key={preset} style={{
+                    <div key={preset.id} style={{
                       border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--surface)', overflow: 'hidden',
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', gap: '12px' }}>
-                        <span style={{ fontSize: '14px', fontWeight: 600, flex: 1 }}>{preset}</span>
+                        <span style={{ fontSize: '14px', fontWeight: 600, flex: 1 }}>{preset.label}</span>
                         <div style={{ display: 'flex', gap: '6px' }}>
                           <button style={{
                             fontFamily: 'var(--font-body)', fontSize: '12px', padding: '5px 10px',

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { PresetItem } from '@/api/types'
 
 interface WorkbenchParams {
   sourceLang: string
@@ -45,13 +46,13 @@ interface WorkbenchStore {
   modelExpanded: boolean
   advExpanded: boolean
   presetsLoading: boolean
-  presets: string[]
+  presets: PresetItem[]
 
   setFiles: (files: string[]) => void
   removeFile: (path: string) => void
   setFolder: (folder: string | null) => void
   setPreset: (preset: string) => void
-  setPresets: (presets: string[]) => void
+  setPresets: (presets: PresetItem[]) => void
   setPresetsLoading: (loading: boolean) => void
   updateParam: <K extends keyof WorkbenchParams>(key: K, value: WorkbenchParams[K]) => void
   toggleLayer2: () => void
