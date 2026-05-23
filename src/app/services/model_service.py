@@ -34,6 +34,8 @@ class ModelService:
                 category=entry.category,
                 backend=entry.provider or entry.engine or "-",
                 display_name=entry.display_name,
+                supports_install=entry.supports_install,
+                supports_remove=entry.supports_remove,
                 family_id=entry.family_id,
                 variant_group=entry.variant_group,
                 variant_tier=entry.variant_tier,

@@ -159,6 +159,8 @@ class ModelSummary:
     category: str
     backend: str
     display_name: str
+    supports_install: bool = False
+    supports_remove: bool = False
     family_id: str | None = None
     variant_group: str | None = None
     variant_tier: str | None = None

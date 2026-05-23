@@ -176,6 +176,8 @@ export interface ModelSummaryResponse {
   category: string
   backend: string
   display_name: string
+  supports_install: boolean
+  supports_remove: boolean
   family_id?: string | null
   variant_group?: string | null
   variant_tier?: string | null

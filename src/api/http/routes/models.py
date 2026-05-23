@@ -32,6 +32,8 @@ def list_models(
             category=m.category,
             backend=m.backend,
             display_name=m.display_name,
+            supports_install=m.supports_install,
+            supports_remove=m.supports_remove,
             family_id=m.family_id,
             variant_group=m.variant_group,
             variant_tier=m.variant_tier,

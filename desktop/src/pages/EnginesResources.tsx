@@ -23,8 +23,11 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   installed: { dot: 'oklch(60% 0.16 145)', label: '已安装' },
   ready: { dot: 'oklch(60% 0.16 145)', label: '就绪' },
   loaded: { dot: 'oklch(60% 0.16 145)', label: '已加载' },
+  configured: { dot: 'oklch(60% 0.16 145)', label: '已配置' },
+  unconfigured: { dot: 'oklch(55% 0.18 25)', label: '未配置' },
   not_installed: { dot: 'oklch(55% 0.18 25)', label: '未安装' },
   missing: { dot: 'oklch(55% 0.18 25)', label: '未安装' },
+  invalid: { dot: 'oklch(65% 0.14 85)', label: '不完整' },
   installing: { dot: 'oklch(65% 0.14 85)', label: '安装中' },
 }
 
@@ -58,7 +61,7 @@ export default function EnginesResources() {
   const handleInstall = async (modelId: string) => {
     setInstalling(prev => ({ ...prev, [modelId]: true }))
     try {
-      await modelsApi.install(modelId).catch(() => {})
+      await modelsApi.install(modelId).catch(() => { })
     } finally {
       setInstalling(prev => ({ ...prev, [modelId]: false }))
       loadData()
@@ -66,22 +69,22 @@ export default function EnginesResources() {
   }
 
   const handleUnload = async (modelId: string) => {
-    await modelsApi.unload(modelId).catch(() => {})
+    await modelsApi.unload(modelId).catch(() => { })
     loadData()
   }
 
   const handleVerify = async (modelId: string) => {
-    await modelsApi.verify(modelId).catch(() => {})
+    await modelsApi.verify(modelId).catch(() => { })
     loadData()
   }
 
   const handleRemove = async (modelId: string) => {
-    await modelsApi.remove(modelId).catch(() => {})
+    await modelsApi.remove(modelId).catch(() => { })
     loadData()
   }
 
   const handleUnloadAll = async () => {
-    await modelsApi.unloadAll().catch(() => {})
+    await modelsApi.unloadAll().catch(() => { })
     loadData()
   }
 
@@ -325,15 +328,18 @@ export default function EnginesResources() {
                                 }}>
                                   安装中...
                                 </button>
+                              ) : model.kind === 'cloud' ? (
+                                /* Cloud models: no install/unload, only show config status */
+                                null
                               ) : (
                                 <>
-                                  {!status || status.status === 'not_installed' || status.status === 'missing' ? (
+                                  {(!status || status.status === 'not_installed' || status.status === 'missing' || status.status === 'invalid') && model.supports_install ? (
                                     <button onClick={() => handleInstall(model.model_id)} style={{
                                       fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
                                       borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
                                       color: 'white', cursor: 'pointer',
                                     }}>
-                                      安装
+                                      {status?.status === 'invalid' ? '重新安装' : '安装'}
                                     </button>
                                   ) : (
                                     <>
