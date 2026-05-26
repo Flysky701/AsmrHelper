@@ -21,6 +21,7 @@ class PipelineRunRequest(BaseModel):
     vocal_model: str = Field("htdemucs", description="Vocal separation model")
     asr_model: str = Field("faster-whisper-base", description="ASR model id")
     translate_provider: str = Field("deepseek", description="Translation provider (deepseek/openai)")
+    translate_model: str = Field("", description="Specific LLM model name (empty = use provider default)")
     tts_speed: float = Field(1.0, description="Speech speed for supported TTS engines")
     original_volume: float = Field(0.85, description="Original vocal volume used during mixing")
     tts_volume_ratio: float = Field(0.5, description="Relative synthesized voice volume")

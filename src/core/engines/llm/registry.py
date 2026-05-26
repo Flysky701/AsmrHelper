@@ -21,6 +21,18 @@ class LlmRegistry:
     _instance: LlmRegistry | None = None
     _lock = threading.Lock()
 
+    # Default model names per provider (used when caller passes empty/'default')
+    DEFAULT_MODELS: dict[str, str] = {
+        "deepseek": "deepseek-chat",
+        "openai": "gpt-4o-mini",
+    }
+
+    # Supported model names per provider (for UI / validation)
+    SUPPORTED_MODELS: dict[str, list[str]] = {
+        "deepseek": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro", "deepseek-v4-flash"],
+        "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+    }
+
     def __init__(self) -> None:
         self._providers: dict[str, LlmProviderEntry] = {}
         self._cache: dict[str, Any] = {}
@@ -76,6 +88,14 @@ class LlmRegistry:
         if name not in self._providers:
             raise ValueError(f"unknown LLM provider: {name!r} (available: {self.available()})")
 
+        # Normalize model name: empty / 'default' → provider's default model
+        raw_model = kwargs.get("model", "")
+        if not raw_model or str(raw_model).strip().lower() in ("", "default"):
+            kwargs["model"] = self.DEFAULT_MODELS.get(name, "")
+        # Drop empty base_url so Translator falls back to provider's built-in default
+        if kwargs.get("base_url") in (None, ""):
+            kwargs.pop("base_url", None)
+
         entry = self._providers[name]
         resolved = self._resolve_defaults(entry.config_defaults)
         resolved.update(kwargs)
@@ -89,6 +109,14 @@ class LlmRegistry:
         with self._cache_lock:
             self._cache[cache_key] = instance
         return instance
+
+    def list_models(self, name: str) -> list[str]:
+        """List supported model names for a provider."""
+        return list(self.SUPPORTED_MODELS.get(name, []))
+
+    def default_model(self, name: str) -> str:
+        """Get the default model name for a provider."""
+        return self.DEFAULT_MODELS.get(name, "")
 
     def unload(self, name: str) -> None:
         with self._cache_lock:

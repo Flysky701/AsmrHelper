@@ -24,6 +24,8 @@
 3. 管理运行目录与关键运行资源。
 4. 对任务或执行器提供“当前是否可运行”的判断能力。
 
+`ModelCatalogEntry`、`ModelRef`、模型资源字段与 `RuntimeBinding` 的横向边界以 [基础设施契约 V1](../contracts/infrastructure-contracts-v1.md) 为准。
+
 它不直接执行流水线或工具业务。
 
 ## 边界

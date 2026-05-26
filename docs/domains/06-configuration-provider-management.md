@@ -10,7 +10,7 @@
 
 - 当前仓库已有 `config.json` / `config.example.json` / `src/config.py` 等配置基础，但更多是“配置文件读写”，还不是完整配置功能域。
 - 当前 Settings 页面仍然主要是前端本地 state，不是系统真实配置中心。
-- 当前 provider 使用点分散在 pipeline、translation、model manager、旧 GUI 等多个位置。
+- 当前 provider 使用点分散在 pipeline、translation、model manager 兼容层、桌面端参数表单等多个位置。
 - 当系统需要同时支持多个本地 ASR、多个本地或云端 TTS、多个云端 LLM API 时，参数差异会迅速膨胀。
 - 如果继续用平铺字段，例如 `tts_engine`、`translate_provider`、`asr_model`，后续会很难支持 provider 专属参数。
 
@@ -25,6 +25,8 @@
 3. 对外提供参数描述、配置读写和 provider 配置校验能力。
 4. 为功能 3 生成任务时提供标准 `ExecutionProfile` 生成依据。
 5. 与功能 5 协作生成执行时所需的 `RuntimeBinding`。
+
+`CapabilityOption`、高级参数、敏感参数、模型字段与 `RuntimeBinding` 的横向约束以 [基础设施契约 V1](../contracts/infrastructure-contracts-v1.md) 为准。
 
 它不直接负责业务执行。
 
@@ -234,6 +236,8 @@ V1 要求：
 - 前端动态渲染参数表单
 - 功能 3 创建任务时生成 `ExecutionProfile`
 - 功能 2 与功能 4 在执行前校验参数完整性
+
+能力参数 schema 不只描述字段名，还需要表达 UI 控件、高级参数、敏感参数和是否允许持久化。具体字段见 [基础设施契约 V1](../contracts/infrastructure-contracts-v1.md)。
 
 ### 5. ExecutionProfile 生成规则
 

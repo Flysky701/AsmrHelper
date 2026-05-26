@@ -78,13 +78,42 @@ export const useTaskStore = create<TaskStore>((set) => ({
           createdAt: Date.now(),
         },
       ],
+      selectedTaskId: s.selectedTaskId ?? id,
     }))
     return id
   },
 
   updateTask: (id, patch) =>
     set((s) => ({
-      tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+      tasks: s.tasks.map((t) => {
+        if (t.id !== id) return t
+
+        const nextStatus = patch.status ?? t.status
+        const hasStartedAtPatch = Object.prototype.hasOwnProperty.call(patch, 'startedAt')
+        const hasFinishedAtPatch = Object.prototype.hasOwnProperty.call(patch, 'finishedAt')
+        const isTerminal =
+          nextStatus === 'completed' ||
+          nextStatus === 'failed' ||
+          nextStatus === 'cancelled' ||
+          nextStatus === 'skipped'
+
+        return {
+          ...t,
+          ...patch,
+          startedAt:
+            hasStartedAtPatch
+              ? patch.startedAt
+              : nextStatus === 'running'
+              ? t.startedAt ?? Date.now()
+              : t.startedAt,
+          finishedAt:
+            hasFinishedAtPatch
+              ? patch.finishedAt
+              : isTerminal
+              ? t.finishedAt ?? Date.now()
+              : t.finishedAt,
+        }
+      }),
     })),
 
   removeTask: (id) =>

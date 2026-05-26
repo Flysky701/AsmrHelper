@@ -48,6 +48,8 @@
   - 功能 6 负责“参数长什么样”
   - 功能 10 负责“这个 TTS 引擎实际上能做什么”
 
+TTS 的 `common_options/provider_options`、高级参数、`voice_profile_id` 归属和 RuntimeBinding 边界以 [基础设施契约 V1](../contracts/infrastructure-contracts-v1.md) 为准。
+
 ### 与功能 5 的关系
 
 - 功能 5 负责本地模型、运行资源、可执行性检查。
@@ -283,7 +285,7 @@ V1 允许定义轻量的 TTS 预览和测试能力：
 
 - 当前 `voice` 能力不能再被叙述成独立稳定主功能
 - `Voice Lab` 页面不应主导产品功能边界
-- pipeline 中的 `tts_engine`、`tts_voice`、`voice_profile_id` 等平铺字段后续应迁移到标准化 TTS profile
+- pipeline 中的 `tts_engine`、`tts_voice`、`voice_profile_id` 等平铺字段后续应迁移到标准化 TTS profile，其中 `tts_voice` 映射到 `common_options.voice`，`voice_profile_id` 映射到 `provider_options.voice_profile_id`
 - `TtsService` 和 `VoiceService` 的边界需要进一步拆成“通用能力”和“扩展能力”
 
 ### 明确不继承的历史包袱

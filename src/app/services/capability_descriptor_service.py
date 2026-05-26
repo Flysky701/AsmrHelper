@@ -160,8 +160,8 @@ class CapabilityDescriptorService:
                 "provider": "deepseek",
                 "display_name": "DeepSeek",
                 "kind": "cloud",
-                "supported_models": ["default"],
-                "default_model": "default",
+                "supported_models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+                "default_model": "deepseek-v4-flash",
                 "common_option_schema": [
                     _option("temperature", "number", required=False, default=0.2, description="Sampling temperature"),
                     _option("max_tokens", "integer", required=False, description="Optional output token limit"),
@@ -179,8 +179,8 @@ class CapabilityDescriptorService:
                 "provider": "openai",
                 "display_name": "OpenAI-compatible",
                 "kind": "cloud",
-                "supported_models": ["default"],
-                "default_model": "default",
+                "supported_models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+                "default_model": "gpt-4o-mini",
                 "common_option_schema": [
                     _option("temperature", "number", required=False, default=0.2, description="Sampling temperature"),
                     _option("max_tokens", "integer", required=False, description="Optional output token limit"),

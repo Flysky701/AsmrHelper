@@ -8,8 +8,8 @@
 
 ## 背景
 
-- 当前仓库中，文件选择、输出目录推导、同名字幕发现、批处理输入收集、工作目录准备等逻辑分散在 `desktop/src/hooks/useFileSelector.ts`、`src/gui/views/*`、`src/gui/workers/pipeline_worker.py`、`src/app/services/resource_service.py`、`src/utils/__init__.py` 等位置。
-- 当前前端和旧 GUI 都倾向于“拿到路径后直接调用处理逻辑”，导致输入校验、输出规划、伴随资源发现和任务上下文建立没有统一入口。
+- 当前仓库中，文件选择、输出目录推导、同名字幕发现、批处理输入收集、工作目录准备等逻辑主要分散在 `desktop/src/hooks/useFileSelector.ts`、`src/app/services/resource_service.py`、`src/app/services/pipeline_service.py`、`src/app/services/batch_pipeline_service.py`、`src/utils/__init__.py` 等位置。
+- 旧 GUI 已从源码树移除；当前需要收束的是 `desktop/` 和 app service 中仍直接消费裸路径的入口，避免输入校验、输出规划、伴随资源发现和任务上下文建立继续分散。
 - 当前新桌面前端在浏览器开发态下甚至只能拿到文件名，无法提供后端所需的绝对路径，这说明“文件选择器”本身只是表层症状，真正缺的是完整的输入管理层。
 - 因此，V1 不再把它定义为“修一个文件选择器”，而是定义为“建立统一的工作空间与输入会话”。
 
@@ -335,14 +335,13 @@ V1 建议明确拆出三个应用层服务。
 ### 可以保留的思路
 
 - `src/app/services/resource_service.py` 中统一准备目录的思路可以保留，但需要升级。
-- `src/utils.__init__.find_subtitle_file` 及旧 GUI 中的同名字幕发现经验可以保留，但要迁移到输入目录能力中。
+- `src/utils.__init__.find_subtitle_file` 中的同名字幕发现经验可以保留，但要迁移到输入目录能力中。
 - `src/app/services/batch_pipeline_service.py` 中部分输出目录命名经验可以复用。
 
 ### 必须重写或重组的部分
 
 - `desktop/src/hooks/useFileSelector.ts` 当前只返回文件名，不满足后端路径契约。
 - `src/app/services/resource_service.py` 当前仅覆盖 `project_root/output/models`，职责过窄。
-- `src/gui/views/*` 与 `src/gui/workers/pipeline_worker.py` 中散落的输入校验和输出推导逻辑需要收敛。
 - `src/app/services/pipeline_service.py`、`audio_tool_service.py` 等接口直接接受裸 `input_path` 的方式需要逐步迁移为消费会话或标准资产。
 
 ### 明确不继承的历史包袱
@@ -376,9 +375,9 @@ V1 的落地范围只覆盖输入前置层，不直接触碰真正处理链路�
 
 ## 风险与注意事项
 
-- 这是一个基础能力上移动作，短期内会同时影响 Workbench、Tools、Batch、旧 GUI 的调用方式。
+- 这是一个基础能力上移动作，短期内会同时影响 Workbench、Tools、Batch 的调用方式。
 - 如果没有先统一 session 契约，后续每个功能都可能继续复制一套自己的输入前置逻辑。
-- 旧 GUI 仍可暂时保留运行，但不应继续作为新能力设计的事实基线。
+- 旧 GUI 已删除，不应继续作为新能力设计的事实基线。
 - Web 开发态无法天然拿到本地绝对路径，这意味着桌面端和浏览器调试模式在 V1 需要明确区分能力边界。
 
 ## 验收标准

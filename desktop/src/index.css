@@ -6,38 +6,47 @@
    ============================================ */
 
 :root {
-  --bg:      oklch(99% 0.002 240);
-  --surface: oklch(100% 0 0);
-  --fg:      oklch(18% 0.012 250);
-  --muted:   oklch(54% 0.012 250);
-  --border:  oklch(92% 0.005 250);
-  --accent:  oklch(58% 0.18 255);
-  --accent-hover: oklch(52% 0.18 255);
-  --accent-subtle: oklch(95% 0.02 255);
+  --bg: oklch(98.5% 0.006 220);
+  --surface: rgba(255, 255, 255, 0.92);
+  --panel-muted: oklch(96.9% 0.012 220);
+  --fg: oklch(24% 0.022 235);
+  --muted: oklch(54% 0.018 240);
+  --muted-strong: oklch(38% 0.02 238);
+  --border: oklch(90% 0.01 235);
+  --border-strong: oklch(82% 0.015 235);
+  --accent: oklch(52% 0.11 219);
+  --accent-hover: oklch(47% 0.11 219);
+  --accent-soft: oklch(94% 0.03 222);
+  --accent-ghost-border: oklch(86% 0.03 222);
 
   /* Semantic */
-  --success: oklch(60% 0.16 145);
-  --warning: oklch(70% 0.16 85);
-  --error:   oklch(55% 0.18 25);
+  --success: oklch(52% 0.11 155);
+  --success-soft: oklch(94% 0.03 155);
+  --warning: oklch(63% 0.12 84);
+  --warning-soft: oklch(95% 0.03 84);
+  --error: oklch(56% 0.16 27);
+  --error-soft: oklch(95% 0.03 27);
 
   /* Radius */
   --radius: 8px;
   --radius-sm: 6px;
-  --radius-button: 6px;
-  --radius-card: 8px;
+  --radius-button: 10px;
+  --radius-card: 16px;
   --radius-tag: 4px;
 
   /* Neu component aliases (legacy compat) */
   --bg-surface: var(--surface);
   --bg-base: var(--bg);
   --bg-elevated: var(--surface);
-  --bg-hover: oklch(96% 0.004 250);
+  --bg-hover: oklch(96.2% 0.012 225);
   --text-primary: var(--fg);
   --text-secondary: var(--muted);
   --accent-text: oklch(99% 0.002 255);
   --color-error: var(--error);
-  --shadow-raised: 0 1px 3px oklch(0% 0 0 / 0.06), 0 1px 2px oklch(0% 0 0 / 0.04);
-  --shadow-pressed: inset 0 1px 3px oklch(0% 0 0 / 0.1);
+  --shadow-raised: 0 12px 26px oklch(28% 0.02 240 / 0.06);
+  --shadow-pressed: inset 0 1px 3px oklch(0% 0 0 / 0.08);
+  --shadow-panel: 0 10px 26px oklch(28% 0.03 240 / 0.06);
+  --shadow-float: 0 8px 20px oklch(40% 0.04 230 / 0.12);
 
   /* Typography */
   --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Microsoft YaHei', system-ui, sans-serif;
@@ -56,17 +65,24 @@ body {
   font-size: 14px;
   line-height: 1.5;
   color: var(--fg);
-  background: var(--bg);
+  background:
+    radial-gradient(circle at top left, oklch(95.5% 0.025 215) 0, transparent 34%),
+    radial-gradient(circle at top right, oklch(96.2% 0.024 190) 0, transparent 26%),
+    linear-gradient(180deg, oklch(99.1% 0.006 220) 0%, oklch(98.2% 0.008 220) 100%);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
 
+#root {
+  height: 100vh;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -74,10 +90,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: oklch(80% 0.005 250);
-  border-radius: 3px;
+  background: oklch(80% 0.014 230);
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(70% 0.01 250);
+  background: oklch(72% 0.018 230);
 }

@@ -104,6 +104,7 @@ class PipelineRequest:
     vocal_model: str = "htdemucs"
     asr_model: str = "faster-whisper-base"
     translate_provider: str = "deepseek"
+    translate_model: str = ""
     tts_speed: float = 1.0
     original_volume: float = 0.85
     tts_volume_ratio: float = 0.5

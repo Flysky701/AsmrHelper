@@ -6,6 +6,8 @@
 - 明确每个功能域对外暴露哪些主接口。
 - 明确哪些旧接口只是兼容入口，不再主导长期架构。
 
+当前阶段的端到端落地顺序以 [主链路 V1 契约](mainline-v1-contract.md) 为准，字段口径以 [主链路 V1 数据参数契约](mainline-v1-data-parameters.md) 为准。日志事件、模型字段、CapabilityOption、高级参数和 RuntimeBinding 边界以 [基础设施契约 V1](infrastructure-contracts-v1.md) 为准。本文保留系统级接口边界，主链路契约负责把 Workbench、TaskCenter、Artifact、Preview 的最小稳定面串起来。
+
 ## 总体原则
 
 ### 1. 以功能域分组，不以页面分组
@@ -27,6 +29,7 @@
   - `artifact`
   - `CapabilityDescriptor`
   - `ExecutionProfile`
+  - `RuntimeEvent`
 
 ### 4. 引擎扩展能力不冒充全局主能力
 

@@ -42,6 +42,9 @@ class ExecutionProfileBuilder:
         if not model:
             resolved_model = self._default_model(category, settings, descriptor)
 
+        # Normalize 'default' alias to descriptor's actual default_model
+        resolved_model = self._normalize_model(resolved_model, descriptor)
+
         self._validate_supported_model(descriptor, resolved_model)
 
         resolved_common = self._fill_defaults(
@@ -124,6 +127,13 @@ class ExecutionProfileBuilder:
             raise AppValidationError(
                 f"unsupported model '{model}' for {descriptor['category']}/{descriptor['provider']}"
             )
+
+    @staticmethod
+    def _normalize_model(model: str | None, descriptor: dict[str, Any]) -> str:
+        """Normalize 'default' / empty to the descriptor's default_model."""
+        if not model or str(model).strip().lower() in ("", "default"):
+            return str(descriptor.get("default_model", "default"))
+        return str(model)
 
 
 _service: ExecutionProfileBuilder | None = None

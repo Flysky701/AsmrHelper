@@ -47,6 +47,7 @@ def run_pipeline(
         vocal_model=body.vocal_model,
         asr_model=body.asr_model,
         translate_provider=body.translate_provider,
+        translate_model=body.translate_model,
         tts_speed=body.tts_speed,
         original_volume=body.original_volume,
         tts_volume_ratio=body.tts_volume_ratio,

@@ -10,6 +10,8 @@
 
 这份文档不直接定义 API，也不直接定义底层算法实现。
 
+当前实现状态以 [当前源码基线](../roadmap/current-source-baseline.md) 为准。本文只描述 service 分层方向；如果旧迁移对象已经从源码树移除，不再把它作为当前待迁移对象。
+
 它回答的是：
 
 - 功能域在代码里应该落成哪些 service
@@ -119,9 +121,9 @@
 - `batch_pipeline_service.py`
   - 处理方式：**迁移**
   - 说明：批量逻辑不属于功能 2，应迁回功能 3
-- `src/core/pipeline/*`
-  - 处理方式：**保留并重组**
-  - 说明：底层 pipeline 执行能力可保留，但上层职责要重排
+- `src/core/orchestration/pipeline/*`
+  - 处理方式：**保留并对齐契约**
+  - 说明：当前 pipeline 主执行路径已经在这里，后续重点是 execution profile、stage、artifact 与 preview 语义对齐
 
 ## 功能 3：统一任务生成与任务队列
 
@@ -298,12 +300,15 @@
 - `script_subtitle_service.py`
   - 处理方式：**迁移并拆分**
   - 说明：应用入口可保留，领域逻辑应沉到功能 7
-- `src/core/translate/*` 中字幕加载与清洗逻辑
-  - 处理方式：**迁移**
-- `src/core/subtitle_generator.py`
-  - 处理方式：**迁移**
-- `src/core/script_to_subtitle/*`
-  - 处理方式：**迁移并重组**
+- `src/core/subtitles/*`
+  - 处理方式：**保留并收束为主路径**
+  - 说明：字幕加载、清洗、脚本处理、脚本转字幕、导出能力已经迁入该目录
+- `src/core/translate/*`
+  - 处理方式：**继续瘦身**
+  - 说明：保留 LLM/翻译兼容能力，字幕领域逻辑不得再回流到这里
+- `script_subtitle_service.py`
+  - 处理方式：**修残留引用**
+  - 说明：当前 app service 仍可能引用已删除旧路径，应改接 `core/subtitles`
 
 ## 功能 8：结果资产与产物索引管理
 
@@ -324,9 +329,9 @@
 
 ### 当前代码映射
 
-- `src/core/pipeline/artifact_collector.py`
-  - 处理方式：**迁移并扩展**
-  - 说明：应升级为统一产物索引能力
+- `src/core/orchestration/pipeline/result_mapper.py`
+  - 处理方式：**保留并扩展**
+  - 说明：pipeline 结果语义应继续与统一 ArtifactSet / preview 契约对齐
 - pipeline / tool 各自返回的 `artifacts`
   - 处理方式：**收口**
 
@@ -407,9 +412,9 @@
 - `src/core/translate/*`
   - 处理方式：**拆分并迁移**
   - 说明：其中纯 LLM 调用和翻译逻辑应归功能 11，字幕领域逻辑归功能 7
-- `src/core/script_to_subtitle/llm_processor.py`
-  - 处理方式：**迁移**
-  - 说明：应归为 LLM 衍生操作层
+- `src/core/subtitles/script_to_subtitle.py` 与 `src/core/engines/llm/*`
+  - 处理方式：**分工收束**
+  - 说明：脚本转字幕领域流程归功能 7，LLM 清洗、翻译、重写等操作归功能 11
 
 ## 功能 12：ASR 引擎管理与扩展能力管理
 
@@ -437,8 +442,9 @@
   - 处理方式：**保留为兼容 facade**
 - `src/core/asr/*`
   - 处理方式：**保留并重组**
-- `ModelManager` 中的 ASR category
-  - 处理方式：**保留并规范化**
+- ASR registry/runtime
+  - 处理方式：**保留为主路径**
+  - 说明：`ModelManager` 中的 ASR category 只作为兼容背景，不再作为新服务默认入口
 
 ## 当前最关键的迁移结论
 

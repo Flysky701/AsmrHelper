@@ -1,493 +1,773 @@
-import { useTaskStore } from '@/stores/taskStore'
-import type { Task, TaskStatus } from '@/stores/taskStore'
+import type { CSSProperties, ReactNode } from 'react'
+
+import { tasksApi } from '@/api/tasks'
+import { useTaskPolling } from '@/hooks/useTaskPolling'
+import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 import { useLogStore } from '@/stores/logStore'
 import type { LogLevel } from '@/stores/logStore'
-import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
-import { useTaskPolling } from '@/hooks/useTaskPolling'
-import { tasksApi } from '@/api/tasks'
+import { useTaskStore } from '@/stores/taskStore'
+import type { JobType, Task, TaskStatus } from '@/stores/taskStore'
 
-/* ── Status pill ──────────────────────────────────── */
 const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; bg: string; color: string }> = {
-  running:   { label: '运行中', dot: '#3b82f6', bg: '#eff6ff', color: '#1d4ed8' },
-  pending:   { label: '排队中', dot: '#9ca3af', bg: '#f9fafb', color: '#6b7280' },
-  completed: { label: '已完成', dot: '#22c55e', bg: '#f0fdf4', color: '#15803d' },
-  failed:    { label: '失败',   dot: '#ef4444', bg: '#fef2f2', color: '#b91c1c' },
-  cancelled: { label: '已取消', dot: '#9ca3af', bg: '#f9fafb', color: '#6b7280' },
-  skipped:   { label: '已跳过', dot: '#9ca3af', bg: '#f9fafb', color: '#6b7280' },
+  running: { label: '运行中', dot: 'var(--accent)', bg: 'var(--accent-soft)', color: 'var(--accent)' },
+  pending: { label: '排队中', dot: 'var(--muted)', bg: 'var(--panel-muted)', color: 'var(--muted-strong)' },
+  completed: { label: '已完成', dot: 'var(--success)', bg: 'var(--success-soft)', color: 'var(--success)' },
+  failed: { label: '失败', dot: 'var(--error)', bg: 'var(--error-soft)', color: 'var(--error)' },
+  cancelled: { label: '已取消', dot: 'var(--muted)', bg: 'var(--panel-muted)', color: 'var(--muted-strong)' },
+  skipped: { label: '已跳过', dot: 'var(--warning)', bg: 'var(--warning-soft)', color: 'var(--warning)' },
 }
 
-function StatusPill({ status }: { status: TaskStatus }) {
-  const c = STATUS_CONFIG[status]
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
-      background: c.bg, color: c.color, flexShrink: 0,
-    }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.dot }} />
-      {c.label}
-    </span>
-  )
+const PIPELINE_STAGES = ['人声分离', 'ASR 识别', '字幕翻译', 'TTS 合成', '混音输出'] as const
+
+const SURFACE_STYLE: CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-card)',
+  boxShadow: 'var(--shadow-panel)',
 }
 
-/* ── Pipeline stages ──────────────────────────────── */
-const PIPELINE_STAGES = ['人声分离', 'ASR 识别', '翻译', 'TTS 合成', '混音'] as const
+type FilterValue = 'all' | TaskStatus
 
-function guessPipelineStage(task: Task): number {
-  const msg = (task.message + ' ' + task.detail).toLowerCase()
-  if (msg.includes('separ') || msg.includes('分离')) return 0
-  if (msg.includes('asr') || msg.includes('识别') || msg.includes('transcrib')) return 1
-  if (msg.includes('translat') || msg.includes('翻译')) return 2
-  if (msg.includes('tts') || msg.includes('合成')) return 3
-  if (msg.includes('mix') || msg.includes('混音')) return 4
-  if (task.status === 'completed') return 5
-  return Math.floor(task.progress / 20)
-}
-
-function PipelineProgress({ task }: { task: Task }) {
-  const activeIdx = guessPipelineStage(task)
-  const isFailed = task.status === 'failed'
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginTop: 12, flexWrap: 'wrap' }}>
-      {PIPELINE_STAGES.map((name, i) => {
-        let dotColor = '#e5e7eb'
-        let animate = false
-        if (i < activeIdx || task.status === 'completed') dotColor = '#22c55e'
-        else if (i === activeIdx && task.status === 'running') { dotColor = '#3b82f6'; animate = true }
-        else if (i === activeIdx && isFailed) dotColor = '#ef4444'
-        return (
-          <span key={name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 500 }}>
-            {i > 0 && <span style={{ color: '#d1d5db', margin: '0 4px', fontSize: 11 }}>&rarr;</span>}
-            <span style={{
-              width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0,
-              animation: animate ? 'pulse 1.5s infinite' : undefined,
-            }} />
-            <span style={{ color: i <= activeIdx || task.status === 'completed' ? '#374151' : '#9ca3af' }}>
-              {name}
-            </span>
-          </span>
-        )
-      })}
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
-    </div>
-  )
-}
-
-/* ── Filter tabs ──────────────────────────────────── */
-type FilterVal = 'all' | 'running' | 'pending' | 'completed' | 'failed'
-
-const FILTER_TABS: { value: FilterVal; label: string }[] = [
+const FILTER_TABS: { value: FilterValue; label: string }[] = [
   { value: 'all', label: '全部' },
   { value: 'running', label: '运行中' },
   { value: 'pending', label: '排队' },
   { value: 'completed', label: '已完成' },
   { value: 'failed', label: '失败' },
+  { value: 'cancelled', label: '已取消' },
+  { value: 'skipped', label: '已跳过' },
 ]
 
-/* ── Log level toggles ────────────────────────────── */
-const LOG_LEVEL_OPTS: { value: LogLevel; label: string }[] = [
+const LOG_LEVELS: { value: LogLevel; label: string }[] = [
   { value: 'info', label: 'INFO' },
   { value: 'warn', label: 'WARN' },
   { value: 'error', label: 'ERROR' },
 ]
 
-/* ── Main component ───────────────────────────────── */
+function StatusPill({ status }: { status: TaskStatus }) {
+  const config = STATUS_CONFIG[status]
+
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 10px',
+        borderRadius: 999,
+        fontSize: 11,
+        fontWeight: 700,
+        background: config.bg,
+        color: config.color,
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: config.dot }} />
+      {config.label}
+    </span>
+  )
+}
+
+function ToolbarButton({
+  children,
+  onClick,
+  disabled,
+  variant = 'secondary',
+}: {
+  children: ReactNode
+  onClick?: () => void
+  disabled?: boolean
+  variant?: 'primary' | 'secondary' | 'ghost'
+}) {
+  const variants: Record<string, CSSProperties> = {
+    primary: {
+      background: 'var(--accent)',
+      color: 'white',
+      border: '1px solid var(--accent)',
+      boxShadow: 'var(--shadow-float)',
+    },
+    secondary: {
+      background: 'var(--surface)',
+      color: 'var(--fg)',
+      border: '1px solid var(--border)',
+    },
+    ghost: {
+      background: 'transparent',
+      color: 'var(--muted)',
+      border: '1px solid transparent',
+    },
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        minHeight: 36,
+        padding: '0 14px',
+        borderRadius: 'var(--radius-button)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        fontSize: 13,
+        fontWeight: 600,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.45 : 1,
+        ...variants[variant],
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function formatRelativeTime(timestamp: number) {
+  const delta = Math.max(0, Date.now() - timestamp)
+  const minutes = Math.floor(delta / 60000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes} 分钟前`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  return `${Math.floor(hours / 24)} 天前`
+}
+
+function formatDateTime(timestamp?: number) {
+  if (!timestamp) return '—'
+  return new Date(timestamp).toLocaleString()
+}
+
+function formatDuration(durationMs?: number) {
+  if (!durationMs || durationMs <= 0) return '—'
+  const totalSeconds = Math.floor(durationMs / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes === 0) return `${seconds}s`
+  return `${minutes}m ${seconds}s`
+}
+
+function guessPipelineStage(task: Task) {
+  const message = `${task.message} ${task.detail}`.toLowerCase()
+  if (message.includes('separ') || message.includes('分离')) return 0
+  if (message.includes('asr') || message.includes('识别') || message.includes('transcrib')) return 1
+  if (message.includes('translat') || message.includes('翻译')) return 2
+  if (message.includes('tts') || message.includes('合成')) return 3
+  if (message.includes('mix') || message.includes('混音')) return 4
+  if (task.status === 'completed') return 5
+  return Math.min(4, Math.floor(task.progress / 20))
+}
+
+function stageLabel(task: Task) {
+  if (task.status === 'completed') return '成品已产出'
+  if (task.status === 'failed') return '任务在当前阶段失败'
+  if (task.status === 'cancelled') return '任务已取消'
+  if (task.status === 'skipped') return '任务被跳过'
+  return PIPELINE_STAGES[Math.min(PIPELINE_STAGES.length - 1, guessPipelineStage(task))]
+}
+
+function jobTypeLabel(jobType: JobType) {
+  const labels: Record<JobType, string> = {
+    pipeline: '主流水线',
+    asr: 'ASR',
+    tts: 'TTS',
+    separate: '人声分离',
+    convert: '转换',
+    split: '切分',
+    'translate-subtitle': '字幕翻译',
+    'script-to-vtt': 'Script 转 VTT',
+    'voice-design': '音色设计',
+    'voice-clone': '音色克隆',
+    'voice-preview': '音色试听',
+  }
+
+  return labels[jobType] ?? jobType
+}
+
+function paramLabel(key: string) {
+  const labels: Record<string, string> = {
+    input_path: '输入文件',
+    source_lang: '源语言',
+    target_lang: '目标语言',
+    use_vocal_separator: '人声分离',
+    tts_engine: 'TTS 引擎',
+    tts_voice: 'TTS 声线',
+    vocal_model: '分离模型',
+    asr_model: 'ASR 模型',
+    translate_provider: '翻译提供方',
+    tts_speed: '语速',
+    original_volume: '原声保留',
+    tts_volume_ratio: 'TTS 音量占比',
+    tts_delay: 'TTS 延迟',
+    skip_existing: '跳过已有输出',
+    voice_profile_id: '音色档案',
+  }
+
+  return labels[key] ?? key
+}
+
+function formatParamValue(value: unknown) {
+  if (typeof value === 'boolean') return value ? '开启' : '关闭'
+  if (typeof value === 'number') return Number.isInteger(value) ? `${value}` : value.toFixed(2)
+  if (value === null || value === undefined || value === '') return '—'
+  return String(value)
+}
+
+function isAudioArtifact(path: string) {
+  return /\.(mp3|wav|flac|ogg|m4a|aac|wma)$/i.test(path)
+}
+
+async function copyToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    window.prompt('复制路径', text)
+  }
+}
+
+function PipelineTimeline({ task }: { task: Task }) {
+  const activeIndex = guessPipelineStage(task)
+  const isFailed = task.status === 'failed'
+
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {PIPELINE_STAGES.map((stage, index) => {
+        const completed = task.status === 'completed' || index < activeIndex
+        const active = task.status === 'running' && index === activeIndex
+        const failed = isFailed && index === activeIndex
+
+        return (
+          <div key={stage} style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr)', gap: 12 }}>
+            <div
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: 999,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 12,
+                fontWeight: 700,
+                border: '1px solid var(--border)',
+                background: completed ? 'var(--success-soft)' : active ? 'var(--accent-soft)' : failed ? 'var(--error-soft)' : 'var(--panel-muted)',
+                color: completed ? 'var(--success)' : active ? 'var(--accent)' : failed ? 'var(--error)' : 'var(--muted)',
+              }}
+            >
+              {index + 1}
+            </div>
+            <div style={{ paddingTop: 2 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{stage}</div>
+              <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                {completed ? '阶段已完成' : active ? '当前进行中' : failed ? '在这里失败' : '等待执行'}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function TaskCenter() {
   useTaskPolling(3000)
 
-  const tasks = useTaskStore(s => s.tasks)
-  const filter = useTaskStore(s => s.filter)
-  const setFilter = useTaskStore(s => s.setFilter)
-  const selectedTaskId = useTaskStore(s => s.selectedTaskId)
-  const selectTask = useTaskStore(s => s.selectTask)
-  const removeTask = useTaskStore(s => s.removeTask)
-  const updateTask = useTaskStore(s => s.updateTask)
+  const tasks = useTaskStore((state) => state.tasks)
+  const filter = useTaskStore((state) => state.filter)
+  const setFilter = useTaskStore((state) => state.setFilter)
+  const selectedTaskId = useTaskStore((state) => state.selectedTaskId)
+  const selectTask = useTaskStore((state) => state.selectTask)
+  const removeTask = useTaskStore((state) => state.removeTask)
+  const updateTask = useTaskStore((state) => state.updateTask)
 
-  const logs = useLogStore(s => s.logs)
-  const levelFilter = useLogStore(s => s.levelFilter)
-  const setLevelFilter = useLogStore(s => s.setLevelFilter)
-  const clearLogs = useLogStore(s => s.clearLogs)
-  const addLog = useLogStore(s => s.addLog)
+  const logs = useLogStore((state) => state.logs)
+  const levelFilter = useLogStore((state) => state.levelFilter)
+  const setLevelFilter = useLogStore((state) => state.setLevelFilter)
+  const clearLogs = useLogStore((state) => state.clearLogs)
+  const addLog = useLogStore((state) => state.addLog)
 
-  const showAudio = useAudioPlayerStore(s => s.show)
+  const showAudio = useAudioPlayerStore((state) => state.show)
 
-  const filtered = filter === 'all' ? tasks : tasks.filter(t => t.status === filter)
-  const selected = tasks.find(t => t.id === selectedTaskId)
+  const filteredTasks = filter === 'all' ? tasks : tasks.filter((task) => task.status === filter)
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? filteredTasks[0] ?? null
 
-  const countByStatus = (s: TaskStatus) => tasks.filter(t => t.status === s).length
-  const runningCount = countByStatus('running')
-  const pendingCount = countByStatus('pending')
+  const runningTasks = tasks.filter((task) => task.status === 'running')
+  const pendingTasks = tasks.filter((task) => task.status === 'pending')
+  const failedTasks = tasks.filter((task) => task.status === 'failed')
+  const completedTasks = tasks.filter((task) => task.status === 'completed')
 
-  const taskLogs = selectedTaskId
-    ? logs.filter(l => l.taskId === selectedTaskId)
-    : logs
-  const filteredLogs = taskLogs.filter(l => levelFilter.includes(l.level))
+  const taskLogs = selectedTask ? logs.filter((entry) => entry.taskId === selectedTask.id) : logs
+  const filteredLogs = taskLogs.filter((entry) => levelFilter.includes(entry.level)).slice(-120).reverse()
 
-  const toggleLogLevel = (lv: LogLevel) => {
-    setLevelFilter(levelFilter.includes(lv) ? levelFilter.filter(l => l !== lv) : [...levelFilter, lv])
+  const artifacts = selectedTask?.artifacts?.files
+    ? Object.entries(selectedTask.artifacts.files).map(([kind, path]) => ({
+        kind,
+        path,
+        audio: isAudioArtifact(path),
+        primary: selectedTask.artifacts?.primaryOutput === path,
+      }))
+    : []
+
+  const toggleLogLevel = (level: LogLevel) => {
+    setLevelFilter(
+      levelFilter.includes(level)
+        ? levelFilter.filter((item) => item !== level)
+        : [...levelFilter, level],
+    )
   }
 
   const handleCancel = async (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId)
-    if (!task?.serverTaskId) { addLog({ level: 'warn', content: `任务尚未绑定后端 ID: ${taskId}`, taskId }); return }
+    const task = tasks.find((item) => item.id === taskId)
+    if (!task?.serverTaskId) {
+      addLog({ level: 'warn', content: `任务尚未绑定后端 ID：${taskId}`, taskId })
+      return
+    }
+
     try {
-      const res = await tasksApi.cancel(task.serverTaskId)
-      updateTask(taskId, { status: 'cancelled', progress: res.progress, message: res.message || 'cancelled', detail: res.detail })
-      addLog({ level: 'info', content: `任务已取消: ${task.serverTaskId}`, taskId })
-    } catch (err) { addLog({ level: 'error', content: `取消失败: ${err}`, taskId }) }
+      const response = await tasksApi.cancel(task.serverTaskId)
+      updateTask(taskId, {
+        status: 'cancelled',
+        progress: response.progress,
+        message: response.message || '任务已取消',
+        detail: response.detail,
+      })
+      addLog({ level: 'info', content: `任务已取消：${task.serverTaskId}`, taskId })
+    } catch (error) {
+      addLog({ level: 'error', content: `取消失败：${String(error)}`, taskId })
+    }
   }
 
   const handleRetry = async (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId)
-    if (!task?.serverTaskId) { addLog({ level: 'warn', content: `任务尚未绑定后端 ID: ${taskId}`, taskId }); return }
+    const task = tasks.find((item) => item.id === taskId)
+    if (!task?.serverTaskId) {
+      addLog({ level: 'warn', content: `任务尚未绑定后端 ID：${taskId}`, taskId })
+      return
+    }
+
     try {
-      const res = await tasksApi.retry(task.serverTaskId)
-      updateTask(taskId, { status: 'pending', progress: res.progress, message: res.message || 'queued for retry', detail: res.detail })
-      addLog({ level: 'info', content: `任务已重试: ${task.serverTaskId}`, taskId })
-    } catch (err) { addLog({ level: 'error', content: `重试失败: ${err}`, taskId }) }
+      const response = await tasksApi.retry(task.serverTaskId)
+      updateTask(taskId, {
+        status: 'pending',
+        progress: response.progress,
+        message: response.message || '任务已重新排队',
+        detail: response.detail,
+        startedAt: undefined,
+        finishedAt: undefined,
+      })
+      addLog({ level: 'info', content: `任务已重试：${task.serverTaskId}`, taskId })
+    } catch (error) {
+      addLog({ level: 'error', content: `重试失败：${String(error)}`, taskId })
+    }
   }
 
-  const handlePlayArtifact = (path: string, type: string) => showAudio(path, type)
+  const handleRetryFailedTasks = async () => {
+    for (const task of failedTasks) {
+      await handleRetry(task.id)
+    }
+  }
+
+  const handleCancelRunningTasks = async () => {
+    for (const task of runningTasks) {
+      await handleCancel(task.id)
+    }
+  }
+
+  const handleClearCompletedTasks = () => {
+    completedTasks.forEach((task) => removeTask(task.id))
+  }
+
+  const handlePlayArtifact = (path: string, title: string) => {
+    showAudio(path, title)
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <header
+        style={{
+          padding: '22px 28px 18px',
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--surface)',
+          display: 'flex',
+          gap: 18,
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Task Cockpit
+          </div>
+          <h1 style={{ marginTop: 8, fontSize: 26, lineHeight: 1.15, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
+            任务中心
+          </h1>
+          <p style={{ marginTop: 8, color: 'var(--muted)', maxWidth: 560 }}>
+            这里负责跟踪阶段、查看产物、处理失败任务。日志保留，但退到详情区。
+          </p>
+        </div>
 
-      {/* ── Action Bar ───────────────────────────── */}
-      <div style={{
-        background: 'var(--surface)', borderBottom: '1px solid var(--border)',
-        padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
-      }}>
-        <h1 style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.02em', marginRight: 8, fontFamily: 'var(--font-display)' }}>
-          任务中心
-        </h1>
-        {runningCount > 0 && (
-          <span style={{
-            fontSize: 12, fontWeight: 500, padding: '3px 10px', borderRadius: 12,
-            background: '#eff6ff', color: '#1d4ed8', whiteSpace: 'nowrap',
-          }}>{runningCount} 运行中</span>
-        )}
-        {pendingCount > 0 && (
-          <span style={{
-            fontSize: 12, fontWeight: 500, padding: '3px 10px', borderRadius: 12,
-            background: '#f9fafb', color: '#6b7280', whiteSpace: 'nowrap',
-          }}>{pendingCount} 排队</span>
-        )}
-        <div style={{ flex: 1 }} />
-        <button style={btnSuccessStyle}>启动</button>
-        <button style={btnWarnStyle}>暂停</button>
-        <button style={btnStyle}>重试失败</button>
-        <button style={btnStyle}>取消全部</button>
-      </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginLeft: 'auto' }}>
+          <ToolbarButton variant="secondary" onClick={handleRetryFailedTasks} disabled={failedTasks.length === 0}>
+            重试失败任务
+          </ToolbarButton>
+          <ToolbarButton variant="secondary" onClick={handleCancelRunningTasks} disabled={runningTasks.length === 0}>
+            取消运行中
+          </ToolbarButton>
+          <ToolbarButton variant="ghost" onClick={handleClearCompletedTasks} disabled={completedTasks.length === 0}>
+            清理已完成
+          </ToolbarButton>
+        </div>
 
-      {/* ── Content: list + detail ────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', flex: 1, overflow: 'hidden' }}>
+        <div style={{ width: '100%', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+          {[
+            { label: '运行中', value: runningTasks.length, background: 'var(--accent-soft)', color: 'var(--accent)' },
+            { label: '排队中', value: pendingTasks.length, background: 'var(--panel-muted)', color: 'var(--muted-strong)' },
+            { label: '失败', value: failedTasks.length, background: 'var(--error-soft)', color: 'var(--error)' },
+            { label: '已完成', value: completedTasks.length, background: 'var(--success-soft)', color: 'var(--success)' },
+          ].map((item) => (
+            <div key={item.label} style={{ ...SURFACE_STYLE, padding: '14px 16px' }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.label}</div>
+              <div style={{ marginTop: 6, fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      </header>
 
-        {/* ── Task List (left) ────────────────────── */}
-        <div style={{ borderRight: '1px solid var(--border)', overflowY: 'auto', background: 'var(--surface)', display: 'flex', flexDirection: 'column' }}>
-          {/* Filter bar */}
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 2, background: 'var(--surface)', flexShrink: 0 }}>
-            {FILTER_TABS.map(tab => {
-              const count = tab.value === 'all' ? tasks.length : tasks.filter(t => t.status === tab.value).length
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(320px, 420px) minmax(0, 1fr)',
+          gap: 20,
+          flex: 1,
+          minHeight: 0,
+          padding: 20,
+        }}
+      >
+        <section style={{ ...SURFACE_STYLE, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>任务列表</div>
+            <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+              优先看状态、阶段和可操作的产物入口。
+            </div>
+          </div>
+
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {FILTER_TABS.map((tab) => {
+              const count = tab.value === 'all'
+                ? tasks.length
+                : tasks.filter((task) => task.status === tab.value).length
+
               return (
                 <button
                   key={tab.value}
+                  type="button"
                   onClick={() => setFilter(tab.value)}
                   style={{
-                    padding: '5px 10px', fontSize: 12, fontWeight: 500, borderRadius: 4,
-                    cursor: 'pointer', border: 'none',
-                    background: filter === tab.value ? 'var(--bg)' : 'transparent',
-                    color: filter === tab.value ? 'var(--fg)' : 'var(--muted)',
+                    padding: '7px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    background: filter === tab.value ? 'var(--accent-soft)' : 'var(--surface)',
+                    color: filter === tab.value ? 'var(--accent)' : 'var(--muted-strong)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
                   }}
                 >
-                  {tab.label}<span style={{ marginLeft: 3, fontSize: 11, opacity: 0.7 }}>{count}</span>
+                  {tab.label} <span style={{ opacity: 0.72 }}>{count}</span>
                 </button>
               )
             })}
           </div>
 
-          {/* Task items */}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            {filtered.length === 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 13, gap: 8 }}>
-                <span style={{ opacity: 0.3, fontSize: 24 }}>&#9744;</span>
-                暂无任务
+          <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 14, display: 'grid', gap: 12 }}>
+            {filteredTasks.length === 0 ? (
+              <div style={{ display: 'grid', placeItems: 'center', minHeight: 240, color: 'var(--muted)' }}>
+                当前筛选条件下还没有任务。
               </div>
-            ) : filtered.map(task => {
-              const isSelected = selectedTaskId === task.id
-              return (
-                <div
-                  key={task.id}
-                  onClick={() => selectTask(task.id)}
-                  style={{
-                    padding: isSelected ? '12px 14px 12px 14px' : '12px 16px',
-                    borderBottom: '1px solid var(--border)',
-                    cursor: 'pointer',
-                    background: isSelected ? '#f0f4ff' : 'transparent',
-                    borderLeft: isSelected ? '2px solid var(--accent)' : '2px solid transparent',
-                    transition: 'background 0.1s',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <StatusPill status={task.status} />
-                    <span style={{ fontSize: 13, fontWeight: 500, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {task.sourceName}
-                    </span>
-                    <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>
-                      {formatRelativeTime(task.createdAt)}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--muted)' }}>
-                    <span>{jobTypeLabel(task.jobType)}</span>
-                    {task.status === 'running' && (
-                      <>
-                        <span style={{ opacity: 0.4 }}>&middot;</span>
-                        <span>{task.progress}%</span>
-                      </>
-                    )}
-                    {task.message && (
-                      <>
-                        <span style={{ opacity: 0.4 }}>&middot;</span>
-                        <span>{task.message}</span>
-                      </>
-                    )}
-                    {task.status === 'completed' && task.finishedAt && task.startedAt && (
-                      <>
-                        <span style={{ opacity: 0.4 }}>&middot;</span>
-                        <span>耗时 {formatDuration(task.finishedAt - task.startedAt)}</span>
-                      </>
-                    )}
-                    {task.status === 'failed' && task.errorMessage && (
-                      <>
-                        <span style={{ opacity: 0.4 }}>&middot;</span>
-                        <span style={{ color: '#b91c1c' }}>{task.errorMessage}</span>
-                      </>
-                    )}
-                  </div>
-                  {task.status === 'running' && (
-                    <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, marginTop: 8, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', background: 'var(--accent)', borderRadius: 2, transition: 'width 0.3s', width: `${task.progress}%` }} />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
+            ) : (
+              filteredTasks
+                .slice()
+                .reverse()
+                .map((task) => {
+                  const isSelected = selectedTask?.id === task.id
+                  const primaryOutput = task.artifacts?.primaryOutput
 
-        {/* ── Detail Panel (right) ────────────────── */}
-        <div style={{ padding: 24, overflowY: 'auto' }}>
-          {!selected ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 13, gap: 8 }}>
-              <span style={{ opacity: 0.3, fontSize: 24 }}>&#9744;</span>
-              选择一个任务查看详情
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      onClick={() => selectTask(task.id)}
+                      style={{
+                        textAlign: 'left',
+                        padding: '14px 14px 12px',
+                        borderRadius: 'var(--radius-card)',
+                        border: isSelected ? '1px solid var(--accent)' : '1px solid var(--border)',
+                        background: isSelected ? 'var(--accent-soft)' : 'var(--surface)',
+                        cursor: 'pointer',
+                        boxShadow: isSelected ? 'var(--shadow-float)' : 'none',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {task.sourceName}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                            {jobTypeLabel(task.jobType)} · {formatRelativeTime(task.createdAt)}
+                          </div>
+                        </div>
+                        <StatusPill status={task.status} />
+                      </div>
+
+                      <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>当前阶段：{stageLabel(task)}</div>
+                        <div style={{ height: 6, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
+                          <div
+                            style={{
+                              width: `${Math.max(0, Math.min(100, task.progress))}%`,
+                              height: '100%',
+                              background: task.status === 'failed' ? 'var(--error)' : task.status === 'completed' ? 'var(--success)' : 'var(--accent)',
+                              borderRadius: 999,
+                            }}
+                          />
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{task.message || '等待阶段消息'}</div>
+                        {primaryOutput ? (
+                          <div style={{ fontSize: 12, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            主要产物：{primaryOutput}
+                          </div>
+                        ) : null}
+                      </div>
+                    </button>
+                  )
+                })
+            )}
+          </div>
+        </section>
+
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0, overflow: 'auto', paddingRight: 4 }}>
+          {!selectedTask ? (
+            <div style={{ ...SURFACE_STYLE, minHeight: 360, display: 'grid', placeItems: 'center', color: 'var(--muted)' }}>
+              选择一个任务查看阶段、产物和日志。
             </div>
           ) : (
             <>
-              {/* Header */}
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.02em', fontFamily: 'var(--font-display)', marginBottom: 4 }}>
-                  {selected.sourceName}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {selected.serverTaskId || selected.id} &middot; {jobTypeLabel(selected.jobType)} &middot; 创建于 {new Date(selected.createdAt).toLocaleTimeString()}
-                </div>
-              </div>
-
-              {/* Progress */}
-              <div style={{ marginBottom: 20 }}>
-                <h3 style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
-                  执行进度
-                </h3>
-                <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 16 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 24, fontWeight: 600, fontFamily: 'var(--font-display)' }}>{selected.progress}%</span>
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{selected.message || '—'}</span>
+              <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {selectedTask.sourceName}
+                    </div>
+                    <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      <StatusPill status={selectedTask.status} />
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{jobTypeLabel(selectedTask.jobType)}</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>创建于 {formatDateTime(selectedTask.createdAt)}</span>
+                    </div>
                   </div>
-                  <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', background: 'var(--accent)', borderRadius: 3, transition: 'width 0.3s', width: `${selected.progress}%` }} />
-                  </div>
-                  <PipelineProgress task={selected} />
-                </div>
-              </div>
 
-              {/* Task params */}
-              <div style={{ marginBottom: 20 }}>
-                <h3 style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
-                  任务参数
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  {Object.entries(selected.params).map(([key, val]) => (
-                    <div key={key}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>{paramLabel(key)}</div>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{String(val ?? '—')}</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <ToolbarButton
+                      variant="secondary"
+                      onClick={() => handleRetry(selectedTask.id)}
+                      disabled={selectedTask.status !== 'failed'}
+                    >
+                      重试
+                    </ToolbarButton>
+                    <ToolbarButton
+                      variant="secondary"
+                      onClick={() => handleCancel(selectedTask.id)}
+                      disabled={selectedTask.status !== 'running'}
+                    >
+                      取消
+                    </ToolbarButton>
+                    <ToolbarButton variant="ghost" onClick={() => removeTask(selectedTask.id)}>
+                      从列表移除
+                    </ToolbarButton>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                  {[
+                    { label: '当前阶段', value: stageLabel(selectedTask) },
+                    { label: '任务 ID', value: selectedTask.serverTaskId || selectedTask.id },
+                    { label: '耗时', value: formatDuration((selectedTask.finishedAt ?? Date.now()) - (selectedTask.startedAt ?? selectedTask.createdAt)) },
+                    { label: '源文件', value: selectedTask.sourcePath },
+                  ].map((item) => (
+                    <div key={item.label} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{item.label}</div>
+                      <div style={{ marginTop: 6, fontSize: 13, fontWeight: 600, color: 'var(--fg)', wordBreak: 'break-all' }}>{item.value}</div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Actions */}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-                {(selected.status === 'pending' || selected.status === 'running') && (
-                  <button style={btnDangerStyle} disabled={!selected.serverTaskId} onClick={() => handleCancel(selected.id)}>
-                    <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4l6 6M10 4l-6 6" /></svg>
-                    取消任务
-                  </button>
-                )}
-                {(selected.status === 'failed' || selected.status === 'cancelled') && (
-                  <button style={btnPrimaryStyle} disabled={!selected.serverTaskId} onClick={() => handleRetry(selected.id)}>
-                    重试
-                  </button>
-                )}
-                <button style={btnStyle} onClick={() => removeTask(selected.id)}>
-                  删除
-                </button>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) minmax(260px, 1fr)', gap: 16 }}>
+                <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>执行进度</div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>{selectedTask.message || '等待状态回传'}</div>
+                    </div>
+                    <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
+                      {Math.max(0, Math.min(100, selectedTask.progress))}%
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 16, height: 8, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        width: `${Math.max(0, Math.min(100, selectedTask.progress))}%`,
+                        height: '100%',
+                        background: selectedTask.status === 'failed' ? 'var(--error)' : selectedTask.status === 'completed' ? 'var(--success)' : 'var(--accent)',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ marginTop: 18 }}>
+                    <PipelineTimeline task={selectedTask} />
+                  </div>
+                </div>
+
+                <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>产物入口</div>
+                  <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                    完成后优先看主产物，其余文件作为排障或复核材料。
+                  </div>
+
+                  {artifacts.length === 0 ? (
+                    <div style={{ marginTop: 18, fontSize: 13, color: 'var(--muted)' }}>后端还没有返回产物文件。</div>
+                  ) : (
+                    <div style={{ marginTop: 18, display: 'grid', gap: 12 }}>
+                      {artifacts.map((artifact) => (
+                        <div key={`${artifact.kind}-${artifact.path}`} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg)' }}>
+                                {artifact.primary ? '主产物' : artifact.kind}
+                              </div>
+                              <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)', wordBreak: 'break-all' }}>
+                                {artifact.path}
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              {artifact.audio ? (
+                                <ToolbarButton variant="secondary" onClick={() => handlePlayArtifact(artifact.path, artifact.kind)}>
+                                  播放
+                                </ToolbarButton>
+                              ) : null}
+                              <ToolbarButton variant="ghost" onClick={() => void copyToClipboard(artifact.path)}>
+                                复制路径
+                              </ToolbarButton>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Output artifacts */}
-              {selected.status === 'completed' && selected.artifacts && Object.keys(selected.artifacts.files).length > 0 && (
-                <div style={{ marginBottom: 20 }}>
-                  <h3 style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
-                    输出产物
-                  </h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {Object.entries(selected.artifacts.files).map(([type, path]) => (
-                      <div key={type} style={{
-                        display: 'flex', alignItems: 'center', gap: 10,
-                        padding: '10px 12px', background: 'var(--bg)', borderRadius: 6, fontSize: 13,
-                      }}>
-                        <span style={{ color: 'var(--muted)', fontSize: 14 }}>
-                          {type.includes('audio') || type.includes('mix') ? '♪' : '📄'}
-                        </span>
-                        <span style={{ flex: 1, fontWeight: 500 }}>{path.split(/[/\\]/).pop()}</span>
-                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{type}</span>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          {(type.includes('audio') || type.includes('mix')) && (
-                            <button style={smallBtnStyle} onClick={() => handlePlayArtifact(path, type)}>播放</button>
-                          )}
-                          <button style={smallBtnStyle}>打开目录</button>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) minmax(260px, 1fr)', gap: 16 }}>
+                <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>参数快照</div>
+                  <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                    失败排查先看这里，而不是先翻日志。
+                  </div>
+
+                  <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                    {Object.entries(selectedTask.params).map(([key, value]) => (
+                      <div key={key} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{paramLabel(key)}</div>
+                        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--fg)', wordBreak: 'break-all' }}>
+                          {formatParamValue(value)}
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
-              )}
 
-              {/* Logs for selected task */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <h3 style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    任务日志
-                  </h3>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    {LOG_LEVEL_OPTS.map(opt => (
+                <div style={{ ...SURFACE_STYLE, padding: '18px 20px', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>日志</div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                        日志只作为详情区的排障工具。
+                      </div>
+                    </div>
+                    <ToolbarButton variant="ghost" onClick={clearLogs} disabled={logs.length === 0}>
+                      清空日志
+                    </ToolbarButton>
+                  </div>
+
+                  <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {LOG_LEVELS.map((level) => (
                       <button
-                        key={opt.value}
-                        onClick={() => toggleLogLevel(opt.value)}
+                        key={level.value}
+                        type="button"
+                        onClick={() => toggleLogLevel(level.value)}
                         style={{
-                          fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)',
-                          background: levelFilter.includes(opt.value) ? 'var(--accent)' : 'transparent',
-                          color: levelFilter.includes(opt.value) ? 'white' : 'var(--muted)',
+                          padding: '6px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--border)',
+                          background: levelFilter.includes(level.value) ? 'var(--accent-soft)' : 'var(--surface)',
+                          color: levelFilter.includes(level.value) ? 'var(--accent)' : 'var(--muted-strong)',
+                          fontSize: 12,
+                          fontWeight: 600,
                           cursor: 'pointer',
                         }}
-                      >{opt.label}</button>
+                      >
+                        {level.label}
+                      </button>
                     ))}
-                    <button style={{ ...smallBtnStyle, border: 'none' }} onClick={clearLogs}>清空</button>
                   </div>
-                </div>
-                <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '8px 0', maxHeight: 200, overflowY: 'auto' }}>
-                  {filteredLogs.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 12, padding: 16 }}>暂无日志</div>
-                  ) : filteredLogs.map(entry => (
-                    <div key={entry.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '4px 12px', fontSize: 12, lineHeight: 1.5 }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)', flexShrink: 0, fontSize: 11 }}>
-                        {new Date(entry.timestamp).toLocaleTimeString()}
-                      </span>
-                      <span style={{
-                        fontSize: 10, padding: '1px 4px', borderRadius: 3, flexShrink: 0,
-                        background: entry.level === 'error' ? '#fef2f2' : entry.level === 'warn' ? '#fffbeb' : '#eff6ff',
-                        color: entry.level === 'error' ? '#b91c1c' : entry.level === 'warn' ? '#92400e' : '#1d4ed8',
-                      }}>{entry.level.toUpperCase()}</span>
-                      <span style={{ wordBreak: 'break-word' }}>{entry.content}</span>
-                    </div>
-                  ))}
+
+                  <div
+                    style={{
+                      marginTop: 14,
+                      flex: 1,
+                      minHeight: 220,
+                      overflow: 'auto',
+                      display: 'grid',
+                      gap: 10,
+                    }}
+                  >
+                    {filteredLogs.length === 0 ? (
+                      <div style={{ display: 'grid', placeItems: 'center', minHeight: 180, color: 'var(--muted)' }}>
+                        当前任务暂无匹配日志。
+                      </div>
+                    ) : (
+                      filteredLogs.map((entry) => (
+                        <div
+                          key={entry.id}
+                          style={{
+                            padding: '12px 14px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'var(--panel-muted)',
+                            borderLeft: `3px solid ${
+                              entry.level === 'error'
+                                ? 'var(--error)'
+                                : entry.level === 'warn'
+                                  ? 'var(--warning)'
+                                  : 'var(--accent)'
+                            }`,
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 11, color: 'var(--muted)' }}>
+                            <span>{entry.level.toUpperCase()}</span>
+                            <span>{formatDateTime(entry.timestamp)}</span>
+                          </div>
+                          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--fg)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            {entry.content}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
             </>
           )}
-        </div>
+        </section>
       </div>
     </div>
   )
 }
-
-/* ── Helpers ──────────────────────────────────────── */
-function formatRelativeTime(ts: number): string {
-  const diff = Date.now() - ts
-  if (diff < 60000) return '刚刚'
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
-  return new Date(ts).toLocaleDateString()
-}
-
-function formatDuration(ms: number): string {
-  const s = Math.floor(ms / 1000)
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  const rs = s % 60
-  return `${m}m ${rs}s`
-}
-
-function jobTypeLabel(t: string): string {
-  const map: Record<string, string> = {
-    pipeline: 'ASMR 双语双轨',
-    'translate-subtitle': '字幕翻译',
-    'script-to-vtt': '台本转字幕',
-    separate: '人声分离',
-    asr: 'ASR 识别',
-    tts: 'TTS 合成',
-    convert: '格式转换',
-    split: '音频分割',
-    'voice-design': '音色设计',
-    'voice-clone': '音色克隆',
-    'voice-preview': '音色试听',
-  }
-  return map[t] ?? t
-}
-
-function paramLabel(key: string): string {
-  const map: Record<string, string> = {
-    source_lang: '源语言',
-    target_lang: '目标语言',
-    tts_engine: 'TTS 引擎',
-    tts_voice: 'TTS 音色',
-    asr_model: 'ASR 模型',
-    translate_provider: '翻译服务',
-    vocal_model: '人声分离',
-    tts_speed: '语速',
-    original_volume: '原声音量',
-    tts_volume_ratio: '配音音量比',
-    tts_delay: '配音延迟',
-    skip_existing: '跳过已存在',
-    output_dir: '输出目录',
-    input_path: '输入路径',
-    vtt_path: 'VTT 字幕',
-    use_vocal_separator: '人声分离',
-    voice_profile_id: '音色配置',
-    preset: '预设',
-  }
-  return map[key] ?? key
-}
-
-/* ── Button styles ────────────────────────────────── */
-const btnBase: React.CSSProperties = {
-  fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 500,
-  padding: '7px 14px', borderRadius: 6, border: '1px solid var(--border)',
-  background: 'var(--surface)', color: 'var(--fg)', cursor: 'pointer',
-  display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnStyle: React.CSSProperties = { ...btnBase }
-const btnPrimaryStyle: React.CSSProperties = { ...btnBase, background: 'var(--accent)', color: 'white', borderColor: 'var(--accent)' }
-const btnDangerStyle: React.CSSProperties = { ...btnBase, borderColor: '#fca5a5', color: '#b91c1c' }
-const btnSuccessStyle: React.CSSProperties = { ...btnBase, background: '#22c55e', color: 'white', borderColor: '#22c55e' }
-const btnWarnStyle: React.CSSProperties = { ...btnBase, background: '#fef3c7', color: '#92400e', borderColor: '#fde68a' }
-const smallBtnStyle: React.CSSProperties = { fontSize: 11, padding: '3px 8px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--muted)', cursor: 'pointer' }

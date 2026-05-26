@@ -298,7 +298,7 @@ class PipelineService:
                 },
                 "llm": {
                     "provider": request.translate_provider,
-                    "model": "default",
+                    "model": request.translate_model or "default",
                     "common_options": {},
                     "provider_options": {},
                 },

@@ -1,14 +1,15 @@
-import { useEffect, useState, useCallback } from 'react'
-import { useWorkbenchStore } from '@/stores/workbenchStore'
-import { useTaskStore } from '@/stores/taskStore'
-import { useLogStore } from '@/stores/logStore'
-import { useFileSelector } from '@/hooks/useFileSelector'
-import { useTaskPolling } from '@/hooks/useTaskPolling'
+import { useCallback, useEffect, useState } from 'react'
+import type { CSSProperties, DragEvent, ReactNode } from 'react'
+
 import { pipelineApi } from '@/api/pipeline'
 import type { PipelineRunRequest } from '@/api/types'
+import { useFileSelector } from '@/hooks/useFileSelector'
+import { useTaskPolling } from '@/hooks/useTaskPolling'
+import { useLogStore } from '@/stores/logStore'
+import { useNavStore } from '@/stores/navStore'
+import { useTaskStore } from '@/stores/taskStore'
 import type { TaskStatus } from '@/stores/taskStore'
-
-// ── Option constants ────────────────────────────────────
+import { useWorkbenchStore } from '@/stores/workbenchStore'
 
 const LANG_OPTIONS = [
   { value: 'ja', label: '日语 (ja)' },
@@ -39,46 +40,337 @@ const VOCAL_MODEL_OPTIONS = [
   { value: 'htdemucs_ft', label: 'htdemucs_ft' },
 ]
 
-// ── SVG Icons ───────────────────────────────────────────
+const STATUS_LABELS: Record<TaskStatus, string> = {
+  pending: '排队中',
+  running: '运行中',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+  skipped: '已跳过',
+}
+
+const SURFACE_STYLE: CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-card)',
+  boxShadow: 'var(--shadow-panel)',
+}
+
+const STAGE_NAMES = ['人声分离', 'ASR 识别', '字幕翻译', 'TTS 合成', '混音输出']
+
+type Option = { value: string; label: string }
 
 const PlayIcon = () => (
-  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M5 3l7 4-7 4V3z" fill="currentColor" stroke="none" />
-  </svg>
-)
-
-const PreviewIcon = () => (
-  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8">
-    <circle cx="7" cy="7" r="5.5" /><path d="M5 7h4M7 5v4" />
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <path d="M4.5 3.25 10 7l-5.5 3.75z" fill="currentColor" stroke="none" />
   </svg>
 )
 
 const UploadIcon = () => (
-  <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <path d="M14 5v12M9 12l5 5 5-5" /><path d="M5 20v3h18v-3" />
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+    <path d="M8 3v7M5.25 5.75 8 3l2.75 2.75M3.25 11.75h9.5" />
   </svg>
 )
 
-const MusicIcon = () => (
-  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <path d="M5 3v8M5 11a3 3 0 100-2M12 2v8M12 10a3 3 0 100-2" />
+const ArrowIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6">
+    <path d="M3 7h8M7.75 3.5 11 7l-3.25 3.5" />
   </svg>
 )
 
 const ChevronIcon = ({ open }: { open: boolean }) => (
-  <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5"
-    style={{ transform: open ? 'rotate(180deg)' : 'rotate(-90deg)', transition: 'transform 0.15s' }}>
-    <path d="M3 5l3 3 3-3" />
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 14 14"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.16s ease' }}
+  >
+    <path d="m3.5 5.25 3.5 3.5 3.5-3.5" />
   </svg>
 )
 
-const InfoIcon = () => (
-  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <circle cx="8" cy="8" r="6" /><path d="M8 7v4M8 5.5v.5" />
-  </svg>
-)
+function mergeUniquePaths(current: string[], incoming: string[]) {
+  return Array.from(new Set([...current, ...incoming]))
+}
 
-// ── Component ───────────────────────────────────────────
+function fileName(path: string) {
+  return path.split(/[/\\]/).pop() ?? path
+}
+
+function optionLabel(options: Option[], value: string) {
+  return options.find((item) => item.value === value)?.label ?? value
+}
+
+function formatRelativeTime(timestamp: number) {
+  const delta = Math.max(0, Date.now() - timestamp)
+  const minutes = Math.floor(delta / 60000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes} 分钟前`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  return `${Math.floor(hours / 24)} 天前`
+}
+
+function Section({
+  title,
+  caption,
+  open = true,
+  onToggle,
+  actions,
+  children,
+}: {
+  title: string
+  caption?: string
+  open?: boolean
+  onToggle?: () => void
+  actions?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section style={{ ...SURFACE_STYLE, overflow: 'hidden' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '16px 18px',
+          borderBottom: open ? '1px solid var(--border)' : 'none',
+        }}
+      >
+        {onToggle ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--fg)',
+              cursor: 'pointer',
+              padding: 0,
+              textAlign: 'left',
+            }}
+          >
+            <ChevronIcon open={open} />
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
+              {caption ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>{caption}</div> : null}
+            </div>
+          </button>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
+              {caption ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>{caption}</div> : null}
+            </div>
+          </div>
+        )}
+        <div style={{ flex: 1 }} />
+        {actions}
+      </div>
+      {open ? <div style={{ padding: 18 }}>{children}</div> : null}
+    </section>
+  )
+}
+
+function ActionButton({
+  children,
+  variant = 'secondary',
+  disabled,
+  onClick,
+}: {
+  children: ReactNode
+  variant?: 'primary' | 'secondary' | 'ghost'
+  disabled?: boolean
+  onClick?: () => void
+}) {
+  const styles: Record<string, CSSProperties> = {
+    primary: {
+      background: 'var(--accent)',
+      color: 'white',
+      border: '1px solid var(--accent)',
+      boxShadow: 'var(--shadow-float)',
+    },
+    secondary: {
+      background: 'var(--surface)',
+      color: 'var(--fg)',
+      border: '1px solid var(--border)',
+    },
+    ghost: {
+      background: 'transparent',
+      color: 'var(--muted)',
+      border: '1px solid transparent',
+    },
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        minHeight: 38,
+        padding: '0 14px',
+        borderRadius: 'var(--radius-button)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        fontSize: 13,
+        fontWeight: 600,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+        transition: 'transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease',
+        ...styles[variant],
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function FieldLabel({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)' }}>{title}</div>
+      {hint ? <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{hint}</div> : null}
+    </div>
+  )
+}
+
+function SelectField({
+  title,
+  hint,
+  value,
+  options,
+  onChange,
+}: {
+  title: string
+  hint?: string
+  value: string
+  options: Option[]
+  onChange: (value: string) => void
+}) {
+  return (
+    <div>
+      <FieldLabel title={title} hint={hint} />
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        style={{
+          width: '100%',
+          minHeight: 40,
+          padding: '0 12px',
+          borderRadius: 'var(--radius-sm)',
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          color: 'var(--fg)',
+          fontSize: 13,
+        }}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+function RangeField({
+  title,
+  hint,
+  value,
+  min,
+  max,
+  step,
+  displayValue,
+  onChange,
+}: {
+  title: string
+  hint?: string
+  value: number
+  min: number
+  max: number
+  step: number
+  displayValue: string
+  onChange: (value: number) => void
+}) {
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+        <FieldLabel title={title} hint={hint} />
+        <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{displayValue}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        style={{ width: '100%', accentColor: 'var(--accent)' }}
+      />
+    </div>
+  )
+}
+
+function ToggleField({
+  title,
+  hint,
+  checked,
+  onChange,
+}: {
+  title: string
+  hint?: string
+  checked: boolean
+  onChange: (value: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+        padding: '12px 14px',
+        borderRadius: 'var(--radius-sm)',
+        border: '1px solid var(--border)',
+        background: checked ? 'var(--accent-soft)' : 'var(--surface)',
+        cursor: 'pointer',
+        textAlign: 'left',
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)' }}>{title}</div>
+        {hint ? <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{hint}</div> : null}
+      </div>
+      <span
+        style={{
+          minWidth: 52,
+          minHeight: 28,
+          borderRadius: 999,
+          background: checked ? 'var(--accent)' : 'var(--panel-muted)',
+          color: checked ? 'white' : 'var(--muted)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 11,
+          fontWeight: 700,
+        }}
+      >
+        {checked ? '开启' : '关闭'}
+      </span>
+    </button>
+  )
+}
 
 export default function Workbench() {
   useTaskPolling(3000)
@@ -100,65 +392,66 @@ export default function Workbench() {
     toggleAdv,
   } = useWorkbenchStore()
 
-  const addTask = useTaskStore((s) => s.addTask)
-  const updateTask = useTaskStore((s) => s.updateTask)
-  const tasks = useTaskStore((s) => s.tasks)
-  const addLog = useLogStore((s) => s.addLog)
+  const addTask = useTaskStore((state) => state.addTask)
+  const updateTask = useTaskStore((state) => state.updateTask)
+  const tasks = useTaskStore((state) => state.tasks)
+  const addLog = useLogStore((state) => state.addLog)
+  const setPage = useNavStore((state) => state.setPage)
   const { selectFiles } = useFileSelector()
 
   const [dragOver, setDragOver] = useState(false)
 
-  // Load presets on mount
   useEffect(() => {
-    pipelineApi.presets().then((res) => {
-      useWorkbenchStore.getState().setPresets(res.presets)
-      if (res.presets.length > 0 && !preset) {
-        setPreset(res.presets[0]!.id)
-      }
-    }).catch(() => { })
+    pipelineApi
+      .presets()
+      .then((response) => {
+        useWorkbenchStore.getState().setPresets(response.presets)
+        if (response.presets.length > 0 && !preset) {
+          setPreset(response.presets[0]!.id)
+        }
+      })
+      .catch(() => undefined)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Task stats
-  const runningCount = tasks.filter((t) => t.status === 'running').length
-  const pendingCount = tasks.filter((t) => t.status === 'pending').length
-  const completedCount = tasks.filter((t) => t.status === 'completed').length
-  const recentTasks = tasks.slice(-8).reverse()
+  const runningCount = tasks.filter((task) => task.status === 'running').length
+  const pendingCount = tasks.filter((task) => task.status === 'pending').length
+  const completedCount = tasks.filter((task) => task.status === 'completed').length
+  const recentTasks = tasks.slice(-5).reverse()
 
-  // File handling
   const handleSelectFiles = useCallback(async () => {
     const files = await selectFiles()
     if (files.length > 0) {
-      setFiles([...selectedFiles, ...files.filter((f) => !selectedFiles.includes(f))])
+      setFiles(mergeUniquePaths(selectedFiles, files))
     }
-  }, [selectedFiles, selectFiles, setFiles])
+  }, [selectFiles, selectedFiles, setFiles])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
+  const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
     setDragOver(false)
-    const dropped = Array.from(e.dataTransfer.files)
-    if (dropped.length > 0) {
-      // In Tauri, dataTransfer.files may have full paths via .path
-      // In browser, only .name is available — prompt for directory
-      const paths = dropped.map((f) => (f as File & { path?: string }).path || f.name)
-      const hasFullPath = paths.some((p) => p.includes('/') || p.includes('\\'))
-      if (hasFullPath) {
-        setFiles([...selectedFiles, ...paths.filter((f) => !selectedFiles.includes(f))])
-      } else {
-        const dir = prompt(
-          '浏览器模式无法获取完整路径。请输入文件所在目录：\n' +
-          `（文件：${paths.join(', ')}）`,
-          'D:\\Asmr'
-        )
-        if (dir) {
-          const sep = dir.includes('/') ? '/' : '\\'
-          const fullPaths = paths.map((name) => `${dir}${sep}${name}`)
-          setFiles([...selectedFiles, ...fullPaths.filter((f) => !selectedFiles.includes(f))])
-        }
-      }
+
+    const dropped = Array.from(event.dataTransfer.files)
+    if (dropped.length === 0) return
+
+    const paths = dropped.map((file) => (file as File & { path?: string }).path || file.name)
+    const hasFullPath = paths.some((path) => path.includes('/') || path.includes('\\'))
+
+    if (hasFullPath) {
+      setFiles(mergeUniquePaths(selectedFiles, paths))
+      return
     }
+
+    const dir = prompt(
+      '浏览器模式无法获取完整路径。请输入文件所在目录：\n' + `（文件：${paths.join(', ')}）`,
+      'D:\\Asmr',
+    )
+
+    if (!dir) return
+
+    const sep = dir.includes('/') ? '/' : '\\'
+    const fullPaths = paths.map((name) => `${dir}${sep}${name}`)
+    setFiles(mergeUniquePaths(selectedFiles, fullPaths))
   }, [selectedFiles, setFiles])
 
-  // Execute
   const handleExecute = async () => {
     if (selectedFiles.length === 0) return
 
@@ -183,631 +476,594 @@ export default function Workbench() {
 
       const taskId = addTask({
         jobType: 'pipeline',
-        sourceName: filePath.split(/[/\\]/).pop() ?? filePath,
+        sourceName: fileName(filePath),
         sourcePath: filePath,
         params: request as unknown as Record<string, unknown>,
       })
-      updateTask(taskId, { status: 'running', message: 'request dispatched' })
-      addLog({ level: 'info', content: `任务已创建: ${filePath}`, taskId })
+
+      updateTask(taskId, {
+        status: 'running',
+        message: '请求已发送，等待后端接管',
+        progress: 5,
+      })
+      addLog({ level: 'info', content: `任务已创建：${filePath}`, taskId })
 
       pipelineApi
         .run(request)
-        .then((res) => {
-          const serverTaskId = res.task_id ?? res.task?.task_id ?? undefined
-          const finalStatus: TaskStatus = (res.task?.state ?? (res.success ? 'completed' : 'failed')) as TaskStatus
+        .then((response) => {
+          const finalStatus = (response.task?.state ?? (response.success ? 'completed' : 'failed')) as TaskStatus
+
           useTaskStore.getState().updateTask(taskId, {
-            serverTaskId,
+            serverTaskId: response.task_id ?? response.task?.task_id ?? undefined,
             status: finalStatus,
-            progress: res.task?.progress ?? (res.success ? 1 : 0),
-            message: res.task?.message ?? '',
-            detail: res.task?.detail ?? '',
-            artifacts: res.artifacts
-              ? { files: res.artifacts.files, primaryOutput: res.artifacts.primary_output ?? undefined }
+            progress: response.task?.progress ?? (response.success ? 100 : 0),
+            message: response.task?.message ?? (response.success ? '任务已完成' : '任务失败'),
+            detail: response.task?.detail ?? '',
+            artifacts: response.artifacts
+              ? {
+                  files: response.artifacts.files,
+                  primaryOutput: response.artifacts.primary_output ?? undefined,
+                }
               : undefined,
-            errorMessage: res.error_message ?? undefined,
+            errorMessage: response.error_message ?? undefined,
           })
+
           addLog({
             level: finalStatus === 'completed' || finalStatus === 'skipped' ? 'info' : 'error',
-            content: res.success ? `任务完成: ${res.input_path}` : `任务失败: ${res.error_message}`,
+            content: response.success
+              ? `任务完成：${response.input_path}`
+              : `任务失败：${response.error_message ?? '未知错误'}`,
             taskId,
           })
         })
-        .catch((err) => {
-          useTaskStore.getState().updateTask(taskId, { status: 'failed', errorMessage: String(err) })
-          addLog({ level: 'error', content: `任务异常: ${String(err)}`, taskId })
+        .catch((error) => {
+          useTaskStore.getState().updateTask(taskId, {
+            status: 'failed',
+            progress: 0,
+            message: '请求失败',
+            errorMessage: String(error),
+          })
+          addLog({ level: 'error', content: `任务异常：${String(error)}`, taskId })
         })
     }
+
+    setPage('task-center')
   }
 
   const presetOptions = presets.length > 0
-    ? presets.map((p) => ({ value: p.id, label: p.label || p.id }))
-    : [{ value: '', label: '加载中...' }]
+    ? presets.map((item) => ({ value: item.id, label: item.label || item.id }))
+    : [{ value: '', label: '加载预设中...' }]
+
+  const currentPreset = presets.find((item) => item.id === preset) ?? null
 
   const ttsVoiceOptions = params.ttsEngine === 'qwen3'
     ? [
-      { value: 'Serena', label: 'Serena (预设)' },
-      { value: 'Vivian', label: 'Vivian (预设)' },
-      { value: 'Chelsie', label: 'Chelsie (预设)' },
-    ]
+        { value: 'Serena', label: 'Serena (预设)' },
+        { value: 'Vivian', label: 'Vivian (预设)' },
+        { value: 'Chelsie', label: 'Chelsie (预设)' },
+      ]
     : [
-      { value: 'zh-CN-XiaoxiaoNeural', label: 'XiaoxiaoNeural' },
-      { value: 'zh-CN-YunxiNeural', label: 'YunxiNeural' },
-      { value: 'zh-CN-XiaoyiNeural', label: 'XiaoyiNeural' },
-      { value: 'ja-JP-NanamiNeural', label: 'NanamiNeural' },
-      { value: 'en-US-JennyNeural', label: 'JennyNeural' },
-    ]
+        { value: 'zh-CN-XiaoxiaoNeural', label: 'XiaoxiaoNeural' },
+        { value: 'zh-CN-YunxiNeural', label: 'YunxiNeural' },
+        { value: 'zh-CN-XiaoyiNeural', label: 'XiaoyiNeural' },
+        { value: 'ja-JP-NanamiNeural', label: 'NanamiNeural' },
+        { value: 'en-US-JennyNeural', label: 'JennyNeural' },
+      ]
+
+  const stageSummary = [
+    {
+      title: STAGE_NAMES[0],
+      enabled: params.useVocalSeparator,
+      detail: params.useVocalSeparator ? `模型：${params.vocalModel}` : '关闭后会直接进入 ASR',
+    },
+    {
+      title: STAGE_NAMES[1],
+      enabled: true,
+      detail: `模型：${params.asrModel}`,
+    },
+    {
+      title: STAGE_NAMES[2],
+      enabled: params.sourceLang !== params.targetLang,
+      detail: `${optionLabel(LANG_OPTIONS, params.sourceLang)} → ${optionLabel(LANG_OPTIONS, params.targetLang)} · ${params.translateProvider}`,
+    },
+    {
+      title: STAGE_NAMES[3],
+      enabled: true,
+      detail: `${params.ttsEngine} · ${params.ttsVoice}`,
+    },
+    {
+      title: STAGE_NAMES[4],
+      enabled: true,
+      detail: `原声 ${Math.round(params.originalVolume * 100)}% · TTS ${Math.round(params.ttsVolumeRatio * 100)}%`,
+    },
+  ]
+
+  const outputSummary = [
+    '混音成品音频',
+    '字幕/文本产物',
+    params.useVocalSeparator ? '分离人声中间产物' : '直接跳过人声分离',
+  ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-
-      {/* ── Action Bar ─────────────────────────────── */}
-      <header style={{
-        padding: '16px 24px 12px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        flexShrink: 0,
-        borderBottom: '1px solid var(--border)',
-      }}>
-        <h1 style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: 15,
-          fontWeight: 600,
-          letterSpacing: '-0.02em',
-          marginRight: 8,
-          color: 'var(--fg)',
-        }}>
-          工作台
-        </h1>
-
-        {/* Task pills */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {runningCount > 0 && (
-            <span style={{
-              fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 10,
-              background: 'oklch(93% 0.04 255)', color: 'oklch(42% 0.14 255)',
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-            }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'oklch(65% 0.16 255)' }} />
-              {runningCount} 运行中
-            </span>
-          )}
-          {pendingCount > 0 && (
-            <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 10, background: 'oklch(95% 0.01 90)', color: 'oklch(50% 0.06 90)' }}>
-              {pendingCount} 排队
-            </span>
-          )}
-          {completedCount > 0 && (
-            <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 10, background: 'oklch(94% 0.03 145)', color: 'oklch(38% 0.10 145)' }}>
-              {completedCount} 完成
-            </span>
-          )}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <header
+        style={{
+          padding: '22px 28px 18px',
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--surface)',
+          display: 'flex',
+          gap: 20,
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ minWidth: 260 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Mainline Workspace
+          </div>
+          <h1 style={{ marginTop: 8, fontSize: 26, lineHeight: 1.15, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
+            工作台
+          </h1>
+          <p style={{ marginTop: 8, color: 'var(--muted)', maxWidth: 520 }}>
+            先选择输入，再确认流水线和关键参数，最后把任务交给 TaskCenter 跟踪。
+          </p>
         </div>
 
-        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <ActionButton variant="secondary" onClick={handleSelectFiles}>
+            <UploadIcon />
+            添加音频
+          </ActionButton>
+          <div style={{ minWidth: 210 }}>
+            <select
+              value={preset}
+              onChange={(event) => setPreset(event.target.value)}
+              style={{
+                width: '100%',
+                minHeight: 38,
+                padding: '0 12px',
+                borderRadius: 'var(--radius-button)',
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--fg)',
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              {presetOptions.map((option) => (
+                <option key={option.value || 'loading'} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <ActionButton variant="ghost" disabled={selectedFiles.length === 0} onClick={() => setFiles([])}>
+            清空列表
+          </ActionButton>
+          <ActionButton variant="primary" disabled={selectedFiles.length === 0} onClick={handleExecute}>
+            <PlayIcon />
+            创建并执行
+          </ActionButton>
+        </div>
 
-        <button style={{
-          fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 500,
-          padding: '7px 14px', borderRadius: 'var(--radius-sm)',
-          border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--fg)',
-          cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
-        }}>
-          <PreviewIcon />
-          预览合成
-        </button>
-        <button
-          onClick={handleExecute}
-          disabled={selectedFiles.length === 0}
-          style={{
-            fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 500,
-            padding: '7px 14px', borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--accent)', background: 'var(--accent)', color: 'white',
-            cursor: selectedFiles.length === 0 ? 'not-allowed' : 'pointer',
-            opacity: selectedFiles.length === 0 ? 0.5 : 1,
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-          }}
-        >
-          <PlayIcon />
-          创建并执行
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {[
+            { label: '运行中', value: runningCount, background: 'var(--accent-soft)', color: 'var(--accent)' },
+            { label: '排队', value: pendingCount, background: 'var(--panel-muted)', color: 'var(--muted-strong)' },
+            { label: '已完成', value: completedCount, background: 'var(--success-soft)', color: 'var(--success)' },
+          ].map((stat) => (
+            <div
+              key={stat.label}
+              style={{
+                minWidth: 88,
+                padding: '10px 12px',
+                borderRadius: 'var(--radius-sm)',
+                background: stat.background,
+              }}
+            >
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{stat.label}</div>
+              <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700, color: stat.color }}>{stat.value}</div>
+            </div>
+          ))}
+        </div>
       </header>
 
-      {/* ── Main Content ───────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', flex: 1, overflow: 'hidden' }}>
-
-        {/* ── Work Area ────────────────────────────── */}
-        <div style={{ padding: '16px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-          {/* ── Top Row: Files (left) + Selectors (right) ── */}
-          <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
-
-            {/* Input Files */}
-            <div style={{
-              flex: 1, minWidth: 0,
-              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-              display: 'flex', flexDirection: 'column',
-            }}>
-              <div style={{
-                padding: '12px 16px', fontSize: 13, fontWeight: 600, color: 'var(--fg)',
-                borderBottom: '1px solid var(--border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              }}>
-                <span>传入文件</span>
-                <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', background: 'var(--bg)', padding: '2px 8px', borderRadius: 10 }}>
-                  {selectedFiles.length} 个文件
-                </span>
-              </div>
-
-              {/* Drop Zone */}
-              <div
-                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={handleDrop}
-                onClick={handleSelectFiles}
-                style={{
-                  border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
-                  borderRadius: 'var(--radius-sm)',
-                  margin: 12,
-                  padding: '24px 20px',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  transition: 'border-color 0.15s, background 0.15s',
-                  background: dragOver ? 'oklch(97% 0.02 255)' : 'transparent',
-                }}
-              >
-                <div style={{ color: 'var(--muted)', marginBottom: 6 }}><UploadIcon /></div>
-                <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                  <strong style={{ color: 'var(--fg)', fontWeight: 500 }}>拖入音频文件</strong> 或点击选择
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1.45fr) minmax(280px, 360px)',
+          gap: 20,
+          flex: 1,
+          minHeight: 0,
+          padding: 20,
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minHeight: 0, overflow: 'auto', paddingRight: 4 }}>
+          <Section
+            title="文件队列"
+            caption={selectedFiles.length === 0 ? '把音频拖进来，或点击“添加音频”' : `本次将处理 ${selectedFiles.length} 个音频文件`}
+            actions={
+              selectedFiles.length > 0 ? (
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{selectedFiles.length} items</span>
+              ) : null
+            }
+          >
+            <div
+              onDragOver={(event) => {
+                event.preventDefault()
+                setDragOver(true)
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              style={{
+                borderRadius: 'var(--radius-card)',
+                border: `1px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
+                background: dragOver ? 'var(--accent-soft)' : 'var(--panel-muted)',
+                padding: selectedFiles.length === 0 ? '36px 24px' : '14px',
+              }}
+            >
+              {selectedFiles.length === 0 ? (
+                <div style={{ textAlign: 'center' }}>
+                  <div
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 16,
+                      margin: '0 auto 14px',
+                      background: 'var(--surface)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--accent)',
+                    }}
+                  >
+                    <UploadIcon />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>先添加这次要处理的音频</div>
+                  <div style={{ marginTop: 8, fontSize: 13, color: 'var(--muted)' }}>
+                    Workbench 只关注主链路：输入、流水线、执行。
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                  WAV / MP3 / FLAC / OGG / M4A
-                </div>
-              </div>
-
-              {/* File List */}
-              {selectedFiles.length > 0 && (
-                <div style={{ paddingBottom: 4 }}>
-                  {selectedFiles.map((file) => (
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {selectedFiles.map((path) => (
                     <div
-                      key={file}
+                      key={path}
                       style={{
-                        padding: '8px 16px',
-                        display: 'flex',
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(0, 1fr) auto',
+                        gap: 12,
                         alignItems: 'center',
-                        gap: 10,
-                        borderBottom: '1px solid var(--border)',
-                        fontSize: 13,
+                        padding: '12px 14px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'var(--surface)',
+                        border: '1px solid var(--border)',
                       }}
                     >
-                      <span style={{ color: 'var(--muted)', flexShrink: 0 }}><MusicIcon /></span>
-                      <span style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>
-                        {file.split(/[/\\]/).pop()}
-                      </span>
-                      <span style={{ color: 'var(--muted)', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {file.replace(/[/\\][^/\\]+$/, '')}
-                      </span>
-                      <span
-                        onClick={(e) => { e.stopPropagation(); removeFile(file) }}
-                        style={{ color: 'var(--muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 4, borderRadius: 4, flexShrink: 0 }}
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {fileName(path)}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {path}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeFile(path)}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--border)',
+                          background: 'transparent',
+                          color: 'var(--muted)',
+                          cursor: 'pointer',
+                        }}
                       >
-                        ×
-                      </span>
+                        移除
+                      </button>
                     </div>
                   ))}
                 </div>
               )}
             </div>
+          </Section>
 
-            {/* Selector Boxes (right column) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: 200, flexShrink: 0 }}>
-              <SelectorBox label="预设" value={preset} onChange={setPreset} options={presetOptions} />
-              <SelectorBox label="ASR 模型" value={params.asrModel} onChange={(v) => updateParam('asrModel', v)} options={ASR_MODEL_OPTIONS} />
-              <SelectorBox label="TTS 引擎" value={params.ttsEngine} onChange={(v) => updateParam('ttsEngine', v)} options={TTS_ENGINE_OPTIONS} />
-            </div>
-          </div>
-
-          {/* ── 通用能力 (collapsible) ─────────────── */}
-          <CollapsiblePanel
-            title="通用能力"
-            hint="所有预设共有"
-            open={commonExpanded}
-            onToggle={toggleCommon}
-          >
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <CapGroup label="源语言">
-                <select value={params.sourceLang} onChange={(e) => updateParam('sourceLang', e.target.value)} style={selectStyle}>
-                  {LANG_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </CapGroup>
-              <CapGroup label="目标语言">
-                <select value={params.targetLang} onChange={(e) => updateParam('targetLang', e.target.value)} style={selectStyle}>
-                  {LANG_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </CapGroup>
-              <CapGroup label="翻译服务">
-                <select value={params.translateProvider} onChange={(e) => updateParam('translateProvider', e.target.value)} style={selectStyle}>
-                  {TRANSLATE_PROVIDER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </CapGroup>
-              <CapGroup label="TTS 音色">
-                <select value={params.ttsVoice} onChange={(e) => updateParam('ttsVoice', e.target.value)} style={selectStyle}>
-                  {ttsVoiceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </CapGroup>
-              <CapGroup label="原声音量">
-                <RangeRow value={params.originalVolume} min={0} max={1} step={0.05}
-                  onChange={(v) => updateParam('originalVolume', v)}
-                  format={(v) => `${Math.round(v * 100)}%`} />
-              </CapGroup>
-              <CapGroup label="配音音量比">
-                <RangeRow value={params.ttsVolumeRatio} min={0} max={1} step={0.05}
-                  onChange={(v) => updateParam('ttsVolumeRatio', v)}
-                  format={(v) => `${Math.round(v * 100)}%`} />
-              </CapGroup>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <CapGroup label="配音延迟">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>提前 5s</span>
-                    <input type="range" min={-5} max={5} step={0.1} value={params.ttsDelay}
-                      onChange={(e) => updateParam('ttsDelay', parseFloat(e.target.value))}
-                      style={{ flex: 1 }} />
-                    <span style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>延后 5s</span>
-                    <span style={{ fontSize: 12, color: 'var(--fg)', minWidth: 40, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
-                      {params.ttsDelay === 0 ? '0s' : (params.ttsDelay > 0 ? `+${params.ttsDelay}s` : `${params.ttsDelay}s`)}
+          <Section title="流水线预览" caption="让用户先看懂这次任务会经历什么">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              {stageSummary.map((stage, index) => (
+                <div
+                  key={stage.title}
+                  style={{
+                    padding: '14px 14px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    background: stage.enabled ? 'var(--surface)' : 'var(--panel-muted)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span
+                      style={{
+                        width: 26,
+                        height: 26,
+                        borderRadius: 999,
+                        background: stage.enabled ? 'var(--accent-soft)' : 'var(--surface)',
+                        color: stage.enabled ? 'var(--accent)' : 'var(--muted)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {index + 1}
                     </span>
-                  </div>
-                </CapGroup>
-              </div>
-            </div>
-          </CollapsiblePanel>
-
-          {/* ── 模型参数 (collapsible, dynamic) ─────── */}
-          <CollapsiblePanel
-            title="模型参数"
-            hint={params.ttsEngine === 'edge' ? 'Edge-TTS · 云端服务，无需额外配置' : 'Qwen3-TTS · 本地 GPU 模型，支持设计/克隆'}
-            open={modelExpanded}
-            onToggle={toggleModel}
-          >
-            {params.ttsEngine === 'edge' ? (
-              <div style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12,
-              }}>
-                <InfoIcon />
-                <span>Edge-TTS 是云端服务，使用固定音色列表，无需额外配置。</span>
-                <span>切换到 Qwen3-TTS 可使用音色设计、克隆等高级功能。</span>
-              </div>
-            ) : (
-              <Qwen3ModelParams params={params} updateParam={updateParam} />
-            )}
-          </CollapsiblePanel>
-
-          {/* ── 高级参数 (collapsible) ──────────────── */}
-          <CollapsiblePanel
-            title="高级参数"
-            hint="人声分离 / 语速 / 输出"
-            open={advExpanded}
-            onToggle={toggleAdv}
-          >
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <CapGroup label="人声分离">
-                <select value={params.useVocalSeparator ? 'on' : 'off'}
-                  onChange={(e) => updateParam('useVocalSeparator', e.target.value === 'on')}
-                  style={selectStyle}>
-                  <option value="on">开启</option>
-                  <option value="off">关闭</option>
-                </select>
-              </CapGroup>
-              <CapGroup label="分离模型">
-                <select value={params.vocalModel}
-                  onChange={(e) => updateParam('vocalModel', e.target.value)}
-                  style={selectStyle}>
-                  {VOCAL_MODEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </CapGroup>
-              <CapGroup label="语速">
-                <RangeRow value={params.ttsSpeed} min={0.5} max={2.0} step={0.1}
-                  onChange={(v) => updateParam('ttsSpeed', v)}
-                  format={(v) => `${v.toFixed(1)}×`} />
-              </CapGroup>
-              <CapGroup label="跳过已存在">
-                <select value={params.skipExisting ? 'yes' : 'no'}
-                  onChange={(e) => updateParam('skipExisting', e.target.value === 'yes')}
-                  style={selectStyle}>
-                  <option value="yes">是</option>
-                  <option value="no">否</option>
-                </select>
-              </CapGroup>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <CapGroup label="输出目录">
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input type="text" defaultValue="output/" placeholder="默认: output/" style={{ ...selectStyle, flex: 1 }} />
-                    <button style={btnSmStyle}>选择</button>
-                  </div>
-                </CapGroup>
-              </div>
-            </div>
-          </CollapsiblePanel>
-        </div>
-
-        {/* ── Right Sidebar ────────────────────────── */}
-        <aside style={{
-          background: 'var(--surface)',
-          borderLeft: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}>
-
-          {/* Task List */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderBottom: '1px solid var(--border)' }}>
-            <div style={{
-              padding: '12px 16px', fontSize: 11, fontWeight: 600, color: 'var(--muted)',
-              textTransform: 'uppercase', letterSpacing: '0.05em',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            }}>
-              <span>进行中的任务</span>
-              <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--accent)', textTransform: 'none', letterSpacing: 0, cursor: 'pointer' }}>
-                查看全部
-              </span>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-              {recentTasks.length === 0 ? (
-                <div style={{ padding: '20px 16px', textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
-                  暂无任务
-                </div>
-              ) : (
-                recentTasks.map((task) => (
-                  <div key={task.id} style={{
-                    padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10,
-                    fontSize: 12, borderBottom: '1px solid var(--border)',
-                  }}>
-                    <span style={{
-                      width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                      background: task.status === 'running' ? 'oklch(65% 0.16 255)'
-                        : task.status === 'pending' ? 'oklch(70% 0.08 60)'
-                          : task.status === 'completed' ? 'oklch(60% 0.16 145)'
-                            : 'oklch(55% 0.18 25)',
-                    }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {task.sourceName}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                        {task.status === 'running' ? `${task.message || '运行中'} · ${Math.round((task.progress ?? 0) * 100)}%`
-                          : task.status === 'pending' ? '排队中'
-                            : task.status === 'completed' ? '已完成'
-                              : '失败'}
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{stage.title}</div>
+                      <div style={{ marginTop: 3, fontSize: 11, color: stage.enabled ? 'var(--muted)' : 'var(--warning)' }}>
+                        {stage.enabled ? '启用' : '已降级/跳过'}
                       </div>
                     </div>
                   </div>
-                ))
-              )}
+                  <div style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)' }}>{stage.detail}</div>
+                </div>
+              ))}
             </div>
-            <div style={{ display: 'flex', gap: 8, padding: '8px 16px', borderTop: '1px solid var(--border)' }}>
-              {runningCount > 0 && <MiniPill type="running">{runningCount} 运行</MiniPill>}
-              {pendingCount > 0 && <MiniPill type="pending">{pendingCount} 排队</MiniPill>}
-              {completedCount > 0 && <MiniPill type="done">{completedCount} 完成</MiniPill>}
-            </div>
-          </div>
+          </Section>
 
-          {/* Params Summary */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{
-              padding: '12px 16px', fontSize: 11, fontWeight: 600, color: 'var(--muted)',
-              textTransform: 'uppercase', letterSpacing: '0.05em',
-              borderBottom: '1px solid var(--border)',
-            }}>
-              当前选择的参数
+          <Section title="常用参数" caption="只保留会影响主链路判断的配置" open={commonExpanded} onToggle={toggleCommon}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+              <SelectField
+                title="源语言"
+                value={params.sourceLang}
+                options={LANG_OPTIONS}
+                onChange={(value) => updateParam('sourceLang', value)}
+              />
+              <SelectField
+                title="目标语言"
+                value={params.targetLang}
+                options={LANG_OPTIONS}
+                onChange={(value) => updateParam('targetLang', value)}
+              />
+              <ToggleField
+                title="人声分离"
+                hint="开启后会先做 vocal separation"
+                checked={params.useVocalSeparator}
+                onChange={(value) => updateParam('useVocalSeparator', value)}
+              />
+              <ToggleField
+                title="跳过已有输出"
+                hint="适合重复执行同一批文件"
+                checked={params.skipExisting}
+                onChange={(value) => updateParam('skipExisting', value)}
+              />
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
-              <ParamRow label="预设" value={presets.find(p => p.id === preset)?.label ?? preset} />
-              <ParamRow label="ASR" value={params.asrModel} />
-              <ParamRow label="TTS" value={params.ttsEngine === 'edge' ? 'Edge-TTS' : 'Qwen3-TTS'} />
-              <ParamRow label="音色" value={params.ttsVoice.split('-').pop() ?? params.ttsVoice} />
-              <ParamRow label="源 → 目标" value={`${langLabel(params.sourceLang)} → ${langLabel(params.targetLang)}`} />
-              <ParamRow label="翻译" value={params.translateProvider === 'deepseek' ? 'DeepSeek' : 'OpenAI'} />
-              <ParamRow label="人声分离" value={params.useVocalSeparator ? '开启' : '关闭'} />
+          </Section>
+
+          <Section title="模型与引擎" caption="这些设置决定流水线每一阶段由谁来执行" open={modelExpanded} onToggle={toggleModel}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+              <SelectField
+                title="TTS 引擎"
+                value={params.ttsEngine}
+                options={TTS_ENGINE_OPTIONS}
+                onChange={(value) => updateParam('ttsEngine', value)}
+              />
+              <SelectField
+                title="TTS 声线"
+                value={params.ttsVoice}
+                options={ttsVoiceOptions}
+                onChange={(value) => updateParam('ttsVoice', value)}
+              />
+              <SelectField
+                title="ASR 模型"
+                value={params.asrModel}
+                options={ASR_MODEL_OPTIONS}
+                onChange={(value) => updateParam('asrModel', value)}
+              />
+              <SelectField
+                title="翻译提供方"
+                value={params.translateProvider}
+                options={TRANSLATE_PROVIDER_OPTIONS}
+                onChange={(value) => updateParam('translateProvider', value)}
+              />
+              <SelectField
+                title="分离模型"
+                value={params.vocalModel}
+                options={VOCAL_MODEL_OPTIONS}
+                onChange={(value) => updateParam('vocalModel', value)}
+              />
             </div>
-          </div>
+          </Section>
+
+          <Section title="高级参数" caption="保留，但不让它们占住主操作空间" open={advExpanded} onToggle={toggleAdv}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 18 }}>
+              <RangeField
+                title="语速"
+                value={params.ttsSpeed}
+                min={0.6}
+                max={1.6}
+                step={0.05}
+                displayValue={`${params.ttsSpeed.toFixed(2)}x`}
+                onChange={(value) => updateParam('ttsSpeed', value)}
+              />
+              <RangeField
+                title="原声保留"
+                value={params.originalVolume}
+                min={0}
+                max={1}
+                step={0.05}
+                displayValue={`${Math.round(params.originalVolume * 100)}%`}
+                onChange={(value) => updateParam('originalVolume', value)}
+              />
+              <RangeField
+                title="TTS 音量占比"
+                value={params.ttsVolumeRatio}
+                min={0}
+                max={1}
+                step={0.05}
+                displayValue={`${Math.round(params.ttsVolumeRatio * 100)}%`}
+                onChange={(value) => updateParam('ttsVolumeRatio', value)}
+              />
+              <RangeField
+                title="TTS 延迟"
+                value={params.ttsDelay}
+                min={-2}
+                max={2}
+                step={0.05}
+                displayValue={`${params.ttsDelay.toFixed(2)}s`}
+                onChange={(value) => updateParam('ttsDelay', value)}
+              />
+            </div>
+          </Section>
+        </div>
+
+        <aside style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0, overflow: 'auto', paddingRight: 4 }}>
+          <Section title="执行前确认" caption="点击执行前，先确认这次任务会发生什么">
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--panel-muted)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <div style={{ fontSize: 11, color: 'var(--muted)' }}>当前预设</div>
+                <div style={{ marginTop: 6, fontSize: 15, fontWeight: 700 }}>
+                  {currentPreset?.label || preset || '尚未选择'}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
+                  {currentPreset?.description || '如果预设尚未完善，也可以先按下方参数直接执行。'}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gap: 10 }}>
+                {[
+                  { label: '输入文件', value: selectedFiles.length === 0 ? '尚未选择' : `${selectedFiles.length} 个音频` },
+                  { label: '目标语言', value: optionLabel(LANG_OPTIONS, params.targetLang) },
+                  { label: 'TTS 引擎', value: optionLabel(TTS_ENGINE_OPTIONS, params.ttsEngine) },
+                  { label: '翻译提供方', value: optionLabel(TRANSLATE_PROVIDER_OPTIONS, params.translateProvider) },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      padding: '11px 0',
+                      borderBottom: '1px solid var(--border)',
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{item.label}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', textAlign: 'right' }}>{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Section>
+
+          <Section title="预计输出" caption="主链路优先保证成品、字幕和可预览产物">
+            <div style={{ display: 'grid', gap: 10 }}>
+              {outputSummary.map((item) => (
+                <div
+                  key={item}
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    fontSize: 13,
+                  }}
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          <Section
+            title="最近任务"
+            caption="如果已经开始跑任务，去 TaskCenter 跟踪阶段和产物"
+            actions={
+              <ActionButton variant="ghost" onClick={() => setPage('task-center')}>
+                查看任务中心
+                <ArrowIcon />
+              </ActionButton>
+            }
+          >
+            {recentTasks.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>还没有任务记录，从当前文件队列创建第一批任务即可。</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {recentTasks.map((task) => (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => setPage('task-center')}
+                    style={{
+                      textAlign: 'left',
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {task.sourceName}
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{formatRelativeTime(task.createdAt)}</span>
+                    </div>
+                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: 999,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          background: task.status === 'completed' ? 'var(--success-soft)' : task.status === 'failed' ? 'var(--error-soft)' : 'var(--accent-soft)',
+                          color: task.status === 'completed' ? 'var(--success)' : task.status === 'failed' ? 'var(--error)' : 'var(--accent)',
+                        }}
+                      >
+                        {STATUS_LABELS[task.status]}
+                      </span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {task.message || '等待更多状态信息'}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Section>
+
+          <Section title="预设阶段说明" caption="如果预设提供了阶段描述，优先用它做评审">
+            {currentPreset?.stages?.length ? (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {currentPreset.stages.map((stage) => (
+                  <div
+                    key={stage}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--panel-muted)',
+                      fontSize: 12,
+                      color: 'var(--fg)',
+                    }}
+                  >
+                    {stage}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                当前预设没有额外阶段说明，以上方“流水线预览”为准。
+              </div>
+            )}
+          </Section>
         </aside>
       </div>
     </div>
   )
-}
-
-// ── Qwen3 Model Params ─────────────────────────────────
-
-function Qwen3ModelParams({ params, updateParam }: {
-  params: { ttsVoice: string; ttsSpeed: number }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  updateParam: (key: any, value: any) => void
-}) {
-  const [subModel, setSubModel] = useState<'custom' | 'design' | 'clone'>('custom')
-
-  return (
-    <>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
-        <CapGroup label="TTS 子模型">
-          <select value={subModel} onChange={(e) => setSubModel(e.target.value as typeof subModel)} style={selectStyle}>
-            <option value="custom">CustomVoice — 使用预设 speaker + instruct 控制音色</option>
-            <option value="design">VoiceDesign — 自然语言描述生成新音色</option>
-            <option value="clone">CustomVoice (克隆) — 从参考音频提取音色</option>
-          </select>
-        </CapGroup>
-      </div>
-
-      {subModel === 'custom' && (
-        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <CapGroup label="Speaker (预设角色)">
-            <select value={params.ttsVoice} onChange={(e) => updateParam('ttsVoice', e.target.value)} style={selectStyle}>
-              <option value="Serena">Serena</option>
-              <option value="Vivian">Vivian</option>
-              <option value="Chelsie">Chelsie</option>
-              <option value="default">default</option>
-            </select>
-          </CapGroup>
-          <CapGroup label="Instruct (语气指令)">
-            <input type="text" defaultValue="用温柔的语气说话" placeholder="描述想要的语气风格" style={selectStyle} />
-          </CapGroup>
-        </div>
-      )}
-
-      {subModel === 'design' && (
-        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
-          <CapGroup label="音色描述 (自然语言)">
-            <input type="text" placeholder="例如：年轻女性，温柔甜美，语速适中，带有轻微气声" style={selectStyle} />
-          </CapGroup>
-          <CapGroup label="参考文本">
-            <input type="text" defaultValue="大家好，欢迎收听今天的节目。" placeholder="用于试听的文本" style={selectStyle} />
-          </CapGroup>
-        </div>
-      )}
-
-      {subModel === 'clone' && (
-        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
-          <CapGroup label="参考音频文件">
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input type="text" placeholder="拖入或选择参考音频 (3-10秒最佳)" style={{ ...selectStyle, flex: 1 }} />
-              <button style={btnSmStyle}>选择</button>
-            </div>
-          </CapGroup>
-          <CapGroup label="参考文本">
-            <input type="text" placeholder="参考音频中说的文字内容" style={selectStyle} />
-          </CapGroup>
-        </div>
-      )}
-    </>
-  )
-}
-
-// ── Sub-components ──────────────────────────────────────
-
-function SelectorBox({ label, value, onChange, options }: {
-  label: string; value: string; onChange: (v: string) => void
-  options: { value: string; label: string }[]
-}) {
-  return (
-    <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-      padding: '14px 16px',
-    }}>
-      <label style={{
-        display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--muted)',
-        textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8,
-      }}>
-        {label}
-      </label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={selectStyle}>
-        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    </div>
-  )
-}
-
-function CollapsiblePanel({ title, hint, open, onToggle, children }: {
-  title: string; hint: string; open: boolean; onToggle: () => void; children: React.ReactNode
-}) {
-  return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-      <div
-        onClick={onToggle}
-        style={{
-          padding: '12px 16px', fontSize: 13, fontWeight: 600, color: 'var(--fg)',
-          borderBottom: open ? '1px solid var(--border)' : 'none',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          cursor: 'pointer', userSelect: 'none',
-        }}
-      >
-        <span>{title}</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)' }}>{hint}</span>
-          <ChevronIcon open={open} />
-        </span>
-      </div>
-      {open && <div style={{ padding: 16 }}>{children}</div>}
-    </div>
-  )
-}
-
-function CapGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label style={{
-        display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--muted)',
-        marginBottom: 4, letterSpacing: '0.03em',
-      }}>
-        {label}
-      </label>
-      {children}
-    </div>
-  )
-}
-
-function RangeRow({ value, min, max, step, onChange, format }: {
-  value: number; min: number; max: number; step: number
-  onChange: (v: number) => void; format: (v: number) => string
-}) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <input type="range" min={min} max={max} step={step} value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        style={{ flex: 1 }} />
-      <span style={{ fontSize: 12, color: 'var(--fg)', minWidth: 40, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
-        {format(value)}
-      </span>
-    </div>
-  )
-}
-
-function MiniPill({ type, children }: { type: 'running' | 'pending' | 'done'; children: React.ReactNode }) {
-  const bg = { running: 'oklch(93% 0.04 255)', pending: 'oklch(95% 0.01 60)', done: 'oklch(93% 0.04 145)' }
-  const fg = { running: 'oklch(45% 0.14 255)', pending: 'oklch(45% 0.06 60)', done: 'oklch(40% 0.12 145)' }
-  return (
-    <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 7px', borderRadius: 10, background: bg[type], color: fg[type] }}>
-      {children}
-    </span>
-  )
-}
-
-function ParamRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--border)',
-    }}>
-      <span style={{ color: 'var(--muted)' }}>{label}</span>
-      <span style={{ fontWeight: 500 }}>{value}</span>
-    </div>
-  )
-}
-
-function langLabel(code: string): string {
-  return { ja: '日语', zh: '中文', en: '英语' }[code] ?? code
-}
-
-// ── Shared styles ───────────────────────────────────────
-
-const selectStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-body)',
-  fontSize: 13,
-  padding: '7px 10px',
-  borderRadius: 'var(--radius-sm)',
-  border: '1px solid var(--border)',
-  background: 'var(--surface)',
-  color: 'var(--fg)',
-  width: '100%',
-}
-
-const btnSmStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-body)',
-  fontSize: 11,
-  padding: '6px 10px',
-  borderRadius: 'var(--radius-sm)',
-  border: '1px solid var(--border)',
-  background: 'var(--surface)',
-  color: 'var(--fg)',
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
 }

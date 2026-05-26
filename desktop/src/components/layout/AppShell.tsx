@@ -10,7 +10,7 @@ export default function AppShell() {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '180px 1fr',
+        gridTemplateColumns: '220px minmax(0, 1fr)',
         gridTemplateRows: '1fr auto',
         height: '100vh',
         background: 'var(--bg)',

@@ -15,7 +15,7 @@
 - 当前系统中与 LLM 直接相关的业务并不只包含翻译，还包括：
   - `src/app/services/translation_service.py` 的独立翻译
   - `src/app/services/audio_tool_service.py` 的字幕翻译
-  - `src/core/script_to_subtitle/llm_processor.py` 的脚本清洗与智能对齐
+  - `src/core/subtitles/script_to_subtitle.py` 与 `src/core/subtitles/script_tool.py` 中的脚本清洗与智能对齐入口
   - `src/app/services/script_subtitle_service.py` 的 `use_llm_clean`
 - 当前如果继续使用“翻译引擎”这一命名，会带来两个问题：
   - 把 LLM 的能力边界说窄了
@@ -259,7 +259,7 @@ V1 应确认以下能力属于功能 11，可逐步接入但不要求同轮全�
 
 - `ModelManager` 里按 `llm` category 管理 provider 的方向
 - `TranslationService` 作为兼容 facade 的方向
-- `script_to_subtitle/llm_processor.py` 中将 prompt 驱动操作独立出来的方向
+- `core/subtitles` 中将脚本清洗、对齐等 prompt 驱动操作独立出来的方向
 - `terminology.py`、`quality.py` 这类文本处理辅助模块的积累
 
 ### 必须重组或迁移的部分

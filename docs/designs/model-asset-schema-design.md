@@ -2,7 +2,7 @@
 
 ## 目标
 
-基于 [2026-05-22-model-asset-management-requirements-v1.md](D:/WorkSpace/AsmrHelper/docs/plan/2026-05-22-model-asset-management-requirements-v1.md) 已冻结的范围，定义一版可落地的后端 schema 草案，用于后续改造：
+基于 [模型资产管理需求草案](model-asset-management-requirements.md) 已冻结的范围，定义一版可落地的后端 schema 草案，用于后续改造：
 
 - [config/models.yaml](D:/WorkSpace/AsmrHelper/config/models.yaml)
 - [src/core/resources/model_catalog.py](D:/WorkSpace/AsmrHelper/src/core/resources/model_catalog.py)

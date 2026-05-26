@@ -26,6 +26,8 @@
 5. 收集产物。
 6. 回写任务结果、阶段结果与错误语义。
 
+阶段进度、运行日志、警告和错误事件的统一表示以 [基础设施契约 V1](../contracts/infrastructure-contracts-v1.md) 中的 `RuntimeEvent` 为准。
+
 它不负责决定要执行多少个任务，也不负责多个任务的排队顺序。
 
 ## 边界
@@ -324,20 +326,20 @@ V1 可以先只保留设计，不要求同轮实现。
 
 ## 与当前实现的关系
 
-### 可以保留的思路
+### 当前实现状态
 
-- `src/core/pipeline` 中的阶段执行主能力可以保留。
-- `StepResolver` 中“按模式决定步骤”的基础思想可以保留，但接口需要升级。
-- `PathPlanner` 中主产物与中间产物分层输出的经验可以保留。
-- `ArtifactSet` 作为轻量产物集合的思路可以保留。
+- 当前 `src/core/pipeline/` 已从源码树移除。
+- pipeline 主路径已经迁到 `src/core/orchestration/pipeline/`。
+- `PipelineExecutor` 已直接消费 separator / ASR / LLM / TTS / mixer runtime。
+- 当前剩余问题不是“继续替换旧 pipeline 包”，而是让 execution profile、任务状态、artifact/preview 语义与主链路契约完全对齐。
 
 ### 必须重写或重组的部分
 
-- `PipelineRequest(input_path, output_dir, ...)` 需要从路径驱动迁移为任务驱动。
-- `src/app/services/pipeline_service.py` 当前同时做任务创建、步骤控制和执行，需要拆解。
+- `PipelineRequest(input_path, output_dir, ...)` 兼容入口需要从路径驱动逐步迁移为 `session + task`。
+- `src/app/services/pipeline_service.py` 当前仍承担兼容请求适配、任务 spec 创建、执行调用和 artifact 注册，需要继续压薄。
 - 当前 `/api/v1/pipeline/run` 的输入契约过于贴近历史实现。
-- `src/core/pipeline/artifact_collector.py` 当前未形成完整产物收集职责，需要补齐。
-- 当前 `PipelineService` 与 `TaskService` 的耦合关系需要调整为“执行器回写任务系统”。
+- 当前 `PipelineService.create_pipeline_task_spec()` 生成的 execution profile 仍偏旧结构，需要对齐 [主链路 V1 数据参数契约](../contracts/mainline-v1-data-parameters.md)。
+- 当前 `TaskStatus` 还缺少显式 `stage / error / timestamps / artifact_set_id`，需要补齐后再让 TaskCenter 消费。
 
 ### 明确不继承的历史包袱
 

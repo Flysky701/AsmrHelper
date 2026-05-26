@@ -8,11 +8,12 @@
 
 ## 背景
 
-- 当前仓库已经同时存在多套字幕相关实现：
+- 当前仓库的字幕相关能力已经主要迁入 `src/core/subtitles/`，但 app service 和兼容入口仍需要继续收口：
   - `src/app/services/subtitle_service.py`
   - `src/app/services/script_subtitle_service.py`
-  - `src/core/subtitle_generator.py`
-  - `src/core/pipeline/subtitle_strategy.py`
+  - `src/core/subtitles/generator.py`
+  - `src/core/subtitles/script_processor.py`
+  - `src/core/subtitles/script_to_subtitle.py`
   - `src/core/translate/__init__.py` 中的字幕加载、清洗、语言检测逻辑
 - 当前桌面前端已经有字幕相关 API 和工具入口：
   - `desktop/src/api/subtitles.ts`
@@ -297,13 +298,14 @@ V1 至少支持：
 
 - `src/app/services/subtitle_service.py` 中已有的文档化方向
 - `src/app/services/script_subtitle_service.py` 中脚本转字幕的应用入口思路
-- `src/core/subtitle_generator.py` 中导出格式生成能力
+- `src/core/subtitles/generator.py` 中导出格式生成能力
 - `src/core/translate/__init__.py` 中对多字幕格式的加载经验
 - `src/core/translate/subtitle_cleaner.py` 中的清洗规则
 
 ### 必须重组或迁移的部分
 
-- 当前字幕解析逻辑散落在 `translate`、`gui worker`、`subtitle_service` 等多个地方，需要收敛到功能 7
+- 当前字幕解析逻辑仍有部分散落在 `translate`、`subtitle_service` 和兼容工具入口中，需要继续收敛到功能 7
+- `script_subtitle_service.py` 当前应只作为应用入口，不能继续引用已删除的旧 `src.core.script_to_subtitle`
 - `script-to-vtt` 的业务逻辑不能继续只作为工具动作存在
 - 双语字幕组装不能只作为 pipeline 私有阶段结果
 - 格式导出不能继续由多个模块各自拼接字符串
