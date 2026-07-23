@@ -1,5 +1,7 @@
 # 模型资产管理需求草案 V1
 
+> 状态说明（2026-07-23）：本文是模型资产的目标设计，不是当前安装脚本的逐条操作手册。当前运行环境已经将重型音频引擎拆分为 `audio` 可选组，且 Qwen TTS / Qwen ASR 存在互斥依赖；请使用 [当前架构与文档审计](../roadmap/current-architecture-and-doc-audit-2026-07-23.md) 的安装档说明，不要假设“安装全部 extra”总能成立。
+
 ## 目标
 
 - 为后续持续接入新的本地模型建立统一的资产管理规则，而不是按单模型硬编码下载逻辑。
@@ -19,11 +21,11 @@
 
 相关代码位置：
 
-- [config/models.yaml](D:/WorkSpace/AsmrHelper/config/models.yaml)
-- [src/core/resources/model_catalog.py](D:/WorkSpace/AsmrHelper/src/core/resources/model_catalog.py)
-- [src/core/resources/model_installer.py](D:/WorkSpace/AsmrHelper/src/core/resources/model_installer.py)
-- [src/api/http/routes/models.py](D:/WorkSpace/AsmrHelper/src/api/http/routes/models.py)
-- [desktop/src/pages/EnginesResources.tsx](D:/WorkSpace/AsmrHelper/desktop/src/pages/EnginesResources.tsx)
+- `config/models.yaml`
+- `src/core/resources/model_catalog.py`
+- `src/core/resources/model_installer.py`
+- `src/api/http/routes/models.py`
+- `desktop/src/pages/EnginesResources.tsx`
 
 ## V1 范围冻结
 
@@ -541,7 +543,7 @@ V1 归类建议：
   - `git-lfs`
   - `uv`
 - 官方甚至明确表示只支持 `uv` 安装方式，`pip/conda` 不保证依赖正确。
-- 安装命令是 `uv sync --all-extras`，之后再用 `hf download` 或 `modelscope download` 拉权重到 `checkpoints`。
+- 上游项目可能要求自己的 `uv` 环境与全量 extra；这不应直接套用到 AsmrHelper 主环境。AsmrHelper 必须把它表达为独立运行档、依赖集合和权重安装步骤，避免与 Qwen ASR/TTS 等互斥依赖混装。
 - 还支持情绪控制相关参数，例如：
   - `use_emo_text`
   - `emo_alpha`

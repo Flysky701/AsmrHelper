@@ -4,11 +4,11 @@
 
 基于 [模型资产管理需求草案](model-asset-management-requirements.md) 已冻结的范围，定义一版可落地的后端 schema 草案，用于后续改造：
 
-- [config/models.yaml](D:/WorkSpace/AsmrHelper/config/models.yaml)
-- [src/core/resources/model_catalog.py](D:/WorkSpace/AsmrHelper/src/core/resources/model_catalog.py)
-- [src/core/resources/model_installer.py](D:/WorkSpace/AsmrHelper/src/core/resources/model_installer.py)
-- [src/api/http/schemas/models.py](D:/WorkSpace/AsmrHelper/src/api/http/schemas/models.py)
-- [src/api/http/routes/models.py](D:/WorkSpace/AsmrHelper/src/api/http/routes/models.py)
+- `config/models.yaml`
+- `src/core/resources/model_catalog.py`
+- `src/core/resources/model_installer.py`
+- `src/api/http/schemas/models.py`
+- `src/api/http/routes/models.py`
 
 ## 范围前提
 
@@ -116,7 +116,7 @@ conflicts: []
 - `dependency_group`
   - 用于表达家族共享依赖的归属。
 - `required_python_extras`
-  - 与当前 [pyproject.toml](D:/WorkSpace/AsmrHelper/pyproject.toml) 的 optional extras 对齐。
+  - 与当前 `pyproject.toml` 的 optional extras 对齐；安装档还必须表达 Qwen TTS / Qwen ASR 的互斥关系。
 - `required_runtime_packages`
   - 直接写非 extra 的包名时，后续可以支持自动安装策略。
 - `recommended_runtime_packages`
@@ -269,7 +269,7 @@ unconfigured
 
 ## 安装请求契约草案
 
-当前 [ModelInstallRequest](D:/WorkSpace/AsmrHelper/src/api/http/schemas/models.py) 只有：
+当前 `src/api/http/schemas/models.py` 中的 `ModelInstallRequest` 只有：
 
 - `mirror`
 - `force`

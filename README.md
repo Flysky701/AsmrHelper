@@ -20,7 +20,7 @@ ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、
 ## 系统要求
 
 - **OS**: Windows 10/11
-- **Python**: 3.10+
+- **Python**: 3.11 或 3.12
 - **GPU**: NVIDIA (可选，Qwen3-TTS 需要 CUDA)
 - **包管理器**: [uv](https://docs.astral.sh/uv/)
 
@@ -37,10 +37,13 @@ cd AsmrHelper
 
 #如果后续关闭了powershell 需要CD到对应文件夹内
 
-# 基础安装 (ASR + Edge-TTS + Demucs)
+# 基础安装（固定 Python 3.11，含 API、桌面端与测试依赖）
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 
-# 完整安装 (含 Qwen3-TTS依赖，需要 NVIDIA GPU)
+# 安装本地音频引擎和默认模型（含 Faster-Whisper / Demucs）
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models
+
+# 完整安装（含 Qwen3-TTS 依赖，需要 NVIDIA GPU）
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Full
 
 # 环境完全重建
@@ -63,12 +66,12 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Full
 # 使用国内镜像加速
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Mirror
 
-# 或直接使用 Python 脚本
-uv run python scripts/install_models.py                    # Whisper base
-uv run python scripts/install_models.py --whisper large-v3 # Whisper large-v3
-uv run python scripts/install_models.py --qwen3            # Qwen3 全部
-uv run python scripts/install_models.py --all              # 全部
-uv run python scripts/install_models.py --check            # 检查状态
+# 或直接使用项目虚拟环境中的 Python
+.\.venv\Scripts\python.exe scripts\install_models.py                    # Whisper base
+.\.venv\Scripts\python.exe scripts\install_models.py --whisper large-v3 # Whisper large-v3
+.\.venv\Scripts\python.exe scripts\install_models.py --qwen3            # Qwen3 全部
+.\.venv\Scripts\python.exe scripts\install_models.py --all              # 全部
+.\.venv\Scripts\python.exe scripts\install_models.py --check            # 检查状态
 ```
 
 > **注意**: Whisper 模型也可在首次使用时自动下载。Qwen3-TTS 模型需要手动下载（约 8.4GB/个）。
@@ -86,14 +89,17 @@ $env:DEEPSEEK_API_KEY = "your-deepseek-api-key"
 ### 4. 运行
 
 ```powershell
-# 启动 GUI
-.\run.bat
+# 启动桌面端
+.\GUIRun.bat
+
+# 仅启动 HTTP API
+.\run.bat api
 
 # 或命令行处理单文件
-uv run python scripts/asmr_bilingual.py --input "path/to/audio.wav"
+.\.venv\Scripts\python.exe scripts\asmr_bilingual.py --input "path/to/audio.wav"
 
 # 批量处理
-uv run python scripts/batch_process.py --input-dir "D:/ASMR"
+.\.venv\Scripts\python.exe scripts\batch_process.py --input-dir "D:/ASMR"
 ```
 
 ## 项目结构
@@ -118,7 +124,7 @@ AsmrHelper/
 │   ├── mixer/                    # 智能混音 + 时间轴对齐
 │   ├── cli.py                    # Click CLI 入口 (实验性)
 │   └── config.py                 # 配置管理
-├── desktop/                      # Electron 桌面应用 (实验性)
+├── desktop/                      # Tauri + React + Vite 桌面应用
 ├── config/                       # 配置文件
 │   ├── models.yaml               # 模型配置
 │   ├── config.example.json       # 配置模板
@@ -229,20 +235,20 @@ cp config/config.example.json config/config.json
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -DevOnly
 
 # 运行测试
-uv run pytest
+.\.venv\Scripts\python.exe -m pytest
 
 # 运行安装脚本集成测试
-uv run pytest tests/test_setup_integration.py -v
+.\.venv\Scripts\python.exe -m pytest tests/test_setup_integration.py -v
 
 # 运行环境验证
-uv run python scripts/verify_env.py
+.\.venv\Scripts\python.exe scripts/verify_env.py
 
 # 检查模型状态
-uv run python scripts/install_models.py --check
+.\.venv\Scripts\python.exe scripts/install_models.py --check
 
 # 下载模型
-uv run python scripts/install_models.py --whisper base
-uv run python scripts/install_models.py --qwen3
+.\.venv\Scripts\python.exe scripts/install_models.py --whisper base
+.\.venv\Scripts\python.exe scripts/install_models.py --qwen3
 ```
 
 ## 许可证

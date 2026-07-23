@@ -1,12 +1,12 @@
 # AsmrHelper Phase 2 后段收尾计划
 
-日期：2026-05-27
+日期：2026-05-27（2026-07-23 已复核）
 
 ## 1. 事实源
 
 本文替代旧的“Legacy Core 替换与主干下沉 V1”计划。
 
-旧计划中的很多判断已经过时，例如：
+历史计划中曾出现、现在已经失效的判断包括：
 
 - `src/gui/` 仍需保留。
 - `src/core/pipeline/` 仍是迁移目标。
@@ -15,7 +15,7 @@
 
 这些判断不再作为当前基准。
 
-当前判断必须以 [当前源码基线](current-source-baseline.md) 为准。
+当前判断必须以 [当前源码基线](current-source-baseline.md) 和 [当前架构与文档审计](current-architecture-and-doc-audit-2026-07-23.md) 为准。本计划只定义尚未完成的收尾切片，不能用于推翻已验证的运行状态。
 
 ## 2. 当前 Phase 2 状态
 
@@ -54,7 +54,7 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 ## 4. 收尾切片
 
-### Slice A：残留旧引用修复
+### Slice A：残留旧引用修复（已完成：2026-07-23）
 
 范围：
 
@@ -70,6 +70,11 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 - 直接加载 script subtitle runtime 不再报 `ModuleNotFoundError`。
 - subtitle domain 相关测试继续通过。
+
+完成记录：
+
+- `script_subtitle_service.py` 已改为加载 `src.core.subtitles.script_to_subtitle.ScriptToSubtitlePipeline`。
+- 新增真实 runtime 导入路径回归测试；字幕服务与字幕域针对性测试 `38 passed`，全量测试 `122 passed`。
 
 ### Slice B：基础设施字段统一
 

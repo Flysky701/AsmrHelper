@@ -1,14 +1,16 @@
 # AsmrHelper 当前源码基线
 
-日期：2026-05-27
+日期：2026-07-23
 
 ## 1. 本文定位
 
 本文是当前 DOCS 的事实基线。
 
+架构、环境、文档定位和完整问题清单见 [当前架构与文档审计](current-architecture-and-doc-audit-2026-07-23.md)。本文只记录可由当前源码与验证直接支撑的事实。
+
 后续判断项目进度时，优先级如下：
 
-1. 当前 `git log`、`git status` 和 `src/desktop` 源码结构。
+1. 当前 `git log`、`git status`、`src/` 与 `desktop/` 源码结构。
 2. 当前可运行的验证命令。
 3. 活跃契约文档。
 4. 归档计划和旧 roadmap 只能作为历史背景，不能作为当前状态依据。
@@ -24,7 +26,7 @@ refactor/re-design
 当前 HEAD：
 
 ```text
-c4271d7 feat(install): 模型安装时自动安装 Python 依赖（按需）
+3bd5c4a refactor: 桌面 UI 重设计 + LLM 模型管理重构 + 文档架构重组
 ```
 
 近期对状态判断有直接影响的提交：
@@ -38,8 +40,9 @@ c4271d7 feat(install): 模型安装时自动安装 Python 依赖（按需）
 | `605d825` | pipeline 预设、TTS voice list 和 preset 配置已接入 |
 | `b494ad6` | VoxCPM2 TTS 引擎已接入 |
 | `c4271d7` | 模型安装支持按需安装 Python 依赖 |
+| `3bd5c4a` | 完成 Workbench、TaskCenter、导航与样式的一轮桌面 UI 重设计；LLM registry 与能力描述符继续收束；重组 docs |
 
-当前工作区不是干净状态。未提交变动不只包含 docs，也包含 `src` 和 `desktop` 的后续改动。因此后续执行必须区分：
+仓库最后一次提交日期为 2026-05-27。本次恢复工作已在工作区更新 UV 锁文件、安装/启动脚本和 Vite 配置；这些未提交变动属于当前环境收束工作。因此后续执行必须区分：
 
 - `HEAD` 已提交事实。
 - 当前工作区事实。
@@ -167,37 +170,36 @@ text_utils.py
 
 > 字幕和脚本文本能力已经迁入 `core/subtitles`，剩余问题是部分 app service 或兼容入口仍可能引用旧路径或旧语义。
 
-当前已验证的残留问题：
-
-```text
-src/app/services/script_subtitle_service.py
-```
-
-仍懒加载 `src.core.script_to_subtitle`，但该旧包已经不存在，实际调用会触发 `ModuleNotFoundError`。这应作为当前修复项，而不是继续描述为“等待迁移”。
+2026-07-23 已完成残留引用修复：`src/app/services/script_subtitle_service.py` 现在懒加载 `src.core.subtitles.script_to_subtitle.ScriptToSubtitlePipeline`，并有真实 runtime 导入路径回归测试保护。旧路径不存在仍是事实，但不会再被该应用服务调用。
 
 ## 4. 当前验证结果
 
-已验证：
+2026-07-23 已验证：
 
 ```text
-python -m compileall src
+.venv\Scripts\python.exe -m compileall -q src
 ```
 
 结果：通过。
 
-已验证：
-
 ```text
-python -m pytest tests/test_facade_slimming.py tests/test_subtitle_domain.py -q
+.venv\Scripts\python.exe -m pytest -q
 ```
 
-结果：`36 passed`。
+结果：`122 passed`。
+
+启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（91 routes）可用。
+
+本地 ASR / 分离 / 混音依赖已移入 `audio` 可选组，避免 Demucs/CUDA PyTorch 阻塞 API 与桌面端首次启动；需要本地完整流水线时使用 `setup.ps1 -Models` 或 `setup.ps1 -Full` 安装。
+
+桌面端已验证：使用 `E:\Dependencies\nodejs` 的 Node v24.18.0、npm v11.16.0 执行 `npm ci` 与 `npm run build` 通过；Rust 1.97.1/Cargo 1.97.1 已安装，`npm run tauri -- build` 通过并生成 `desktop/src-tauri/target/release/asmr-helper.exe`。该程序已启动，后端 `/health` 返回正常。
+
+`vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
 说明：
 
 - 当前 `src` 语法编译通过。
-- facade slimming 和 subtitle domain 的关键测试通过。
-- `pytest` 直接命令在当前 PowerShell 环境不可用，应使用 `python -m pytest`。
+- 完整验证应使用项目 `.venv` 运行 `python -m pytest`，并在 `desktop/` 中运行 `npm run build`。
 
 ## 5. 当前项目阶段判断
 
@@ -209,14 +211,13 @@ python -m pytest tests/test_facade_slimming.py tests/test_subtitle_domain.py -q
 
 ## 6. 当前最高优先级缺口
 
-1. 修复 `script_subtitle_service.py` 对已删除 `src.core.script_to_subtitle` 的残留引用。
-2. 先按 [字段契约约束 V1](../contracts/field-contracts-v1.md) 补齐 Task、Service、TTS、Artifact 等横向字段规则。
-3. 按 [基础设施契约 V1](../contracts/infrastructure-contracts-v1.md) 统一日志事件、模型字段、CapabilityOption、高级参数和 RuntimeBinding 边界。
-4. 将 `PipelineService.create_pipeline_task_spec()` 生成的 execution profile 对齐 [主链路 V1 数据参数契约](../contracts/mainline-v1-data-parameters.md)。
-5. 更新 `core/orchestration/pipeline/planner.py`，使其优先消费 `profile_version + stages + profiles`，并保留旧结构兼容。
-6. 扩展 `TaskStatus`，补齐主链路需要的 `stage / error / timestamps / artifact_set_id`。
-7. 将 Workbench 从兼容 `/pipeline/run` 逐步迁到 `session + task` 主路径。
-8. 将 TaskCenter 从阶段推断改为消费后端显式状态、artifact 和 preview。
+1. 先按 [字段契约约束 V1](../contracts/field-contracts-v1.md) 补齐 Task、Service、TTS、Artifact 等横向字段规则。
+2. 按 [基础设施契约 V1](../contracts/infrastructure-contracts-v1.md) 统一日志事件、模型字段、CapabilityOption、高级参数和 RuntimeBinding 边界。
+3. 将 `PipelineService.create_pipeline_task_spec()` 生成的 execution profile 对齐 [主链路 V1 数据参数契约](../contracts/mainline-v1-data-parameters.md)。
+4. 更新 `core/orchestration/pipeline/planner.py`，使其优先消费 `profile_version + stages + profiles`，并保留旧结构兼容。
+5. 扩展 `TaskStatus`，补齐主链路需要的 `stage / error / timestamps / artifact_set_id`。
+6. 将 Workbench 从兼容 `/pipeline/run` 逐步迁到 `session + task` 主路径。
+7. 将 TaskCenter 从阶段推断改为消费后端显式状态、artifact 和 preview。
 
 ## 7. DOCS 维护规则
 

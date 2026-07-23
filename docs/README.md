@@ -12,7 +12,7 @@
 - [主链路 V1 契约](contracts/mainline-v1-contract.md) — 当前阶段 Workbench、TaskCenter、Artifact、Preview 的最小稳定执行契约
 - [主链路 V1 数据参数契约](contracts/mainline-v1-data-parameters.md) — 当前阶段 Session、TaskSpec、ExecutionProfile、RuntimeBinding 的字段定义
 
-前三份文档是系统级基线，主链路 V1 契约与数据参数契约是当前阶段分步执行的直接基线。
+前三份文档是系统级目标基线，主链路 V1 契约与数据参数契约是当前阶段分步执行的直接基线。它们描述目标，不自动代表所有字段已在源码落地；当前实现差距以路线图中的源码基线和架构审计为准。
 
 建议阅读顺序：
 
@@ -51,10 +51,12 @@
 
 ## 路线图与进度
 
-- [当前源码基线](roadmap/current-source-baseline.md) — 当前进度判断的第一事实源，优先于旧计划
+- [当前架构与文档审计（2026-07-23）](roadmap/current-architecture-and-doc-audit-2026-07-23.md) - 当前架构、启动验证、问题清单、文档定位的总入口
+- [当前源码基线](roadmap/current-source-baseline.md) - 当前进度判断的第一事实源，优先于旧计划和设计草案
 - [总体进度状态](roadmap/overall-progress-status.md)
 - [Phase 2 后段收尾计划](roadmap/phase-2-legacy-core-replacement.md)
 - [主链路重构检查清单](roadmap/mainline-refactor-checklist.md)
+- [重构恢复简报（2026-07-18）](roadmap/restart-briefing-2026-07-18.md) - 历史恢复快照；其中的环境限制已由 2026-07-23 验证结果取代
 
 ## 归档
 
