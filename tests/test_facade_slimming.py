@@ -92,6 +92,33 @@ class TestTranslationServiceRemoved:
         from src.app.services import LlmCapabilityService
         assert LlmCapabilityService is not None
 
+    def test_translator_implementation_lives_in_llm_domain(self):
+        from src.core.engines.llm import Translator as DomainTranslator
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            from src.core.translate import Translator as CompatibilityTranslator
+
+        assert DomainTranslator is CompatibilityTranslator
+        assert DomainTranslator.__module__ == "src.core.engines.llm.translator"
+
+    def test_llm_registry_does_not_import_legacy_translate_package(self):
+        import inspect
+        from src.core.engines.llm.registry import LlmRegistry
+
+        source = inspect.getsource(LlmRegistry)
+        assert "src.core.translate" not in source
+        assert "from .translator import Translator" in source
+
+    def test_subtitle_mapping_is_owned_by_subtitle_domain(self):
+        source_code = open(
+            "src/core/subtitles/text_utils.py", encoding="utf-8"
+        ).read()
+        assert "translate" not in source_code.replace(
+            "Migrated from src.core.translate", ""
+        )
+        assert "from .tw_zh_trad_map import" in source_code
+
 
 class TestAsrServiceRemoved:
     """Verify AsrService facade has been removed in favor of AsrEngineService."""
