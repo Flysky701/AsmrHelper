@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from .models import TaskSpec, TaskStatus
+from .models import RuntimeEvent, TaskSpec, TaskStatus
 
 
 class TaskRegistry:
@@ -16,6 +16,8 @@ class TaskRegistry:
     def __init__(self, max_concurrent: int = 4) -> None:
         self._tasks: dict[str, TaskStatus] = {}
         self._task_specs: dict[str, TaskSpec] = {}
+        self._events: dict[str, list[RuntimeEvent]] = {}
+        self._event_sequences: dict[str, int] = {}
         self._counters: dict[str, int] = {}
         self._max_concurrent = max_concurrent
 
@@ -59,6 +61,9 @@ class TaskRegistry:
         )
         self._task_specs[task_id] = task_spec
         self._tasks[task_id] = task_status
+        self._events[task_id] = []
+        self._event_sequences[task_id] = 0
+        self._append_status_event(None, task_status)
         return self.clone_spec(task_spec), self.clone_task(task_status)
 
     def get_task(self, task_id: str) -> TaskStatus:
@@ -75,6 +80,22 @@ class TaskRegistry:
             raise ValueError(f"unknown task id: {task_id}") from exc
         return self.clone_spec(task_spec)
 
+    def list_events(
+        self,
+        task_id: str,
+        *,
+        after_sequence: int = 0,
+    ) -> list[RuntimeEvent]:
+        if after_sequence < 0:
+            raise ValueError("after_sequence must be non-negative")
+        if task_id not in self._tasks:
+            raise ValueError(f"unknown task id: {task_id}")
+        return [
+            self.clone_event(event)
+            for event in self._events.get(task_id, [])
+            if event.sequence > after_sequence
+        ]
+
     def restore_task(self, task_spec: TaskSpec, task_status: TaskStatus) -> None:
         if task_spec.task_id != task_status.task_id:
             raise ValueError("task spec and status IDs do not match")
@@ -82,6 +103,14 @@ class TaskRegistry:
             raise ValueError("only terminal tasks can be restored")
         self._task_specs[task_spec.task_id] = self.clone_spec(task_spec)
         self._tasks[task_status.task_id] = self.clone_task(task_status)
+        self._events[task_status.task_id] = []
+        self._event_sequences[task_status.task_id] = 0
+        self._append_event(
+            task_status,
+            event_type="task_restored",
+            message="terminal task restored from history",
+            data={"state": task_status.state, "historical": True},
+        )
 
         prefix, separator, suffix = task_spec.task_id.rpartition("-")
         if separator and prefix == task_spec.task_type and suffix.isdigit():
@@ -321,7 +350,91 @@ class TaskRegistry:
             review_note=review_note if review_note is not None else current.review_note,
         )
         self._tasks[task_id] = updated
+        self._append_status_event(current, updated)
         return self.clone_task(updated)
+
+    def _append_status_event(
+        self,
+        previous: TaskStatus | None,
+        current: TaskStatus,
+    ) -> None:
+        level = "info"
+        if previous is None:
+            event_type = "task_created"
+        elif current.task_type == "model_install":
+            event_type = "model_operation"
+            if current.state == "failed":
+                level = "error"
+            elif current.state == "cancelled":
+                level = "warning"
+        elif current.state != previous.state:
+            event_type = {
+                "running": "task_started",
+                "completed": "task_completed",
+                "failed": "task_failed",
+                "cancelled": "task_cancelled",
+                "skipped": "task_skipped",
+                "pending": "task_retried",
+            }.get(current.state, "task_updated")
+            if current.state == "failed":
+                level = "error"
+            elif current.state == "cancelled":
+                level = "warning"
+        elif current.stage != previous.stage and current.stage is not None:
+            event_type = "stage_started"
+        elif current.progress != previous.progress:
+            event_type = "stage_progress"
+        else:
+            event_type = "task_updated"
+
+        data: dict[str, object] = {
+            "state": current.state,
+            "progress": current.progress,
+        }
+        if current.error is not None:
+            data["error"] = dict(current.error)
+        if current.task_type == "model_install":
+            spec = self._task_specs[current.task_id]
+            data.update(
+                {
+                    "operation": spec.execution_profile.get("operation", "install"),
+                    "model_id": spec.execution_profile.get("model_id", ""),
+                }
+            )
+        self._append_event(
+            current,
+            event_type=event_type,
+            level=level,
+            message=current.message,
+            detail=current.detail or None,
+            data=data,
+        )
+
+    def _append_event(
+        self,
+        task: TaskStatus,
+        *,
+        event_type: str,
+        level: str = "info",
+        message: str = "",
+        detail: str | None = None,
+        data: dict[str, object] | None = None,
+    ) -> None:
+        sequence = self._event_sequences.get(task.task_id, 0) + 1
+        self._event_sequences[task.task_id] = sequence
+        self._events.setdefault(task.task_id, []).append(
+            RuntimeEvent(
+                sequence=sequence,
+                time=self._now(),
+                level=level,
+                type=event_type,
+                task_id=task.task_id,
+                stage=task.stage,
+                message=message,
+                detail=detail,
+                data=dict(data or {}),
+            )
+        )
 
     @staticmethod
     def clone_task(task: TaskStatus) -> TaskStatus:
@@ -360,6 +473,20 @@ class TaskRegistry:
             priority=task_spec.priority,
             dedupe_key=task_spec.dedupe_key,
             created_at=task_spec.created_at,
+        )
+
+    @staticmethod
+    def clone_event(event: RuntimeEvent) -> RuntimeEvent:
+        return RuntimeEvent(
+            sequence=event.sequence,
+            time=event.time,
+            level=event.level,
+            type=event.type,
+            task_id=event.task_id,
+            stage=event.stage,
+            message=event.message,
+            detail=event.detail,
+            data=dict(event.data),
         )
 
     @staticmethod

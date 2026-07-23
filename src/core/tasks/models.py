@@ -41,3 +41,18 @@ class TaskStatus:
     artifact_set_id: str | None = None
     review_state: str = ""
     review_note: str = ""
+
+
+@dataclass(slots=True)
+class RuntimeEvent:
+    """One diagnostic event emitted while a task is being processed."""
+
+    sequence: int
+    time: str
+    level: str
+    type: str
+    task_id: str
+    stage: str | None = None
+    message: str = ""
+    detail: str | None = None
+    data: dict[str, Any] = field(default_factory=dict)
