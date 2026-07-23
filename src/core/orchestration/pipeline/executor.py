@@ -55,6 +55,7 @@ class PipelineExecutor:
         plan: PipelineExecutionPlan,
         *,
         progress_callback: Callable[[str], None] | None = None,
+        stage_callback: Callable[[str, float, str], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> dict[str, Any]:
         """Run all enabled stages and return normalized results.
@@ -86,11 +87,13 @@ class PipelineExecutor:
 
         t0 = time.time()
         current_step = 0
-        total_steps = len(plan.active_stage_kinds)
+        total_steps = len(plan.active_stage_kinds) + int(plan.subtitle.enabled)
 
-        def _report(msg: str) -> None:
+        def _report(stage: str, msg: str) -> None:
             if progress_callback:
                 progress_callback(msg)
+            if stage_callback:
+                stage_callback(stage, current_step / max(total_steps, 1), msg)
 
         def _check_cancel() -> None:
             effective_cancel_event = cancel_event or self._cancel_event
@@ -109,21 +112,21 @@ class PipelineExecutor:
             if plan.separation.enabled:
                 _check_cancel()
                 current_step += 1
-                _report(f"[{current_step}/{total_steps}] 人声分离...")
+                _report("separate", f"[{current_step}/{total_steps}] 人声分离...")
                 vocal_path = self._execute_separation(plan, by_product_dir, results)
 
             # === ASR ===
             if plan.asr.enabled:
                 _check_cancel()
                 current_step += 1
-                _report(f"[{current_step}/{total_steps}] ASR 语音识别...")
+                _report("asr", f"[{current_step}/{total_steps}] ASR 语音识别...")
                 timestamped_segments = self._execute_asr(plan, vocal_path, by_product_dir, results)
 
             # === TRANSLATION ===
             if plan.translation.enabled:
                 _check_cancel()
                 current_step += 1
-                _report(f"[{current_step}/{total_steps}] 文本翻译...")
+                _report("translate", f"[{current_step}/{total_steps}] 文本翻译...")
                 translations = self._execute_translation(
                     plan, timestamped_segments, by_product_dir, results
                 )
@@ -132,7 +135,7 @@ class PipelineExecutor:
             if plan.tts.enabled:
                 _check_cancel()
                 current_step += 1
-                _report(f"[{current_step}/{total_steps}] TTS 语音合成...")
+                _report("tts", f"[{current_step}/{total_steps}] TTS 语音合成...")
                 tts_audio_path = self._execute_tts(
                     plan, timestamped_segments, by_product_dir, results
                 )
@@ -141,20 +144,23 @@ class PipelineExecutor:
             if plan.mix.enabled:
                 _check_cancel()
                 current_step += 1
-                _report(f"[{current_step}/{total_steps}] 混合音频...")
+                _report("mix", f"[{current_step}/{total_steps}] 混合音频...")
                 self._execute_mix(plan, vocal_path, tts_audio_path, mix_path, results)
 
             # === SUBTITLE EXPORT ===
-            exported_subtitle = self._export_subtitles(
-                plan, timestamped_segments, translations, by_product_dir
-            )
-            if exported_subtitle:
-                results["exported_subtitle"] = exported_subtitle
+            if plan.subtitle.enabled:
+                current_step += 1
+                _report("export", f"[{current_step}/{total_steps}] 导出字幕...")
+                exported_subtitle = self._export_subtitles(
+                    plan, timestamped_segments, translations, by_product_dir
+                )
+                if exported_subtitle:
+                    results["exported_subtitle"] = exported_subtitle
 
         except Exception as e:
             results["error"] = str(e)
             if not isinstance(e, RuntimeError) or "取消" not in str(e):
-                _report(f"[ERROR] 流水线异常: {e}")
+                _report("error", f"[ERROR] 流水线异常: {e}")
             raise
         finally:
             results["total_duration"] = time.time() - t0

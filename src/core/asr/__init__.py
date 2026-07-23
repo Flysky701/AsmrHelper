@@ -90,9 +90,14 @@ class ASRRecognizer:
         t0 = time.time()
         # 统一使用 PROJECT_ROOT
         models_dir = PROJECT_ROOT / "models" / "whisper"
-        download_root = str(models_dir) if models_dir.exists() else None
+        local_model_dir = models_dir / model_size
+        # The model installer stores catalog weights in models/whisper/<size>.
+        # Pass that concrete directory to Faster-Whisper when present; treating
+        # the parent as a Hugging Face cache makes it re-resolve/download "base".
+        model_reference = str(local_model_dir) if local_model_dir.is_dir() else model_size
+        download_root = str(models_dir) if models_dir.exists() and not local_model_dir.is_dir() else None
         self.model = WhisperModel(
-            model_size,
+            model_reference,
             device=self.device,
             compute_type=self.compute_type,
             download_root=download_root,

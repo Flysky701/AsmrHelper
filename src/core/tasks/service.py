@@ -75,6 +75,21 @@ class TaskRegistry:
             raise ValueError(f"unknown task id: {task_id}") from exc
         return self.clone_spec(task_spec)
 
+    def restore_task(self, task_spec: TaskSpec, task_status: TaskStatus) -> None:
+        if task_spec.task_id != task_status.task_id:
+            raise ValueError("task spec and status IDs do not match")
+        if task_status.state not in self.TERMINAL_STATES:
+            raise ValueError("only terminal tasks can be restored")
+        self._task_specs[task_spec.task_id] = self.clone_spec(task_spec)
+        self._tasks[task_status.task_id] = self.clone_task(task_status)
+
+        prefix, separator, suffix = task_spec.task_id.rpartition("-")
+        if separator and prefix == task_spec.task_type and suffix.isdigit():
+            self._counters[task_spec.task_type] = max(
+                self._counters.get(task_spec.task_type, 0),
+                int(suffix),
+            )
+
     def start_task(
         self,
         task_id: str,
@@ -117,7 +132,7 @@ class TaskRegistry:
             message=message,
             detail=detail,
             stage=stage,
-            error=None,
+            clear_error=True,
             artifact_set_id=artifact_set_id,
         )
 
@@ -136,7 +151,7 @@ class TaskRegistry:
             "code": "TASK_FAILED",
             "stage": resolved_stage,
             "message": message,
-            "recoverable": True,
+            "retryable": True,
             "detail": detail,
         }
         return self.update_task(
@@ -168,8 +183,7 @@ class TaskRegistry:
             message=message,
             detail="",
             stage=None,
-            error=None,
-            artifact_set_id=None,
+            reset_runtime=True,
             review_state="",
             review_note="",
             queued_at=self._now(),
@@ -250,6 +264,8 @@ class TaskRegistry:
         queued_at: str | None = None,
         started_at: str | None = None,
         finished_at: str | None = None,
+        clear_error: bool = False,
+        reset_runtime: bool = False,
         review_state: str | None = None,
         review_note: str | None = None,
     ) -> TaskStatus:
@@ -264,13 +280,13 @@ class TaskRegistry:
         next_state = state if state is not None else current.state
         now = self._now()
         terminal = next_state in self.TERMINAL_STATES
-        next_started_at = started_at
-        if next_started_at is None:
+        next_started_at = None if reset_runtime else started_at
+        if next_started_at is None and not reset_runtime:
             next_started_at = current.started_at
             if next_state == "running" and next_started_at is None:
                 next_started_at = now
-        next_finished_at = finished_at
-        if next_finished_at is None:
+        next_finished_at = None if reset_runtime else finished_at
+        if next_finished_at is None and not reset_runtime:
             next_finished_at = current.finished_at
             if terminal and next_finished_at is None:
                 next_finished_at = now
@@ -278,7 +294,11 @@ class TaskRegistry:
         updated = TaskStatus(
             task_id=current.task_id,
             state=next_state,
-            stage=stage if stage is not None else current.stage,
+            stage=(
+                None
+                if reset_runtime
+                else stage if stage is not None else current.stage
+            ),
             progress=progress if progress is not None else current.progress,
             message=message if message is not None else current.message,
             detail=detail if detail is not None else current.detail,
@@ -291,9 +311,11 @@ class TaskRegistry:
             started_at=next_started_at,
             updated_at=now,
             finished_at=next_finished_at,
-            error=error if error is not None else current.error,
+            error=None if clear_error or reset_runtime else error if error is not None else current.error,
             artifact_set_id=(
-                artifact_set_id if artifact_set_id is not None else current.artifact_set_id
+                None
+                if reset_runtime
+                else artifact_set_id if artifact_set_id is not None else current.artifact_set_id
             ),
             review_state=review_state if review_state is not None else current.review_state,
             review_note=review_note if review_note is not None else current.review_note,

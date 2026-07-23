@@ -46,6 +46,7 @@ class MixConfig:
 @dataclass(slots=True)
 class SubtitleConfig:
     """Subtitle handling configuration."""
+    enabled: bool = True
     clean_enabled: bool = True
     clean_sound_effects: bool = True
     clean_speaker_names: bool = True

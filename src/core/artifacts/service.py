@@ -61,6 +61,36 @@ class ArtifactIndex:
         self._artifacts[artifact_id] = record
         return self.clone_record(record)
 
+    def restore_artifact(self, record: ArtifactRecord) -> None:
+        if not record.artifact_id:
+            raise ValueError("artifact_id is required")
+        if not record.task_id:
+            raise ValueError("task_id is required")
+        if not record.path:
+            raise ValueError("path is required")
+        if record.artifact_id in self._artifacts:
+            return
+
+        current = self._task_artifacts.get(record.task_id, ArtifactSet())
+        updated_files = dict(current.files)
+        file_key = self._artifact_type_to_key(record.artifact_type)
+        if file_key:
+            updated_files[file_key] = record.path
+        self._task_artifacts[record.task_id] = ArtifactSet(
+            files=updated_files,
+            primary_output=(
+                record.path
+                if record.is_primary or not current.primary_output
+                else current.primary_output
+            ),
+            entries=list(current.entries) + [self.clone_record(record)],
+        )
+        self._artifacts[record.artifact_id] = self.clone_record(record)
+
+        prefix, separator, suffix = record.artifact_id.rpartition("-")
+        if separator and prefix == "artifact" and suffix.isdigit():
+            self._counter = max(self._counter, int(suffix))
+
     def get_artifact(self, artifact_id: str) -> ArtifactRecord:
         try:
             record = self._artifacts[artifact_id]
@@ -80,30 +110,30 @@ class ArtifactIndex:
         )
         return {
             "task_id": task_id,
-            "primary_output": self.clone_record(primary_record) if primary_record else None,
-            "secondary_outputs": [
+            "primary_artifact_id": (
+                primary_record.artifact_id if primary_record is not None else None
+            ),
+            "artifacts": [
                 self.clone_record(entry)
                 for entry in artifact_set.entries
-                if primary_record is None or entry.artifact_id != primary_record.artifact_id
             ],
             "warnings": [],
         }
 
     def get_task_preview_view(self, task_id: str) -> dict[str, Any]:
         result = self.get_task_result_view(task_id)
-        primary = result["primary_output"]
-        secondary = result["secondary_outputs"]
+        artifacts = result["artifacts"]
         preview_modes: list[str] = []
-        for entry in ([primary] if primary is not None else []) + list(secondary):
+        for entry in artifacts:
             if entry.preview_kind and entry.preview_kind not in preview_modes:
                 preview_modes.append(entry.preview_kind)
         return {
             "task_id": task_id,
-            "primary_output": primary,
-            "secondary_outputs": secondary,
+            "primary_artifact_id": result["primary_artifact_id"],
+            "artifacts": artifacts,
             "warnings": list(result["warnings"]),
             "preview_modes": preview_modes,
-            "artifact_count": (1 if primary is not None else 0) + len(secondary),
+            "artifact_count": len(artifacts),
         }
 
     @staticmethod
