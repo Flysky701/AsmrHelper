@@ -280,18 +280,18 @@ class ModelManager:
 # ======================================================================
 
 def _make_llm(**kwargs):
-    from src.core.translate import Translator
+    from src.core.engines.llm import Translator
     return Translator(**kwargs)
 
 
 def _make_deepseek_llm(**kwargs):
-    from src.core.translate import Translator
+    from src.core.engines.llm import Translator
     kwargs.setdefault("provider", "deepseek")
     return Translator(**kwargs)
 
 
 def _make_openai_llm(**kwargs):
-    from src.core.translate import Translator
+    from src.core.engines.llm import Translator
     kwargs.setdefault("provider", "openai")
     return Translator(**kwargs)
 

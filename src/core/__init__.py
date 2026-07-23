@@ -93,7 +93,7 @@ _EXPORTS = {
     "TaskRegistry": ("src.core.tasks", "TaskRegistry"),
     "TaskSpec": ("src.core.tasks", "TaskSpec"),
     "TaskStatus": ("src.core.tasks", "TaskStatus"),
-    "Translator": ("src.core.translate", "Translator"),
+    "Translator": ("src.core.engines.llm", "Translator"),
     "ToolTaskCatalog": ("src.core.orchestration", "ToolTaskCatalog"),
     "ToolTaskDefinition": ("src.core.orchestration", "ToolTaskDefinition"),
     "VocalSeparator": ("src.core.vocal_separator", "VocalSeparator"),

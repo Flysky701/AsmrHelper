@@ -147,12 +147,12 @@ class LlmRegistry:
 
     @staticmethod
     def _make_deepseek_llm(**kwargs: Any) -> Any:
-        from src.core.translate import Translator
+        from .translator import Translator
         return Translator(provider="deepseek", **kwargs)
 
     @staticmethod
     def _make_openai_llm(**kwargs: Any) -> Any:
-        from src.core.translate import Translator
+        from .translator import Translator
         return Translator(provider="openai", **kwargs)
 
 

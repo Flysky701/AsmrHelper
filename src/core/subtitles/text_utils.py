@@ -9,16 +9,7 @@ from __future__ import annotations
 import re
 from typing import List
 
-import importlib.util as _util
-import os as _os
-
-# Direct file import to avoid circular dependency through translate/__init__.py
-_tw_path = _os.path.join(_os.path.dirname(__file__), "..", "translate", "tw_zh_trad_map.py")
-_spec = _util.spec_from_file_location("_tw_zh_trad_map", _tw_path)
-_mod = _util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
-TRADITIONAL_CHARS = _mod.TRADITIONAL_CHARS
-TRAD_TO_SIMP_MAP = _mod.TRAD_TO_SIMP_MAP
+from .tw_zh_trad_map import TRADITIONAL_CHARS, TRAD_TO_SIMP_MAP
 
 
 def detect_language(translations: List[str]) -> str:
