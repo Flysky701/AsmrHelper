@@ -1,110 +1,55 @@
-"""Environment verification script - checks all critical packages after CUDA migration."""
+"""Verify the minimum environment needed to start the ASMR Helper API."""
+
+from __future__ import annotations
+
+import importlib
 import sys
 
-def check(label, func):
+
+REQUIRED_MODULES = ("fastapi", "uvicorn", "httpx", "yaml")
+OPTIONAL_MODULES = ("torch", "demucs", "faster_whisper", "edge_tts", "soundfile")
+
+
+def check_module(name: str) -> bool:
     try:
-        result = func()
-        status = "OK"
-        detail = str(result)
-    except Exception as e:
-        status = "FAIL"
-        detail = str(e)
-    print(f"  [{status}] {label}")
-    if detail:
-        print(f"         {detail}")
-    return status == "OK"
+        module = importlib.import_module(name)
+    except Exception as exc:
+        print(f"  [FAIL] {name}: {exc}")
+        return False
+    version = getattr(module, "__version__", "OK")
+    print(f"  [OK] {name}: {version}")
+    return True
 
-print("=" * 65)
-print("Environment Verification Report")
-print("=" * 65)
 
-results = []
+def main() -> int:
+    print("=" * 65)
+    print("ASMR Helper startup environment")
+    print("=" * 65)
+    print(f"  Python: {sys.version}")
 
-# 1. Python
-results.append(check(
-    "Python",
-    lambda: f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-))
+    if not (sys.version_info.major == 3 and sys.version_info.minor in (11, 12)):
+        print("  [FAIL] Python 3.11 or 3.12 is required")
+        return 1
 
-# 2. PyTorch
-results.append(check("PyTorch CUDA", lambda: (
-    __import__("torch"),
-    f"torch={__import__('torch').__version__}, cuda={__import__('torch').cuda.is_available()}"
-)[-1]))
+    required_ok = all(check_module(name) for name in REQUIRED_MODULES)
+    if required_ok:
+        try:
+            from src.api.http.app import create_app
 
-# 3. GPU
-results.append(check("GPU", lambda: (
-    __import__("torch"),
-    f"{__import__('torch').cuda.get_device_name(0)} ({__import__('torch').cuda.get_device_capability(0)})"
-)[-1]))
+            app = create_app()
+            print(f"  [OK] API application: {len(app.routes)} routes registered")
+        except Exception as exc:
+            print(f"  [FAIL] API application: {exc}")
+            required_ok = False
 
-# 4. Flash Attention (可选，Windows 上通常不可用)
-results.append(check("flash-attn (optional)", lambda: (
-    __import__("flash_attn"),
-    f"flash_attn {__import__('flash_attn').__version__}"
-)[-1]))
+    print("  Optional engine modules:")
+    for name in OPTIONAL_MODULES:
+        check_module(name)
 
-# 5. Demucs
-results.append(check("demucs", lambda: (
-    __import__("demucs"),
-    f"demucs {__import__('demucs').__version__}"
-)[-1]))
+    print("=" * 65)
+    print("Startup environment is ready." if required_ok else "Startup environment is incomplete.")
+    return 0 if required_ok else 1
 
-# 7. Faster-Whisper
-results.append(check("faster-whisper", lambda: (
-    __import__("faster_whisper"),
-    f"faster_whisper {__import__('faster_whisper').__version__}"
-)[-1]))
 
-# 8. Edge-TTS
-results.append(check("edge-tts", lambda: (
-    __import__("edge_tts"),
-    f"edge_tts OK"
-)[-1]))
-
-# 9. Qwen-TTS
-results.append(check("qwen-tts", lambda: (
-    __import__("qwen_tts"),
-    f"qwen_tts {__import__('qwen_tts').__version__}"
-)[-1]))
-
-# 10. Transformers
-results.append(check("transformers", lambda: (
-    __import__("transformers"),
-    f"transformers {__import__('transformers').__version__}"
-)[-1]))
-
-# 11. PySide6
-results.append(check("PySide6", lambda: (
-    __import__("PySide6"),
-    f"PySide6 {__import__('PySide6').__version__}"
-)[-1]))
-
-# 12. NumPy
-results.append(check("numpy", lambda: (
-    __import__("numpy"),
-    f"numpy {__import__('numpy').__version__}"
-)[-1]))
-
-# 13. torchaudio
-results.append(check("torchaudio", lambda: (
-    __import__("torchaudio"),
-    f"torchaudio {__import__('torchaudio').__version__}"
-)[-1]))
-
-# 14. huggingface_hub
-results.append(check("huggingface_hub", lambda: (
-    __import__("huggingface_hub"),
-    f"huggingface_hub {__import__('huggingface_hub').__version__}"
-)[-1]))
-
-print("=" * 65)
-passed = sum(results)
-total = len(results)
-print(f"Result: {passed}/{total} passed")
-if passed == total:
-    print("All checks passed!")
-else:
-    failed = total - passed
-    print(f"WARNING: {failed} check(s) failed!")
-print("=" * 65)
+if __name__ == "__main__":
+    raise SystemExit(main())

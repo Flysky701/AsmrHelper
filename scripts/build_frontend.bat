@@ -15,6 +15,11 @@ echo.
 :: Check Node.js
 where node >nul 2>nul
 if errorlevel 1 (
+    for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\Node.js" /v InstallPath 2^>nul ^| findstr InstallPath') do set NODE_HOME=%%B
+    if defined NODE_HOME set PATH=%NODE_HOME%;%PATH%
+)
+where node >nul 2>nul
+if errorlevel 1 (
     echo [ERROR] Node.js not found. Please install Node.js first.
     pause
     exit /b 1
@@ -24,7 +29,7 @@ if errorlevel 1 (
 if not exist "%DESKTOP_DIR%\node_modules" (
     echo [INFO] Installing dependencies...
     cd /d "%DESKTOP_DIR%"
-    call npm install
+    call npm ci
     if errorlevel 1 (
         echo [ERROR] npm install failed.
         pause

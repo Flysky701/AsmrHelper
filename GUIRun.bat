@@ -25,9 +25,38 @@ if not exist "%VENV_PYTHON%" (
 :: Check Node.js
 where node >nul 2>nul
 if errorlevel 1 (
+    for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\Node.js" /v InstallPath 2^>nul ^| findstr InstallPath') do set NODE_HOME=%%B
+    if defined NODE_HOME set PATH=%NODE_HOME%;%PATH%
+)
+where node >nul 2>nul
+if errorlevel 1 (
     echo [ERROR] Node.js not found. Please install Node.js first.
     pause
     exit /b 1
+)
+
+where cargo >nul 2>nul
+if errorlevel 1 (
+    if exist "%USERPROFILE%\.cargo\bin\cargo.exe" set PATH=%USERPROFILE%\.cargo\bin;%PATH%
+)
+where cargo >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] Rust/Cargo not found. Tauri requires the Rust toolchain.
+    echo         Install it with: winget install Rustlang.Rustup
+    pause
+    exit /b 1
+)
+
+if not exist "%DESKTOP_DIR%\node_modules" (
+    echo [INFO] Installing desktop dependencies...
+    cd /d "%DESKTOP_DIR%"
+    call npm ci
+    if errorlevel 1 (
+        echo [ERROR] npm ci failed.
+        pause
+        exit /b 1
+    )
+    cd /d "%PROJECT_ROOT%"
 )
 
 :: If port is already occupied, make sure it is really our backend.

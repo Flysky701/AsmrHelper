@@ -24,7 +24,11 @@ param(
     [switch]$DevOnly,
     [switch]$Models,
     [switch]$Mirror,
-    [switch]$CleanReinstall
+    [switch]$CleanReinstall,
+    [switch]$Offline,
+    [switch]$SkipFrontend,
+    [string]$PythonVersion = "3.11",
+    [string]$PythonPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -123,6 +127,38 @@ function Ensure-Uv {
     Write-OK "uv 安装完成"
 }
 
+function Add-NodeToPath {
+    if (Test-Command "node") {
+        return
+    }
+
+    $nodeKey = "HKLM:\SOFTWARE\Node.js"
+    if (Test-Path $nodeKey) {
+        $nodePath = (Get-ItemProperty $nodeKey -ErrorAction SilentlyContinue).InstallPath
+        if ($nodePath -and (Test-Path (Join-Path $nodePath "node.exe"))) {
+            $env:PATH = "$nodePath;$env:PATH"
+        }
+    }
+}
+
+function Get-PythonSelector {
+    if ($PythonPath) {
+        if (-not (Test-Path $PythonPath)) {
+            throw "指定的 Python 不存在: $PythonPath"
+        }
+        return $PythonPath
+    }
+
+    if ($env:CONDA_PREFIX) {
+        $condaPython = Join-Path $env:CONDA_PREFIX "python.exe"
+        if (Test-Path $condaPython) {
+            return $condaPython
+        }
+    }
+
+    return $PythonVersion
+}
+
 function Ensure-ConfigFiles {
     Write-Step "Step 3: 初始化配置"
 
@@ -192,19 +228,54 @@ function Invoke-DependencyInstall {
         }
     }
 
-    if ($DevOnly) {
-        & uv sync --extra dev
-    } elseif ($Full) {
-        & uv sync --extra qwen3 --extra dev
-    } else {
-        & uv sync
+    $pythonSelector = Get-PythonSelector
+    $syncArgs = @("sync", "--locked", "--python", $pythonSelector)
+    if ($Offline) {
+        $syncArgs += "--offline"
     }
+
+    # DevOnly 表示额外安装测试/格式化工具；API 启动仍需要完整运行依赖。
+    if ($DevOnly -or -not $Full) {
+        $syncArgs += @("--extra", "dev")
+    }
+    if ($Models -or $Full) {
+        $syncArgs += @("--extra", "audio")
+    }
+    if ($Full) {
+        $syncArgs += @("--extra", "qwen3")
+    }
+
+    & uv @syncArgs
 
     if ($LASTEXITCODE -ne 0) {
         throw "uv sync 失败"
     }
 
     Write-OK "依赖同步完成"
+}
+
+function Invoke-FrontendInstall {
+    if ($SkipFrontend) {
+        Write-OK "已跳过桌面端依赖安装"
+        return
+    }
+
+    Add-NodeToPath
+    if (-not (Test-Command "node") -or -not (Test-Command "npm")) {
+        throw "未找到 Node.js/npm。请先安装 Node.js 22 LTS 或更高版本。"
+    }
+
+    Write-Step "Step 3: 同步桌面端依赖"
+    Push-Location (Join-Path $ProjectRoot "desktop")
+    try {
+        & npm.cmd ci
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm ci 失败"
+        }
+    } finally {
+        Pop-Location
+    }
+    Write-OK "桌面端依赖同步完成"
 }
 
 function Invoke-ModelInstall {
@@ -216,7 +287,11 @@ function Invoke-ModelInstall {
 
     Write-Step "Step 5: 下载模型"
     $scriptPath = Join-Path $ProjectRoot "scripts\install_models.py"
-    $args = @("run", "python", $scriptPath)
+    $venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    if (-not (Test-Path $venvPython)) {
+        throw "项目虚拟环境不存在，请先完成依赖同步。"
+    }
+    $args = @($scriptPath)
 
     if ($Full) {
         $args += "--all"
@@ -229,7 +304,7 @@ function Invoke-ModelInstall {
         }
     }
 
-    & uv @args
+    & $venvPython @args
     if ($LASTEXITCODE -ne 0) {
         throw "模型下载失败"
     }
@@ -240,13 +315,14 @@ function Invoke-ModelInstall {
 function Invoke-EnvironmentVerify {
     Write-Step "Step 6: 环境验证"
 
-    if (Test-Command "uv") {
-        $verifyScript = Join-Path $ProjectRoot "scripts\verify_models.py"
-        if (Test-Path $verifyScript) {
-            & uv run python $verifyScript | Out-Host
-        }
-    } else {
-        Write-Warn "未检测到 uv，跳过模型验证"
+    $verifyScript = Join-Path $ProjectRoot "scripts\verify_env.py"
+    $venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    if (-not (Test-Path $venvPython)) {
+        throw "项目虚拟环境不存在，请先完成依赖同步。"
+    }
+    & $venvPython $verifyScript | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "环境验证失败"
     }
 
     Write-OK "环境验证完成"
@@ -259,6 +335,7 @@ Write-OK "当前目录: $ProjectRoot"
 Invoke-DependencyInstall
 Ensure-ConfigFiles
 Ensure-Directories
+Invoke-FrontendInstall
 Invoke-ModelInstall
 Invoke-EnvironmentVerify
 
@@ -266,6 +343,6 @@ Write-Step "Step 7: 完成"
 Write-Host "  后续步骤:" -ForegroundColor White
 Write-Host "    1. 配置 API Key (编辑 config/config.json 或设置环境变量)" -ForegroundColor White
 Write-Host "    2. 下载模型:     .\setup.ps1 -Models" -ForegroundColor White
-Write-Host "    3. 运行 GUI:     .\run.bat" -ForegroundColor White
-Write-Host "    4. 命令行处理:   uv run python scripts/asmr_bilingual.py --input audio.wav" -ForegroundColor White
+Write-Host "    3. 运行桌面端:   .\GUIRun.bat" -ForegroundColor White
+Write-Host "    4. 环境检查:     .\run.bat test" -ForegroundColor White
 Write-Host ""
