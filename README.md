@@ -37,7 +37,7 @@ cd AsmrHelper
 
 #如果后续关闭了powershell 需要CD到对应文件夹内
 
-# 基础安装（固定 Python 3.11，含 API、桌面端与测试依赖）
+# 基础安装（默认 Python 3.12，含 API、桌面端与测试依赖）
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 
 # 安装本地音频引擎和默认模型（含 Faster-Whisper / Demucs）

@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 title ASMR Helper - Desktop GUI
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 
 set PROJECT_ROOT=%~dp0
 set VENV_PYTHON=%PROJECT_ROOT%.venv\Scripts\python.exe
@@ -21,12 +21,21 @@ if not exist "%VENV_PYTHON%" (
     pause
     exit /b 1
 )
+"%VENV_PYTHON%" --version >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] Python virtual environment is present but cannot start.
+    echo         Its base Python may have been removed or relocated.
+    echo         Repair it with:
+    echo         powershell -ExecutionPolicy Bypass -File .\setup.ps1 -CleanReinstall -PythonPath "E:\path\to\python.exe"
+    pause
+    exit /b 1
+)
 
 :: Check Node.js
 where node >nul 2>nul
 if errorlevel 1 (
     for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\Node.js" /v InstallPath 2^>nul ^| findstr InstallPath') do set NODE_HOME=%%B
-    if defined NODE_HOME set PATH=%NODE_HOME%;%PATH%
+    if defined NODE_HOME set "PATH=!NODE_HOME!;!PATH!"
 )
 where node >nul 2>nul
 if errorlevel 1 (
@@ -37,7 +46,7 @@ if errorlevel 1 (
 
 where cargo >nul 2>nul
 if errorlevel 1 (
-    if exist "%USERPROFILE%\.cargo\bin\cargo.exe" set PATH=%USERPROFILE%\.cargo\bin;%PATH%
+    if exist "%USERPROFILE%\.cargo\bin\cargo.exe" set "PATH=%USERPROFILE%\.cargo\bin;!PATH!"
 )
 where cargo >nul 2>nul
 if errorlevel 1 (
@@ -105,6 +114,13 @@ echo.
 
 :: --release flag: build first, then launch the exe
 if /I "%LAUNCH_MODE%"=="--release" (
+    tasklist /FI "IMAGENAME eq asmr-helper.exe" /NH 2>nul | findstr /I /C:"asmr-helper.exe" >nul
+    if not errorlevel 1 (
+        echo [INFO] ASMR Helper Desktop is already running.
+        echo        Close it before using --release to rebuild the executable.
+        start "" "%DESKTOP_DIR%\src-tauri\target\release\asmr-helper.exe"
+        exit /b 0
+    )
     echo [INFO] Building frontend before launch...
     cd /d "%DESKTOP_DIR%"
     call npx tauri build
@@ -122,8 +138,15 @@ if /I "%LAUNCH_MODE%"=="--release" (
 echo [INFO] Starting dev mode (loads latest source)...
 cd /d "%DESKTOP_DIR%"
 set VITE_API_BASE=http://127.0.0.1:%BACKEND_PORT%/api/v1
-npx tauri dev
-exit /b %errorlevel%
+call npx tauri dev
+set "TAURI_EXIT=!ERRORLEVEL!"
+if not "!TAURI_EXIT!"=="0" (
+    echo.
+    echo [ERROR] Tauri dev mode exited with code !TAURI_EXIT!.
+    echo         The error above has been kept for troubleshooting.
+    pause
+)
+exit /b !TAURI_EXIT!
 
 :check_backend_health
 curl -s "%BACKEND_HEALTH_URL%" | findstr /C:"\"status\":\"ok\"" >nul 2>nul

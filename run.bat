@@ -25,6 +25,12 @@ if not exist "%VENV_PYTHON%" (
     echo         Run: powershell -ExecutionPolicy Bypass -File .\setup.ps1
     exit /b 1
 )
+"%VENV_PYTHON%" --version >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] Project environment exists but its Python cannot start.
+    echo         Repair it with setup.ps1 -CleanReinstall -PythonPath ^<python.exe^>.
+    exit /b 1
+)
 exit /b 0
 
 :api

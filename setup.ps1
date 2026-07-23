@@ -27,7 +27,7 @@ param(
     [switch]$CleanReinstall,
     [switch]$Offline,
     [switch]$SkipFrontend,
-    [string]$PythonVersion = "3.11",
+    [string]$PythonVersion = "3.12",
     [string]$PythonPath = ""
 )
 
@@ -154,6 +154,10 @@ function Get-PythonSelector {
         if (Test-Path $condaPython) {
             return $condaPython
         }
+    }
+
+    if ($Offline) {
+        throw "离线安装需要可用的本机 Python 3.11/3.12。请使用 -PythonPath 指定 python.exe，或先激活对应 Conda 环境。"
     }
 
     return $PythonVersion

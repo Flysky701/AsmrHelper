@@ -7,7 +7,14 @@ import sys
 
 
 REQUIRED_MODULES = ("fastapi", "uvicorn", "httpx", "yaml")
-OPTIONAL_MODULES = ("torch", "demucs", "faster_whisper", "edge_tts", "soundfile")
+OPTIONAL_MODULES = (
+    "torch",
+    "demucs",
+    "faster_whisper",
+    "imageio_ffmpeg",
+    "edge_tts",
+    "soundfile",
+)
 
 
 def check_module(name: str) -> bool:
