@@ -40,6 +40,9 @@ dependencies = [
 # 本地 ASR / 分离 / 混音依赖较大（Demucs 会安装 CUDA PyTorch），
 # 仅在需要本地音频流水线时安装，不阻塞桌面端和 API 启动。
 audio = [
+    # CPU PyTorch keeps the local main pipeline installable on every Windows PC.
+    # CUDA acceleration is an optional runtime upgrade, not a startup prerequisite.
+    "torch>=2.4.0",
     "faster-whisper>=1.0.0",
     "demucs>=4.0.0",
     "imageio-ffmpeg>=0.4.0",
@@ -105,21 +108,8 @@ conflicts = [
     ],
 ]
 
-# PyTorch CUDA 版本覆盖（防止 uv 从 PyPI 拉取 CPU 版本）
 # numpy>=2.0.0 强制：numpy 1.x MINGW 构建在 Python 3.13 上会 Access Violation 崩溃
 override-dependencies = [
     "numpy>=2.0.0",
     "onnxruntime>=1.20.0,<1.24.0",
-    "torch==2.11.0+cu128",
-    "torchaudio==2.11.0+cu128",
 ]
-
-# PyTorch CUDA 源：确保 uv sync / uv run 安装 CUDA 版本而非 CPU 版本
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
-
-[tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-torchaudio = { index = "pytorch-cu128" }
