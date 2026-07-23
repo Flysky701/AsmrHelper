@@ -16,34 +16,79 @@ export type TaskState =
 export interface TaskStatusResponse {
   task_id: string
   state: TaskState
+  stage: string | null
   progress: number
   message: string
   detail: string
+  error: Record<string, unknown> | null
+  task_type: string
+  task_source: string
+  input_asset_id: string
+  created_at: string
+  queued_at: string | null
+  started_at: string | null
+  updated_at: string
+  finished_at: string | null
 }
 
 export interface TaskListResponse {
   tasks: TaskStatusResponse[]
 }
 
+export interface ArtifactResponse {
+  artifact_id: string
+  task_id: string
+  type: string
+  path: string
+  stage: string
+  label: string
+  primary: boolean
+  preview: boolean
+  metadata: Record<string, unknown>
+}
+
+export interface TaskResultResponse {
+  task_id: string
+  primary_artifact_id: string | null
+  artifacts: ArtifactResponse[]
+  warnings: string[]
+}
+
+export type TaskArtifactsResponse = TaskResultResponse
+
 // ── Pipeline ───────────────────────────────────────────
+export interface StageProfileRequest {
+  enabled: boolean
+  provider: string
+  model: string | null
+  options: Record<string, unknown>
+  provider_options: Record<string, unknown>
+}
+
+export interface PipelineExecutionProfileRequest {
+  version: 1
+  source_lang: string
+  target_lang: string
+  skip_existing: boolean
+  stages: {
+    separate: StageProfileRequest
+    asr: StageProfileRequest
+    translate: StageProfileRequest
+    tts: StageProfileRequest
+    mix: StageProfileRequest
+    export: StageProfileRequest
+  }
+}
+
 export interface PipelineRunRequest {
-  input_path: string
-  output_dir?: string
-  vtt_path?: string | null
-  source_lang?: string
-  target_lang?: string
-  use_vocal_separator?: boolean
-  tts_engine?: string
-  tts_voice?: string
-  vocal_model?: string
-  asr_model?: string
-  translate_provider?: string
-  tts_speed?: number
-  original_volume?: number
-  tts_volume_ratio?: number
-  tts_delay?: number
-  skip_existing?: boolean
-  voice_profile_id?: string | null
+  input: {
+    path: string
+    companion_paths: string[]
+  }
+  output: {
+    directory?: string
+  }
+  execution_profile: PipelineExecutionProfileRequest
 }
 
 export interface ArtifactSetResponse {
@@ -62,6 +107,10 @@ export interface PipelineRunResponse {
   exported_subtitle: string | null
   total_duration: number
   error_message: string | null
+}
+
+export interface PipelineTaskCreateResponse {
+  task: TaskStatusResponse
 }
 
 export interface PresetItem {

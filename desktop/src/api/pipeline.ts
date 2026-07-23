@@ -1,15 +1,15 @@
 import { api } from './client'
 import type {
   PipelineRunRequest,
-  PipelineRunResponse,
+  PipelineTaskCreateResponse,
   PipelinePresetsResponse,
   BatchPipelineRequest,
   BatchPipelineResponse,
 } from './types'
 
 export const pipelineApi = {
-  run: (body: PipelineRunRequest) =>
-    api.post<PipelineRunResponse>('/pipeline/run', body),
+  createTask: (body: PipelineRunRequest) =>
+    api.post<PipelineTaskCreateResponse>('/pipeline-runs', body),
 
   presets: () => api.get<PipelinePresetsResponse>('/pipeline/presets'),
 

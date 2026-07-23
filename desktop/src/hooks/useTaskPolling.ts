@@ -16,14 +16,6 @@ export function useTaskPolling(intervalMs = 3000) {
     )
 
     useEffect(() => {
-        if (!hasActiveTasks) {
-            if (timerRef.current) {
-                clearInterval(timerRef.current)
-                timerRef.current = null
-            }
-            return
-        }
-
         const poll = async () => {
             try {
                 const response = await tasksApi.list()
@@ -36,7 +28,9 @@ export function useTaskPolling(intervalMs = 3000) {
         // Poll immediately on activation
         poll()
 
-        timerRef.current = setInterval(poll, intervalMs)
+        if (hasActiveTasks) {
+            timerRef.current = setInterval(poll, intervalMs)
+        }
 
         return () => {
             if (timerRef.current) {

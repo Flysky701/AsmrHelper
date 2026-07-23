@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 
 import { tasksApi } from '@/api/tasks'
@@ -17,7 +18,16 @@ const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; bg: string
   skipped: { label: '已跳过', dot: 'var(--warning)', bg: 'var(--warning-soft)', color: 'var(--warning)' },
 }
 
-const PIPELINE_STAGES = ['人声分离', 'ASR 识别', '字幕翻译', 'TTS 合成', '混音输出'] as const
+const PIPELINE_STAGES = ['准备', '人声分离', 'ASR 识别', '字幕翻译', 'TTS 合成', '混音输出', '导出产物'] as const
+const PIPELINE_STAGE_INDEX: Record<string, number> = {
+  prepare: 0,
+  separate: 1,
+  asr: 2,
+  translate: 3,
+  tts: 4,
+  mix: 5,
+  export: 6,
+}
 
 const SURFACE_STYLE: CSSProperties = {
   background: 'var(--surface)',
@@ -147,23 +157,19 @@ function formatDuration(durationMs?: number) {
   return `${minutes}m ${seconds}s`
 }
 
-function guessPipelineStage(task: Task) {
-  const message = `${task.message} ${task.detail}`.toLowerCase()
-  if (message.includes('separ') || message.includes('分离')) return 0
-  if (message.includes('asr') || message.includes('识别') || message.includes('transcrib')) return 1
-  if (message.includes('translat') || message.includes('翻译')) return 2
-  if (message.includes('tts') || message.includes('合成')) return 3
-  if (message.includes('mix') || message.includes('混音')) return 4
-  if (task.status === 'completed') return 5
-  return Math.min(4, Math.floor(task.progress / 20))
+function pipelineStageIndex(task: Task): number {
+  if (task.stage && task.stage in PIPELINE_STAGE_INDEX) return PIPELINE_STAGE_INDEX[task.stage] ?? 0
+  if (task.status === 'completed') return PIPELINE_STAGES.length - 1
+  return 0
 }
 
 function stageLabel(task: Task) {
   if (task.status === 'completed') return '成品已产出'
-  if (task.status === 'failed') return '任务在当前阶段失败'
+  const currentStage = PIPELINE_STAGES[pipelineStageIndex(task)] ?? '准备'
+  if (task.status === 'failed') return `任务在“${currentStage}”阶段失败`
   if (task.status === 'cancelled') return '任务已取消'
   if (task.status === 'skipped') return '任务被跳过'
-  return PIPELINE_STAGES[Math.min(PIPELINE_STAGES.length - 1, guessPipelineStage(task))]
+  return currentStage
 }
 
 function jobTypeLabel(jobType: JobType) {
@@ -179,6 +185,7 @@ function jobTypeLabel(jobType: JobType) {
     'voice-design': '音色设计',
     'voice-clone': '音色克隆',
     'voice-preview': '音色试听',
+    unknown: '历史任务',
   }
 
   return labels[jobType] ?? jobType
@@ -213,10 +220,6 @@ function formatParamValue(value: unknown) {
   return String(value)
 }
 
-function isAudioArtifact(path: string) {
-  return /\.(mp3|wav|flac|ogg|m4a|aac|wma)$/i.test(path)
-}
-
 async function copyToClipboard(text: string) {
   try {
     await navigator.clipboard.writeText(text)
@@ -226,7 +229,7 @@ async function copyToClipboard(text: string) {
 }
 
 function PipelineTimeline({ task }: { task: Task }) {
-  const activeIndex = guessPipelineStage(task)
+  const activeIndex = pipelineStageIndex(task)
   const isFailed = task.status === 'failed'
 
   return (
@@ -298,14 +301,54 @@ export default function TaskCenter() {
   const taskLogs = selectedTask ? logs.filter((entry) => entry.taskId === selectedTask.id) : logs
   const filteredLogs = taskLogs.filter((entry) => levelFilter.includes(entry.level)).slice(-120).reverse()
 
-  const artifacts = selectedTask?.artifacts?.files
-    ? Object.entries(selectedTask.artifacts.files).map(([kind, path]) => ({
-        kind,
-        path,
-        audio: isAudioArtifact(path),
-        primary: selectedTask.artifacts?.primaryOutput === path,
-      }))
-    : []
+  const artifacts = selectedTask?.artifacts?.items ?? []
+
+  useEffect(() => {
+    if (!selectedTask?.serverTaskId) return
+    if (selectedTask.status === 'pending' || selectedTask.status === 'running') return
+    if (selectedTask.artifacts) return
+
+    let cancelled = false
+    tasksApi.result(selectedTask.serverTaskId)
+      .then((response) => {
+        if (cancelled) return
+        updateTask(selectedTask.id, {
+          artifacts: {
+            primaryArtifactId: response.primary_artifact_id ?? undefined,
+            items: response.artifacts.map((artifact) => ({
+              artifactId: artifact.artifact_id,
+              type: artifact.type,
+              path: artifact.path,
+              stage: artifact.stage,
+              label: artifact.label,
+              primary: artifact.primary,
+              preview: artifact.preview,
+              metadata: artifact.metadata,
+            })),
+            warnings: response.warnings,
+          },
+        })
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          addLog({
+            level: 'warn',
+            content: `读取历史产物失败：${String(error)}`,
+            taskId: selectedTask.id,
+          })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    addLog,
+    selectedTask?.artifacts,
+    selectedTask?.id,
+    selectedTask?.serverTaskId,
+    selectedTask?.status,
+    updateTask,
+  ])
 
   const toggleLogLevel = (level: LogLevel) => {
     setLevelFilter(
@@ -325,12 +368,12 @@ export default function TaskCenter() {
     try {
       const response = await tasksApi.cancel(task.serverTaskId)
       updateTask(taskId, {
-        status: 'cancelled',
-        progress: response.progress,
-        message: response.message || '任务已取消',
+        status: response.state as TaskStatus,
+        progress: Math.round(response.progress * 100),
+        message: response.message || '已请求取消任务',
         detail: response.detail,
       })
-      addLog({ level: 'info', content: `任务已取消：${task.serverTaskId}`, taskId })
+      addLog({ level: 'info', content: `已请求取消任务：${task.serverTaskId}`, taskId })
     } catch (error) {
       addLog({ level: 'error', content: `取消失败：${String(error)}`, taskId })
     }
@@ -342,18 +385,28 @@ export default function TaskCenter() {
       addLog({ level: 'warn', content: `任务尚未绑定后端 ID：${taskId}`, taskId })
       return
     }
+    if (task.historical) {
+      addLog({
+        level: 'warn',
+        content: '历史任务仅用于查看；请从 Workbench 重新提交输入文件',
+        taskId,
+      })
+      return
+    }
 
     try {
       const response = await tasksApi.retry(task.serverTaskId)
       updateTask(taskId, {
+        serverTaskId: response.task_id,
         status: 'pending',
-        progress: response.progress,
+        stage: response.stage ?? undefined,
+        progress: Math.round(response.progress * 100),
         message: response.message || '任务已重新排队',
         detail: response.detail,
         startedAt: undefined,
         finishedAt: undefined,
       })
-      addLog({ level: 'info', content: `任务已重试：${task.serverTaskId}`, taskId })
+      addLog({ level: 'info', content: `任务已重试：${response.task_id}`, taskId })
     } catch (error) {
       addLog({ level: 'error', content: `重试失败：${String(error)}`, taskId })
     }
@@ -488,7 +541,9 @@ export default function TaskCenter() {
                 .reverse()
                 .map((task) => {
                   const isSelected = selectedTask?.id === task.id
-                  const primaryOutput = task.artifacts?.primaryOutput
+                  const primaryOutput = task.artifacts?.items.find(
+                    (artifact) => artifact.artifactId === task.artifacts?.primaryArtifactId,
+                  )?.path
 
                   return (
                     <button
@@ -567,7 +622,7 @@ export default function TaskCenter() {
                     <ToolbarButton
                       variant="secondary"
                       onClick={() => handleRetry(selectedTask.id)}
-                      disabled={selectedTask.status !== 'failed'}
+                      disabled={selectedTask.status !== 'failed' || selectedTask.historical}
                     >
                       重试
                     </ToolbarButton>
@@ -637,11 +692,11 @@ export default function TaskCenter() {
                   ) : (
                     <div style={{ marginTop: 18, display: 'grid', gap: 12 }}>
                       {artifacts.map((artifact) => (
-                        <div key={`${artifact.kind}-${artifact.path}`} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
+                        <div key={artifact.artifactId} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                             <div>
                               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg)' }}>
-                                {artifact.primary ? '主产物' : artifact.kind}
+                                {artifact.primary ? '主产物' : artifact.label || artifact.type}
                               </div>
                               <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)', wordBreak: 'break-all' }}>
                                 {artifact.path}
@@ -649,8 +704,8 @@ export default function TaskCenter() {
                             </div>
 
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                              {artifact.audio ? (
-                                <ToolbarButton variant="secondary" onClick={() => handlePlayArtifact(artifact.path, artifact.kind)}>
+                              {artifact.preview && artifact.type.startsWith('audio.') ? (
+                                <ToolbarButton variant="secondary" onClick={() => handlePlayArtifact(artifact.path, artifact.label || artifact.type)}>
                                   播放
                                 </ToolbarButton>
                               ) : null}

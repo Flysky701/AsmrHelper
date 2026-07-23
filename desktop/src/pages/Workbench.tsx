@@ -456,75 +456,134 @@ export default function Workbench() {
     if (selectedFiles.length === 0) return
 
     for (const filePath of selectedFiles) {
+      const asrModel = params.asrModel.startsWith('faster-whisper-')
+        ? params.asrModel
+        : `faster-whisper-${params.asrModel}`
       const request: PipelineRunRequest = {
-        input_path: filePath,
-        source_lang: params.sourceLang,
-        target_lang: params.targetLang,
-        use_vocal_separator: params.useVocalSeparator,
-        tts_engine: params.ttsEngine,
-        tts_voice: params.ttsVoice,
-        vocal_model: params.vocalModel,
-        asr_model: params.asrModel,
-        translate_provider: params.translateProvider,
-        tts_speed: params.ttsSpeed,
-        original_volume: params.originalVolume,
-        tts_volume_ratio: params.ttsVolumeRatio,
-        tts_delay: params.ttsDelay,
-        skip_existing: params.skipExisting,
-        voice_profile_id: params.voiceProfileId,
+        input: {
+          path: filePath,
+          companion_paths: [],
+        },
+        output: {},
+        execution_profile: {
+          version: 1,
+          source_lang: params.sourceLang,
+          target_lang: params.targetLang,
+          skip_existing: params.skipExisting,
+          stages: {
+            separate: {
+              enabled: params.useVocalSeparator,
+              provider: params.vocalModel.startsWith('mdx') ? 'mdx' : 'htdemucs',
+              model: params.vocalModel,
+              options: { mode: 'vocals' },
+              provider_options: {},
+            },
+            asr: {
+              enabled: true,
+              provider: 'faster_whisper',
+              model: asrModel,
+              options: {
+                language: params.sourceLang,
+                output_format: 'segments',
+                timestamps: true,
+              },
+              provider_options: { disable_vad: true },
+            },
+            translate: {
+              enabled: params.sourceLang !== params.targetLang,
+              provider: params.translateProvider,
+              model: null,
+              options: {
+                source_lang: params.sourceLang,
+                target_lang: params.targetLang,
+                preserve_timestamps: true,
+              },
+              provider_options: {},
+            },
+            tts: {
+              enabled: true,
+              provider: params.ttsEngine,
+              model: null,
+              options: {
+                voice: params.ttsVoice,
+                voice_profile_id: params.voiceProfileId,
+                speed: params.ttsSpeed,
+                language: params.targetLang,
+              },
+              provider_options: {},
+            },
+            mix: {
+              enabled: true,
+              provider: 'ffmpeg',
+              model: null,
+              options: {
+                original_volume: params.originalVolume,
+                tts_volume_ratio: params.ttsVolumeRatio,
+                tts_delay_ms: params.ttsDelay * 1000,
+                normalize: true,
+              },
+              provider_options: {},
+            },
+            export: {
+              enabled: true,
+              provider: 'ffmpeg',
+              model: null,
+              options: {
+                subtitle_format: 'srt',
+                include_intermediate_files: true,
+              },
+              provider_options: {},
+            },
+          },
+        },
       }
 
       const taskId = addTask({
         jobType: 'pipeline',
         sourceName: fileName(filePath),
         sourcePath: filePath,
-        params: request as unknown as Record<string, unknown>,
+        params: {
+          input_path: filePath,
+          source_lang: params.sourceLang,
+          target_lang: params.targetLang,
+          use_vocal_separator: params.useVocalSeparator,
+          tts_engine: params.ttsEngine,
+          tts_voice: params.ttsVoice,
+          vocal_model: params.vocalModel,
+          asr_model: asrModel,
+          translate_provider: params.translateProvider,
+          tts_speed: params.ttsSpeed,
+          original_volume: params.originalVolume,
+          tts_volume_ratio: params.ttsVolumeRatio,
+          tts_delay: params.ttsDelay,
+          skip_existing: params.skipExisting,
+          voice_profile_id: params.voiceProfileId,
+        },
       })
 
-      updateTask(taskId, {
-        status: 'running',
-        message: '请求已发送，等待后端接管',
-        progress: 5,
-      })
+      updateTask(taskId, { message: '正在创建后端任务', progress: 0 })
       addLog({ level: 'info', content: `任务已创建：${filePath}`, taskId })
 
-      pipelineApi
-        .run(request)
-        .then((response) => {
-          const finalStatus = (response.task?.state ?? (response.success ? 'completed' : 'failed')) as TaskStatus
-
-          useTaskStore.getState().updateTask(taskId, {
-            serverTaskId: response.task_id ?? response.task?.task_id ?? undefined,
-            status: finalStatus,
-            progress: response.task?.progress ?? (response.success ? 100 : 0),
-            message: response.task?.message ?? (response.success ? '任务已完成' : '任务失败'),
-            detail: response.task?.detail ?? '',
-            artifacts: response.artifacts
-              ? {
-                  files: response.artifacts.files,
-                  primaryOutput: response.artifacts.primary_output ?? undefined,
-                }
-              : undefined,
-            errorMessage: response.error_message ?? undefined,
-          })
-
-          addLog({
-            level: finalStatus === 'completed' || finalStatus === 'skipped' ? 'info' : 'error',
-            content: response.success
-              ? `任务完成：${response.input_path}`
-              : `任务失败：${response.error_message ?? '未知错误'}`,
-            taskId,
-          })
+      try {
+        const created = await pipelineApi.createTask(request)
+        const remoteTask = created.task
+        useTaskStore.getState().updateTask(taskId, {
+          serverTaskId: remoteTask.task_id,
+          status: remoteTask.state as TaskStatus,
+          stage: remoteTask.stage ?? undefined,
+          progress: Math.round(remoteTask.progress * 100),
+          message: '后端已接管，等待执行',
+          detail: remoteTask.detail,
         })
-        .catch((error) => {
+      } catch (error) {
           useTaskStore.getState().updateTask(taskId, {
             status: 'failed',
             progress: 0,
-            message: '请求失败',
+            message: '创建或启动任务失败',
             errorMessage: String(error),
           })
           addLog({ level: 'error', content: `任务异常：${String(error)}`, taskId })
-        })
+      }
     }
 
     setPage('task-center')

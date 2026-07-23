@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import { pipelineApi } from '@/api/pipeline'
-import type { SettingsResponse } from '@/api/settings'
+import type { SettingsUpdate, SettingsView } from '@/api/settings'
 
 type SettingsTab = 'api' | 'presets' | 'paths'
 
@@ -12,7 +12,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
 ]
 
 export default function Settings() {
-  const [_settings, setSettings] = useState<SettingsResponse | null>(null)
+  const [settings, setSettings] = useState<SettingsView | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -51,17 +51,18 @@ export default function Settings() {
         pipelineApi.presets().catch(() => ({ presets: [] })),
       ])
       if (settingsData) {
-        setSettings(settingsData)
+        const current = settingsData.settings
+        setSettings(current)
         setDraft({
-          provider: settingsData.api.provider || 'deepseek',
-          deepseekKey: settingsData.api.deepseek_api_key || '',
-          openaiKey: settingsData.api.openai_api_key || '',
-          deepseekBaseUrl: settingsData.api.deepseek_base_url || 'https://api.deepseek.com',
-          openaiBaseUrl: settingsData.api.openai_base_url || 'https://api.openai.com/v1',
-          outputDir: settingsData.paths.output_dir || '',
-          vttDir: settingsData.paths.vtt_dir || '',
-          modelCacheDir: settingsData.paths.model_cache_dir || '',
-          tempDir: settingsData.paths.temp_dir || '',
+          provider: current.providers.default_llm || 'deepseek',
+          deepseekKey: '',
+          openaiKey: '',
+          deepseekBaseUrl: current.providers.deepseek.base_url || 'https://api.deepseek.com',
+          openaiBaseUrl: current.providers.openai.base_url || 'https://api.openai.com/v1',
+          outputDir: current.paths.output_dir || '',
+          vttDir: current.paths.vtt_dir || '',
+          modelCacheDir: current.paths.model_cache_dir || '',
+          tempDir: current.paths.temp_dir || '',
         })
       }
       setPresets(presetsData.presets || [])
@@ -74,13 +75,17 @@ export default function Settings() {
     setSaving(true)
     setMessage('')
     try {
-      const updates: Partial<SettingsResponse> = {
-        api: {
-          provider: draft.provider,
-          deepseek_api_key: draft.deepseekKey,
-          openai_api_key: draft.openaiKey,
-          deepseek_base_url: draft.deepseekBaseUrl,
-          openai_base_url: draft.openaiBaseUrl,
+      const updates: SettingsUpdate = {
+        providers: {
+          default_llm: draft.provider,
+          deepseek: {
+            base_url: draft.deepseekBaseUrl,
+            ...(draft.deepseekKey ? { credential: draft.deepseekKey } : {}),
+          },
+          openai: {
+            base_url: draft.openaiBaseUrl,
+            ...(draft.openaiKey ? { credential: draft.openaiKey } : {}),
+          },
         },
         paths: {
           output_dir: draft.outputDir,
@@ -110,8 +115,25 @@ export default function Settings() {
     setTesting(true)
     setTestResult(null)
     try {
-      const result = await settingsApi.testProvider(provider)
-      setTestResult({ success: result.success, msg: result.success ? '连接成功' : result.errors.join('; ') })
+      const providerUpdate: SettingsUpdate = provider === 'deepseek'
+        ? {
+            providers: {
+              deepseek: {
+                base_url: draft.deepseekBaseUrl,
+                ...(draft.deepseekKey ? { credential: draft.deepseekKey } : {}),
+              },
+            },
+          }
+        : {
+            providers: {
+              openai: {
+                base_url: draft.openaiBaseUrl,
+                ...(draft.openaiKey ? { credential: draft.openaiKey } : {}),
+              },
+            },
+          }
+      const result = await settingsApi.testProvider(provider, providerUpdate)
+      setTestResult({ success: result.success, msg: result.message || result.errors.join('; ') })
     } catch (err) {
       setTestResult({ success: false, msg: `测试失败: ${err}` })
     } finally {
@@ -256,7 +278,7 @@ export default function Settings() {
                         type="password"
                         value={draft.deepseekKey}
                         onChange={e => setDraft({ ...draft, deepseekKey: e.target.value })}
-                        placeholder="sk-..."
+                        placeholder={settings?.providers.deepseek.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
                         style={{
                           fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
                           borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
@@ -300,7 +322,7 @@ export default function Settings() {
                         type="password"
                         value={draft.openaiKey}
                         onChange={e => setDraft({ ...draft, openaiKey: e.target.value })}
-                        placeholder="sk-..."
+                        placeholder={settings?.providers.openai.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
                         style={{
                           fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
                           borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
