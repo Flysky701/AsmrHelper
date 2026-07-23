@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,14 +17,10 @@ from src.app.dto import (
     ModelVerificationResult,
     PipelineResult,
     ResourceStatus,
-    SubtitleSegment,
-    SynthesisResult,
     TaskStatus,
-    TranscriptionResult,
     TranslationResult,
 )
 from src.app.errors import (
-    AppError,
     AppExecutionError,
     AppValidationError,
     ResourceUnavailableError,
@@ -137,6 +132,128 @@ class TestPipelineRoutes:
 
     def test_run_pipeline_missing_field(self, client):
         resp = client.post("/api/v1/pipeline/run", json={})
+        assert resp.status_code == 422
+
+
+class TestPipelineRunRoutes:
+    def test_submit_v1_pipeline_run_preserves_stage_profiles(self, client):
+        mock_svc = MagicMock()
+        mock_svc.submit_task.return_value = TaskStatus(
+            task_id="pipeline-1",
+            task_type="pipeline",
+            state="pending",
+            progress=0.0,
+            created_at="2026-07-23T10:00:00+00:00",
+        )
+        client.app.dependency_overrides[
+            dependencies.pipeline_task_orchestrator
+        ] = _mock_dep(mock_svc)
+        profile = {
+            "version": 1,
+            "source_lang": "ja",
+            "target_lang": "zh",
+            "skip_existing": True,
+            "stages": {
+                "separate": {
+                    "enabled": False,
+                    "provider": "htdemucs",
+                    "model": "htdemucs",
+                    "options": {"mode": "vocals"},
+                    "provider_options": {},
+                },
+                "asr": {
+                    "enabled": True,
+                    "provider": "faster_whisper",
+                    "model": "faster-whisper-base",
+                    "options": {"language": "ja"},
+                    "provider_options": {"disable_vad": True},
+                },
+                "translate": {
+                    "enabled": True,
+                    "provider": "deepseek",
+                    "model": None,
+                    "options": {"target_lang": "zh"},
+                    "provider_options": {},
+                },
+                "tts": {
+                    "enabled": True,
+                    "provider": "edge",
+                    "model": None,
+                    "options": {"voice": "zh-CN-XiaoxiaoNeural"},
+                    "provider_options": {},
+                },
+                "mix": {
+                    "enabled": True,
+                    "provider": "ffmpeg",
+                    "model": None,
+                    "options": {"tts_delay_ms": 250},
+                    "provider_options": {},
+                },
+                "export": {
+                    "enabled": True,
+                    "provider": "ffmpeg",
+                    "model": None,
+                    "options": {"subtitle_format": "srt"},
+                    "provider_options": {},
+                },
+            },
+        }
+
+        resp = client.post(
+            "/api/v1/pipeline-runs",
+            json={
+                "input": {
+                    "path": "/test/input.wav",
+                    "companion_paths": ["/test/input.vtt"],
+                },
+                "output": {"directory": "/test/output"},
+                "execution_profile": profile,
+            },
+        )
+
+        assert resp.status_code == 202
+        request = mock_svc.submit_task.call_args.args[0]
+        assert request.input_path == "/test/input.wav"
+        assert request.output_dir == "/test/output"
+        assert request.companion_paths == ["/test/input.vtt"]
+        assert request.execution_profile == profile
+        assert "profiles" not in request.execution_profile
+
+    def test_submit_pipeline_run_returns_accepted_task(self, client):
+        mock_svc = MagicMock()
+        mock_svc.submit_task.return_value = TaskStatus(
+            task_id="pipeline-1",
+            task_type="pipeline",
+            state="pending",
+            stage=None,
+            progress=0.0,
+            created_at="2026-07-23T10:00:00+00:00",
+        )
+        client.app.dependency_overrides[
+            dependencies.pipeline_task_orchestrator
+        ] = _mock_dep(mock_svc)
+
+        resp = client.post(
+            "/api/v1/pipeline-runs",
+            json={
+                "input_path": "/test/input.wav",
+                "source_lang": "ja",
+                "target_lang": "zh",
+                "tts_engine": "edge",
+            },
+        )
+
+        assert resp.status_code == 202
+        assert resp.json()["task"]["task_id"] == "pipeline-1"
+        assert resp.json()["task"]["state"] == "pending"
+        request = mock_svc.submit_task.call_args.args[0]
+        assert request.input_path == "/test/input.wav"
+        assert request.source_lang == "ja"
+        assert request.target_lang == "zh"
+        assert request.tts_engine == "edge"
+
+    def test_submit_pipeline_run_requires_input(self, client):
+        resp = client.post("/api/v1/pipeline-runs", json={})
         assert resp.status_code == 422
 
 
@@ -278,6 +395,79 @@ class TestTtsRoutes:
             common_options={"voice": "af_heart", "speed": 1.1},
             provider_options={"lang_code": "a"},
         )
+
+
+# ─── Settings ─────────────────────────────────────────────────────────
+
+
+class TestSettingsRoutes:
+    def test_get_uses_public_settings_envelope(self, client):
+        mock_svc = MagicMock()
+        mock_svc.get_settings.return_value = {
+            "providers": {
+                "default_llm": "deepseek",
+                "deepseek": {
+                    "base_url": "https://api.deepseek.com",
+                    "credential_configured": True,
+                },
+            }
+        }
+        client.app.dependency_overrides[dependencies.settings_service] = _mock_dep(mock_svc)
+
+        resp = client.get("/api/v1/settings")
+
+        assert resp.status_code == 200
+        assert resp.json()["settings"]["providers"]["deepseek"]["credential_configured"] is True
+        mock_svc.get_settings.assert_called_once_with(masked=True)
+
+    def test_put_passes_settings_envelope_to_service(self, client):
+        mock_svc = MagicMock()
+        mock_svc.update_settings.return_value = {
+            "providers": {"default_llm": "openai"}
+        }
+        client.app.dependency_overrides[dependencies.settings_service] = _mock_dep(mock_svc)
+        settings = {
+            "providers": {
+                "default_llm": "openai",
+                "openai": {"credential": "new-key"},
+            }
+        }
+
+        resp = client.put("/api/v1/settings", json={"settings": settings})
+
+        assert resp.status_code == 200
+        mock_svc.update_settings.assert_called_once_with(settings)
+
+    def test_provider_test_returns_stable_result(self, client):
+        from src.app.services.settings_service import ProviderTestResult
+
+        mock_svc = MagicMock()
+        mock_svc.test_provider.return_value = ProviderTestResult(
+            provider="deepseek",
+            success=False,
+            error_code="PROVIDER_CONNECTION_FAILED",
+            message="Provider 连接或鉴权失败",
+        )
+        client.app.dependency_overrides[dependencies.settings_service] = _mock_dep(mock_svc)
+
+        resp = client.post(
+            "/api/v1/settings/test-provider",
+            json={
+                "provider": "deepseek",
+                "settings": {
+                    "providers": {
+                        "deepseek": {
+                            "credential": "candidate",
+                            "base_url": "https://api.deepseek.com",
+                        }
+                    }
+                },
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["error_code"] == "PROVIDER_CONNECTION_FAILED"
+        assert resp.json()["success"] is False
 
 
 # ─── Models ───────────────────────────────────────────────────────────
@@ -524,6 +714,59 @@ class TestTaskRoutes:
 
         resp = client.get("/api/v1/tasks/bad-id")
         assert resp.status_code == 400
+
+    def test_task_result_uses_canonical_artifact_contract(self, client):
+        from src.core.artifacts import ArtifactRecord
+
+        task_svc = MagicMock()
+        task_svc.get_task.return_value = TaskStatus(
+            task_id="pipeline-result",
+            state="completed",
+            progress=1.0,
+        )
+        artifact_svc = MagicMock()
+        artifact_svc.get_task_result_view.return_value = {
+            "task_id": "pipeline-result",
+            "primary_artifact_id": "artifact-2",
+            "artifacts": [
+                ArtifactRecord(
+                    artifact_id="artifact-1",
+                    task_id="pipeline-result",
+                    artifact_type="subtitle.srt",
+                    path="/output/subtitle.srt",
+                    preview_kind="subtitle",
+                ),
+                ArtifactRecord(
+                    artifact_id="artifact-2",
+                    task_id="pipeline-result",
+                    artifact_type="audio.mix",
+                    path="/output/final.wav",
+                    preview_kind="audio",
+                    is_primary=True,
+                ),
+            ],
+            "warnings": [],
+        }
+        client.app.dependency_overrides[dependencies.task_service] = _mock_dep(task_svc)
+        client.app.dependency_overrides[dependencies.artifact_service] = _mock_dep(artifact_svc)
+
+        resp = client.get("/api/v1/tasks/pipeline-result/result")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert set(data) == {
+            "task_id",
+            "primary_artifact_id",
+            "artifacts",
+            "warnings",
+        }
+        assert data["primary_artifact_id"] == "artifact-2"
+        assert data["artifacts"][0]["type"] == "subtitle.srt"
+        assert data["artifacts"][0]["preview"] is True
+        assert data["artifacts"][0]["primary"] is False
+        assert data["artifacts"][1]["primary"] is True
+        assert "primary_output" not in data
+        assert "files" not in data
 
 
 # ─── Error Handling ───────────────────────────────────────────────────

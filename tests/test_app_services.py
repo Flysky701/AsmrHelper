@@ -7,10 +7,180 @@ with their current interfaces.
 from __future__ import annotations
 
 import threading
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+
+class _FakeConfig:
+    def __init__(self):
+        self.data = {
+            "api": {
+                "provider": "deepseek",
+                "deepseek_api_key": "secret-deepseek",
+                "openai_api_key": "",
+                "deepseek_base_url": "https://api.deepseek.com",
+                "openai_base_url": "https://api.openai.com/v1",
+            },
+            "tts": {"engine": "edge", "voice": "voice", "speed": 1.0},
+            "paths": {"output_dir": "", "vtt_dir": "", "model_cache_dir": "", "temp_dir": ""},
+            "processing": {
+                "original_volume": 0.85,
+                "tts_volume": 0.5,
+                "tts_delay": 0,
+                "vocal_model": "htdemucs",
+                "asr_model": "faster-whisper-base",
+            },
+        }
+        self.persisted = None
+
+    @staticmethod
+    def _merge(base, updates):
+        for key, value in updates.items():
+            if isinstance(base.get(key), dict) and isinstance(value, dict):
+                _FakeConfig._merge(base[key], value)
+            else:
+                base[key] = deepcopy(value)
+
+    def to_dict(self):
+        return deepcopy(self.data)
+
+    def build_effective_config(self, config_override=None):
+        candidate = self.to_dict()
+        self._merge(candidate, config_override or {})
+        return candidate
+
+    def validate(self, candidate):
+        return True, []
+
+    def persist_updates(self, updates):
+        self.persisted = deepcopy(updates)
+        self._merge(self.data, updates)
+
+
+class TestSettingsService:
+    def test_public_view_never_returns_secret_or_placeholder(self):
+        from src.app.services.settings_service import SettingsService
+
+        service = SettingsService(config_manager=_FakeConfig())
+
+        settings = service.get_settings()
+
+        assert "api" not in settings
+        assert settings["providers"]["deepseek"]["credential_configured"] is True
+        assert "credential" not in settings["providers"]["deepseek"]
+        assert "secret-deepseek" not in repr(settings)
+        assert "***configured***" not in repr(settings)
+
+    def test_empty_credential_write_preserves_existing_secret(self):
+        from src.app.services.settings_service import SettingsService
+
+        fake_config = _FakeConfig()
+        service = SettingsService(config_manager=fake_config)
+
+        service.update_settings(
+            {
+                "providers": {
+                    "default_llm": "deepseek",
+                    "deepseek": {
+                        "base_url": "https://example.invalid/v1",
+                        "credential": "",
+                    },
+                }
+            }
+        )
+
+        assert fake_config.data["api"]["deepseek_api_key"] == "secret-deepseek"
+        assert "deepseek_api_key" not in fake_config.persisted["api"]
+        assert fake_config.data["api"]["deepseek_base_url"] == "https://example.invalid/v1"
+
+    def test_provider_test_performs_probe_with_candidate_settings(self):
+        from src.app.services.settings_service import SettingsService
+
+        probe = MagicMock()
+        service = SettingsService(config_manager=_FakeConfig(), provider_probe=probe)
+
+        result = service.test_provider(
+            "openai",
+            {
+                "providers": {
+                    "openai": {
+                        "credential": "candidate-key",
+                        "base_url": "https://gateway.invalid/v1",
+                    }
+                }
+            },
+        )
+
+        assert result.success is True
+        probe.assert_called_once_with(
+            "openai",
+            "candidate-key",
+            "https://gateway.invalid/v1",
+        )
+
+    def test_provider_test_reports_stable_failure_code(self):
+        from src.app.services.settings_service import SettingsService
+
+        probe = MagicMock(side_effect=RuntimeError("authentication failed"))
+        service = SettingsService(config_manager=_FakeConfig(), provider_probe=probe)
+
+        result = service.test_provider("deepseek")
+
+        assert result.success is False
+        assert result.error_code == "PROVIDER_CONNECTION_FAILED"
+        assert "authentication failed" in result.message
+
+
+class TestArtifactResultContract:
+    def test_result_has_one_authoritative_primary_artifact(self):
+        from src.app.services.artifact_service import ArtifactService
+
+        service = ArtifactService()
+        secondary = service.register_artifact(
+            task_id="task-result",
+            artifact_type="text.transcript",
+            path="C:/output/transcript.txt",
+            preview_kind="text",
+        )
+        primary = service.register_artifact(
+            task_id="task-result",
+            artifact_type="audio.mix",
+            path="C:/output/final.wav",
+            preview_kind="audio",
+            is_primary=True,
+        )
+
+        result = service.get_task_result_view("task-result")
+
+        assert set(result) == {
+            "task_id",
+            "primary_artifact_id",
+            "artifacts",
+            "warnings",
+        }
+        assert result["primary_artifact_id"] == primary.artifact_id
+        assert [entry.artifact_id for entry in result["artifacts"]] == [
+            secondary.artifact_id,
+            primary.artifact_id,
+        ]
+
+    def test_first_artifact_is_primary_fallback_without_path_guessing(self):
+        from src.app.services.artifact_service import ArtifactService
+
+        service = ArtifactService()
+        first = service.register_artifact(
+            task_id="task-fallback",
+            artifact_type="subtitle.srt",
+            path="C:/output/unusual-name.data",
+            preview_kind="subtitle",
+        )
+
+        result = service.get_task_result_view("task-fallback")
+
+        assert result["primary_artifact_id"] == first.artifact_id
 
 
 class TestTaskService:
@@ -72,7 +242,7 @@ class TestTaskService:
             "code": "TASK_FAILED",
             "stage": "prepare",
             "message": "error",
-            "recoverable": True,
+            "retryable": True,
             "detail": "OOM",
         }
 
@@ -85,6 +255,24 @@ class TestTaskService:
         )
         cancelled = service.cancel_task(spec.task_id)
         assert cancelled.state == "cancelled"
+
+    def test_retry_clears_previous_runtime_state(self):
+        from src.app.services.task_service import TaskService
+
+        service = TaskService()
+        spec, _ = service.create_task_spec(
+            task_type="pipeline", task_source="test", session_id="s1"
+        )
+        service.start_task(spec.task_id, stage="asr")
+        service.fail_task(spec.task_id, message="error", detail="OOM")
+
+        retried = service.retry_task(spec.task_id)
+
+        assert retried.state == "pending"
+        assert retried.stage is None
+        assert retried.error is None
+        assert retried.started_at is None
+        assert retried.finished_at is None
 
     def test_get_unknown_task_raises(self):
         from src.app.errors import AppValidationError
@@ -126,6 +314,100 @@ class TestTaskService:
         assert len(ids) == 20
         assert len(set(ids)) == 20
 
+
+class TestPipelineTaskOrchestrator:
+    def test_submit_returns_before_background_pipeline_finishes(self):
+        from src.app.dto import PipelineRequest
+        from src.app.services.pipeline_task_orchestrator import PipelineTaskOrchestrator
+        from src.app.services.task_service import TaskService
+
+        task_service = TaskService()
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        class BlockingPipelineService:
+            def create_pipeline_task(self, request, *, task_source):
+                spec, task = task_service.create_task_spec(
+                    task_type="pipeline",
+                    task_source=task_source,
+                    session_id="session-1",
+                    input_asset_id="asset-1",
+                    execution_profile={},
+                )
+                return task, spec
+
+            def run_pipeline_task(self, task_id, *, cancel_event=None):
+                started.set()
+                release.wait(timeout=2)
+                if cancel_event is not None and cancel_event.is_set():
+                    task_service.cancel_task(task_id)
+                else:
+                    task_service.complete_task(task_id)
+                finished.set()
+                return MagicMock(task_id=task_id)
+
+        service = PipelineTaskOrchestrator(
+            pipeline_service=BlockingPipelineService(),
+            task_service=task_service,
+            artifact_service=MagicMock(),
+        )
+
+        accepted = service.submit_task(PipelineRequest(input_path="/tmp/input.wav"))
+
+        assert accepted.state == "pending"
+        assert started.wait(timeout=1)
+        assert not finished.is_set()
+        assert task_service.get_task(accepted.task_id).state == "running"
+
+        release.set()
+        assert finished.wait(timeout=1)
+        assert task_service.get_task(accepted.task_id).state == "completed"
+
+    def test_cancel_is_requested_before_task_becomes_cancelled(self):
+        from src.app.dto import PipelineRequest
+        from src.app.services.pipeline_task_orchestrator import PipelineTaskOrchestrator
+        from src.app.services.task_service import TaskService
+
+        task_service = TaskService()
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        class CancellablePipelineService:
+            def create_pipeline_task(self, request, *, task_source):
+                spec, task = task_service.create_task_spec(
+                    task_type="pipeline",
+                    task_source=task_source,
+                    session_id="session-1",
+                    input_asset_id="asset-1",
+                    execution_profile={},
+                )
+                return task, spec
+
+            def run_pipeline_task(self, task_id, *, cancel_event=None):
+                started.set()
+                release.wait(timeout=2)
+                if cancel_event is not None and cancel_event.is_set():
+                    task_service.cancel_task(task_id)
+                finished.set()
+                return MagicMock(task_id=task_id)
+
+        service = PipelineTaskOrchestrator(
+            pipeline_service=CancellablePipelineService(),
+            task_service=task_service,
+            artifact_service=MagicMock(),
+        )
+        accepted = service.submit_task(PipelineRequest(input_path="/tmp/input.wav"))
+        assert started.wait(timeout=1)
+
+        cancelling = service.request_cancel(accepted.task_id)
+
+        assert cancelling.state == "running"
+        assert cancelling.message == "cancellation requested"
+        release.set()
+        assert finished.wait(timeout=1)
+        assert task_service.get_task(accepted.task_id).state == "cancelled"
 
 class TestResourceService:
     """Test ResourceService workspace management."""
@@ -246,9 +528,10 @@ class TestPipelineServiceCallbacks:
         cancel_event = threading.Event()
         messages: list[str] = []
 
-        def run(plan, *, progress_callback=None, cancel_event=None):
+        def run(plan, *, progress_callback=None, stage_callback=None, cancel_event=None):
             assert cancel_event is not None
             progress_callback("[1/5] 人声分离...")
+            stage_callback("separate", 0.2, "[1/5] 人声分离...")
             return {
                 "input": "/tmp/input.wav",
                 "mix_path": "/tmp/output/input_mix.wav",
@@ -274,6 +557,12 @@ class TestPipelineServiceCallbacks:
             progress=0.1,
             message="[1/5] 人声分离...",
         )
+        task_service.update_progress.assert_any_call(
+            "pipeline-1",
+            progress=0.2,
+            message="[1/5] 人声分离...",
+            stage="separate",
+        )
         assert result.mix_path == "/tmp/output/input_mix.wav"
 
     def test_cancellation_marks_task_cancelled(self):
@@ -292,6 +581,48 @@ class TestPipelineServiceCallbacks:
             message="cancelled by user",
         )
         task_service.fail_task.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("step_errors", "expected_stage", "expected_code", "expected_detail"),
+        [
+            (
+                {
+                    "vocal_separator": "No module named 'torch'",
+                    "asr": "No module named 'faster_whisper'",
+                },
+                "separate",
+                "PROVIDER_DEPENDENCY_MISSING",
+                "No module named 'torch'",
+            ),
+            (
+                {"tts": "No audio was received. Please verify the parameters."},
+                "tts",
+                "PROVIDER_RESPONSE_INVALID",
+                "No audio was received. Please verify the parameters.",
+            ),
+        ],
+    )
+    def test_first_stage_error_is_reported_with_stable_contract(
+        self,
+        step_errors,
+        expected_stage,
+        expected_code,
+        expected_detail,
+    ):
+        from src.app.errors import AppExecutionError
+
+        service, executor, task_service, task_spec = self._make_service()
+        executor.execute.return_value = {"step_errors": step_errors}
+
+        with pytest.raises(AppExecutionError, match=expected_stage):
+            service.run_pipeline_task_spec(task_spec)
+
+        failure = task_service.fail_task.call_args.kwargs
+        assert failure["stage"] == expected_stage
+        assert failure["detail"] == expected_detail
+        assert failure["error"]["code"] == expected_code
+        assert failure["error"]["stage"] == expected_stage
+        assert failure["error"]["retryable"] is True
 
 
 class TestBatchPipelineServiceCompanions:

@@ -114,6 +114,21 @@ class TestPipelineExecutorStages:
         assert call_kwargs["stems"] == ["vocals"]
         assert "vocal_separator" in results["steps"]
 
+    def test_stage_callback_uses_contract_stage_names(self, tmp_path, mock_separator):
+        (tmp_path / "input.wav").write_bytes(b"audio")
+        plan = _make_plan(tmp_path, asr=False, translation=False, tts=False, mix=False)
+        events: list[tuple[str, float, str]] = []
+
+        PipelineExecutor(separator=mock_separator).execute(
+            plan,
+            stage_callback=lambda stage, progress, message: events.append(
+                (stage, progress, message)
+            ),
+        )
+
+        assert [stage for stage, _, _ in events] == ["separate", "export"]
+        assert events[-1][1] == 1.0
+
     def test_asr_stage_calls_runtime(self, tmp_path, mock_asr):
         (tmp_path / "input.wav").write_bytes(b"audio")
         plan = _make_plan(tmp_path, separation=False, translation=False, tts=False, mix=False)
@@ -222,7 +237,7 @@ class TestPipelineExecutorProgressCallback:
         )
         executor.execute(plan, progress_callback=lambda msg: messages.append(msg))
 
-        assert len(messages) == 5  # one per enabled stage
+        assert len(messages) == 6  # five pipeline stages plus export
         assert "人声分离" in messages[0]
         assert "ASR" in messages[1]
         assert "翻译" in messages[2]
