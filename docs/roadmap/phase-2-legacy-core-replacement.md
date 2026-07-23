@@ -89,7 +89,7 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 目标：
 
-- 增强 `CapabilityOption`，表达 UI 控件、高级参数、敏感参数和持久化规则。
+- 增强 `CapabilityOption`，表达 UI 控件、高级参数、敏感参数和持久化规则。已完成稳定约束字段。
 - 引入统一 `RuntimeEvent` 语义，让日志、进度、阶段、模型操作能被 API 和桌面稳定消费。
 - 明确 `ModelCatalogEntry`、`CapabilityDescriptor.supported_models`、`ExecutionProfile.model` 的边界。
 - 将 provider 私有高级参数统一收进 `provider_options`。
@@ -234,9 +234,9 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 ## 6. 当前风险
 
-### 基础设施事件仍未收束
+### 基础设施事件已收束
 
-新旧 execution profile 与 TaskStatus 字段已经落码，但 `RuntimeEvent`、CapabilityOption UI schema 和模型安装事件尚未统一。当前 TaskCenter 仍需要独立迁移，才能完全消费后端事实。
+新旧 execution profile、TaskStatus、CapabilityOption、模型可执行状态和 RuntimeEvent 已经落码。任务生命周期由 TaskStatus 更新生成进程内增量事件，模型安装复用 `model_operation` 事件；事件不作为第二套任务状态，也不承担跨重启恢复。
 
 ### 后台执行采用轻量线程模型
 

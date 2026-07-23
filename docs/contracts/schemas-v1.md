@@ -189,7 +189,38 @@ API Key、Base URL、本机模型绝对路径、设备句柄和已初始化客�
 
 旧 `files`、路径型 `primary_output`、`secondary_outputs`、`artifact_type`、`preview_kind` 和 `is_primary` 不属于 v1 公共结果结构，仅可留在内部模型或兼容执行响应。
 
-## 7. RuntimeEvent
+## 7. ModelStatus
+
+模型文件存在与模型可以执行是两个不同事实：
+
+```json
+{
+  "model_id": "faster-whisper-base",
+  "status": "installed",
+  "detail": "Model is installed but runtime requirements are unavailable",
+  "executable": false,
+  "issues": [
+    {
+      "code": "PYTHON_DEPENDENCY_MISSING",
+      "requirement": "faster_whisper",
+      "message": "Python dependency is unavailable: faster_whisper"
+    }
+  ]
+}
+```
+
+`status` 表示权重、包或云凭据的安装/配置状态；`executable` 表示当前进程是否具备实际运行条件。模型可以是 `installed` 但 `executable=false`。`issues` 当前稳定使用：
+
+- `MODEL_ASSET_MISSING`
+- `MODEL_ASSET_INVALID`
+- `PYTHON_DEPENDENCY_MISSING`
+- `SYSTEM_TOOL_MISSING`
+- `GPU_UNAVAILABLE`
+- `CREDENTIAL_MISSING`
+
+桌面端不得把 `installed` 直接显示为“可执行”，也不得等到 Pipeline 运行后才报告已知依赖缺失。
+
+## 8. RuntimeEvent
 
 事件用于诊断和增量展示，不替代 `Task` 事实状态。
 
@@ -199,6 +230,7 @@ API Key、Base URL、本机模型绝对路径、设备句柄和已初始化客�
   "time": "2026-07-23T10:02:10Z",
   "level": "info",
   "type": "stage_progress",
+  "task_id": "pipeline-12",
   "stage": "asr",
   "message": "Decoded segment 24",
   "detail": null,
@@ -208,4 +240,12 @@ API Key、Base URL、本机模型绝对路径、设备句柄和已初始化客�
 }
 ```
 
-事件查询或推送机制可以后续增加；v1 主链路不以事件接口作为启动 App 的前置条件。
+约束：
+
+- `sequence` 在单个任务内严格递增；客户端可用 `after_sequence` 增量续读。
+- `level` 当前使用 `info`、`warning`、`error`；`type` 保持字符串扩展点。
+- `data` 只放事件附加信息，不复制完整 TaskStatus，也不得包含 secret。
+- 模型安装事件使用 `type=model_operation`，`data` 明确包含 `operation`、`model_id`、`state` 和 `progress`。
+- `GET /tasks/{task_id}/events` 通过 SSE 推送事件；终态以 `done` 事件携带的 TaskStatus 快照结束。
+
+RuntimeEvent 当前只保存在进程内，用于实时诊断和增量展示；终态历史仍以 SQLite 中的 TaskStatus 与 Artifact 为准。App 启动和任务状态恢复不依赖事件持久化。

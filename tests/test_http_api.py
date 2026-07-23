@@ -13,6 +13,7 @@ from src.app.dto import (
     ArtifactSet,
     ModelOperationResult,
     ModelStatusView,
+    ModelStatusIssueView,
     ModelSummary,
     ModelVerificationResult,
     PipelineResult,
@@ -397,6 +398,33 @@ class TestTtsRoutes:
         )
 
 
+# ─── Capabilities ─────────────────────────────────────────────────────
+
+
+class TestCapabilityRoutes:
+    def test_option_schema_exposes_stable_constraint_fields(self, client):
+        resp = client.get(
+            "/api/v1/capabilities",
+            params={"category": "asr", "provider": "faster_whisper"},
+        )
+
+        assert resp.status_code == 200
+        option = resp.json()[0]["provider_option_schema"][0]
+        assert set(option) == {
+            "name",
+            "type",
+            "required",
+            "default",
+            "description",
+            "enum",
+            "min",
+            "max",
+            "advanced",
+            "secret",
+        }
+        assert option["advanced"] is True
+
+
 # ─── Settings ─────────────────────────────────────────────────────────
 
 
@@ -501,6 +529,14 @@ class TestModelRoutes:
             model_id="whisper-base",
             status="installed",
             detail="all files present",
+            executable=False,
+            issues=[
+                ModelStatusIssueView(
+                    code="PYTHON_DEPENDENCY_MISSING",
+                    requirement="faster_whisper",
+                    message="Python dependency is unavailable: faster_whisper",
+                )
+            ],
         )
         client.app.dependency_overrides[dependencies.model_service] = _mock_dep(mock_svc)
 
@@ -508,6 +544,8 @@ class TestModelRoutes:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "installed"
+        assert data["executable"] is False
+        assert data["issues"][0]["code"] == "PYTHON_DEPENDENCY_MISSING"
 
     def test_install_model_sync(self, client):
         mock_svc = MagicMock()
@@ -714,6 +752,42 @@ class TestTaskRoutes:
 
         resp = client.get("/api/v1/tasks/bad-id")
         assert resp.status_code == 400
+
+    def test_task_events_stream_runtime_event_contract(self, client):
+        from src.core.tasks import RuntimeEvent
+
+        mock_svc = MagicMock()
+        mock_svc.list_events.return_value = [
+            RuntimeEvent(
+                sequence=3,
+                time="2026-07-24T10:00:00+00:00",
+                level="info",
+                type="stage_progress",
+                task_id="pipeline-1",
+                stage="asr",
+                message="decoded segment 24",
+                data={"state": "completed", "progress": 1.0},
+            )
+        ]
+        mock_svc.get_task.return_value = TaskStatus(
+            task_id="pipeline-1",
+            state="completed",
+            progress=1.0,
+        )
+        client.app.dependency_overrides[dependencies.task_service] = _mock_dep(mock_svc)
+
+        resp = client.get("/api/v1/tasks/pipeline-1/events?after_sequence=2")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        assert "id: 3" in resp.text
+        assert "event: runtime" in resp.text
+        assert '"type":"stage_progress"' in resp.text
+        assert "event: done" in resp.text
+        mock_svc.list_events.assert_called_once_with(
+            "pipeline-1",
+            after_sequence=2,
+        )
 
     def test_task_result_uses_canonical_artifact_contract(self, client):
         from src.core.artifacts import ArtifactRecord

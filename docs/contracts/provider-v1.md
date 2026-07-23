@@ -118,6 +118,8 @@ Provider 测试请求与响应：
 
 能力描述只表达稳定约束。桌面端可据此生成基础控件，但最终校验仍由后端完成。
 
+`CapabilityOption` 固定包含 `name/type/required/default/description/enum/min/max/advanced/secret`。Provider 私有参数默认标记为 `advanced=true`；凭据仍属于 Settings，不得因为 `secret=true` 就混入 ExecutionProfile。
+
 第三方模型列表容易变化，不在公共文档中固化为完整枚举；Provider 可以动态返回当前可用模型。默认模型必须是实际可发送给 Provider 的模型标识，`"default"` 等 UI 占位值不得进入外部请求。
 
 ## 4. 参数分层

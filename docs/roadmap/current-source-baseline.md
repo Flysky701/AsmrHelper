@@ -84,7 +84,7 @@ src/core/orchestration/pipeline/
 
 因此，当前不能再描述为“pipeline 仍通过 LegacyPipelineOrchestrator 驱动旧 `src/core/pipeline`”。更准确的说法是：
 
-> pipeline 主执行器已经迁到 `core/orchestration/pipeline`，API 执行已移出请求线程；StageProfile、终态历史持久化和 Provider 设置契约已经落地，剩余问题是 artifact/result 公共语义尚未完全对齐。
+> pipeline 主执行器已经迁到 `core/orchestration/pipeline`，API 执行已移出请求线程；StageProfile、终态历史持久化、Provider 设置、TaskResult/Artifact 和 RuntimeEvent 契约已经落地。
 
 ### 当前任务系统
 
@@ -121,6 +121,7 @@ desktop/
 - `TaskCenter` 已消费后端显式阶段，启动时载入历史任务，并按需查询统一 TaskResult；主产物与预览能力均由 Artifact 契约声明。
 - 当前会话任务支持状态轮询、协作取消和新任务重试；重启后的历史任务只用于查看。
 - `EnginesResources` 已接入模型安装状态、异步安装和进度轮询。
+- 模型状态已区分权重/包安装状态与当前进程可执行性；桌面端会显示明确的依赖、系统工具或 GPU 缺失原因。
 - 桌面端已经不是空壳，也不是未接后端阶段。
 
 当前约束：
@@ -190,7 +191,7 @@ text_utils.py
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-结果：`151 passed`。
+结果：`160 passed`。
 
 启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（94 routes）可用。
 
@@ -211,12 +212,13 @@ text_utils.py
 
 更准确的定位：
 
-> Phase 2 后段：旧 GUI、旧 pipeline 包、旧字幕脚本包已经从源码树移除，新 core 主干已建立并被调用；当前剩余工作是契约落码、兼容入口收束、状态/产物/预览字段对齐，以及残留旧引用修复。
+> Phase 2 后段：旧 GUI、旧 pipeline 包、旧字幕脚本包已经从源码树移除，新 core 主干及主要公共契约已建立并被调用；当前剩余工作是兼容入口收束和残留旧依赖压薄。
 
 ## 6. 当前最高优先级缺口
 
-1. 收敛 RuntimeEvent、CapabilityOption 与模型资源可执行性状态。
-2. 继续压薄 `ModelManager`、`core.translate` 和 app service 中的兼容字段映射。
+1. 将仍由 `core.translate` 承载的 Translator、缓存和术语能力迁入 LLM 域；在迁移前不得把该包当作可直接删除的纯兼容层。
+2. 将 CLI 和旧执行响应从路径型 `primary_output/files` 迁到 ArtifactResult 后，再删除相应兼容字段。
+3. 保持 RuntimeEvent 为进程内诊断时间线；只有出现明确的跨重启审计需求时再评估持久化。
 
 ## 7. DOCS 维护规则
 

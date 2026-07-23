@@ -19,9 +19,9 @@
 
 更准确的状态是：
 
-> Phase 2 后段：旧 GUI、旧 pipeline 包、旧字幕脚本包已经从源码树移除，新 core 主干已建立并被调用；当前剩余工作是契约落码、兼容入口收束、状态/产物/预览字段对齐，以及残留旧引用修复。
+> Phase 2 后段：旧 GUI、旧 pipeline 包、旧字幕脚本包已经从源码树移除，新 core 主干及主要公共契约已建立并被调用；当前剩余工作集中在兼容入口和旧服务依赖瘦身。
 
-2026-07-24 的运行验证补充：项目全量测试为 `151 passed`，前端构建和 Tauri release build 均已通过，生成的桌面程序可连接健康检查正常的本地后端。该结果只覆盖基础启动与构建；本地音频引擎仍取决于 `audio` 可选依赖、模型权重和提供方配置。
+2026-07-24 的运行验证补充：项目全量测试为 `160 passed`，前端构建和 Tauri release build 均已通过，生成的桌面程序可连接健康检查正常的本地后端。该结果只覆盖基础启动与构建；本地音频引擎仍取决于 `audio` 可选依赖、模型权重和提供方配置。
 
 ## 3. 当前已完成
 
@@ -38,6 +38,8 @@
 - 终态任务与 Artifact 索引已持久化到 SQLite；重启时删除未完成任务，历史任务保持只读。
 - Provider 设置已统一为 Provider v1 包络，凭据只读状态与真实连通性测试已落码。
 - TaskResult、Artifact 与 Preview 公共语义已统一，TaskCenter 不再猜测主产物或可播放类型。
+- CapabilityOption 已补齐稳定约束；模型资源状态已区分“已安装”和“当前可执行”。
+- RuntimeEvent 已按任务生成单调递增序列；SSE、TaskCenter 日志和模型安装增量消息使用同一事件结构。
 
 ## 4. 当前仍缺
 
@@ -50,7 +52,7 @@ DOCS 已经收束到：
 - [Provider 与设置契约 v1](../contracts/provider-v1.md)
 - [兼容与迁移说明](../contracts/compatibility.md)
 
-当前主链路请求、任务状态、Provider 设置和结果语义已经落码。`/pipeline/run` 只作为兼容入口保留，不再是桌面主入口；剩余工作集中在 RuntimeEvent、模型资源状态和兼容层瘦身。
+当前主链路请求、任务状态、Provider 设置、结果语义、模型可执行状态和 RuntimeEvent 已经落码。`/pipeline/run` 只作为兼容入口保留，不再是桌面主入口；剩余工作集中在兼容层瘦身。
 
 ### P0 已修复残留旧引用
 
@@ -71,7 +73,7 @@ src.core.script_to_subtitle
 ### 兼容层还需要瘦身
 
 - `ModelManager` 已是 deprecated 兼容层，但仍存在。
-- `src/core/translate` 仍存在，部分 TTS/LLM/兼容路径仍引用其中能力。
+- `src/core/translate` 仍承载真实 Translator、缓存和术语库，不能直接删除；TTS 对其中字幕工具的活跃依赖已移除。
 - app service 层仍承担一些 DTO 映射和旧字段拼装工作，需要继续压薄。
 
 ## 5. 功能域当前状态
@@ -93,9 +95,8 @@ src.core.script_to_subtitle
 
 ## 6. 推荐下一步
 
-### P3：基础设施事件与兼容层瘦身
+### P3：兼容层瘦身
 
-- 完成 RuntimeEvent、CapabilityOption schema 与模型安装事件收束。
 - 收薄 `pipeline_service / audio_tool_service / script_subtitle_service / tts_service / asr_service`。
 - 保留兼容路由，但不让兼容字段继续主导新契约。
 
@@ -105,4 +106,4 @@ src.core.script_to_subtitle
 
 当前核心任务是：
 
-> 在已经统一的真实主链路上收敛运行事件和模型资源状态，并继续压薄兼容层。
+> 在已经统一并可诊断的真实主链路上，继续压薄兼容层和旧服务依赖。

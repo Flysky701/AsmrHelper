@@ -39,9 +39,9 @@ flowchart LR
 | --- | --- | --- |
 | 桌面 Workbench | 使用 `POST /pipeline-runs` 一次提交统一 StageProfile，后端立即返回 `202` 并后台接管 | 旧平铺参数只保留兼容测试 |
 | Pipeline | `src/core/orchestration/pipeline/` 已是主执行器，执行已移出 API 请求线程 | 低并发场景保留进程内线程；按产品约定，重启不恢复未完成执行 |
-| 任务中心 | SQLite 保留终态任务与 Artifact 索引；桌面端按统一 TaskResult 读取主产物和预览能力 | RuntimeEvent 尚未收敛 |
+| 任务中心 | SQLite 保留终态任务与 Artifact 索引；桌面端按统一 TaskResult 读取主产物和预览能力，并通过 RuntimeEvent 展示实时诊断时间线 | 事件不跨重启持久化，历史事实仍以 TaskStatus 与 Artifact 为准 |
 | 字幕 | 新实现位于 `src/core/subtitles/`，旧延迟导入问题已修复并有回归测试 | 字幕资产版本与主链路结果结构仍需统一 |
-| 模型资源 | registry、安装状态、异步安装及进度轮询已存在 | 可选 Python 引擎、模型权重和系统工具的安装边界尚未完全产品化 |
+| 模型资源 | registry、异步安装和进度轮询已存在；状态已区分安装与可执行性并列出缺失条件；安装增量消息已统一为 `model_operation` RuntimeEvent | 安装链路仍依赖各模型下载器可提供的进度粒度 |
 
 已删除的 `src/gui/`、`src/core/pipeline/` 与旧字幕路径不是迁移目标，任何活跃文档都不得把它们当作仍需保留的主路径。
 
@@ -52,7 +52,7 @@ flowchart LR
 | 范围 | 命令或结果 | 结论 |
 | --- | --- | --- |
 | Python 语法 | `.venv\Scripts\python.exe -m compileall -q src` | 通过 |
-| Python 测试 | `.venv\Scripts\python.exe -m pytest -q` | `151 passed` |
+| Python 测试 | `.venv\Scripts\python.exe -m pytest -q` | `160 passed` |
 | HTTP 启动 | `scripts/verify_env.py` 创建 FastAPI app，发现 94 条路由；`/health` 返回 `ok` | 通过 |
 | 前端 | `npm ci`、`npm run build` | 通过 |
 | 桌面打包 | `npm run tauri -- build` | 通过，生成 `desktop/src-tauri/target/release/asmr-helper.exe` |
@@ -88,9 +88,10 @@ flowchart LR
 
 已完成结果语义收敛（2026-07-24）：Task、Pipeline、Tool 结果共享统一 TaskResult；主产物使用 `primary_artifact_id`，Artifact 使用 `type/primary/preview`；TaskCenter 不再读取 `files/primary_output` 或按扩展名猜测。全量测试 `151 passed`。
 
+已完成 CapabilityOption、模型状态与 RuntimeEvent 收敛（2026-07-24）：能力选项补齐枚举、范围、高级和敏感约束；模型状态分离安装状态与实际可执行性，并报告 Python 依赖、系统工具、GPU、凭据和权重问题；任务生命周期和模型安装增量消息已统一到单任务递增事件流。TTS 音频预处理已不再通过旧翻译包读取字幕工具。全量测试 `160 passed`。
+
 | 优先级 | 问题 | 影响 | 建议完成标志 |
 | --- | --- | --- | --- |
-| P2 | 模型依赖和权重安装分散 | “已下载”不总是“可执行” | 在 capability/resource 状态中明确 Python 依赖、权重、外部工具和可用性 |
 | P3 | 兼容层仍较厚 | 新代码可能继续依赖 `ModelManager`、`core.translate` 和旧字段 | 新能力只依赖 registry/runtime 与 V1 DTO，兼容层逐步缩小 |
 | P3 | Tauri 开发期文件监视曾受 Cargo 产物影响 | Windows 上开发启动可能报 `EBUSY` | 保持 Vite 忽略 `src-tauri/target`，并在开发文档中保留该约束 |
 

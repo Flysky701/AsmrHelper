@@ -17,6 +17,7 @@
 | 错误展示 | 已按后端 `stage` 和结构化错误展示 | 展示完整 `TaskError` 和真实阶段 |
 | 任务执行 | 已移出 API 请求线程；SQLite 保留终态历史和产物索引，重启时删除未完成任务 | 低并发场景保留进程内线程，API 只管理任务；暂不建设独立调度器 |
 | 产物 | 存在 `artifact_set_id` 等内部结构 | 公共结果以 `primary_artifact_id` 和 `artifacts` 为准 |
+| 运行事件 | 旧 SSE 推送整份 TaskStatus | SSE 推送单任务递增 RuntimeEvent；TaskStatus 仍是唯一状态事实 |
 
 ## 2. 旧接口策略
 
@@ -27,6 +28,16 @@
 - 旧任务和产物字段可以继续存储，但不得要求新桌面端依赖。
 
 兼容层应有明确删除条件；不得继续向旧结构增加新能力。
+
+### 2.1 当前保留边界与删除条件
+
+| 兼容项 | 当前真实用途 | 删除条件 |
+| --- | --- | --- |
+| `/api/v1/pipeline/run` | CLI、旧客户端和兼容回归；Workbench 不再调用 | 发布一个明确不再支持旧客户端的版本，并将 CLI 切到任务创建与结果查询 |
+| `src.core.model_manager` | 仅支持显式旧导入并发出 DeprecationWarning；主服务使用各引擎 registry | 仓库外调用方完成迁移，且兼容期结束 |
+| `src.core.translate` | 仍承载实际 Translator、翻译缓存和术语库；不能按“纯兼容包”删除 | Translator 及其缓存/术语能力迁入 LLM 域，旧包只剩转发后再进入弃用期 |
+| `src.core.translate` 中的字幕工具转发 | 只服务仓库外旧导入；活跃 TTS 预处理已改用 `src.core.subtitles` | 兼容期结束且外部调用迁移完成 |
+| 路径型 `primary_output/files` | 内部执行器、CLI 和旧执行响应 | CLI 与旧响应完成 ArtifactResult 迁移；公共 TaskResult 已不依赖 |
 
 ## 3. 迁移顺序
 
@@ -45,6 +56,10 @@
 2026-07-23 已完成 Provider 设置收敛：桌面端统一使用 `PUT` 与 `{ "settings": ... }`；读取仅返回 `credential_configured`，不返回原文或伪密钥；空密钥保持原值；Provider 测试会使用当前草稿配置执行真实轻量请求，并返回稳定错误代码。全量测试 `148 passed`，桌面端构建通过。
 
 2026-07-24 已完成结果语义收敛：Task、Pipeline 和 Tool 结果统一为 `task_id + primary_artifact_id + artifacts + warnings`；Artifact 公共字段统一为 `type/primary/preview`；TaskCenter 改查权威结果接口，不再从文件扩展名或 `files` 映射猜测主产物和预览能力。全量测试 `151 passed`，桌面端构建通过。
+
+2026-07-24 已完成 CapabilityOption 与模型可执行状态收敛：Option 固定返回枚举、范围、高级和敏感标记；ModelStatus 分离安装状态与 `executable`，并明确返回 Python 依赖、系统工具、GPU、凭据或权重问题。全量测试 `156 passed`，桌面端构建通过。
+
+2026-07-24 已完成 RuntimeEvent 收敛：任务生命周期生成单任务递增事件，`after_sequence` 支持续读，SSE 和 TaskCenter 日志消费统一结构；模型安装事件明确携带 `operation/model_id/state/progress`。同时移除 TTS 音频预处理对旧翻译包中字幕工具的反向依赖。全量测试 `160 passed`，桌面端构建通过。
 
 ## 4. 回归基线
 

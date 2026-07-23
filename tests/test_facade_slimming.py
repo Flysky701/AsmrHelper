@@ -152,3 +152,10 @@ class TestAudioToolServiceDispatch:
         assert "from src.core.translate import Translator" not in source_code
         assert "from src.core.asr import ASRRecognizer" not in source_code
         assert "from src.core.tts import TTSEngine" not in source_code
+
+    def test_tts_audio_preprocessor_uses_subtitle_domain(self):
+        source_code = open(
+            "src/core/tts/audio_preprocessor.py", encoding="utf-8"
+        ).read()
+        assert "from src.core.translate import" not in source_code
+        assert "from src.core.subtitles import" in source_code

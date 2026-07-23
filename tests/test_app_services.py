@@ -183,6 +183,31 @@ class TestArtifactResultContract:
         assert result["primary_artifact_id"] == first.artifact_id
 
 
+class TestCapabilityOptionContract:
+    def test_provider_options_expose_stable_ui_constraints(self):
+        from src.app.services.capability_descriptor_service import (
+            CapabilityDescriptorService,
+        )
+
+        descriptor = CapabilityDescriptorService().get_descriptor("asr", "faster_whisper")
+        option = descriptor["provider_option_schema"][0]
+
+        assert set(option) == {
+            "name",
+            "type",
+            "required",
+            "default",
+            "description",
+            "enum",
+            "min",
+            "max",
+            "advanced",
+            "secret",
+        }
+        assert option["advanced"] is True
+        assert option["secret"] is False
+
+
 class TestTaskService:
     """Test TaskService lifecycle and concurrency."""
 
@@ -227,6 +252,68 @@ class TestTaskService:
         assert completed.stage == "export"
         assert completed.finished_at
         assert completed.artifact_set_id == spec.task_id
+
+    def test_runtime_events_are_incremental_and_derived_from_lifecycle(self):
+        from src.app.services.task_service import TaskService
+
+        service = TaskService()
+        spec, _ = service.create_task_spec(
+            task_type="pipeline",
+            task_source="test",
+            session_id="session-1",
+        )
+        service.start_task(spec.task_id, message="running", stage="prepare")
+        service.update_progress(
+            spec.task_id,
+            progress=0.4,
+            message="recognizing",
+            stage="asr",
+        )
+        service.complete_task(spec.task_id, message="done", stage="export")
+
+        events = service.list_events(spec.task_id)
+
+        assert [event.sequence for event in events] == [1, 2, 3, 4]
+        assert [event.type for event in events] == [
+            "task_created",
+            "task_started",
+            "stage_started",
+            "task_completed",
+        ]
+        assert events[2].stage == "asr"
+        assert events[2].data["progress"] == 0.4
+        assert [
+            event.sequence
+            for event in service.list_events(spec.task_id, after_sequence=2)
+        ] == [3, 4]
+
+    def test_model_install_lifecycle_uses_model_operation_events(self):
+        from src.app.services.task_service import TaskService
+
+        service = TaskService()
+        spec, _ = service.create_task_spec(
+            task_type="model_install",
+            task_source="test",
+            session_id="",
+            execution_profile={
+                "operation": "install",
+                "model_id": "faster-whisper-base",
+            },
+        )
+        service.start_task(spec.task_id, message="installing")
+        service.update_progress(spec.task_id, 0.5, "downloading")
+        service.complete_task(spec.task_id, "installed")
+
+        events = service.list_events(spec.task_id)
+
+        assert events[0].type == "task_created"
+        assert all(event.type == "model_operation" for event in events[1:])
+        assert events[2].data == {
+            "state": "running",
+            "progress": 0.5,
+            "operation": "install",
+            "model_id": "faster-whisper-base",
+        }
 
     def test_fail_task(self):
         from src.app.services.task_service import TaskService
