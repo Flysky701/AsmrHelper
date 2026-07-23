@@ -16,12 +16,21 @@ ReviewState = Literal["", "accepted", "needs_review", "needs_rework"]
 class TaskStatusResponse(BaseModel):
     task_id: str
     state: TaskState
+    stage: str | None = None
     progress: float = Field(0.0, ge=0.0, le=1.0)
     message: str = ""
     detail: str = ""
     task_type: str = ""
     task_source: str = ""
     session_id: str = ""
+    input_asset_id: str = ""
+    created_at: str = ""
+    queued_at: str | None = None
+    started_at: str | None = None
+    updated_at: str = ""
+    finished_at: str | None = None
+    error: dict[str, Any] | None = None
+    artifact_set_id: str | None = None
     review_state: ReviewState = ""
     review_note: str = ""
 
@@ -30,12 +39,21 @@ class TaskStatusResponse(BaseModel):
         return cls(
             task_id=task.task_id,
             state=task.state,
+            stage=task.stage,
             progress=task.progress,
             message=task.message,
             detail=task.detail,
             task_type=task.task_type,
             task_source=task.task_source,
             session_id=task.session_id,
+            input_asset_id=task.input_asset_id,
+            created_at=task.created_at,
+            queued_at=task.queued_at,
+            started_at=task.started_at,
+            updated_at=task.updated_at,
+            finished_at=task.finished_at,
+            error=task.error,
+            artifact_set_id=task.artifact_set_id,
             review_state=task.review_state,
             review_note=task.review_note,
         )

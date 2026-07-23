@@ -24,11 +24,20 @@ class TaskSpec:
 class TaskStatus:
     task_id: str
     state: str
+    stage: str | None = None
     progress: float = 0.0
     message: str = ""
     detail: str = ""
     task_type: str = ""
     task_source: str = ""
     session_id: str = ""
+    input_asset_id: str = ""
+    created_at: str = ""
+    queued_at: str | None = None
+    started_at: str | None = None
+    updated_at: str = ""
+    finished_at: str | None = None
+    error: dict[str, Any] | None = None
+    artifact_set_id: str | None = None
     review_state: str = ""
     review_note: str = ""

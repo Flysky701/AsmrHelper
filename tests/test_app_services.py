@@ -30,16 +30,33 @@ class TestTaskService:
         assert spec.task_id
         assert spec.task_type == "pipeline"
         assert status.state == "pending"
+        assert status.stage is None
+        assert status.created_at
+        assert status.queued_at == status.created_at
 
         started = service.start_task(spec.task_id, message="running")
         assert started.state == "running"
+        assert started.stage == "prepare"
+        assert started.started_at
 
-        updated = service.update_progress(spec.task_id, progress=0.5, message="halfway")
+        updated = service.update_progress(
+            spec.task_id, progress=0.5, message="halfway", stage="asr"
+        )
         assert updated.progress == 0.5
+        assert updated.stage == "asr"
 
-        completed = service.complete_task(spec.task_id, message="done", detail="output.wav")
+        completed = service.complete_task(
+            spec.task_id,
+            message="done",
+            detail="output.wav",
+            stage="export",
+            artifact_set_id=spec.task_id,
+        )
         assert completed.state == "completed"
         assert completed.progress == 1.0
+        assert completed.stage == "export"
+        assert completed.finished_at
+        assert completed.artifact_set_id == spec.task_id
 
     def test_fail_task(self):
         from src.app.services.task_service import TaskService
@@ -51,6 +68,13 @@ class TestTaskService:
         service.start_task(spec.task_id)
         failed = service.fail_task(spec.task_id, message="error", detail="OOM")
         assert failed.state == "failed"
+        assert failed.error == {
+            "code": "TASK_FAILED",
+            "stage": "prepare",
+            "message": "error",
+            "recoverable": True,
+            "detail": "OOM",
+        }
 
     def test_cancel_task(self):
         from src.app.services.task_service import TaskService

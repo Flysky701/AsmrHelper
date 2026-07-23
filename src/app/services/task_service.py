@@ -55,17 +55,69 @@ class TaskService:
             except ValueError as exc:
                 raise AppValidationError(str(exc)) from exc
 
-    def start_task(self, task_id: str, message: str = "") -> TaskStatus:
-        return self._guard(lambda: self._registry.start_task(task_id, message=message))
+    def start_task(
+        self, task_id: str, message: str = "", *, stage: str | None = "prepare"
+    ) -> TaskStatus:
+        return self._guard(
+            lambda: self._registry.start_task(task_id, message=message, stage=stage)
+        )
 
-    def update_progress(self, task_id: str, progress: float, message: str = "") -> TaskStatus:
-        return self._guard(lambda: self._registry.update_progress(task_id, progress, message=message))
+    def update_progress(
+        self,
+        task_id: str,
+        progress: float,
+        message: str = "",
+        *,
+        stage: str | None = None,
+        detail: str | None = None,
+    ) -> TaskStatus:
+        return self._guard(
+            lambda: self._registry.update_progress(
+                task_id,
+                progress,
+                message=message,
+                stage=stage,
+                detail=detail,
+            )
+        )
 
-    def complete_task(self, task_id: str, message: str = "", detail: str = "") -> TaskStatus:
-        return self._guard(lambda: self._registry.complete_task(task_id, message=message, detail=detail))
+    def complete_task(
+        self,
+        task_id: str,
+        message: str = "",
+        detail: str = "",
+        *,
+        stage: str | None = None,
+        artifact_set_id: str | None = None,
+    ) -> TaskStatus:
+        return self._guard(
+            lambda: self._registry.complete_task(
+                task_id,
+                message=message,
+                detail=detail,
+                stage=stage,
+                artifact_set_id=artifact_set_id,
+            )
+        )
 
-    def fail_task(self, task_id: str, message: str, detail: str = "") -> TaskStatus:
-        return self._guard(lambda: self._registry.fail_task(task_id, message=message, detail=detail))
+    def fail_task(
+        self,
+        task_id: str,
+        message: str,
+        detail: str = "",
+        *,
+        stage: str | None = None,
+        error: dict[str, object] | None = None,
+    ) -> TaskStatus:
+        return self._guard(
+            lambda: self._registry.fail_task(
+                task_id,
+                message=message,
+                detail=detail,
+                stage=stage,
+                error=error,
+            )
+        )
 
     def skip_task(self, task_id: str, message: str = "", detail: str = "") -> TaskStatus:
         return self._guard(lambda: self._registry.skip_task(task_id, message=message, detail=detail))

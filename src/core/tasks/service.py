@@ -52,6 +52,10 @@ class TaskRegistry:
             task_type=task_type,
             task_source=task_source,
             session_id=session_id,
+            input_asset_id=input_asset_id,
+            created_at=task_spec.created_at,
+            queued_at=task_spec.created_at,
+            updated_at=task_spec.created_at,
         )
         self._task_specs[task_id] = task_spec
         self._tasks[task_id] = task_status
@@ -71,17 +75,78 @@ class TaskRegistry:
             raise ValueError(f"unknown task id: {task_id}") from exc
         return self.clone_spec(task_spec)
 
-    def start_task(self, task_id: str, message: str = "") -> TaskStatus:
-        return self.update_task(task_id, state="running", message=message)
+    def start_task(
+        self,
+        task_id: str,
+        message: str = "",
+        *,
+        stage: str | None = "prepare",
+    ) -> TaskStatus:
+        return self.update_task(task_id, state="running", message=message, stage=stage)
 
-    def update_progress(self, task_id: str, progress: float, message: str = "") -> TaskStatus:
-        return self.update_task(task_id, progress=progress, message=message)
+    def update_progress(
+        self,
+        task_id: str,
+        progress: float,
+        message: str = "",
+        *,
+        stage: str | None = None,
+        detail: str | None = None,
+    ) -> TaskStatus:
+        return self.update_task(
+            task_id,
+            progress=progress,
+            message=message,
+            stage=stage,
+            detail=detail,
+        )
 
-    def complete_task(self, task_id: str, message: str = "", detail: str = "") -> TaskStatus:
-        return self.update_task(task_id, state="completed", progress=1.0, message=message, detail=detail)
+    def complete_task(
+        self,
+        task_id: str,
+        message: str = "",
+        detail: str = "",
+        *,
+        stage: str | None = None,
+        artifact_set_id: str | None = None,
+    ) -> TaskStatus:
+        return self.update_task(
+            task_id,
+            state="completed",
+            progress=1.0,
+            message=message,
+            detail=detail,
+            stage=stage,
+            error=None,
+            artifact_set_id=artifact_set_id,
+        )
 
-    def fail_task(self, task_id: str, message: str, detail: str = "") -> TaskStatus:
-        return self.update_task(task_id, state="failed", progress=1.0, message=message, detail=detail)
+    def fail_task(
+        self,
+        task_id: str,
+        message: str,
+        detail: str = "",
+        *,
+        stage: str | None = None,
+        error: dict[str, object] | None = None,
+    ) -> TaskStatus:
+        current = self.get_task(task_id)
+        resolved_stage = stage if stage is not None else current.stage
+        resolved_error = error or {
+            "code": "TASK_FAILED",
+            "stage": resolved_stage,
+            "message": message,
+            "recoverable": True,
+            "detail": detail,
+        }
+        return self.update_task(
+            task_id,
+            state="failed",
+            message=message,
+            detail=detail,
+            stage=resolved_stage,
+            error=resolved_error,
+        )
 
     def skip_task(self, task_id: str, message: str = "", detail: str = "") -> TaskStatus:
         return self.update_task(task_id, state="skipped", progress=1.0, message=message, detail=detail)
@@ -102,8 +167,14 @@ class TaskRegistry:
             progress=0.0,
             message=message,
             detail="",
+            stage=None,
+            error=None,
+            artifact_set_id=None,
             review_state="",
             review_note="",
+            queued_at=self._now(),
+            started_at=None,
+            finished_at=None,
         )
 
     def set_review_state(self, task_id: str, review_state: str) -> TaskStatus:
@@ -171,8 +242,14 @@ class TaskRegistry:
         *,
         state: str | None = None,
         progress: float | None = None,
+        stage: str | None = None,
         message: str | None = None,
         detail: str | None = None,
+        error: dict[str, object] | None = None,
+        artifact_set_id: str | None = None,
+        queued_at: str | None = None,
+        started_at: str | None = None,
+        finished_at: str | None = None,
         review_state: str | None = None,
         review_note: str | None = None,
     ) -> TaskStatus:
@@ -181,15 +258,43 @@ class TaskRegistry:
         except KeyError as exc:
             raise ValueError(f"unknown task id: {task_id}") from exc
 
+        if progress is not None and not 0.0 <= progress <= 1.0:
+            raise ValueError("task progress must be between 0.0 and 1.0")
+
+        next_state = state if state is not None else current.state
+        now = self._now()
+        terminal = next_state in self.TERMINAL_STATES
+        next_started_at = started_at
+        if next_started_at is None:
+            next_started_at = current.started_at
+            if next_state == "running" and next_started_at is None:
+                next_started_at = now
+        next_finished_at = finished_at
+        if next_finished_at is None:
+            next_finished_at = current.finished_at
+            if terminal and next_finished_at is None:
+                next_finished_at = now
+
         updated = TaskStatus(
             task_id=current.task_id,
-            state=state if state is not None else current.state,
+            state=next_state,
+            stage=stage if stage is not None else current.stage,
             progress=progress if progress is not None else current.progress,
             message=message if message is not None else current.message,
             detail=detail if detail is not None else current.detail,
             task_type=current.task_type,
             task_source=current.task_source,
             session_id=current.session_id,
+            input_asset_id=current.input_asset_id,
+            created_at=current.created_at,
+            queued_at=queued_at if queued_at is not None else current.queued_at,
+            started_at=next_started_at,
+            updated_at=now,
+            finished_at=next_finished_at,
+            error=error if error is not None else current.error,
+            artifact_set_id=(
+                artifact_set_id if artifact_set_id is not None else current.artifact_set_id
+            ),
             review_state=review_state if review_state is not None else current.review_state,
             review_note=review_note if review_note is not None else current.review_note,
         )
@@ -201,12 +306,21 @@ class TaskRegistry:
         return TaskStatus(
             task_id=task.task_id,
             state=task.state,
+            stage=task.stage,
             progress=task.progress,
             message=task.message,
             detail=task.detail,
             task_type=task.task_type,
             task_source=task.task_source,
             session_id=task.session_id,
+            input_asset_id=task.input_asset_id,
+            created_at=task.created_at,
+            queued_at=task.queued_at,
+            started_at=task.started_at,
+            updated_at=task.updated_at,
+            finished_at=task.finished_at,
+            error=dict(task.error) if task.error is not None else None,
+            artifact_set_id=task.artifact_set_id,
             review_state=task.review_state,
             review_note=task.review_note,
         )
@@ -225,3 +339,7 @@ class TaskRegistry:
             dedupe_key=task_spec.dedupe_key,
             created_at=task_spec.created_at,
         )
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.now(UTC).isoformat()
