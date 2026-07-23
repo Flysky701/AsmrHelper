@@ -26,7 +26,7 @@ refactor/re-design
 当前 HEAD：
 
 ```text
-3bd5c4a refactor: 桌面 UI 重设计 + LLM 模型管理重构 + 文档架构重组
+f7c6b52 feat: 补齐 TaskStatus 横向字段（stage / timestamps / error / artifact_set_id）
 ```
 
 近期对状态判断有直接影响的提交：
@@ -41,6 +41,7 @@ refactor/re-design
 | `b494ad6` | VoxCPM2 TTS 引擎已接入 |
 | `c4271d7` | 模型安装支持按需安装 Python 依赖 |
 | `3bd5c4a` | 完成 Workbench、TaskCenter、导航与样式的一轮桌面 UI 重设计；LLM registry 与能力描述符继续收束；重组 docs |
+| `f7c6b52` | TaskStatus 已补齐阶段、时间线、结构化错误和产物集合关联字段 |
 
 仓库最后一次提交日期为 2026-05-27。本次恢复工作已在工作区更新 UV 锁文件、安装/启动脚本和 Vite 配置；这些未提交变动属于当前环境收束工作。因此后续执行必须区分：
 
@@ -83,7 +84,7 @@ src/core/orchestration/pipeline/
 
 因此，当前不能再描述为“pipeline 仍通过 LegacyPipelineOrchestrator 驱动旧 `src/core/pipeline`”。更准确的说法是：
 
-> pipeline 主执行器已经迁到 `core/orchestration/pipeline`，剩余问题是 execution profile 结构、任务状态字段、artifact/preview 语义与主链路契约尚未完全对齐。
+> pipeline 主执行器已经迁到 `core/orchestration/pipeline`，API 执行已移出请求线程；StageProfile、终态历史持久化和 Provider 设置契约已经落地，剩余问题是 artifact/result 公共语义尚未完全对齐。
 
 ### 当前任务系统
 
@@ -99,8 +100,11 @@ src/api/http/routes/tasks.py
 
 - `TaskSpec`、`TaskStatus`、`TaskRegistry` 已存在。
 - `TaskService` 已经委托 `core.tasks.TaskRegistry`。
-- 当前仍是进程内轻量任务系统，不是持久化调度系统。
-- 当前 `TaskStatus` 还缺少主链路契约中需要的显式 `stage`、`error`、`created_at / started_at / finished_at`、`artifact_set_id`。
+- `TaskStatus` 已包含显式 `stage`、结构化 `error`、时间字段和 `artifact_set_id`。
+- Pipeline 支持后台接管、协作取消；重试会创建新任务，不覆盖原任务事实。
+- SQLite 保存终态 TaskSpec、TaskStatus 和 Artifact 索引；默认位置为 `%LOCALAPPDATA%\AsmrHelper\state.sqlite3`，可通过 `ASMR_HELPER_STATE_DB` 覆盖。
+- 重启后只加载终态历史，删除未完成任务及其 Artifact 索引；历史任务只读，重新执行需从 Workbench 提交新任务。
+- 运行调度基于进程内线程；受性能和个位数线程规模限制，当前明确不建设可恢复的持久化执行队列。
 
 ### 当前桌面端状态
 
@@ -112,16 +116,16 @@ desktop/
 
 当前状态：
 
-- `Workbench` 已能选择文件、配置参数、调用 `/pipeline/run`。
-- `TaskCenter` 已能展示任务、取消、重试、展示产物入口和日志详情。
+- `Workbench` 已能选择文件、配置参数，并通过 `POST /pipeline-runs` 一次创建和启动后台任务。
+- Workbench 直接提交嵌套 `input/output/execution_profile`，每个阶段使用统一 `StageProfile`。
+- `TaskCenter` 已消费后端显式阶段，启动时载入历史任务，并按需查询统一 TaskResult；主产物与预览能力均由 Artifact 契约声明。
+- 当前会话任务支持状态轮询、协作取消和新任务重试；重启后的历史任务只用于查看。
 - `EnginesResources` 已接入模型安装状态、异步安装和进度轮询。
 - 桌面端已经不是空壳，也不是未接后端阶段。
 
-当前仍缺：
+当前约束：
 
-- Workbench 仍主要走兼容 `/pipeline/run`，还不是 `POST /sessions -> POST /tasks` 主路径。
-- TaskCenter 仍有基于 message/detail/progress 的阶段推断，尚未完全消费后端显式 `stage`。
-- 参数快照仍偏旧平铺字段，没有完全迁到主链路数据参数契约。
+- 执行队列仍只存在于进程内，APP 重启后按约定删除未完成执行；低并发产品范围内不建设独立调度器。
 
 ### 当前引擎与资源状态
 
@@ -186,11 +190,11 @@ text_utils.py
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-结果：`122 passed`。
+结果：`151 passed`。
 
-启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（91 routes）可用。
+启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（94 routes）可用。
 
-本地 ASR / 分离 / 混音依赖已移入 `audio` 可选组，避免 Demucs/CUDA PyTorch 阻塞 API 与桌面端首次启动；需要本地完整流水线时使用 `setup.ps1 -Models` 或 `setup.ps1 -Full` 安装。
+本地 ASR / 分离 / 混音依赖已移入 `audio` 可选组，避免其阻塞 API 与桌面端首次启动；当前环境已通过 `audio` 安装档安装 CPU PyTorch、Demucs、Faster-Whisper 和 imageio-ffmpeg，并下载 Faster-Whisper Base 权重。最小真实链路（本地音频 → ASR → export）已完成，任务状态为 `completed`。CUDA 仅作为后续性能加速选项，不再是首次本地执行的前置条件。
 
 桌面端已验证：使用 `E:\Dependencies\nodejs` 的 Node v24.18.0、npm v11.16.0 执行 `npm ci` 与 `npm run build` 通过；Rust 1.97.1/Cargo 1.97.1 已安装，`npm run tauri -- build` 通过并生成 `desktop/src-tauri/target/release/asmr-helper.exe`。该程序已启动，后端 `/health` 返回正常。
 
@@ -211,13 +215,8 @@ text_utils.py
 
 ## 6. 当前最高优先级缺口
 
-1. 先按 [字段契约约束 V1](../contracts/field-contracts-v1.md) 补齐 Task、Service、TTS、Artifact 等横向字段规则。
-2. 按 [基础设施契约 V1](../contracts/infrastructure-contracts-v1.md) 统一日志事件、模型字段、CapabilityOption、高级参数和 RuntimeBinding 边界。
-3. 将 `PipelineService.create_pipeline_task_spec()` 生成的 execution profile 对齐 [主链路 V1 数据参数契约](../contracts/mainline-v1-data-parameters.md)。
-4. 更新 `core/orchestration/pipeline/planner.py`，使其优先消费 `profile_version + stages + profiles`，并保留旧结构兼容。
-5. 扩展 `TaskStatus`，补齐主链路需要的 `stage / error / timestamps / artifact_set_id`。
-6. 将 Workbench 从兼容 `/pipeline/run` 逐步迁到 `session + task` 主路径。
-7. 将 TaskCenter 从阶段推断改为消费后端显式状态、artifact 和 preview。
+1. 收敛 RuntimeEvent、CapabilityOption 与模型资源可执行性状态。
+2. 继续压薄 `ModelManager`、`core.translate` 和 app service 中的兼容字段映射。
 
 ## 7. DOCS 维护规则
 

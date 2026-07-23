@@ -1,4 +1,4 @@
-# AsmrHelper 基础设施契约 V1
+# [已归档] AsmrHelper 基础设施契约 V1
 
 日期：2026-05-27
 

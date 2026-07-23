@@ -1,4 +1,4 @@
-# AsmrHelper 主链路 V1 契约
+# [已归档] AsmrHelper 主链路 V1 契约
 
 日期：2026-05-27
 

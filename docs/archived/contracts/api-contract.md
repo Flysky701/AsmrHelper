@@ -1,4 +1,4 @@
-# AsmrHelper 统一 API 契约总表 V1
+# [已归档] AsmrHelper 统一 API 契约总表 V1
 
 ## 目标
 

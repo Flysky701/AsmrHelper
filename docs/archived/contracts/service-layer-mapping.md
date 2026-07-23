@@ -1,4 +1,4 @@
-# AsmrHelper 中间层 Service 映射总表 V1
+# [已归档] AsmrHelper 中间层 Service 映射总表 V1
 
 ## 目标
 
@@ -10,7 +10,7 @@
 
 这份文档不直接定义 API，也不直接定义底层算法实现。
 
-当前实现状态以 [当前源码基线](../roadmap/current-source-baseline.md) 为准。本文只描述 service 分层方向；如果旧迁移对象已经从源码树移除，不再把它作为当前待迁移对象。
+当前实现状态以 [当前源码基线](../../roadmap/current-source-baseline.md) 为准。本文只描述 service 分层方向；如果旧迁移对象已经从源码树移除，不再把它作为当前待迁移对象。
 
 它回答的是：
 

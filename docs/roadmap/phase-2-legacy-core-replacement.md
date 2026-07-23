@@ -32,9 +32,6 @@
 
 仍未完成：
 
-- 主链路数据参数契约尚未完全落码。
-- `TaskStatus` 尚未提供足够明确的阶段、时间戳、错误和 artifact 关联字段。
-- 桌面端仍通过兼容 `/pipeline/run` 创建主链路任务。
 - 部分 app service 仍有旧字段拼装或旧路径引用。
 - `ModelManager`、`core.translate`、Qwen3 manager 等兼容层仍需继续收束。
 
@@ -44,9 +41,9 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 当前目标是：
 
-1. 让代码先遵守 [字段契约约束 V1](../contracts/field-contracts-v1.md)。
-2. 让日志事件、模型字段、高级参数和 RuntimeBinding 遵守 [基础设施契约 V1](../contracts/infrastructure-contracts-v1.md)。
-3. 让代码消费 [主链路 V1 数据参数契约](../contracts/mainline-v1-data-parameters.md)。
+1. 让代码先遵守 [数据结构契约 v1](../contracts/schemas-v1.md)。
+2. 让能力参数、敏感设置和 RuntimeBinding 遵守 [Provider 与设置契约 v1](../contracts/provider-v1.md)。
+3. 按 [兼容与迁移说明](../contracts/compatibility.md) 归一化旧主链路字段。
 4. 让 TaskCenter 消费后端显式状态，而不是前端推断阶段。
 5. 让 Workbench 进入 `session + task` 主路径。
 6. 修掉迁移后残留的旧 import 和旧字段映射。
@@ -74,7 +71,7 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 完成记录：
 
 - `script_subtitle_service.py` 已改为加载 `src.core.subtitles.script_to_subtitle.ScriptToSubtitlePipeline`。
-- 新增真实 runtime 导入路径回归测试；字幕服务与字幕域针对性测试 `38 passed`，全量测试 `122 passed`。
+- 新增真实 runtime 导入路径回归测试；字幕服务与字幕域针对性测试 `38 passed`，当前全量测试 `126 passed`。
 
 ### Slice B：基础设施字段统一
 
@@ -104,7 +101,7 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 - 模型安装字段不进入 `TaskSpec` 或 `ExecutionProfile`。
 - `CapabilityDescriptor` 足以驱动桌面高级参数 UI。
 
-### Slice C：ExecutionProfile 契约落码
+### Slice C：ExecutionProfile 契约落码（已完成：2026-07-23）
 
 范围：
 
@@ -125,7 +122,13 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 - `build_execution_plan()` 能消费新结构。
 - 旧 `/pipeline/run` 仍可通过适配层工作。
 
-### Slice D：TaskStatus 字段补齐
+完成记录：
+
+- `PipelineService.create_pipeline_task_spec()` 现在生成 `mainline.v1` 的 `profile_version + stages + profiles` 结构。
+- planner 可同时消费新结构与旧 `pipeline + stages + mix` 结构；旧 `/pipeline/run` 仍由 facade 转换后执行。
+- 增加 V1 profile 与旧 profile 的双向回归测试。
+
+### Slice D：TaskStatus 字段补齐（已完成：2026-07-23）
 
 范围：
 
@@ -145,9 +148,17 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 完成标准：
 
 - TaskCenter 不需要通过 message/detail 猜阶段。
-- API 返回字段满足 [主链路 V1 契约](../contracts/mainline-v1-contract.md)。
+- API 返回字段满足 [主链路契约 v1](../contracts/mainline-v1.md)。
+
+完成记录：
+
+- `TaskStatus`、Task API 和任务服务已补充 stage、输入资产、时间线、结构化 error 与 artifact_set_id。
+- pipeline executor 现在显式回写 `separate/asr/translate/tts/mix/export`；不再需要由后端通过消息文本推断阶段。
+- 全量 Python 测试 `126 passed`，桌面 `npm.cmd run build` 通过。
 
 ### Slice E：Workbench 主入口迁移
+
+状态：已完成。最终采用一次性 `POST /pipeline-runs`，由后端创建并接管任务；没有把多次 `session + task` 调用暴露给 Workbench。
 
 范围：
 
@@ -158,7 +169,7 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 目标：
 
-- 创建任务时先建 session，再建 task。
+- Workbench 一次提交统一的 `input/output/execution_profile`。
 - `/pipeline/run` 保留为兼容入口，但不再是 Workbench 主路径。
 
 完成标准：
@@ -167,6 +178,8 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 - 本地 task id 与 server task id 的关系清晰。
 
 ### Slice F：TaskCenter 结果消费对齐
+
+状态：已完成。TaskCenter 使用统一 TaskResult 和 Artifact 声明，不再读取旧 `files/primary_output` 或根据扩展名猜测。
 
 范围：
 
@@ -178,7 +191,7 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 目标：
 
 - 用后端 `stage` 渲染阶段时间线。
-- 用 `ArtifactSet` 渲染产物入口。
+- 用 `TaskResult.artifacts` 渲染产物入口。
 - 用 preview API 渲染播放、字幕查看、打开目录。
 - 日志继续保留，但只作为排障详情。
 
@@ -221,21 +234,21 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 ## 6. 当前风险
 
-### 契约与代码双轨
+### 基础设施事件仍未收束
 
-DOCS 已经收束了主链路契约，但代码仍有旧 execution profile 结构。如果不尽快落码，后续 UI 和后端会再次互相猜字段。
+新旧 execution profile 与 TaskStatus 字段已经落码，但 `RuntimeEvent`、CapabilityOption UI schema 和模型安装事件尚未统一。当前 TaskCenter 仍需要独立迁移，才能完全消费后端事实。
 
-### 桌面端可用但主路径未正名
+### 后台执行采用轻量线程模型
 
-Workbench 当前可跑，但仍走 `/pipeline/run`。这会让兼容入口继续主导参数结构。
+Workbench 已走 `/pipeline-runs`，TaskCenter 已消费后端显式阶段。受当前机器性能和个位数线程规模限制，后台任务继续使用进程内轻量线程模型；本阶段不建设独立调度器或持久化执行队列。若未来出现稳定的多任务并发需求，再重新评估。
 
-### TaskCenter 阶段展示仍可能误判
+### 结果与产物语义已收口
 
-当前阶段展示仍存在前端推断。只要后端不提供显式 `stage`，TaskCenter 就无法成为可靠任务驾驶舱。
+终态历史与 Artifact 索引已经持久化；TaskResult、主产物和 Preview 公共字段已按 v1 数据契约统一。旧路径型结果字段只保留在兼容执行响应。
 
 ### 旧路径残留会在运行时炸
 
-例如 `script_subtitle_service.py` 仍指向已删除旧路径。这类问题不会被 `compileall` 覆盖所有运行分支，必须补针对性测试。
+P0 的 `script_subtitle_service.py` 残留导入已修复。后续仍应对兼容层的懒加载路径保留针对性测试，避免同类问题复发。
 
 ## 7. 完成标准
 

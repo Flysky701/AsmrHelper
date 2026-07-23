@@ -1,4 +1,4 @@
-# AsmrHelper 功能架构总览 V1
+# [已归档] AsmrHelper 功能架构总览 V1
 
 ## 目标
 

@@ -21,7 +21,7 @@
 
 > Phase 2 后段：旧 GUI、旧 pipeline 包、旧字幕脚本包已经从源码树移除，新 core 主干已建立并被调用；当前剩余工作是契约落码、兼容入口收束、状态/产物/预览字段对齐，以及残留旧引用修复。
 
-2026-07-23 的运行验证补充：项目 `.venv` 的全量测试为 `121 passed`，前端构建和 Tauri release build 均已通过，生成的桌面程序可连接健康检查正常的本地后端。该结果只覆盖基础启动与构建；本地音频引擎仍取决于 `audio` 可选依赖、模型权重和提供方配置。
+2026-07-24 的运行验证补充：项目全量测试为 `151 passed`，前端构建和 Tauri release build 均已通过，生成的桌面程序可连接健康检查正常的本地后端。该结果只覆盖基础启动与构建；本地音频引擎仍取决于 `audio` 可选依赖、模型权重和提供方配置。
 
 ## 3. 当前已完成
 
@@ -32,6 +32,12 @@
 - `src/core/engines/asr`、`llm`、`tts`、`separator` 已存在并被 pipeline executor 消费。
 - 桌面端 `desktop/` 已完成第一轮页面重构和后端接线，不是空壳阶段。
 - 模型资源与安装链路近期继续推进，已包含异步安装、进度状态、按需安装 Python 依赖等能力。
+- P0 已修复字幕服务的旧模块懒加载，并有真实 runtime 导入回归测试。
+- P1 已完成后端主链路数据收束：PipelineService 生成 `mainline.v1` profile，planner 兼容新旧结构；TaskStatus/API 已提供显式 stage、时间线、结构化 error 与 artifact_set_id，pipeline executor 显式回写阶段。
+- Workbench 已切换到 `POST /pipeline-runs` 和统一 StageProfile；TaskCenter 已消费后端显式阶段、错误与终态历史。
+- 终态任务与 Artifact 索引已持久化到 SQLite；重启时删除未完成任务，历史任务保持只读。
+- Provider 设置已统一为 Provider v1 包络，凭据只读状态与真实连通性测试已落码。
+- TaskResult、Artifact 与 Preview 公共语义已统一，TaskCenter 不再猜测主产物或可播放类型。
 
 ## 4. 当前仍缺
 
@@ -39,58 +45,14 @@
 
 DOCS 已经收束到：
 
-- [字段契约约束 V1](../contracts/field-contracts-v1.md)
-- [主链路 V1 契约](../contracts/mainline-v1-contract.md)
-- [主链路 V1 数据参数契约](../contracts/mainline-v1-data-parameters.md)
+- [主链路契约 v1](../contracts/mainline-v1.md)
+- [数据结构契约 v1](../contracts/schemas-v1.md)
+- [Provider 与设置契约 v1](../contracts/provider-v1.md)
+- [兼容与迁移说明](../contracts/compatibility.md)
 
-但代码仍存在差距：
+当前主链路请求、任务状态、Provider 设置和结果语义已经落码。`/pipeline/run` 只作为兼容入口保留，不再是桌面主入口；剩余工作集中在 RuntimeEvent、模型资源状态和兼容层瘦身。
 
-- `PipelineService.create_pipeline_task_spec()` 仍生成旧式 `execution_profile.pipeline + stages`。
-- `core/orchestration/pipeline/planner.py` 仍主要消费旧结构。
-- Workbench 仍调用兼容 `/pipeline/run`，尚未走 `POST /sessions -> POST /tasks`。
-
-### TaskStatus 还不够支撑 TaskCenter
-
-当前 `TaskStatus` 已有：
-
-- `task_id`
-- `state`
-- `progress`
-- `message`
-- `detail`
-- `task_type`
-- `task_source`
-- `session_id`
-- `review_state`
-- `review_note`
-
-仍缺主链路需要的：
-
-- `stage`
-- `error`
-- `created_at`
-- `started_at`
-- `finished_at`
-- `artifact_set_id`
-
-因此 TaskCenter 仍在部分场景下通过 `message / detail / progress` 推断阶段。
-
-### 兼容入口仍是桌面主入口
-
-当前 Workbench 已可用，但仍主要通过：
-
-```text
-POST /api/v1/pipeline/run
-```
-
-这说明桌面端接线已经完成第一轮，但还没有切到主链路契约定义的：
-
-```text
-POST /api/v1/sessions
-POST /api/v1/tasks
-```
-
-### 有实际残留旧引用
+### P0 已修复残留旧引用
 
 当前已发现：
 
@@ -98,13 +60,13 @@ POST /api/v1/tasks
 src/app/services/script_subtitle_service.py
 ```
 
-仍懒加载已删除的：
+原先懒加载已删除的：
 
 ```text
 src.core.script_to_subtitle
 ```
 
-实际调用会 `ModuleNotFoundError`。这是当前应修复的残留 bug。
+已改为 `src.core.subtitles.script_to_subtitle`，实际 runtime 导入已由测试覆盖。
 
 ### 兼容层还需要瘦身
 
@@ -117,45 +79,23 @@ src.core.script_to_subtitle
 | 功能域 | 当前状态 |
 |---|---|
 | 1 工作空间与输入管理 | 已落地，需接入 Workbench 主路径 |
-| 2 单任务 pipeline 编排执行器 | 主执行器已迁到 `core/orchestration/pipeline`，需对齐新 execution profile 和状态字段 |
-| 3 统一任务生成与任务队列 | 轻量任务系统已落地，需补 stage/error/timestamps/artifact_set_id |
+| 2 单任务 pipeline 编排执行器 | 主执行器与桌面正式入口已迁移，旧 execution profile 仅在兼容层保留 |
+| 3 统一任务生成与任务队列 | 终态历史已持久化；低并发场景继续使用进程内线程，不建设独立调度器 |
 | 4 单步工具执行体系 | 已接入主干，继续收束兼容 DTO |
 | 5 模型与运行资源管理 | 已落地并继续增强安装链路 |
-| 6 配置与提供方接入管理 | 已有 capability descriptor / execution profile builder，需与主链路数据契约统一 |
-| 7 字幕与文本资产管理 | 已迁入 `core/subtitles`，需修残留旧引用 |
-| 8 结果资产与产物索引管理 | 轻量可用，需与 TaskStatus / preview 合流 |
-| 9 结果预览与人工确认 | 轻量可用，需成为 TaskCenter 唯一结果消费入口 |
+| 6 配置与提供方接入管理 | Provider v1 设置、凭据状态、草稿验证和真实连通性测试已落地 |
+| 7 字幕与文本资产管理 | 已迁入 `core/subtitles`，残留旧引用已修复 |
+| 8 结果资产与产物索引管理 | TaskResult 与 Artifact 公共结构已统一并持久化 |
+| 9 结果预览与人工确认 | TaskCenter 已按 Artifact 声明展示主产物与音频预览入口 |
 | 10 TTS 引擎管理 | 主干已落地，VoxCPM2 等能力继续扩展 |
 | 11 LLM 能力管理 | 主干已落地，模型参数和 provider 默认值仍在调整 |
 | 12 ASR 引擎管理 | 主干已落地 |
 
 ## 6. 推荐下一步
 
-### P0：修真实残留引用
+### P3：基础设施事件与兼容层瘦身
 
-- 修 `script_subtitle_service.py`，改为加载 `src.core.subtitles.script_to_subtitle`。
-- 补或更新对应测试，防止旧路径复活。
-
-### P1：契约落码
-
-- 先按字段契约补齐 Task、Service、Capability、TTS、Artifact 等横向字段。
-- 更新 `PipelineService.create_pipeline_task_spec()`。
-- 更新 `core/orchestration/pipeline/planner.py`。
-- 让新旧 execution profile 在过渡期都可执行，但新结构优先。
-
-### P2：任务状态补齐
-
-- 扩展 `TaskStatus`。
-- 更新 tasks API schema。
-- 让 pipeline executor 回写显式 `stage`。
-
-### P3：桌面主链路切换
-
-- Workbench 从 `/pipeline/run` 迁到 `session + task`。
-- TaskCenter 从阶段推断迁到后端显式 `stage + artifacts + preview`。
-
-### P4：兼容层瘦身
-
+- 完成 RuntimeEvent、CapabilityOption schema 与模型安装事件收束。
 - 收薄 `pipeline_service / audio_tool_service / script_subtitle_service / tts_service / asr_service`。
 - 保留兼容路由，但不让兼容字段继续主导新契约。
 
@@ -165,4 +105,4 @@ src.core.script_to_subtitle
 
 当前核心任务是：
 
-> 把已经建立的新 core 主干、桌面端第一轮接线和主链路契约合并到同一条真实可执行路径上。
+> 在已经统一的真实主链路上收敛运行事件和模型资源状态，并继续压薄兼容层。

@@ -2,7 +2,7 @@
 
 日期：2026-07-23  
 适用分支：`refactor/re-design`  
-代码基线：`3bd5c4a` 加当前工作区的环境收束修改
+代码基线：`f7c6b52` 加当前工作区的 P1 profile/阶段回写修改
 
 ## 1. 结论与事实源
 
@@ -37,10 +37,10 @@ flowchart LR
 
 | 范围 | 当前已实现 | 尚未收束到目标 |
 | --- | --- | --- |
-| 桌面 Workbench | 可选择输入、设置参数并运行任务 | 仍以兼容 `POST /pipeline/run` 为主；应迁至 `POST /sessions -> POST /tasks` |
-| Pipeline | `src/core/orchestration/pipeline/` 已是主执行器，直接调用引擎 runtime | `PipelineService` 与 planner 仍主要消费旧式 `pipeline + stages + mix` 参数 |
-| 任务中心 | 可查询、取消、重试、展示日志和产物入口 | `TaskStatus` 缺 `stage/error/timestamps/artifact_set_id`，前端仍会推断阶段 |
-| 字幕 | 新实现位于 `src/core/subtitles/` | `script_subtitle_service.py` 仍延迟导入已删除的旧模块，调用时有 `ModuleNotFoundError` 风险 |
+| 桌面 Workbench | 使用 `POST /pipeline-runs` 一次提交统一 StageProfile，后端立即返回 `202` 并后台接管 | 旧平铺参数只保留兼容测试 |
+| Pipeline | `src/core/orchestration/pipeline/` 已是主执行器，执行已移出 API 请求线程 | 低并发场景保留进程内线程；按产品约定，重启不恢复未完成执行 |
+| 任务中心 | SQLite 保留终态任务与 Artifact 索引；桌面端按统一 TaskResult 读取主产物和预览能力 | RuntimeEvent 尚未收敛 |
+| 字幕 | 新实现位于 `src/core/subtitles/`，旧延迟导入问题已修复并有回归测试 | 字幕资产版本与主链路结果结构仍需统一 |
 | 模型资源 | registry、安装状态、异步安装及进度轮询已存在 | 可选 Python 引擎、模型权重和系统工具的安装边界尚未完全产品化 |
 
 已删除的 `src/gui/`、`src/core/pipeline/` 与旧字幕路径不是迁移目标，任何活跃文档都不得把它们当作仍需保留的主路径。
@@ -52,21 +52,21 @@ flowchart LR
 | 范围 | 命令或结果 | 结论 |
 | --- | --- | --- |
 | Python 语法 | `.venv\Scripts\python.exe -m compileall -q src` | 通过 |
-| Python 测试 | `.venv\Scripts\python.exe -m pytest -q` | `122 passed` |
-| HTTP 启动 | `scripts/verify_env.py` 创建 FastAPI app，发现 91 条路由；`/health` 返回 `ok` | 通过 |
+| Python 测试 | `.venv\Scripts\python.exe -m pytest -q` | `151 passed` |
+| HTTP 启动 | `scripts/verify_env.py` 创建 FastAPI app，发现 94 条路由；`/health` 返回 `ok` | 通过 |
 | 前端 | `npm ci`、`npm run build` | 通过 |
 | 桌面打包 | `npm run tauri -- build` | 通过，生成 `desktop/src-tauri/target/release/asmr-helper.exe` |
 | 桌面启动 | 运行已生成应用并连接本地后端 | 已验证 |
 
-这只说明 API、桌面壳和基础测试可运行，不表示每一种本地音频处理都已具备。Demucs、faster-whisper 等重型本地处理依赖现在属于 `audio` 可选组；未安装模型权重、未配置提供方 API Key 或未安装该可选组时，对应能力仍不可用。
+这只说明 API、桌面壳和基础测试可运行，不表示每一种本地音频处理都已具备。Demucs、faster-whisper 等本地处理依赖属于 `audio` 可选组；当前环境已验证 Base ASR 最小链路，但未安装模型权重、未配置提供方 API Key 或未安装该可选组时，对应能力仍不可用。
 
 ## 4. 当前环境与交付边界
 
 | 层级 | 当前约束 | 推荐入口 |
 | --- | --- | --- |
-| Python 基础环境 | Python 3.11 或 3.12，项目 `.venv` | `powershell -ExecutionPolicy Bypass -File .\setup.ps1` |
-| 基础 API / 桌面联调 | 不强制安装 CUDA PyTorch、Demucs、faster-whisper | `GUIRun.bat` 或 `run.bat api` |
-| 本地完整音频处理 | 需要 `audio` 可选组和相应模型权重 | `setup.ps1 -Models`；需要更多模型时用 `-Full` |
+| Python 基础环境 | Python 3.11 或 3.12，安装脚本默认 3.12 | `powershell -ExecutionPolicy Bypass -File .\setup.ps1` |
+| 基础 API / 桌面联调 | 不强制安装本地 ASR/分离依赖 | `GUIRun.bat` 或 `run.bat api` |
+| 本地完整音频处理 | 需要 `audio` 可选组和相应模型权重；CUDA 只影响性能 | `setup.ps1 -Models`；需要更多模型时用 `-Full` |
 | Qwen 扩展 | Qwen TTS 与 Qwen ASR 的 Transformers 版本存在互斥约束 | 选择一个运行环境/安装档，不可把“全 extras”视为通用安装方案 |
 | 桌面构建 | Node.js、npm、Rust/Cargo 均为前置 | `desktop` 中执行 `npm run build` 或 `npm run tauri -- build` |
 
@@ -74,14 +74,22 @@ flowchart LR
 
 ## 5. 已知问题与重构优先级
 
-已完成 P0（2026-07-23）：`script_subtitle_service.py` 已迁至 `src.core.subtitles.script_to_subtitle`，补充真实 runtime 导入路径回归测试；字幕相关测试 `38 passed`，全量测试 `122 passed`。
+已完成 P0（2026-07-23）：`script_subtitle_service.py` 已迁至 `src.core.subtitles.script_to_subtitle`，补充真实 runtime 导入路径回归测试。
+
+已完成 P1（2026-07-23）：PipelineService 生成 `mainline.v1` profile，planner 同时兼容新旧 profile；TaskStatus/API 已落地显式 stage、时间线、结构化 error 与 artifact_set_id，pipeline executor 回写标准阶段。全量测试 `126 passed`。
+
+已完成主链路接管切片（2026-07-23）：Workbench 改为单次 `POST /pipeline-runs`；后端返回 `202` 后在后台执行；取消为协作请求；Pipeline 重试创建新任务；前端展示后端真实阶段和错误消息。全量测试 `133 passed`，桌面端构建通过。
+
+已完成历史任务持久化（2026-07-23）：终态 TaskSpec、TaskStatus 和 Artifact 索引保存到 SQLite；重启时删除未完成任务及其索引；桌面端重新载入历史，历史任务只读并要求从 Workbench 重新提交。全量测试 `139 passed`。
+
+已完成 StageProfile 收敛（2026-07-23）：Workbench 和 `/pipeline-runs` 使用嵌套 v1 请求；阶段开关、Provider、模型和参数不再分散到两套结构；旧平铺请求只在兼容分支保留。全量测试 `141 passed`。
+
+已完成 Provider 设置收敛（2026-07-23）：设置 API 与桌面端统一使用 Provider v1 包络；凭据读取改为布尔状态，空白写入不覆盖已有密钥；DeepSeek/OpenAI 测试执行真实轻量请求并返回稳定错误代码。全量测试 `148 passed`。
+
+已完成结果语义收敛（2026-07-24）：Task、Pipeline、Tool 结果共享统一 TaskResult；主产物使用 `primary_artifact_id`，Artifact 使用 `type/primary/preview`；TaskCenter 不再读取 `files/primary_output` 或按扩展名猜测。全量测试 `151 passed`。
 
 | 优先级 | 问题 | 影响 | 建议完成标志 |
 | --- | --- | --- | --- |
-| P1 | execution profile 仍是旧结构 | 新契约字段无法稳定贯穿 planner/executor | 同时支持新 `profile_version + stages + profiles` 和旧请求适配 |
-| P1 | TaskStatus 字段不足 | 失败、阶段、时间线和产物关联无法成为后端事实 | 增加 stage、error、时间戳、artifact_set_id 并在 API 回写 |
-| P2 | Workbench 仍走 `/pipeline/run` | session/task 主契约无法成为桌面默认路径 | 桌面改为先创建 session，再提交 task；旧路由仅作适配 |
-| P2 | TaskRegistry 仅进程内 | 重启后任务与状态丢失，不能称为持久化队列 | 明确短期边界或设计持久化任务存储 |
 | P2 | 模型依赖和权重安装分散 | “已下载”不总是“可执行” | 在 capability/resource 状态中明确 Python 依赖、权重、外部工具和可用性 |
 | P3 | 兼容层仍较厚 | 新代码可能继续依赖 `ModelManager`、`core.translate` 和旧字段 | 新能力只依赖 registry/runtime 与 V1 DTO，兼容层逐步缩小 |
 | P3 | Tauri 开发期文件监视曾受 Cargo 产物影响 | Windows 上开发启动可能报 `EBUSY` | 保持 Vite 忽略 `src-tauri/target`，并在开发文档中保留该约束 |
@@ -92,12 +100,13 @@ flowchart LR
 | --- | --- | --- |
 | 当前事实 | [当前源码基线](current-source-baseline.md) | 当前源码、验证结果和最高优先级问题的第一事实源；随源码变化更新 |
 | 当前总览 | 本文 | 架构、环境、验证、问题与文档定位的总入口 |
-| 活跃目标 | `docs/contracts/` | 是 V1 目标契约，不应被误读为全部已落码；实现差距以本文第 2、5 节为准 |
-| 活跃设计 | `docs/domains/`、`docs/designs/desktop-ui-redesign-blueprint.md` | 用于边界和实现方向；实现前应对照源码基线确认进度 |
+| 活跃目标 | [主链路](../contracts/mainline-v1.md)、[数据结构](../contracts/schemas-v1.md)、[Provider 与设置](../contracts/provider-v1.md)、[兼容迁移](../contracts/compatibility.md) | 四份 V1 文档是当前跨层契约；目标与实现差异集中记录在兼容迁移文档 |
+| 活跃边界 | [领域边界总览](../domains/README.md) | 只定义六组责任边界；ASR、TTS、LLM 作为 Provider 类别扩展，不再重复维护跨层契约 |
+| 活跃设计 | `docs/designs/desktop-ui-redesign-blueprint.md` | 用于 UI 实现方向；实现前应对照源码基线确认进度 |
 | 需持续收束 | [Phase 2 后段收尾计划](phase-2-legacy-core-replacement.md)、[总体进度状态](overall-progress-status.md)、[主链路检查清单](mainline-refactor-checklist.md) | 仍可用，但只作为执行清单；本轮已补充当前状态链接 |
 | 历史快照 | [重构恢复简报（2026-07-18）](restart-briefing-2026-07-18.md) | 记录恢复时的断点；其中旧测试限制已被 7 月 23 日验证结果取代 |
 | 需修订的设计 | `designs/model-asset-management-requirements.md` | 原“`uv sync --all-extras`”建议与当前互斥 optional extra 不再相容，已改为按安装档选择 |
-| 归档资料 | `docs/archived/` | 仅历史背景；其中旧路径、旧命令和 `D:/WorkSpace/...` 链接不作为当前操作依据 |
+| 归档资料 | [归档说明](../archived/README.md) | 原 7 份契约和 12 份领域文档已归档；旧路径、旧命令和 `D:/WorkSpace/...` 链接不作为当前操作依据 |
 | 仓库根部历史草案 | `refactor.md` | 保留为历史架构思考，不再是现状对照或执行入口 |
 
 当前 DOCS 尚未充分体现的内容已在本文补齐：可启动/可打包的验证基线、Python 可选引擎边界、Qwen 依赖互斥、Windows 下 Tauri 开发约束、当前 API 与目标契约的差距，以及“能启动”不等于完整本地音频能力可用的发布边界。
@@ -108,5 +117,5 @@ flowchart LR
 
 1. 修改代码和测试，执行相应验证。
 2. 更新 [当前源码基线](current-source-baseline.md) 的事实、验证结果和最高优先级缺口。
-3. 若改变字段/API/边界，更新对应 V1 契约与 domain 文档。
+3. 若改变字段/API/边界，更新对应 V1 契约与 [领域边界总览](../domains/README.md)。
 4. 完成一个切片后，再更新 roadmap 状态；历史文档只追加“已被何处取代”，不反向改写历史。

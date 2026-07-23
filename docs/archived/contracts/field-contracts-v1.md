@@ -1,4 +1,4 @@
-# AsmrHelper 字段契约约束 V1
+# [已归档] AsmrHelper 字段契约约束 V1
 
 日期：2026-05-27
 
@@ -16,7 +16,7 @@
 - Artifact / Preview 字段。
 - 前端字段消费约束。
 
-当前源码事实见 [当前源码基线](../roadmap/current-source-baseline.md)。
+当前源码事实见 [当前源码基线](../../roadmap/current-source-baseline.md)。
 日志事件、模型资源字段、CapabilityOption 扩展、高级参数和 RuntimeBinding 的横向规则见 [基础设施契约 V1](infrastructure-contracts-v1.md)。
 
 ## 2. 总体规则

@@ -62,8 +62,8 @@ Workbench 选择输入与参数
 开始实现前，按以下顺序读取：
 
 1. [当前源码基线](current-source-baseline.md)：当前事实、验证限制与已知问题。
-2. [主链路 V1 契约](../contracts/mainline-v1-contract.md) 与 [主链路数据参数](../contracts/mainline-v1-data-parameters.md)：本轮唯一的业务主链路定义。
-3. [字段契约](../contracts/field-contracts-v1.md) 与 [基础设施契约](../contracts/infrastructure-contracts-v1.md)：跨模块字段约束。
+2. [主链路契约 v1](../contracts/mainline-v1.md) 与 [数据结构契约 v1](../contracts/schemas-v1.md)：当前业务主链路和跨模块字段定义。
+3. [Provider 与设置契约 v1](../contracts/provider-v1.md) 与 [兼容说明](../contracts/compatibility.md)：能力边界和旧实现迁移规则。
 4. [Phase 2 后段收尾计划](phase-2-legacy-core-replacement.md)：各切片的具体范围和验收标准。
 5. 按改动所属范围再读 `docs/domains/` 和 `docs/designs/`，归档目录只用于追溯历史。
 

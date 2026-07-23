@@ -224,7 +224,7 @@ TaskCenter 应从“任务列表 + 日志”改为“任务驾驶舱”。
 
 ### Step 1：确认主链路契约
 
-- 先按 [主链路 V1 契约](../contracts/mainline-v1-contract.md) 和 [主链路 V1 数据参数契约](../contracts/mainline-v1-data-parameters.md) 约定 Workbench、TaskCenter、Artifact、Preview 的最小稳定字段。
+- 先按 [主链路契约 v1](../contracts/mainline-v1.md) 和 [数据结构契约 v1](../contracts/schemas-v1.md) 约定 Workbench、TaskCenter、Artifact、Preview 的最小稳定字段。
 - 确认哪些旧接口只是兼容入口，避免 UI 改造继续反推后端字段。
 - 核对中文文案在实际桌面应用中的显示，不把终端读取乱码当作产品缺陷。
 
