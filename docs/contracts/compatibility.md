@@ -33,11 +33,11 @@
 
 | 兼容项 | 当前真实用途 | 删除条件 |
 | --- | --- | --- |
-| `/api/v1/pipeline/run` | CLI、旧客户端和兼容回归；Workbench 不再调用 | 发布一个明确不再支持旧客户端的版本，并将 CLI 切到任务创建与结果查询 |
+| `/api/v1/pipeline/run` | 旧客户端和兼容回归；Workbench、CLI 已不再调用 | 发布一个明确不再支持旧客户端的版本 |
 | `src.core.model_manager` | 仅支持显式旧导入并发出 DeprecationWarning；主服务使用各引擎 registry | 仓库外调用方完成迁移，且兼容期结束 |
-| `src.core.translate` | 仍承载实际 Translator、翻译缓存和术语库；不能按“纯兼容包”删除 | Translator 及其缓存/术语能力迁入 LLM 域，旧包只剩转发后再进入弃用期 |
+| `src.core.translate` | 已只保留 Translator、缓存、术语和字幕工具的弃用转发；实现分别位于 `core.engines.llm` 与 `core.subtitles` | 兼容期结束且仓库外旧导入完成迁移 |
 | `src.core.translate` 中的字幕工具转发 | 只服务仓库外旧导入；活跃 TTS 预处理已改用 `src.core.subtitles` | 兼容期结束且外部调用迁移完成 |
-| 路径型 `primary_output/files` | 内部执行器、CLI 和旧执行响应 | CLI 与旧响应完成 ArtifactResult 迁移；公共 TaskResult 已不依赖 |
+| 路径型 `primary_output/files` | 内部执行器与 `/pipeline/run`、`/tools/*` 旧同步响应 | 旧客户端与桌面工具交互迁入任务创建、状态查询和 TaskResult 后，发布移除版本 |
 
 ## 3. 迁移顺序
 
@@ -60,6 +60,10 @@
 2026-07-24 已完成 CapabilityOption 与模型可执行状态收敛：Option 固定返回枚举、范围、高级和敏感标记；ModelStatus 分离安装状态与 `executable`，并明确返回 Python 依赖、系统工具、GPU、凭据或权重问题。全量测试 `156 passed`，桌面端构建通过。
 
 2026-07-24 已完成 RuntimeEvent 收敛：任务生命周期生成单任务递增事件，`after_sequence` 支持续读，SSE 和 TaskCenter 日志消费统一结构；模型安装事件明确携带 `operation/model_id/state/progress`。同时移除 TTS 音频预处理对旧翻译包中字幕工具的反向依赖。全量测试 `160 passed`，桌面端构建通过。
+
+2026-07-24 已完成翻译核心迁移：Translator、翻译缓存、质量检测和术语库迁入 `core.engines.llm`；繁简映射迁入 `core.subtitles`；LLM registry、ModelManager 内部构造和 core 根导出均使用新实现路径。`core.translate` 只保留带弃用提示的兼容转发。全量测试 `163 passed`。
+
+2026-07-24 已完成执行结果收敛：CLI、`POST /pipeline-runs/execute` 和 `POST /tool-runs` 都从权威 Artifact 索引返回或展示 TaskResult；不再读取 `primary_output/files`。路径型字段仅保留在明确标注的 `/pipeline/run` 与 `/tools/*` 同步兼容路由。全量测试 `166 passed`。
 
 ## 4. 回归基线
 

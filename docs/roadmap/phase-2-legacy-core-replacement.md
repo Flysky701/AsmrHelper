@@ -33,7 +33,7 @@
 仍未完成：
 
 - 部分 app service 仍有旧字段拼装或旧路径引用。
-- `ModelManager`、`core.translate`、Qwen3 manager 等兼容层仍需继续收束。
+- `ModelManager`、`core.translate`、Qwen3 manager 等兼容入口仍需在兼容期结束后删除；其中 `core.translate` 已只剩弃用转发。
 
 ## 3. 后段目标
 
@@ -211,7 +211,7 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 - `tts_service`
 - `asr_service`
 - `ModelManager`
-- `core.translate`
+- `core.translate`（实现已迁出，仅保留兼容转发）
 
 目标：
 

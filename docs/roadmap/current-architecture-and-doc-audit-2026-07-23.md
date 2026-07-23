@@ -52,7 +52,7 @@ flowchart LR
 | 范围 | 命令或结果 | 结论 |
 | --- | --- | --- |
 | Python 语法 | `.venv\Scripts\python.exe -m compileall -q src` | 通过 |
-| Python 测试 | `.venv\Scripts\python.exe -m pytest -q` | `160 passed` |
+| Python 测试 | `.venv\Scripts\python.exe -m pytest -q` | `166 passed` |
 | HTTP 启动 | `scripts/verify_env.py` 创建 FastAPI app，发现 94 条路由；`/health` 返回 `ok` | 通过 |
 | 前端 | `npm ci`、`npm run build` | 通过 |
 | 桌面打包 | `npm run tauri -- build` | 通过，生成 `desktop/src-tauri/target/release/asmr-helper.exe` |
@@ -88,11 +88,11 @@ flowchart LR
 
 已完成结果语义收敛（2026-07-24）：Task、Pipeline、Tool 结果共享统一 TaskResult；主产物使用 `primary_artifact_id`，Artifact 使用 `type/primary/preview`；TaskCenter 不再读取 `files/primary_output` 或按扩展名猜测。全量测试 `151 passed`。
 
-已完成 CapabilityOption、模型状态与 RuntimeEvent 收敛（2026-07-24）：能力选项补齐枚举、范围、高级和敏感约束；模型状态分离安装状态与实际可执行性，并报告 Python 依赖、系统工具、GPU、凭据和权重问题；任务生命周期和模型安装增量消息已统一到单任务递增事件流。TTS 音频预处理已不再通过旧翻译包读取字幕工具。全量测试 `160 passed`。
+已完成 CapabilityOption、模型状态、RuntimeEvent、翻译核心与执行结果收敛（2026-07-24）：能力选项和模型可执行状态已稳定；任务生命周期与模型安装使用统一事件流；Translator、缓存、质量检测和术语能力已迁入 LLM 域；CLI、pipeline-run 和 tool-run 的新任务化执行路径都使用 TaskResult。全量测试 `166 passed`。
 
 | 优先级 | 问题 | 影响 | 建议完成标志 |
 | --- | --- | --- | --- |
-| P3 | 兼容层仍较厚 | 新代码可能继续依赖 `ModelManager`、`core.translate` 和旧字段 | 新能力只依赖 registry/runtime 与 V1 DTO，兼容层逐步缩小 |
+| P3 | 同步工具兼容路由仍存在 | 桌面工具页仍调用 `/tools/*` 并依赖路径型响应 | 工具页切换任务化 API 后删除兼容路由 |
 | P3 | Tauri 开发期文件监视曾受 Cargo 产物影响 | Windows 上开发启动可能报 `EBUSY` | 保持 Vite 忽略 `src-tauri/target`，并在开发文档中保留该约束 |
 
 ## 6. DOCS 审计

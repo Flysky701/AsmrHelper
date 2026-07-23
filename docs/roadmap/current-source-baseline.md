@@ -191,7 +191,7 @@ text_utils.py
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-结果：`160 passed`。
+结果：`166 passed`。
 
 启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（94 routes）可用。
 
@@ -216,8 +216,8 @@ text_utils.py
 
 ## 6. 当前最高优先级缺口
 
-1. 将仍由 `core.translate` 承载的 Translator、缓存和术语能力迁入 LLM 域；在迁移前不得把该包当作可直接删除的纯兼容层。
-2. 将 CLI 和旧执行响应从路径型 `primary_output/files` 迁到 ArtifactResult 后，再删除相应兼容字段。
+1. 将桌面工具页从 `/tools/*` 同步响应迁到任务创建、状态查询和 TaskResult 后，再删除相应兼容路由及路径型字段。
+2. `core.translate` 当前只保留弃用转发；兼容期结束前不再向其中增加实现。
 3. 保持 RuntimeEvent 为进程内诊断时间线；只有出现明确的跨重启审计需求时再评估持久化。
 
 ## 7. DOCS 维护规则
