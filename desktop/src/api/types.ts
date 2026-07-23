@@ -35,6 +35,18 @@ export interface TaskListResponse {
   tasks: TaskStatusResponse[]
 }
 
+export interface RuntimeEventResponse {
+  sequence: number
+  time: string
+  level: string
+  type: string
+  task_id: string
+  stage: string | null
+  message: string
+  detail: string | null
+  data: Record<string, unknown>
+}
+
 export interface ArtifactResponse {
   artifact_id: string
   task_id: string
@@ -246,6 +258,12 @@ export interface ModelStatusResponse {
   model_id: string
   status: string
   detail: string
+  executable: boolean
+  issues: Array<{
+    code: string
+    requirement: string
+    message: string
+  }>
 }
 
 export interface ModelOperationResponse {

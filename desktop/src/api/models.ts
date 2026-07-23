@@ -6,7 +6,7 @@ import type {
   ModelInstallRequest,
   ModelInstallAsyncResponse,
   ModelVerificationResponse,
-  TaskStatusResponse,
+  RuntimeEventResponse,
 } from './types'
 
 const DEFAULT_API_BASE = 'http://127.0.0.1:8000/api/v1'
@@ -45,20 +45,20 @@ export const modelsApi = {
    */
   subscribeInstallProgress: (
     taskId: string,
-    onProgress: (task: TaskStatusResponse) => void,
+    onProgress: (event: RuntimeEventResponse) => void,
     onDone?: () => void,
     onError?: (err: Event) => void,
   ): (() => void) => {
     const es = new EventSource(`${API_BASE}/tasks/${taskId}/events`)
 
-    es.onmessage = (event) => {
+    es.addEventListener('runtime', (event) => {
       try {
-        const task = JSON.parse(event.data) as TaskStatusResponse
-        onProgress(task)
+        const runtimeEvent = JSON.parse(event.data) as RuntimeEventResponse
+        onProgress(runtimeEvent)
       } catch {
         // ignore parse errors
       }
-    }
+    })
 
     es.addEventListener('done', () => {
       es.close()

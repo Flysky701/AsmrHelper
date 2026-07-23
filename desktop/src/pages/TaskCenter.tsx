@@ -287,6 +287,7 @@ export default function TaskCenter() {
   const setLevelFilter = useLogStore((state) => state.setLevelFilter)
   const clearLogs = useLogStore((state) => state.clearLogs)
   const addLog = useLogStore((state) => state.addLog)
+  const addRuntimeEvent = useLogStore((state) => state.addRuntimeEvent)
 
   const showAudio = useAudioPlayerStore((state) => state.show)
 
@@ -302,6 +303,14 @@ export default function TaskCenter() {
   const filteredLogs = taskLogs.filter((entry) => levelFilter.includes(entry.level)).slice(-120).reverse()
 
   const artifacts = selectedTask?.artifacts?.items ?? []
+
+  useEffect(() => {
+    if (!selectedTask?.serverTaskId) return
+    return tasksApi.subscribeEvents(
+      selectedTask.serverTaskId,
+      (event) => addRuntimeEvent(event, selectedTask.id),
+    )
+  }, [addRuntimeEvent, selectedTask?.id, selectedTask?.serverTaskId])
 
   useEffect(() => {
     if (!selectedTask?.serverTaskId) return

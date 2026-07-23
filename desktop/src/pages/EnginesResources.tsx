@@ -29,6 +29,7 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   not_installed: { dot: 'oklch(55% 0.18 25)', label: '未安装' },
   missing: { dot: 'oklch(55% 0.18 25)', label: '未安装' },
   invalid: { dot: 'oklch(65% 0.14 85)', label: '不完整' },
+  runtime_unavailable: { dot: 'oklch(65% 0.14 85)', label: '不可执行' },
   installing: { dot: 'oklch(65% 0.14 85)', label: '安装中' },
 }
 
@@ -296,7 +297,12 @@ export default function EnginesResources() {
                     <div>
                       {groupModels.map(model => {
                         const status = getStatus(model.model_id)
-                        const statusInfo = status ? STATUS_STYLES[status.status] || STATUS_STYLES.not_installed : null
+                        const runtimeUnavailable =
+                          status?.executable === false &&
+                          (status.status === 'installed' || status.status === 'configured')
+                        const statusInfo = status
+                          ? STATUS_STYLES[runtimeUnavailable ? 'runtime_unavailable' : status.status] || STATUS_STYLES.not_installed
+                          : null
                         const installState = installing[model.model_id]
                         const isInstalling = !!installState?.active || status?.status === 'installing'
                         return (
@@ -310,6 +316,11 @@ export default function EnginesResources() {
                               <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
                                 {model.backend || model.family_id || model.kind}
                               </div>
+                              {status?.issues?.length ? (
+                                <div style={{ fontSize: '11px', color: 'oklch(48% 0.12 65)', marginTop: '4px' }}>
+                                  {status.issues.map(issue => issue.message).join('；')}
+                                </div>
+                              ) : null}
                             </div>
                             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                               {statusInfo && (
