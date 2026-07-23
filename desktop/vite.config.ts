@@ -12,6 +12,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    watch: {
+      // Cargo continuously writes PDB and object files here during `tauri dev`.
+      // Watching those files on Windows can terminate Vite with EBUSY.
+      ignored: ['**/src-tauri/target/**'],
+    },
   },
   build: {
     outDir: 'dist',

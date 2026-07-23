@@ -6,7 +6,7 @@ authors = [
     {name = "ASMR Helper Team"}
 ]
 readme = "README.md"
-requires-python = ">=3.10,<=3.13"
+requires-python = ">=3.11,<3.13"
 license = {text = "MIT"}
 keywords = ["asmr", "audio", "whisper", "tts", "translation"]
 classifiers = [
@@ -19,16 +19,11 @@ classifiers = [
 ]
 
 dependencies = [
-    # 核心依赖
-    "faster-whisper>=1.0.0",
+    # 启动 API 与桌面端所需依赖
     "edge-tts>=6.1.0",
     "openai>=1.0.0",
     "httpx>=0.25.0",
-    # 音频处理
-    "demucs>=4.0.0",
     "soundfile>=0.12.0",
-    "imageio-ffmpeg>=0.4.0",
-    "pytsmod>=0.3.0,<1.0.0",
     "numpy>=1.24.0",
     # 工具
     "click>=8.1.0",
@@ -42,6 +37,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# 本地 ASR / 分离 / 混音依赖较大（Demucs 会安装 CUDA PyTorch），
+# 仅在需要本地音频流水线时安装，不阻塞桌面端和 API 启动。
+audio = [
+    "faster-whisper>=1.0.0",
+    "demucs>=4.0.0",
+    "imageio-ffmpeg>=0.4.0",
+    "pytsmod>=0.3.0,<1.0.0",
+]
 qwen3 = [
     "qwen-tts>=0.1.0",
     "accelerate>=0.20.0",
@@ -94,6 +97,14 @@ line-length = 100
 target-version = "py310"
 
 [tool.uv]
+# Qwen3-TTS 与 Qwen-ASR 固定依赖不同的 transformers 小版本，不能共装。
+conflicts = [
+    [
+        { extra = "qwen3" },
+        { extra = "qwen_asr" },
+    ],
+]
+
 # PyTorch CUDA 版本覆盖（防止 uv 从 PyPI 拉取 CPU 版本）
 # numpy>=2.0.0 强制：numpy 1.x MINGW 构建在 Python 3.13 上会 Access Violation 崩溃
 override-dependencies = [
