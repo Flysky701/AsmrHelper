@@ -6,16 +6,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .pipeline import ArtifactSetResponse, PipelineRunResponse
 from .tasks import TaskStatusResponse
 
 
 class PipelineTaskRunRequest(BaseModel):
     task_id: str = Field(..., description="Task ID for a pipeline task")
-
-
-class PipelineTaskRunResponse(PipelineRunResponse):
-    artifacts: ArtifactSetResponse = Field(default_factory=ArtifactSetResponse)
 
 
 class PipelineRunAcceptedResponse(BaseModel):

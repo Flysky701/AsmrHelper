@@ -5,14 +5,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from src.api.http.dependencies import pipeline_task_orchestrator
-from src.api.http.routes.pipeline import _build_task_response, _to_pipeline_request
+from src.api.http.routes.pipeline import _to_pipeline_request
 from src.api.http.schemas.pipeline import PipelineRunRequest
-from src.api.http.schemas.pipeline import ArtifactSetResponse
 from src.api.http.schemas.pipeline_runs import (
     PipelineRunAcceptedResponse,
     PipelineRunCreateRequest,
     PipelineTaskRunRequest,
-    PipelineTaskRunResponse,
 )
 from src.app.dto import PipelineRequest
 from src.api.http.schemas.tasks import (
@@ -62,28 +60,13 @@ def submit_pipeline_run(
     )
 
 
-@router.post("/execute", response_model=PipelineTaskRunResponse)
+@router.post("/execute", response_model=TaskResultResponse)
 def execute_pipeline_task(
     body: PipelineTaskRunRequest,
     svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator),
 ):
     result = svc.run_task(body.task_id)
-    task = _build_task_response(result)
-    return PipelineTaskRunResponse(
-        success=result.success,
-        input_path=result.input_path,
-        task=task,
-        task_id=result.task_id,
-        task_state=result.task_state,
-        artifacts=ArtifactSetResponse(
-            files=result.artifacts.files,
-            primary_output=result.artifacts.primary_output,
-        ),
-        mix_path=result.mix_path,
-        exported_subtitle=result.exported_subtitle,
-        total_duration=result.total_duration,
-        error_message=result.error_message,
-    )
+    return TaskResultResponse.from_view(svc.get_task_result(result.task_id))
 
 
 @router.get("/{task_id}", response_model=TaskResultResponse)

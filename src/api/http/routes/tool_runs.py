@@ -8,13 +8,11 @@ from src.api.http.dependencies import tool_registry
 from src.api.http.schemas.tasks import (
     TaskArtifactsResponse,
     TaskResultResponse,
-    TaskStatusResponse,
 )
 from src.api.http.schemas.tool_runs import (
     ToolDescriptorResponse,
     ToolListResponse,
     ToolTaskRunRequest,
-    ToolTaskRunResponse,
 )
 from src.app.services import ToolRegistry
 
@@ -30,17 +28,13 @@ def list_tool_tasks(
     )
 
 
-@router.post("", response_model=ToolTaskRunResponse)
+@router.post("", response_model=TaskResultResponse)
 def run_tool_task(
     body: ToolTaskRunRequest,
     svc: ToolRegistry = Depends(tool_registry),
 ):
     result = svc.run_task(body.task_id)
-    return ToolTaskRunResponse(
-        task=TaskStatusResponse.from_task_status(result["task"]),
-        tool_name=result["tool_name"],
-        summary=dict(result["summary"]),
-    )
+    return TaskResultResponse.from_view(svc.get_task_result(result["task"].task_id))
 
 
 @router.get("/{task_id}", response_model=TaskResultResponse)
