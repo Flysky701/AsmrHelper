@@ -18,7 +18,9 @@ ScriptToSubtitlePipeline = None
 def _load_pipeline_runtime():
     global ScriptToSubtitlePipeline
     if ScriptToSubtitlePipeline is None:
-        from src.core.script_to_subtitle import ScriptToSubtitlePipeline as core_pipeline
+        from src.core.subtitles.script_to_subtitle import (
+            ScriptToSubtitlePipeline as core_pipeline,
+        )
 
         ScriptToSubtitlePipeline = core_pipeline
     return ScriptToSubtitlePipeline

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,10 @@ import pytest
 from src.app.dto.script_subtitle import ScriptSubtitleRequest
 from src.app.errors import AppExecutionError, AppValidationError
 from src.app.services.script_subtitle_service import ScriptSubtitleService
+
+script_subtitle_service_module = importlib.import_module(
+    "src.app.services.script_subtitle_service"
+)
 
 
 class _DummyPipeline:
@@ -32,6 +37,14 @@ def _patch_pipeline(monkeypatch, pipeline: _DummyPipeline) -> None:
         "_build_pipeline",
         lambda self: pipeline,
     )
+
+
+def test_pipeline_runtime_loads_current_core_path(monkeypatch):
+    monkeypatch.setattr(script_subtitle_service_module, "ScriptToSubtitlePipeline", None)
+
+    pipeline_class = script_subtitle_service_module._load_pipeline_runtime()
+
+    assert pipeline_class.__module__ == "src.core.subtitles.script_to_subtitle"
 
 
 def test_run_full_delegates_to_core_pipeline(monkeypatch, tmp_path):
