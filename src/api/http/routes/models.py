@@ -64,6 +64,15 @@ def list_model_statuses(
             model_id=s.model_id,
             status=s.status,
             detail=s.detail,
+            executable=s.executable,
+            issues=[
+                {
+                    "code": issue.code,
+                    "requirement": issue.requirement,
+                    "message": issue.message,
+                }
+                for issue in s.issues
+            ],
         )
         for s in statuses
     ]
@@ -79,6 +88,15 @@ def get_model_status(
         model_id=status.model_id,
         status=status.status,
         detail=status.detail,
+        executable=status.executable,
+        issues=[
+            {
+                "code": issue.code,
+                "requirement": issue.requirement,
+                "message": issue.message,
+            }
+            for issue in status.issues
+        ],
     )
 
 

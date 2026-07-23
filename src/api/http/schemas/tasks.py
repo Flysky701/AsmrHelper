@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from src.app.dto import TaskSpec, TaskStatus
+from src.app.dto import RuntimeEvent, TaskSpec, TaskStatus
 from .artifacts import ArtifactResponse, TaskPreviewResponse, TaskResultResponse
 
 
@@ -66,6 +66,32 @@ class TaskListResponse(BaseModel):
     @classmethod
     def from_tasks(cls, tasks: list[TaskStatus]) -> "TaskListResponse":
         return cls(tasks=[TaskStatusResponse.from_task_status(task) for task in tasks])
+
+
+class RuntimeEventResponse(BaseModel):
+    sequence: int = Field(ge=1)
+    time: str
+    level: str
+    type: str
+    task_id: str
+    stage: str | None = None
+    message: str = ""
+    detail: str | None = None
+    data: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_runtime_event(cls, event: RuntimeEvent) -> "RuntimeEventResponse":
+        return cls(
+            sequence=event.sequence,
+            time=event.time,
+            level=event.level,
+            type=event.type,
+            task_id=event.task_id,
+            stage=event.stage,
+            message=event.message,
+            detail=event.detail,
+            data=dict(event.data),
+        )
 
 
 class TaskCreateRequest(BaseModel):

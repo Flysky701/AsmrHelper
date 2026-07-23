@@ -15,6 +15,7 @@ from src.api.http.dependencies import (
 from src.api.http.schemas.tasks import (
     ReviewNoteUpdateRequest,
     ReviewUpdateRequest,
+    RuntimeEventResponse,
     TaskBatchCreateRequest,
     TaskBatchCreateResponse,
     TaskCreateRequest,
@@ -196,27 +197,33 @@ def get_task(
 @router.get("/{task_id}/events")
 def stream_task_events(
     task_id: str,
+    after_sequence: int = Query(0, ge=0),
     svc: TaskService = Depends(task_service),
 ):
-    """SSE endpoint that streams task status updates until terminal state."""
+    """Stream incremental runtime events while TaskStatus remains authoritative."""
     _TERMINAL = frozenset({"completed", "failed", "cancelled", "skipped"})
 
     def _event_stream():
-        last_state = ""
-        last_progress = -1.0
+        cursor = after_sequence
         try:
             while True:
+                events = svc.list_events(task_id, after_sequence=cursor)
+                for event in events:
+                    payload = RuntimeEventResponse.from_runtime_event(
+                        event
+                    ).model_dump_json()
+                    yield (
+                        f"id: {event.sequence}\n"
+                        f"event: runtime\n"
+                        f"data: {payload}\n\n"
+                    )
+                    cursor = event.sequence
                 task = svc.get_task(task_id)
-                changed = task.state != last_state or abs(task.progress - last_progress) > 0.001
-                if changed:
-                    payload = TaskStatusResponse.from_task_status(task).model_dump_json()
-                    yield f"data: {payload}\n\n"
-                    last_state = task.state
-                    last_progress = task.progress
                 if task.state in _TERMINAL:
-                    yield "event: done\ndata: {}\n\n"
+                    payload = TaskStatusResponse.from_task_status(task).model_dump_json()
+                    yield f"event: done\ndata: {payload}\n\n"
                     return
-                time.sleep(0.5)
+                time.sleep(0.25)
         except Exception:
             yield "event: error\ndata: {}\n\n"
 

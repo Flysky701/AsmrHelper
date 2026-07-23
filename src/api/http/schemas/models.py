@@ -28,10 +28,18 @@ class ModelSummaryResponse(BaseModel):
     supported_os: list[str] = Field(default_factory=list)
 
 
+class ModelStatusIssueResponse(BaseModel):
+    code: str
+    requirement: str
+    message: str
+
+
 class ModelStatusResponse(BaseModel):
     model_id: str
     status: str
     detail: str
+    executable: bool = False
+    issues: list[ModelStatusIssueResponse] = Field(default_factory=list)
 
 
 class ModelOperationResponse(BaseModel):
