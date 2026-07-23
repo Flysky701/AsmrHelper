@@ -16,6 +16,7 @@ if str(project_root) not in sys.path:
 from src.app.errors import AppError
 from src.app import PipelineRequest
 from src.app.services import get_asr_engine_service
+from src.app.services import get_artifact_service
 from src.app.services import get_llm_capability_service
 from src.app.services import get_model_service as get_app_model_service
 from src.app.services import get_pipeline_service
@@ -48,41 +49,62 @@ def _emit_command_error(message: str) -> None:
     raise click.ClickException(message)
 
 
-def _artifact_path(result: Any, name: str) -> Optional[str]:
-    artifacts = getattr(result, "artifacts", None)
-    if artifacts is None:
-        return None
-    if hasattr(artifacts, "get"):
-        return artifacts.get(name)
-    files = getattr(artifacts, "files", None)
-    if isinstance(files, dict):
-        return files.get(name)
+def _artifact_field(artifact: Any, name: str, default: Any = None) -> Any:
+    if isinstance(artifact, dict):
+        return artifact.get(name, default)
+    return getattr(artifact, name, default)
+
+
+def _artifact_path(task_result: dict[str, Any], artifact_type: str) -> Optional[str]:
+    for artifact in task_result.get("artifacts", []):
+        current_type = _artifact_field(
+            artifact,
+            "artifact_type",
+            _artifact_field(artifact, "type"),
+        )
+        if current_type == artifact_type:
+            return _artifact_field(artifact, "path")
     return None
 
 
-def _primary_output(result: Any) -> Optional[str]:
-    artifacts = getattr(result, "artifacts", None)
-    primary_output = getattr(artifacts, "primary_output", None)
-    if primary_output:
-        return primary_output
-    return getattr(result, "mix_path", None) or getattr(result, "exported_subtitle", None)
+def _primary_artifact_path(task_result: dict[str, Any]) -> Optional[str]:
+    primary_id = task_result.get("primary_artifact_id")
+    for artifact in task_result.get("artifacts", []):
+        if _artifact_field(artifact, "artifact_id") == primary_id:
+            return _artifact_field(artifact, "path")
+    return None
 
 
-def _emit_pipeline_result(result: Any) -> None:
+def _emit_pipeline_result(result: Any, task_result: dict[str, Any]) -> None:
     task = getattr(result, "task", None)
     if task is not None:
         _emit_key_value("Task", f"{task.task_id} [{task.state}]")
     elif getattr(result, "task_id", None) and getattr(result, "task_state", None):
         _emit_key_value("Task", f"{result.task_id} [{result.task_state}]")
 
-    _emit_saved_output(_primary_output(result))
+    _emit_saved_output(_primary_artifact_path(task_result))
 
-    mix_path = _artifact_path(result, "mix") or getattr(result, "mix_path", None)
-    subtitle_path = _artifact_path(result, "subtitle") or getattr(result, "exported_subtitle", None)
+    mix_path = _artifact_path(task_result, "audio.mix")
+    subtitle_path = next(
+        (
+            _artifact_field(artifact, "path")
+            for artifact in task_result.get("artifacts", [])
+            if str(
+                _artifact_field(
+                    artifact,
+                    "artifact_type",
+                    _artifact_field(artifact, "type", ""),
+                )
+            ).startswith("subtitle.")
+        ),
+        None,
+    )
     if mix_path:
         _emit_key_value("Mix", mix_path)
     if subtitle_path:
         _emit_key_value("Subtitle", subtitle_path)
+    for warning in task_result.get("warnings", []):
+        _emit_key_value("Warning", warning)
     if result.error_message:
         _emit_key_value("Warning", result.error_message)
 
@@ -141,9 +163,15 @@ def pipeline_run(
     )
 
     result = _run_app_command(get_pipeline_service().run_audio_pipeline, request)
+    task_id = getattr(result, "task_id", None) or getattr(getattr(result, "task", None), "task_id", None)
+    task_result = (
+        _run_app_command(get_artifact_service().get_task_result_view, task_id)
+        if task_id
+        else {"artifacts": [], "warnings": []}
+    )
 
     click.echo("\nPipeline completed.")
-    _emit_pipeline_result(result)
+    _emit_pipeline_result(result, task_result)
 
 
 @pipeline_group.command(name="presets")
