@@ -195,7 +195,10 @@ class AudioPreprocessor:
         if subtitle_path and Path(subtitle_path).exists():
             self._report(progress_callback, f"加载字幕: {Path(subtitle_path).name}", 22)
 
-            from src.core.translate import load_subtitle_with_timestamps, detect_subtitle_language
+            from src.core.subtitles import (
+                detect_subtitle_language,
+                load_subtitle_with_timestamps,
+            )
             subtitle_entries = load_subtitle_with_timestamps(subtitle_path)
 
             if subtitle_entries:
@@ -916,9 +919,9 @@ class AudioPreprocessor:
         # 检查字幕
         if subtitle_path and Path(subtitle_path).exists():
             try:
-                from src.core.translate import (
-                    load_subtitle_with_timestamps,
+                from src.core.subtitles import (
                     detect_subtitle_language,
+                    load_subtitle_with_timestamps,
                 )
 
                 entries = load_subtitle_with_timestamps(subtitle_path)
@@ -1026,7 +1029,10 @@ class AudioPreprocessor:
         mode = "asr"
         if subtitle_path and Path(subtitle_path).exists():
             self._report(progress_callback, f"加载字幕: {Path(subtitle_path).name}", 20)
-            from src.core.translate import load_subtitle_with_timestamps, detect_subtitle_language
+            from src.core.subtitles import (
+                detect_subtitle_language,
+                load_subtitle_with_timestamps,
+            )
             subtitle_entries = load_subtitle_with_timestamps(subtitle_path)
             if subtitle_entries:
                 texts = [e.get("text", "") for e in subtitle_entries]
