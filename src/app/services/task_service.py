@@ -5,14 +5,26 @@ from __future__ import annotations
 import threading
 from src.core.tasks import TaskRegistry, TaskSpec, TaskStatus
 from ..errors import AppValidationError
+from ..persistence import SqliteStateStore, get_state_store
 
 
 class TaskService:
     """Track application tasks in memory for the current process."""
 
-    def __init__(self, max_concurrent: int = 4) -> None:
+    def __init__(
+        self,
+        max_concurrent: int = 4,
+        state_store: SqliteStateStore | None = None,
+    ) -> None:
         self._registry = TaskRegistry(max_concurrent=max_concurrent)
         self._lock = threading.Lock()
+        self._state_store = state_store
+        self._restored_task_ids: set[str] = set()
+        if self._state_store is not None:
+            self._state_store.purge_unfinished()
+            for task_spec, task_status in self._state_store.load_terminal_tasks():
+                self._registry.restore_task(task_spec, task_status)
+                self._restored_task_ids.add(task_status.task_id)
 
     def create_task_spec(
         self,
@@ -28,7 +40,7 @@ class TaskService:
     ) -> tuple[TaskSpec, TaskStatus]:
         with self._lock:
             try:
-                return self._registry.create_task_spec(
+                result = self._registry.create_task_spec(
                     task_type=task_type,
                     task_source=task_source,
                     session_id=session_id,
@@ -38,6 +50,9 @@ class TaskService:
                     priority=priority,
                     dedupe_key=dedupe_key,
                 )
+                if self._state_store is not None:
+                    self._state_store.save_task(*result)
+                return result
             except ValueError as exc:
                 raise AppValidationError(str(exc)) from exc
 
@@ -150,12 +165,20 @@ class TaskService:
         with self._lock:
             return self._registry.get_queue_snapshot()
 
-    @staticmethod
-    def _guard(fn):
-        try:
-            return fn()
-        except ValueError as exc:
-            raise AppValidationError(str(exc)) from exc
+    def _guard(self, fn):
+        with self._lock:
+            try:
+                result = fn()
+                if self._state_store is not None:
+                    task_spec = self._registry.get_task_spec(result.task_id)
+                    self._state_store.save_task(task_spec, result)
+                return result
+            except ValueError as exc:
+                raise AppValidationError(str(exc)) from exc
+
+    def is_restored_history(self, task_id: str) -> bool:
+        with self._lock:
+            return task_id in self._restored_task_ids
 
 
 _service: TaskService | None = None
@@ -167,5 +190,5 @@ def get_task_service() -> TaskService:
     if _service is None:
         with _lock:
             if _service is None:
-                _service = TaskService()
+                _service = TaskService(state_store=get_state_store())
     return _service

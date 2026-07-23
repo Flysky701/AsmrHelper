@@ -19,16 +19,9 @@ router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
 
 def _to_record_response(record) -> ArtifactRecordResponse:
-    return ArtifactRecordResponse(
-        artifact_id=record.artifact_id,
-        task_id=record.task_id,
-        artifact_type=record.artifact_type,
-        path=record.path,
-        label=record.label,
-        preview_kind=record.preview_kind,
-        stage=record.stage,
-        is_primary=record.is_primary,
-        metadata=dict(record.metadata),
+    return ArtifactRecordResponse.from_record(
+        record,
+        primary_artifact_id=record.artifact_id if record.is_primary else None,
     )
 
 
@@ -37,13 +30,7 @@ def get_task_artifacts_by_task(
     task_id: str,
     svc: ArtifactService = Depends(artifact_service),
 ):
-    artifact_set = svc.get_task_artifacts(task_id)
-    return ArtifactSetResponse(
-        task_id=task_id,
-        files=dict(artifact_set.files),
-        primary_output=artifact_set.primary_output,
-        entries=[_to_record_response(e) for e in artifact_set.entries],
-    )
+    return ArtifactSetResponse.from_view(svc.get_task_result_view(task_id))
 
 
 @router.get("/by-task/{task_id}/result", response_model=TaskResultViewResponse)
@@ -51,14 +38,7 @@ def get_task_result_view_by_task(
     task_id: str,
     svc: ArtifactService = Depends(artifact_service),
 ):
-    result = svc.get_task_result_view(task_id)
-    primary = result["primary_output"]
-    return TaskResultViewResponse(
-        task_id=task_id,
-        primary_output=_to_record_response(primary) if primary else None,
-        secondary_outputs=[_to_record_response(e) for e in result["secondary_outputs"]],
-        warnings=list(result["warnings"]),
-    )
+    return TaskResultViewResponse.from_view(svc.get_task_result_view(task_id))
 
 
 @router.get("/{artifact_id}", response_model=ArtifactRecordResponse)

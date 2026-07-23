@@ -16,6 +16,7 @@ from src.api.http.schemas.pipeline import (
     PresetItem,
     TaskStatusResponse,
 )
+from src.api.http.schemas.tasks import TaskCreateResponse, TaskSpecResponse
 from src.app.dto import BatchPipelineRequest as BatchPipelineDTO, PipelineRequest
 from src.app.services import BatchPipelineService, PipelineService
 
@@ -30,12 +31,8 @@ def _build_task_response(result) -> TaskStatusResponse | None:
     return None
 
 
-@router.post("/run", response_model=PipelineRunResponse)
-def run_pipeline(
-    body: PipelineRunRequest,
-    svc: PipelineService = Depends(pipeline_service),
-):
-    request = PipelineRequest(
+def _to_pipeline_request(body: PipelineRunRequest) -> PipelineRequest:
+    return PipelineRequest(
         input_path=body.input_path,
         output_dir=body.output_dir,
         vtt_path=body.vtt_path,
@@ -56,7 +53,29 @@ def run_pipeline(
         voice_profile_id=body.voice_profile_id,
         engine_params=body.engine_params,
     )
-    result = svc.run_audio_pipeline(request)
+
+
+@router.post("/tasks", response_model=TaskCreateResponse)
+def create_pipeline_task(
+    body: PipelineRunRequest,
+    svc: PipelineService = Depends(pipeline_service),
+):
+    task, spec = svc.create_pipeline_task(
+        _to_pipeline_request(body),
+        task_source="desktop-workbench",
+    )
+    return TaskCreateResponse(
+        task=TaskStatusResponse.from_task_status(task),
+        spec=TaskSpecResponse.from_task_spec(spec),
+    )
+
+
+@router.post("/run", response_model=PipelineRunResponse)
+def run_pipeline(
+    body: PipelineRunRequest,
+    svc: PipelineService = Depends(pipeline_service),
+):
+    result = svc.run_audio_pipeline(_to_pipeline_request(body))
     task = _build_task_response(result)
     return PipelineRunResponse(
         success=result.success,

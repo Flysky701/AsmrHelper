@@ -114,6 +114,8 @@ class PipelineRequest:
     output_mode: str = "single"
     batch_root_dir: str = ""
     engine_params: dict = field(default_factory=dict)
+    companion_paths: list[str] = field(default_factory=list)
+    execution_profile: dict = field(default_factory=dict)
 
 
 @dataclass(slots=True)

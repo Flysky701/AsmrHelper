@@ -33,4 +33,6 @@ class ProviderTestRequest(BaseModel):
 class ProviderTestResponse(BaseModel):
     provider: str
     success: bool
+    error_code: str | None = None
+    message: str = ""
     errors: list[str] = Field(default_factory=list)

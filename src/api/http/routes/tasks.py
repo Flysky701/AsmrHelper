@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import time
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from src.api.http.dependencies import artifact_service, task_service
+from src.api.http.dependencies import (
+    artifact_service,
+    pipeline_task_orchestrator,
+    task_service,
+)
 from src.api.http.schemas.tasks import (
-    ArtifactRecordResponse,
     ReviewNoteUpdateRequest,
     ReviewUpdateRequest,
     TaskBatchCreateRequest,
@@ -26,8 +28,7 @@ from src.api.http.schemas.tasks import (
     TaskSpecResponse,
     TaskStatusResponse,
 )
-from src.app.dto import TaskStatus
-from src.app.services import ArtifactService, TaskService
+from src.app.services import ArtifactService, PipelineTaskOrchestrator, TaskService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 queue_router = APIRouter(tags=["tasks"])
@@ -37,8 +38,14 @@ queue_router = APIRouter(tags=["tasks"])
 def cancel_task(
     task_id: str,
     svc: TaskService = Depends(task_service),
+    pipeline_svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator),
 ):
-    task = svc.cancel_task(task_id)
+    current = svc.get_task(task_id)
+    task = (
+        pipeline_svc.request_cancel(task_id)
+        if current.task_type == "pipeline"
+        else svc.cancel_task(task_id)
+    )
     return TaskStatusResponse.from_task_status(task)
 
 
@@ -46,8 +53,14 @@ def cancel_task(
 def retry_task(
     task_id: str,
     svc: TaskService = Depends(task_service),
+    pipeline_svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator),
 ):
-    task = svc.retry_task(task_id)
+    current = svc.get_task(task_id)
+    task = (
+        pipeline_svc.retry_task(task_id)
+        if current.task_type == "pipeline"
+        else svc.retry_task(task_id)
+    )
     return TaskStatusResponse.from_task_status(task)
 
 
@@ -230,25 +243,8 @@ def get_task_artifacts(
     artifact_svc: ArtifactService = Depends(artifact_service),
 ):
     task = task_svc.get_task(task_id)
-    artifact_set = artifact_svc.get_task_artifacts(task.task_id)
-    return TaskArtifactsResponse(
-        task_id=task.task_id,
-        files=dict(artifact_set.files),
-        primary_output=artifact_set.primary_output,
-        entries=[
-            ArtifactRecordResponse(
-                artifact_id=entry.artifact_id,
-                task_id=entry.task_id,
-                artifact_type=entry.artifact_type,
-                path=entry.path,
-                label=entry.label,
-                preview_kind=entry.preview_kind,
-                stage=entry.stage,
-                is_primary=entry.is_primary,
-                metadata=dict(entry.metadata),
-            )
-            for entry in artifact_set.entries
-        ],
+    return TaskArtifactsResponse.from_view(
+        artifact_svc.get_task_result_view(task.task_id)
     )
 
 
@@ -259,41 +255,8 @@ def get_task_result(
     artifact_svc: ArtifactService = Depends(artifact_service),
 ):
     task = task_svc.get_task(task_id)
-    result_view = artifact_svc.get_task_result_view(task.task_id)
-    primary_output = result_view["primary_output"]
-    secondary_outputs = result_view["secondary_outputs"]
-    return TaskResultResponse(
-        task=TaskStatusResponse.from_task_status(task),
-        primary_output=(
-            ArtifactRecordResponse(
-                artifact_id=primary_output.artifact_id,
-                task_id=primary_output.task_id,
-                artifact_type=primary_output.artifact_type,
-                path=primary_output.path,
-                label=primary_output.label,
-                preview_kind=primary_output.preview_kind,
-                stage=primary_output.stage,
-                is_primary=primary_output.is_primary,
-                metadata=dict(primary_output.metadata),
-            )
-            if primary_output is not None
-            else None
-        ),
-        secondary_outputs=[
-            ArtifactRecordResponse(
-                artifact_id=entry.artifact_id,
-                task_id=entry.task_id,
-                artifact_type=entry.artifact_type,
-                path=entry.path,
-                label=entry.label,
-                preview_kind=entry.preview_kind,
-                stage=entry.stage,
-                is_primary=entry.is_primary,
-                metadata=dict(entry.metadata),
-            )
-            for entry in secondary_outputs
-        ],
-        warnings=list(result_view["warnings"]),
+    return TaskResultResponse.from_view(
+        artifact_svc.get_task_result_view(task.task_id)
     )
 
 
@@ -304,41 +267,6 @@ def get_task_preview(
     artifact_svc: ArtifactService = Depends(artifact_service),
 ):
     task = task_svc.get_task(task_id)
-    preview_view = artifact_svc.get_task_preview_view(task.task_id)
-    primary_output = preview_view["primary_output"]
-    secondary_outputs = preview_view["secondary_outputs"]
-    return TaskPreviewResponse(
-        task=TaskStatusResponse.from_task_status(task),
-        primary_output=(
-            ArtifactRecordResponse(
-                artifact_id=primary_output.artifact_id,
-                task_id=primary_output.task_id,
-                artifact_type=primary_output.artifact_type,
-                path=primary_output.path,
-                label=primary_output.label,
-                preview_kind=primary_output.preview_kind,
-                stage=primary_output.stage,
-                is_primary=primary_output.is_primary,
-                metadata=dict(primary_output.metadata),
-            )
-            if primary_output is not None
-            else None
-        ),
-        secondary_outputs=[
-            ArtifactRecordResponse(
-                artifact_id=entry.artifact_id,
-                task_id=entry.task_id,
-                artifact_type=entry.artifact_type,
-                path=entry.path,
-                label=entry.label,
-                preview_kind=entry.preview_kind,
-                stage=entry.stage,
-                is_primary=entry.is_primary,
-                metadata=dict(entry.metadata),
-            )
-            for entry in secondary_outputs
-        ],
-        warnings=list(preview_view["warnings"]),
-        preview_modes=list(preview_view["preview_modes"]),
-        artifact_count=preview_view["artifact_count"],
+    return TaskPreviewResponse.from_view(
+        artifact_svc.get_task_preview_view(task.task_id)
     )

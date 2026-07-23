@@ -7,14 +7,19 @@ from typing import Any
 
 from src.core.artifacts import ArtifactIndex, ArtifactRecord, ArtifactSet
 from ..errors import AppValidationError
+from ..persistence import SqliteStateStore, get_state_store
 
 
 class ArtifactService:
     """Track task artifacts and lightweight result views in memory."""
 
-    def __init__(self) -> None:
+    def __init__(self, state_store: SqliteStateStore | None = None) -> None:
         self._index = ArtifactIndex()
         self._lock = threading.Lock()
+        self._state_store = state_store
+        if self._state_store is not None:
+            for record in self._state_store.load_terminal_artifacts():
+                self._index.restore_artifact(record)
 
     def register_artifact(
         self,
@@ -35,7 +40,7 @@ class ArtifactService:
 
         with self._lock:
             try:
-                return self._index.register_artifact(
+                record = self._index.register_artifact(
                     task_id=task_id,
                     artifact_type=artifact_type,
                     path=path,
@@ -45,6 +50,9 @@ class ArtifactService:
                     is_primary=is_primary,
                     metadata=metadata,
                 )
+                if self._state_store is not None:
+                    self._state_store.save_artifact(record)
+                return record
             except ValueError as exc:
                 raise AppValidationError(str(exc)) from exc
 
@@ -77,5 +85,5 @@ def get_artifact_service() -> ArtifactService:
     if _service is None:
         with _lock:
             if _service is None:
-                _service = ArtifactService()
+                _service = ArtifactService(state_store=get_state_store())
     return _service

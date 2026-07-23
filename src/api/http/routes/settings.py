@@ -59,9 +59,11 @@ def test_provider(
     body: ProviderTestRequest,
     svc: SettingsService = Depends(settings_service),
 ):
-    success, errors = svc.test_provider(body.provider, body.settings or None)
+    result = svc.test_provider(body.provider, body.settings or None)
     return ProviderTestResponse(
-        provider=body.provider,
-        success=success,
-        errors=errors,
+        provider=result.provider,
+        success=result.success,
+        error_code=result.error_code,
+        message=result.message,
+        errors=[] if result.success else [result.message],
     )
