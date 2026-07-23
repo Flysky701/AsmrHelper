@@ -16,6 +16,11 @@ def _option(
     required: bool = False,
     default: Any = None,
     description: str = "",
+    enum: list[Any] | None = None,
+    min_value: float | int | None = None,
+    max_value: float | int | None = None,
+    advanced: bool = False,
+    secret: bool = False,
 ) -> dict[str, Any]:
     return {
         "name": name,
@@ -23,6 +28,11 @@ def _option(
         "required": required,
         "default": default,
         "description": description,
+        "enum": list(enum or []),
+        "min": min_value,
+        "max": max_value,
+        "advanced": advanced,
+        "secret": secret,
     }
 
 
@@ -55,7 +65,7 @@ class CapabilityDescriptorService:
         raise AppValidationError(f"capability descriptor not found: {category}/{provider}")
 
     def _build_descriptors(self) -> list[dict[str, Any]]:
-        return [
+        descriptors = [
             {
                 "category": "tts",
                 "provider": "edge",
@@ -370,6 +380,10 @@ class CapabilityDescriptorService:
                 },
             },
         ]
+        for descriptor in descriptors:
+            for option in descriptor["provider_option_schema"]:
+                option["advanced"] = True
+        return descriptors
 
 
 _service: CapabilityDescriptorService | None = None

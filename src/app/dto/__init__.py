@@ -9,7 +9,7 @@ from src.core.artifacts import ArtifactRecord, ArtifactSet
 from src.core.runtime import ResourceStatus
 from src.core.sessions import InputAsset, ProcessingSession, WorkspaceContext
 from src.core.subtitles import SubtitleAsset, SubtitleDocument, SubtitleSegment
-from src.core.tasks import TaskSpec, TaskStatus
+from src.core.tasks import RuntimeEvent, TaskSpec, TaskStatus
 
 from .audio_tools import (
     ConvertRequest,
@@ -80,12 +80,14 @@ __all__ = [
     "VoicePreviewRequest",
     "VoicePreviewResult",
     "TaskStatus",
+    "RuntimeEvent",
     "TranslationResult",
     "TranscriptionResult",
     "SynthesisResult",
     "ResourceStatus",
     "ModelSummary",
     "ModelStatusView",
+    "ModelStatusIssueView",
     "ModelOperationResult",
     "ModelVerificationResult",
 ]
@@ -180,10 +182,19 @@ class ModelSummary:
 
 
 @dataclass(slots=True)
+class ModelStatusIssueView:
+    code: str
+    requirement: str
+    message: str
+
+
+@dataclass(slots=True)
 class ModelStatusView:
     model_id: str
     status: str
     detail: str
+    executable: bool = False
+    issues: list[ModelStatusIssueView] = field(default_factory=list)
 
 
 @dataclass(slots=True)

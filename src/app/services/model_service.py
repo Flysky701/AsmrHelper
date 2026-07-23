@@ -9,6 +9,7 @@ from src.core.resources import get_model_service as get_core_model_service
 
 from ..dto import (
     ModelOperationResult,
+    ModelStatusIssueView,
     ModelStatusView,
     ModelSummary,
     ModelVerificationResult,
@@ -59,6 +60,15 @@ class ModelService:
             model_id=status.model_id,
             status=status.status,
             detail=status.detail,
+            executable=status.executable,
+            issues=[
+                ModelStatusIssueView(
+                    code=issue.code,
+                    requirement=issue.requirement,
+                    message=issue.message,
+                )
+                for issue in status.issues
+            ],
         )
 
     def list_model_statuses(
@@ -77,6 +87,15 @@ class ModelService:
                 model_id=status.model_id,
                 status=status.status,
                 detail=status.detail,
+                executable=status.executable,
+                issues=[
+                    ModelStatusIssueView(
+                        code=issue.code,
+                        requirement=issue.requirement,
+                        message=issue.message,
+                    )
+                    for issue in status.issues
+                ],
             )
             for status in statuses
         ]
@@ -122,6 +141,10 @@ class ModelService:
             task_type="model_install",
             task_source="api",
             session_id="",
+            execution_profile={
+                "operation": "install",
+                "model_id": model_id,
+            },
         )
         task_id = task.task_id
 

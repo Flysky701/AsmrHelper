@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from src.core.tasks import TaskRegistry, TaskSpec, TaskStatus
+from src.core.tasks import RuntimeEvent, TaskRegistry, TaskSpec, TaskStatus
 from ..errors import AppValidationError
 from ..persistence import SqliteStateStore, get_state_store
 
@@ -173,6 +173,21 @@ class TaskService:
                     task_spec = self._registry.get_task_spec(result.task_id)
                     self._state_store.save_task(task_spec, result)
                 return result
+            except ValueError as exc:
+                raise AppValidationError(str(exc)) from exc
+
+    def list_events(
+        self,
+        task_id: str,
+        *,
+        after_sequence: int = 0,
+    ) -> list[RuntimeEvent]:
+        with self._lock:
+            try:
+                return self._registry.list_events(
+                    task_id,
+                    after_sequence=after_sequence,
+                )
             except ValueError as exc:
                 raise AppValidationError(str(exc)) from exc
 
