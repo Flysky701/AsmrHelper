@@ -8,10 +8,12 @@ from src.api.http.dependencies import tool_registry
 from src.api.http.schemas.tasks import (
     TaskArtifactsResponse,
     TaskResultResponse,
+    TaskStatusResponse,
 )
 from src.api.http.schemas.tool_runs import (
     ToolDescriptorResponse,
     ToolListResponse,
+    ToolTaskCreateRequest,
     ToolTaskRunRequest,
 )
 from src.app.services import ToolRegistry
@@ -26,6 +28,20 @@ def list_tool_tasks(
     return ToolListResponse(
         tools=[ToolDescriptorResponse(**tool) for tool in svc.list_tools()]
     )
+
+
+@router.post("/tasks", response_model=TaskStatusResponse, status_code=201)
+def create_tool_task(
+    body: ToolTaskCreateRequest,
+    svc: ToolRegistry = Depends(tool_registry),
+):
+    task = svc.create_task(
+        task_type=body.task_type,
+        input_path=body.input_path,
+        companion_paths=body.companion_paths,
+        execution_profile=body.execution_profile,
+    )
+    return TaskStatusResponse.from_task_status(task)
 
 
 @router.post("", response_model=TaskResultResponse)

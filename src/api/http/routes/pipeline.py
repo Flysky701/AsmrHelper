@@ -10,88 +10,12 @@ from src.api.http.schemas.pipeline import (
     BatchPipelineResponse,
     BatchItemResultResponse,
     PipelinePresetsResponse,
-    PipelineRunRequest,
-    PipelineRunResponse,
-    ArtifactSetResponse,
     PresetItem,
-    TaskStatusResponse,
 )
-from src.api.http.schemas.tasks import TaskCreateResponse, TaskSpecResponse
-from src.app.dto import BatchPipelineRequest as BatchPipelineDTO, PipelineRequest
+from src.app.dto import BatchPipelineRequest as BatchPipelineDTO
 from src.app.services import BatchPipelineService, PipelineService
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
-
-
-def _build_task_response(result) -> TaskStatusResponse | None:
-    if getattr(result, "task", None) is not None:
-        return TaskStatusResponse.from_task_status(result.task)
-    if result.task_id and result.task_state:
-        return TaskStatusResponse(task_id=result.task_id, state=result.task_state)
-    return None
-
-
-def _to_pipeline_request(body: PipelineRunRequest) -> PipelineRequest:
-    return PipelineRequest(
-        input_path=body.input_path,
-        output_dir=body.output_dir,
-        vtt_path=body.vtt_path,
-        source_lang=body.source_lang,
-        target_lang=body.target_lang,
-        use_vocal_separator=body.use_vocal_separator,
-        tts_engine=body.tts_engine,
-        tts_voice=body.tts_voice,
-        vocal_model=body.vocal_model,
-        asr_model=body.asr_model,
-        translate_provider=body.translate_provider,
-        translate_model=body.translate_model,
-        tts_speed=body.tts_speed,
-        original_volume=body.original_volume,
-        tts_volume_ratio=body.tts_volume_ratio,
-        tts_delay=body.tts_delay,
-        skip_existing=body.skip_existing,
-        voice_profile_id=body.voice_profile_id,
-        engine_params=body.engine_params,
-    )
-
-
-@router.post("/tasks", response_model=TaskCreateResponse)
-def create_pipeline_task(
-    body: PipelineRunRequest,
-    svc: PipelineService = Depends(pipeline_service),
-):
-    task, spec = svc.create_pipeline_task(
-        _to_pipeline_request(body),
-        task_source="desktop-workbench",
-    )
-    return TaskCreateResponse(
-        task=TaskStatusResponse.from_task_status(task),
-        spec=TaskSpecResponse.from_task_spec(spec),
-    )
-
-
-@router.post("/run", response_model=PipelineRunResponse)
-def run_pipeline(
-    body: PipelineRunRequest,
-    svc: PipelineService = Depends(pipeline_service),
-):
-    result = svc.run_audio_pipeline(_to_pipeline_request(body))
-    task = _build_task_response(result)
-    return PipelineRunResponse(
-        success=result.success,
-        input_path=result.input_path,
-        task=task,
-        task_id=result.task_id,
-        task_state=result.task_state,
-        artifacts=ArtifactSetResponse(
-            files=result.artifacts.files,
-            primary_output=result.artifacts.primary_output,
-        ),
-        mix_path=result.mix_path,
-        exported_subtitle=result.exported_subtitle,
-        total_duration=result.total_duration,
-        error_message=result.error_message,
-    )
 
 
 @router.get("/presets", response_model=PipelinePresetsResponse)

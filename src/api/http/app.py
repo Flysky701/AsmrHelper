@@ -21,7 +21,6 @@ from src.api.http.routes import (
     subtitles,
     tasks,
     tool_runs,
-    tools,
     tts,
     voice,
     workspaces,
@@ -70,7 +69,6 @@ def create_app() -> FastAPI:
     app.include_router(artifacts.router, prefix=api_prefix)
     app.include_router(tool_runs.router, prefix=api_prefix)
     app.include_router(voice.router, prefix=api_prefix)
-    app.include_router(tools.router, prefix=api_prefix)
 
     @app.get("/health")
     def health():

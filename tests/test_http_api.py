@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from src.api.http.app import create_app
 from src.api.http import dependencies
 from src.app.dto import (
-    ArtifactSet,
     ModelOperationResult,
     ModelStatusView,
     ModelStatusIssueView,
@@ -72,68 +71,9 @@ class TestPipelineRoutes:
         assert data["presets"][0]["label"] == "ASMR Bilingual"
         mock_svc.list_presets.assert_called_once_with()
 
-    def test_run_pipeline_success(self, client):
-        mock_svc = MagicMock()
-        mock_svc.run_audio_pipeline.return_value = PipelineResult(
-            success=True,
-            input_path="/test/input.wav",
-            task=TaskStatus(task_id="pipeline-1", state="completed", progress=1.0),
-            task_id="pipeline-1",
-            task_state="completed",
-            artifacts=ArtifactSet(
-                files={
-                    "mix": "/test/output/mix.wav",
-                    "subtitle": "/test/output/subtitle.srt",
-                },
-                primary_output="/test/output/mix.wav",
-            ),
-            mix_path="/test/output/mix.wav",
-            total_duration=12.5,
-        )
-        client.app.dependency_overrides[dependencies.pipeline_service] = _mock_dep(mock_svc)
-
-        resp = client.post(
-            "/api/v1/pipeline/run",
-            json={
-                "input_path": "/test/input.wav",
-                "vtt_path": "/test/input.vtt",
-                "use_vocal_separator": False,
-                "tts_speed": 1.1,
-                "original_volume": 0.9,
-                "tts_volume_ratio": 0.6,
-            },
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["success"] is True
-        assert data["task_id"] == "pipeline-1"
-        assert data["task"]["task_id"] == "pipeline-1"
-        assert data["task"]["state"] == "completed"
-        assert data["artifacts"]["primary_output"] == "/test/output/mix.wav"
-        assert data["artifacts"]["files"]["subtitle"] == "/test/output/subtitle.srt"
-        assert data["mix_path"] == "/test/output/mix.wav"
-        request = mock_svc.run_audio_pipeline.call_args.args[0]
-        assert request.vtt_path == "/test/input.vtt"
-        assert request.use_vocal_separator is False
-        assert request.tts_speed == 1.1
-        assert request.original_volume == 0.9
-        assert request.tts_volume_ratio == 0.6
-
-    def test_run_pipeline_validation_error(self, client):
-        mock_svc = MagicMock()
-        mock_svc.run_audio_pipeline.side_effect = AppValidationError("input_path is required")
-        client.app.dependency_overrides[dependencies.pipeline_service] = _mock_dep(mock_svc)
-
-        resp = client.post(
-            "/api/v1/pipeline/run",
-            json={"input_path": ""},
-        )
-        assert resp.status_code == 400
-        assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
-
-    def test_run_pipeline_missing_field(self, client):
-        resp = client.post("/api/v1/pipeline/run", json={})
-        assert resp.status_code == 422
+    def test_legacy_pipeline_routes_are_removed(self, client):
+        assert client.post("/api/v1/pipeline/run", json={}).status_code == 404
+        assert client.post("/api/v1/pipeline/tasks", json={}).status_code == 404
 
 
 class TestPipelineRunRoutes:
@@ -220,16 +160,8 @@ class TestPipelineRunRoutes:
         assert request.execution_profile == profile
         assert "profiles" not in request.execution_profile
 
-    def test_submit_pipeline_run_returns_accepted_task(self, client):
+    def test_submit_pipeline_run_rejects_legacy_flat_request(self, client):
         mock_svc = MagicMock()
-        mock_svc.submit_task.return_value = TaskStatus(
-            task_id="pipeline-1",
-            task_type="pipeline",
-            state="pending",
-            stage=None,
-            progress=0.0,
-            created_at="2026-07-23T10:00:00+00:00",
-        )
         client.app.dependency_overrides[
             dependencies.pipeline_task_orchestrator
         ] = _mock_dep(mock_svc)
@@ -244,14 +176,8 @@ class TestPipelineRunRoutes:
             },
         )
 
-        assert resp.status_code == 202
-        assert resp.json()["task"]["task_id"] == "pipeline-1"
-        assert resp.json()["task"]["state"] == "pending"
-        request = mock_svc.submit_task.call_args.args[0]
-        assert request.input_path == "/test/input.wav"
-        assert request.source_lang == "ja"
-        assert request.target_lang == "zh"
-        assert request.tts_engine == "edge"
+        assert resp.status_code == 422
+        mock_svc.submit_task.assert_not_called()
 
     def test_submit_pipeline_run_requires_input(self, client):
         resp = client.post("/api/v1/pipeline-runs", json={})
@@ -338,6 +264,53 @@ class TestPipelineRunRoutes:
             "warnings",
         }
         assert resp.json()["artifacts"][0]["type"] == "audio.wav"
+
+    def test_create_tool_task_uses_task_driven_contract(self, client):
+        mock_svc = MagicMock()
+        mock_svc.create_task.return_value = TaskStatus(
+            task_id="tool.convert-1",
+            task_type="tool.convert",
+            state="pending",
+            progress=0.0,
+        )
+        client.app.dependency_overrides[dependencies.tool_registry] = _mock_dep(mock_svc)
+
+        resp = client.post(
+            "/api/v1/tool-runs/tasks",
+            json={
+                "task_type": "tool.convert",
+                "input_path": "/test/input.wav",
+                "companion_paths": [],
+                "execution_profile": {
+                    "output_path": "/test/output.wav",
+                    "target_format": "wav",
+                },
+            },
+        )
+
+        assert resp.status_code == 201
+        assert resp.json()["task_id"] == "tool.convert-1"
+        assert resp.json()["state"] == "pending"
+        mock_svc.create_task.assert_called_once_with(
+            task_type="tool.convert",
+            input_path="/test/input.wav",
+            companion_paths=[],
+            execution_profile={
+                "output_path": "/test/output.wav",
+                "target_format": "wav",
+            },
+        )
+
+    def test_legacy_sync_tool_route_is_removed(self, client):
+        resp = client.post(
+            "/api/v1/tools/convert",
+            json={
+                "input_path": "/test/input.wav",
+                "output_path": "/test/output.wav",
+            },
+        )
+
+        assert resp.status_code == 404
 
 
 # ─── ASR ──────────────────────────────────────────────────────────────

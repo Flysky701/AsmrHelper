@@ -34,6 +34,24 @@ class ToolRegistry:
     def get_tool(self, task_type: str) -> dict[str, Any]:
         return self._catalog.get_tool(task_type)
 
+    def create_task(
+        self,
+        *,
+        task_type: str,
+        input_path: str,
+        execution_profile: dict[str, Any],
+        companion_paths: list[str] | None = None,
+    ):
+        self.get_tool(task_type)
+        spec = self._audio_tool_service.create_tool_task_spec(
+            task_type=task_type,
+            input_path=input_path,
+            execution_profile=execution_profile,
+            companion_paths=companion_paths,
+            task_source="desktop-tool-run",
+        )
+        return self._task_service.get_task(spec.task_id)
+
     def run_task(self, task_id: str) -> dict[str, Any]:
         return self._audio_tool_service.run_tool_task(task_id)
 

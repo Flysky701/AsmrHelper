@@ -5,8 +5,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from src.api.http.dependencies import pipeline_task_orchestrator
-from src.api.http.routes.pipeline import _to_pipeline_request
-from src.api.http.schemas.pipeline import PipelineRunRequest
 from src.api.http.schemas.pipeline_runs import (
     PipelineRunAcceptedResponse,
     PipelineRunCreateRequest,
@@ -46,15 +44,10 @@ def start_pipeline_task(
 
 @router.post("", response_model=PipelineRunAcceptedResponse, status_code=202)
 def submit_pipeline_run(
-    body: PipelineRunCreateRequest | PipelineRunRequest,
+    body: PipelineRunCreateRequest,
     svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator),
 ):
-    request = (
-        _to_v1_pipeline_request(body)
-        if isinstance(body, PipelineRunCreateRequest)
-        else _to_pipeline_request(body)
-    )
-    task = svc.submit_task(request)
+    task = svc.submit_task(_to_v1_pipeline_request(body))
     return PipelineRunAcceptedResponse(
         task=TaskStatusResponse.from_task_status(task),
     )

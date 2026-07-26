@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
+
+
+class ToolTaskCreateRequest(BaseModel):
+    task_type: str = Field(..., min_length=1)
+    input_path: str = Field(..., min_length=1)
+    companion_paths: list[str] = Field(default_factory=list)
+    execution_profile: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolTaskRunRequest(BaseModel):
