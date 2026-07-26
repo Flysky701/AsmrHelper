@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { subtitlesApi } from '@/api/subtitles'
-import { useFileSelector } from '@/hooks/useFileSelector'
+import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 import type {
   SubtitleSegmentModel,
@@ -623,7 +623,11 @@ export default function SubtitleWorkshop() {
   // ── Handlers ───────────────────────────────────────────
 
   const handleLoadSubtitle = async () => {
-    const files = await selectFiles()
+    const files = await selectFiles({
+      multiple: false,
+      filters: [FILE_FILTERS.subtitle],
+      browserPrompt: '请输入字幕文件所在目录的完整路径：',
+    })
     if (files.length === 0) return
     const path = files[0]!
     setFilePath(path)
@@ -705,10 +709,29 @@ export default function SubtitleWorkshop() {
   }
 
   const handlePlaySegment = (seg: SubtitleSegmentModel) => {
-    if (audioPlayer.src) {
-      audioPlayer.seek(seg.start)
-      if (!audioPlayer.isPlaying) audioPlayer.togglePlay()
+    if (!audioPath) {
+      setError('请先为字幕选择对应的音频文件')
+      return
     }
+    if (audioPlayer.src !== audioPath) {
+      audioPlayer.show(audioPath, audioPath.split(/[/\\]/).pop() || '字幕伴随音频')
+    }
+    audioPlayer.seek(seg.start)
+    if (!useAudioPlayerStore.getState().isPlaying) {
+      useAudioPlayerStore.getState().togglePlay()
+    }
+  }
+
+  const handleSelectAudio = async () => {
+    const files = await selectFiles({
+      multiple: false,
+      filters: [FILE_FILTERS.audio],
+      browserPrompt: '请输入音频文件所在目录的完整路径：',
+    })
+    if (files.length === 0) return
+    setAudioPath(files[0]!)
+    audioPlayer.show(files[0]!, files[0]!.split(/[/\\]/).pop() || '字幕伴随音频')
+    setError('')
   }
 
   // ── Translate handler ──────────────────────────────────
@@ -809,6 +832,9 @@ export default function SubtitleWorkshop() {
           <h2 style={S.toolbarTitle}>字幕编辑</h2>
           <button style={S.btn} onClick={handleLoadSubtitle}>
             <Icon.Download /> 加载字幕
+          </button>
+          <button style={S.btn} onClick={handleSelectAudio}>
+            <Icon.Audio /> {audioPath ? '更换音频' : '选择音频'}
           </button>
           {fileName && (
             <span style={S.fileBadge}>
@@ -994,7 +1020,11 @@ export default function SubtitleWorkshop() {
                         <button
                           style={{ ...S.btn, ...S.btnSm }}
                           onClick={async () => {
-                            const files = await selectFiles()
+                            const files = await selectFiles({
+                              multiple: false,
+                              filters: [FILE_FILTERS.subtitle],
+                              browserPrompt: '请输入字幕文件所在目录的完整路径：',
+                            })
                             if (files.length > 0) setTranslatePath(files[0]!)
                           }}
                         >
@@ -1204,7 +1234,11 @@ export default function SubtitleWorkshop() {
                         <button
                           style={{ ...S.btn, ...S.btnSm }}
                           onClick={async () => {
-                            const files = await selectFiles()
+                            const files = await selectFiles({
+                              multiple: false,
+                              filters: [FILE_FILTERS.script],
+                              browserPrompt: '请输入台本文件所在目录的完整路径：',
+                            })
                             if (files.length > 0) setScriptPath(files[0]!)
                           }}
                         >
@@ -1237,8 +1271,15 @@ export default function SubtitleWorkshop() {
                           <button
                             style={{ ...S.btn, ...S.btnSm }}
                             onClick={async () => {
-                              const files = await selectFiles()
-                              if (files.length > 0) setAudioPath(files[0]!)
+                              const files = await selectFiles({
+                                multiple: false,
+                                filters: [FILE_FILTERS.audio],
+                                browserPrompt: '请输入音频文件所在目录的完整路径：',
+                              })
+                              if (files.length > 0) {
+                                setAudioPath(files[0]!)
+                                audioPlayer.show(files[0]!, files[0]!.split(/[/\\]/).pop() || '台本音频')
+                              }
                             }}
                           >
                             浏览
@@ -1281,7 +1322,11 @@ export default function SubtitleWorkshop() {
                           <button
                             style={{ ...S.btn, ...S.btnSm }}
                             onClick={async () => {
-                              const files = await selectFiles()
+                              const files = await selectFiles({
+                                multiple: false,
+                                filters: [FILE_FILTERS.vtt],
+                                browserPrompt: '请输入 VTT 文件所在目录的完整路径：',
+                              })
                               if (files.length > 0) setVttPath(files[0]!)
                             }}
                           >

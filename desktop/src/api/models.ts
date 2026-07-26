@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, apiUrl } from './client'
 import type {
   ModelSummaryResponse,
   ModelStatusResponse,
@@ -8,9 +8,6 @@ import type {
   ModelVerificationResponse,
   RuntimeEventResponse,
 } from './types'
-
-const DEFAULT_API_BASE = 'http://127.0.0.1:8000/api/v1'
-const API_BASE = import.meta.env.VITE_API_BASE?.trim() || DEFAULT_API_BASE
 
 export const modelsApi = {
   list: () => api.get<ModelSummaryResponse[]>('/models'),
@@ -28,7 +25,7 @@ export const modelsApi = {
     api.post<ModelInstallAsyncResponse>(`/models/${modelId}/install`, body),
 
   verify: (modelId: string) =>
-    api.post<ModelVerificationResponse>(`/models/${modelId}/verify`),
+    api.post<ModelVerificationResponse[]>(`/models/${modelId}/verify`),
 
   remove: (modelId: string) =>
     api.delete<ModelOperationResponse>(`/models/${modelId}`),
@@ -37,7 +34,7 @@ export const modelsApi = {
     api.post<ModelOperationResponse>(`/models/${modelId}/unload`),
 
   unloadAll: () =>
-    api.post<ModelOperationResponse>('/models/unload-all'),
+    api.post<void>('/models/unload-all'),
 
   /**
    * Subscribe to model install progress via SSE.
@@ -49,7 +46,7 @@ export const modelsApi = {
     onDone?: () => void,
     onError?: (err: Event) => void,
   ): (() => void) => {
-    const es = new EventSource(`${API_BASE}/tasks/${taskId}/events`)
+    const es = new EventSource(apiUrl(`/tasks/${encodeURIComponent(taskId)}/events`))
 
     es.addEventListener('runtime', (event) => {
       try {

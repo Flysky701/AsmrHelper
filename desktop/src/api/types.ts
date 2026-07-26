@@ -103,24 +103,6 @@ export interface PipelineRunRequest {
   execution_profile: PipelineExecutionProfileRequest
 }
 
-export interface ArtifactSetResponse {
-  files: Record<string, string>
-  primary_output: string | null
-}
-
-export interface PipelineRunResponse {
-  success: boolean
-  input_path: string
-  task: TaskStatusResponse | null
-  task_id: string | null
-  task_state: string | null
-  artifacts: ArtifactSetResponse
-  mix_path: string | null
-  exported_subtitle: string | null
-  total_duration: number
-  error_message: string | null
-}
-
 export interface PipelineTaskCreateResponse {
   task: TaskStatusResponse
 }
@@ -290,7 +272,8 @@ export interface ModelInstallAsyncResponse {
 
 export interface ModelVerificationResponse {
   model_id: string
-  valid: boolean
+  success: boolean
+  status: string
   detail: string
 }
 
@@ -437,59 +420,26 @@ export interface VoicePreviewResponse {
   audio_path: string
 }
 
-// ── Tools ──────────────────────────────────────────────
-export interface SeparationRequest {
+// ── Tool tasks ─────────────────────────────────────────
+export interface ToolTaskCreateRequest {
+  task_type: string
   input_path: string
-  output_dir?: string
-  model?: string
-  stems?: string[]
+  companion_paths?: string[]
+  execution_profile?: Record<string, unknown>
 }
 
-export interface SeparationResponse {
-  input_path: string
-  stems: Record<string, string>
-  primary_output: string | null
+export interface ToolDescriptorResponse {
+  task_type: string
+  name: string
+  category: string
+  primary_artifact: string
 }
 
-export interface ConvertRequest {
-  input_path: string
-  output_path: string
-  target_format?: string
-  sample_rate?: number
-  channels?: number
+export interface ToolListResponse {
+  tools: ToolDescriptorResponse[]
 }
 
-export interface ConvertResponse {
-  input_path: string
-  output_path: string
-  format: string
-  sample_rate: number
-  channels: number
-  duration: number
-}
-
-export interface SplitRequest {
-  audio_path: string
-  subtitle_path: string
-  output_dir: string
-  padding?: number
-}
-
-export interface SplitSegmentResponse {
-  index: number
-  start: number
-  end: number
-  text: string
-  output_path: string
-}
-
-export interface SplitResponse {
-  audio_path: string
-  subtitle_path: string
-  segments: SplitSegmentResponse[]
-  total_segments: number
-}
-
+// ── Subtitle translation ───────────────────────────────
 export interface SubtitleTranslationRequest {
   input_path: string
   output_path?: string
@@ -506,19 +456,4 @@ export interface SubtitleTranslationResponse {
   provider: string
   source_lang: string
   target_lang: string
-}
-
-export interface VolumePreviewRequest {
-  audio_path: string
-  tts_path?: string | null
-  original_volume?: number
-  tts_volume_ratio?: number
-}
-
-export interface VolumePreviewResponse {
-  audio_path: string
-  rms_volume: number
-  tts_rms_volume: number | null
-  recommended_original_volume: number
-  recommended_tts_ratio: number
 }

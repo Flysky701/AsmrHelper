@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { voiceApi } from '@/api/voice'
 import type { VoiceProfileSummaryResponse, VoiceProfileResponse, SegmentInfo } from '@/api/types'
+import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
+import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 
 // ── Types ────────────────────────────────────────────
 type FilterKind = 'all' | 'preset' | 'design' | 'clone'
@@ -209,8 +211,14 @@ const ENGINE_GROUPS: Record<string, { label: string; badge: string }> = {
   qwen3_clone: { label: '克隆音色', badge: 'Qwen3' },
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 // ── Component ────────────────────────────────────────
 export default function VoiceLab() {
+  const { selectFiles } = useFileSelector()
+  const showAudio = useAudioPlayerStore((state) => state.show)
   const [profiles, setProfiles] = useState<VoiceProfileSummaryResponse[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<VoiceProfileResponse | null>(null)
@@ -244,14 +252,16 @@ export default function VoiceLab() {
   // Loading states
   const [designing, setDesigning] = useState(false)
   const [cloning, setCloning] = useState(false)
+  const [actionError, setActionError] = useState('')
 
   // ── Load profiles ──────────────────────────────────
   const loadProfiles = useCallback(async () => {
     try {
       const data = await voiceApi.listProfiles()
       setProfiles(data)
-    } catch {
+    } catch (error) {
       setProfiles([])
+      setActionError(`加载音色失败：${errorMessage(error)}`)
     }
   }, [])
 
@@ -259,6 +269,7 @@ export default function VoiceLab() {
 
   // ── Select profile ─────────────────────────────────
   const handleSelect = useCallback(async (id: string, category: string) => {
+    setActionError('')
     setSelectedId(id)
     setPreviewAudio(null)
     setDesignResult(null)
@@ -270,7 +281,8 @@ export default function VoiceLab() {
         setDetail(d)
         setInstructValue(d.instruct || '')
         setPanel('preset')
-      } catch {
+      } catch (error) {
+        setActionError(`读取音色详情失败：${errorMessage(error)}`)
         setPanel('empty')
       }
     } else if (category === 'design') {
@@ -278,7 +290,8 @@ export default function VoiceLab() {
         const d = await voiceApi.getProfile(id)
         setDetail(d)
         setPanel('design-detail')
-      } catch {
+      } catch (error) {
+        setActionError(`读取音色详情失败：${errorMessage(error)}`)
         setPanel('empty')
       }
     } else if (category === 'clone') {
@@ -286,7 +299,8 @@ export default function VoiceLab() {
         const d = await voiceApi.getProfile(id)
         setDetail(d)
         setPanel('clone-detail')
-      } catch {
+      } catch (error) {
+        setActionError(`读取音色详情失败：${errorMessage(error)}`)
         setPanel('empty')
       }
     }
@@ -295,19 +309,23 @@ export default function VoiceLab() {
   // ── Actions ────────────────────────────────────────
   const handlePreview = useCallback(async () => {
     if (!selectedId) return
+    setActionError('')
     setPreviewLoading(true)
     try {
       const res = await voiceApi.preview(selectedId, { text: previewText, speed: 1.0 })
       setPreviewAudio(res.audio_path)
-    } catch {
-      // ignore
+      showAudio(res.audio_path, `音色试听 · ${detail?.name || selectedId}`)
+      useAudioPlayerStore.getState().setPlaying(true)
+    } catch (error) {
+      setActionError(`试听生成失败：${errorMessage(error)}`)
     } finally {
       setPreviewLoading(false)
     }
-  }, [selectedId, previewText])
+  }, [detail?.name, previewText, selectedId, showAudio])
 
   const handleDesign = useCallback(async () => {
     if (!designName || !designDesc) return
+    setActionError('')
     setDesigning(true)
     try {
       const res = await voiceApi.design({ name: designName, description: designDesc, ref_text: designRefText || undefined })
@@ -315,8 +333,8 @@ export default function VoiceLab() {
       await loadProfiles()
       setSelectedId(res.profile_id)
       setPanel('design-detail')
-    } catch {
-      // ignore
+    } catch (error) {
+      setActionError(`音色设计失败：${errorMessage(error)}`)
     } finally {
       setDesigning(false)
     }
@@ -324,12 +342,13 @@ export default function VoiceLab() {
 
   const handleAnalyze = useCallback(async () => {
     if (!cloneAudioPath) return
+    setActionError('')
     setAnalyzing(true)
     try {
       const res = await voiceApi.analyzeSegments({ audio_path: cloneAudioPath, ref_text: cloneRefText || undefined })
       setSegments(res.segments)
-    } catch {
-      // ignore
+    } catch (error) {
+      setActionError(`音频分析失败：${errorMessage(error)}`)
     } finally {
       setAnalyzing(false)
     }
@@ -337,14 +356,15 @@ export default function VoiceLab() {
 
   const handleClone = useCallback(async () => {
     if (!cloneAudioPath || !cloneName) return
+    setActionError('')
     setCloning(true)
     try {
       const res = await voiceApi.clone({ audio_path: cloneAudioPath, name: cloneName, ref_text: cloneRefText || undefined })
       await loadProfiles()
       setSelectedId(res.profile_id)
       setPanel('clone-detail')
-    } catch {
-      // ignore
+    } catch (error) {
+      setActionError(`音色克隆失败：${errorMessage(error)}`)
     } finally {
       setCloning(false)
     }
@@ -352,16 +372,29 @@ export default function VoiceLab() {
 
   const handleDelete = useCallback(async () => {
     if (!selectedId) return
+    setActionError('')
     try {
       await voiceApi.deleteProfile(selectedId)
       setSelectedId(null)
       setDetail(null)
       setPanel('empty')
       await loadProfiles()
-    } catch {
-      // ignore
+    } catch (error) {
+      setActionError(`删除音色失败：${errorMessage(error)}`)
     }
   }, [selectedId, loadProfiles])
+
+  const handleSelectCloneAudio = useCallback(async () => {
+    const files = await selectFiles({
+      multiple: false,
+      filters: [FILE_FILTERS.audio],
+      browserPrompt: '请输入参考音频所在目录的完整路径：',
+    })
+    if (files.length > 0) {
+      setCloneAudioPath(files[0]!)
+      setActionError('')
+    }
+  }, [selectFiles])
 
   const showCreate = (type: 'design' | 'clone') => {
     setSelectedId(null)
@@ -472,7 +505,13 @@ export default function VoiceLab() {
                   </div>
                 </div>
                 <div style={S.actionsRow}>
-                  <button style={S.btnSm}>保存修改</button>
+                  <button
+                    style={{ ...S.btnSm, cursor: 'not-allowed', opacity: 0.5 }}
+                    disabled
+                    title="当前后端未提供音色更新接口"
+                  >
+                    保存修改（暂不可用）
+                  </button>
                   <button style={S.btnDanger} onClick={handleDelete}>删除音色</button>
                 </div>
               </div>
@@ -583,14 +622,10 @@ export default function VoiceLab() {
                   <label style={S.formLabel}>参考音频 *</label>
                   <div
                     style={S.uploadZone}
-                    onClick={() => {
-                      // In real app, open file dialog; for now, set path manually
-                      const path = prompt('输入参考音频路径 (.wav / .mp3)')
-                      if (path) setCloneAudioPath(path)
-                    }}
+                    onClick={handleSelectCloneAudio}
                   >
                     <UploadIcon />
-                    <div>{cloneAudioPath || '拖入参考音频文件 (.wav / .mp3)'}</div>
+                    <div>{cloneAudioPath || '点击选择参考音频文件 (.wav / .mp3)'}</div>
                     <div style={{ fontSize: 11, marginTop: 4 }}>建议 5-30 秒清晰人声，无背景音</div>
                   </div>
                 </div>
@@ -701,7 +736,7 @@ export default function VoiceLab() {
       </div>
       {previewAudio && (
         <div style={{ padding: '8px 16px 12px', fontSize: 11, color: 'var(--muted)' }}>
-          已生成: {previewAudio}
+          已生成并载入播放器: {previewAudio}
         </div>
       )}
     </div>
@@ -713,6 +748,11 @@ export default function VoiceLab() {
       {/* Action bar */}
       <div style={S.actionBar}>
         <span style={S.title}>音色实验室</span>
+        {actionError && (
+          <span style={{ color: 'var(--danger)', fontSize: 12 }} title={actionError}>
+            {actionError}
+          </span>
+        )}
         <span style={S.gpuPill}>CUDA 可用</span>
         <div style={S.spacer} />
         <button style={S.btn} onClick={() => showCreate('design')}>

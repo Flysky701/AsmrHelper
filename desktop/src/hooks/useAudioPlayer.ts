@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
+import { toPlayableAudioSource } from '@/utils/audioSource'
 
 export function useAudioPlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -9,6 +10,7 @@ export function useAudioPlayer() {
   const currentTime = useAudioPlayerStore((s) => s.currentTime)
   const updateTime = useAudioPlayerStore((s) => s.updateTime)
   const setPlaying = useAudioPlayerStore((s) => s.setPlaying)
+  const setError = useAudioPlayerStore((s) => s.setError)
 
   // Create/update audio element
   useEffect(() => {
@@ -19,34 +21,49 @@ export function useAudioPlayer() {
         if (a) updateTime(a.currentTime, a.duration || 0)
       })
       audioRef.current.addEventListener('ended', () => setPlaying(false))
+      audioRef.current.addEventListener('error', () => {
+        setPlaying(false)
+        setError('无法加载音频，请确认文件仍然存在且格式受支持')
+      })
       audioRef.current.addEventListener('loadedmetadata', () => {
         const a = audioRef.current
-        if (a) updateTime(a.currentTime, a.duration || 0)
+        if (a) {
+          const desiredTime = useAudioPlayerStore.getState().currentTime
+          if (desiredTime > 0 && Number.isFinite(a.duration)) {
+            a.currentTime = Math.min(desiredTime, a.duration)
+          }
+          setError('')
+          updateTime(a.currentTime, a.duration || 0)
+        }
       })
     }
     return () => {
       audioRef.current?.pause()
     }
-  }, [updateTime, setPlaying])
+  }, [setError, updateTime, setPlaying])
 
   // Sync src
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !src) return
-    audio.src = src
+    setError('')
+    audio.src = toPlayableAudioSource(src)
     audio.load()
-  }, [src])
+  }, [setError, src])
 
   // Sync play state
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
     if (isPlaying) {
-      audio.play().catch(() => setPlaying(false))
+      audio.play().catch((error) => {
+        setPlaying(false)
+        setError(error instanceof Error ? error.message : '音频播放失败')
+      })
     } else {
       audio.pause()
     }
-  }, [isPlaying, setPlaying])
+  }, [isPlaying, setError, setPlaying])
 
   // Sync volume
   useEffect(() => {

@@ -39,6 +39,7 @@ export default function AudioPlayerBar() {
   const currentTime = useAudioPlayerStore((s) => s.currentTime)
   const duration = useAudioPlayerStore((s) => s.duration)
   const volume = useAudioPlayerStore((s) => s.volume)
+  const error = useAudioPlayerStore((s) => s.error)
   const togglePlay = useAudioPlayerStore((s) => s.togglePlay)
   const hide = useAudioPlayerStore((s) => s.hide)
   const setVolume = useAudioPlayerStore((s) => s.setVolume)
@@ -82,9 +83,9 @@ export default function AudioPlayerBar() {
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
         }}
-        title={title}
+        title={error || title}
       >
-        {title}
+        {error || title}
       </span>
 
       <span

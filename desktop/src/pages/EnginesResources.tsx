@@ -41,20 +41,27 @@ export default function EnginesResources() {
   const [activeTab, setActiveTab] = useState<CategoryTab>('llm')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [installing, setInstalling] = useState<Record<string, { active: boolean; message?: string; progress?: number }>>({})
+  const [error, setError] = useState('')
 
   useEffect(() => { loadData() }, [])
 
-  const loadData = async () => {
+  const loadData = async (preserveError = false) => {
     setLoading(true)
+    if (!preserveError) setError('')
     try {
       const [resData, modelData, statusData] = await Promise.all([
-        resourcesApi.getStatus().catch(() => ({ resources: [] })),
-        modelsApi.list().catch(() => []),
-        modelsApi.statuses().catch(() => []),
+        resourcesApi.getStatus(),
+        modelsApi.list(),
+        modelsApi.statuses(),
       ])
       setResources(resData.resources)
       setModels(modelData)
       setModelStatuses(statusData)
+    } catch (loadError) {
+      setResources([])
+      setModels([])
+      setModelStatuses([])
+      setError(`读取引擎与资源状态失败：${loadError instanceof Error ? loadError.message : String(loadError)}`)
     } finally {
       setLoading(false)
     }
@@ -72,10 +79,12 @@ export default function EnginesResources() {
               clearInterval(pollInterval)
               setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
               loadData()
-            } else if (taskRes.state === 'failed') {
+            } else if (taskRes.state === 'failed' || taskRes.state === 'cancelled' || taskRes.state === 'skipped') {
               clearInterval(pollInterval)
-              setInstalling(prev => ({ ...prev, [modelId]: { active: false, message: taskRes.message || '安装失败' } }))
-              loadData()
+              const message = taskRes.message || '安装未完成'
+              setInstalling(prev => ({ ...prev, [modelId]: { active: false, message } }))
+              setError(`模型 ${modelId}：${message}`)
+              loadData(true)
             } else {
               setInstalling(prev => ({
                 ...prev,
@@ -86,25 +95,37 @@ export default function EnginesResources() {
                 },
               }))
             }
-          } catch {
+          } catch (pollError) {
             clearInterval(pollInterval)
             setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
-            loadData()
+            setError(`读取模型 ${modelId} 安装进度失败：${pollError instanceof Error ? pollError.message : String(pollError)}`)
+            loadData(true)
           }
         }, 2000)
       } else {
         setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
         loadData()
       }
-    } catch {
+    } catch (installError) {
       setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
-      loadData()
+      setError(`安装模型 ${modelId} 失败：${installError instanceof Error ? installError.message : String(installError)}`)
+      loadData(true)
     }
   }
 
   const handleVerify = async (modelId: string) => {
-    await modelsApi.verify(modelId).catch(() => { })
-    loadData()
+    setError('')
+    try {
+      const results = await modelsApi.verify(modelId)
+      const failed = results.filter((result) => !result.success)
+      if (failed.length > 0) {
+        setError(failed.map((result) => result.detail || `${result.model_id} 验证失败`).join('; '))
+      }
+    } catch (verifyError) {
+      setError(`验证模型 ${modelId} 失败：${verifyError instanceof Error ? verifyError.message : String(verifyError)}`)
+    } finally {
+      loadData(true)
+    }
   }
 
   // Group models by category, then by family/backend
@@ -173,7 +194,7 @@ export default function EnginesResources() {
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '15px', fontWeight: 600, letterSpacing: '-0.02em', marginRight: '16px' }}>
           引擎与资源
         </h1>
-        <button onClick={loadData} style={{
+        <button onClick={() => void loadData()} style={{
           fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
           borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
           color: 'var(--fg)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px',
@@ -184,6 +205,18 @@ export default function EnginesResources() {
 
       {/* Content */}
       <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {error && (
+          <div style={{
+            padding: '10px 14px',
+            color: 'var(--danger)',
+            background: 'rgba(239,68,68,0.06)',
+            border: '1px solid rgba(239,68,68,0.18)',
+            borderRadius: '6px',
+            fontSize: '12px',
+          }}>
+            {error}
+          </div>
+        )}
 
         {/* Runtime status cards */}
         <div>

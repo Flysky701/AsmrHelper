@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 
 import { tasksApi } from '@/api/tasks'
+import { apiUrl } from '@/api/client'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 import { useLogStore } from '@/stores/logStore'
@@ -437,8 +438,8 @@ export default function TaskCenter() {
     completedTasks.forEach((task) => removeTask(task.id))
   }
 
-  const handlePlayArtifact = (path: string, title: string) => {
-    showAudio(path, title)
+  const handlePlayArtifact = (artifactId: string, title: string) => {
+    showAudio(apiUrl(`/artifacts/${encodeURIComponent(artifactId)}/file`), title)
   }
 
   return (
@@ -714,7 +715,7 @@ export default function TaskCenter() {
 
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                               {artifact.preview && artifact.type.startsWith('audio.') ? (
-                                <ToolbarButton variant="secondary" onClick={() => handlePlayArtifact(artifact.path, artifact.label || artifact.type)}>
+                                <ToolbarButton variant="secondary" onClick={() => handlePlayArtifact(artifact.artifactId, artifact.label || artifact.type)}>
                                   播放
                                 </ToolbarButton>
                               ) : null}

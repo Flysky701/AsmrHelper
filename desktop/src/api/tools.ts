@@ -1,30 +1,20 @@
 import { api } from './client'
 import type {
-  SeparationRequest,
-  SeparationResponse,
-  ConvertRequest,
-  ConvertResponse,
-  SplitRequest,
-  SplitResponse,
-  SubtitleTranslationRequest,
-  SubtitleTranslationResponse,
-  VolumePreviewRequest,
-  VolumePreviewResponse,
+  TaskResultResponse,
+  TaskStatusResponse,
+  ToolListResponse,
+  ToolTaskCreateRequest,
 } from './types'
 
 export const toolsApi = {
-  separate: (body: SeparationRequest) =>
-    api.post<SeparationResponse>('/tools/separate', body),
+  list: () => api.get<ToolListResponse>('/tool-runs'),
 
-  convert: (body: ConvertRequest) =>
-    api.post<ConvertResponse>('/tools/convert', body),
+  create: (body: ToolTaskCreateRequest) =>
+    api.post<TaskStatusResponse>('/tool-runs/tasks', body),
 
-  split: (body: SplitRequest) =>
-    api.post<SplitResponse>('/tools/split', body),
+  run: (taskId: string) =>
+    api.post<TaskResultResponse>('/tool-runs', { task_id: taskId }),
 
-  translateSubtitle: (body: SubtitleTranslationRequest) =>
-    api.post<SubtitleTranslationResponse>('/tools/translate-subtitle', body),
-
-  volumePreview: (body: VolumePreviewRequest) =>
-    api.post<VolumePreviewResponse>('/tools/volume-preview', body),
+  result: (taskId: string) =>
+    api.get<TaskResultResponse>(`/tool-runs/${taskId}`),
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import { pipelineApi } from '@/api/pipeline'
 import type { SettingsUpdate, SettingsView } from '@/api/settings'
+import { useFileSelector } from '@/hooks/useFileSelector'
 
 type SettingsTab = 'api' | 'presets' | 'paths'
 
@@ -12,6 +13,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
 ]
 
 export default function Settings() {
+  const { selectFolder } = useFileSelector()
   const [settings, setSettings] = useState<SettingsView | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -45,27 +47,28 @@ export default function Settings() {
 
   const loadData = async () => {
     setLoading(true)
+    setMessage('')
     try {
       const [settingsData, presetsData] = await Promise.all([
-        settingsApi.get().catch(() => null),
-        pipelineApi.presets().catch(() => ({ presets: [] })),
+        settingsApi.get(),
+        pipelineApi.presets(),
       ])
-      if (settingsData) {
-        const current = settingsData.settings
-        setSettings(current)
-        setDraft({
-          provider: current.providers.default_llm || 'deepseek',
-          deepseekKey: '',
-          openaiKey: '',
-          deepseekBaseUrl: current.providers.deepseek.base_url || 'https://api.deepseek.com',
-          openaiBaseUrl: current.providers.openai.base_url || 'https://api.openai.com/v1',
-          outputDir: current.paths.output_dir || '',
-          vttDir: current.paths.vtt_dir || '',
-          modelCacheDir: current.paths.model_cache_dir || '',
-          tempDir: current.paths.temp_dir || '',
-        })
-      }
+      const current = settingsData.settings
+      setSettings(current)
+      setDraft({
+        provider: current.providers.default_llm || 'deepseek',
+        deepseekKey: '',
+        openaiKey: '',
+        deepseekBaseUrl: current.providers.deepseek.base_url || 'https://api.deepseek.com',
+        openaiBaseUrl: current.providers.openai.base_url || 'https://api.openai.com/v1',
+        outputDir: current.paths.output_dir || '',
+        vttDir: current.paths.vtt_dir || '',
+        modelCacheDir: current.paths.model_cache_dir || '',
+        tempDir: current.paths.temp_dir || '',
+      })
       setPresets(presetsData.presets || [])
+    } catch (error) {
+      setMessage(`加载设置失败: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setLoading(false)
     }
@@ -145,8 +148,11 @@ export default function Settings() {
     try {
       const result = await settingsApi.validate()
       setValidation({ valid: result.valid, errors: result.errors })
-    } catch {
-      setValidation({ valid: false, errors: ['验证请求失败'] })
+    } catch (error) {
+      setValidation({
+        valid: false,
+        errors: [`验证请求失败: ${error instanceof Error ? error.message : String(error)}`],
+      })
     }
   }
 
@@ -395,19 +401,19 @@ export default function Settings() {
                       <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', gap: '12px' }}>
                         <span style={{ fontSize: '14px', fontWeight: 600, flex: 1 }}>{preset.label}</span>
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          <button style={{
+                          <button disabled title="当前内置预设为只读" style={{
                             fontFamily: 'var(--font-body)', fontSize: '12px', padding: '5px 10px',
                             borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                            color: 'var(--fg)', cursor: 'pointer',
+                            color: 'var(--muted)', cursor: 'not-allowed', opacity: 0.55,
                           }}>
-                            编辑
+                            编辑（只读）
                           </button>
-                          <button style={{
+                          <button disabled title="当前内置预设为只读" style={{
                             fontFamily: 'var(--font-body)', fontSize: '12px', padding: '5px 10px',
                             borderRadius: '6px', border: '1px solid oklch(85% 0.06 25)', background: 'var(--surface)',
-                            color: 'oklch(55% 0.18 25)', cursor: 'pointer',
+                            color: 'var(--muted)', cursor: 'not-allowed', opacity: 0.55,
                           }}>
-                            删除
+                            删除（只读）
                           </button>
                         </div>
                       </div>
@@ -421,14 +427,14 @@ export default function Settings() {
                   )}
                 </div>
 
-                <button style={{
+                <button disabled title="当前版本仅支持内置只读预设" style={{
                   marginTop: '16px', fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500,
                   padding: '7px 14px', borderRadius: '6px', border: '1px solid var(--border)',
-                  background: 'var(--surface)', color: 'var(--fg)', cursor: 'pointer',
+                  background: 'var(--surface)', color: 'var(--muted)', cursor: 'not-allowed', opacity: 0.55,
                   display: 'inline-flex', alignItems: 'center', gap: '6px',
                 }}>
                   <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M7 2v10M2 7h10" /></svg>
-                  新建预设
+                  新建预设（暂不可用）
                 </button>
               </div>
             </div>
@@ -465,7 +471,12 @@ export default function Settings() {
                           color: 'var(--fg)',
                         }}
                       />
-                      <button style={{
+                      <button onClick={async () => {
+                        const selected = await selectFolder()
+                        if (selected) {
+                          setDraft((current) => ({ ...current, [field.key]: selected }))
+                        }
+                      }} style={{
                         fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
                         borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
                         color: 'var(--fg)', cursor: 'pointer', flexShrink: 0,
