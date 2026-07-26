@@ -90,7 +90,7 @@
 }
 ```
 
-`skip_existing` 控制是否复用已存在的阶段输出。混音延迟在标准 `options` 中使用 `tts_delay_ms`，单位固定为毫秒；旧平铺请求中的 `tts_delay` 仍按秒兼容转换。
+`skip_existing` 控制是否复用已存在的阶段输出。混音延迟在标准 `options` 中使用 `tts_delay_ms`，单位固定为毫秒。HTTP API 不再接受旧平铺请求或秒制 `tts_delay`。
 
 `StageProfile` 的稳定字段只有：
 
@@ -187,7 +187,7 @@ API Key、Base URL、本机模型绝对路径、设备句柄和已初始化客�
 
 权威结果入口是 `GET /api/v1/tasks/{task_id}/result`。Pipeline 和 Tool 的任务结果入口返回相同结构。`primary_artifact_id` 是唯一的主产物判断依据；`primary` 是同一事实在列表项上的便捷标记。`preview` 只表示后端声明该产物可预览，具体预览模式由 Preview 接口返回，桌面端不得通过扩展名猜测。
 
-旧 `files`、路径型 `primary_output`、`secondary_outputs`、`artifact_type`、`preview_kind` 和 `is_primary` 不属于 v1 公共结果结构，仅可留在内部模型或兼容执行响应。
+旧 `files`、路径型 `primary_output`、`secondary_outputs`、`artifact_type`、`preview_kind` 和 `is_primary` 不属于 v1 公共结果结构，仅可暂留在内部执行模型，不得出现在公共 HTTP 响应。
 
 ## 7. ModelStatus
 

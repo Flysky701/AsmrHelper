@@ -21,7 +21,9 @@
 
 > Phase 2 后段：旧 GUI、旧 pipeline 包、旧字幕脚本包已经从源码树移除，新 core 主干及主要公共契约已建立并被调用；当前剩余工作集中在兼容入口和旧服务依赖瘦身。
 
-2026-07-24 的运行验证补充：项目全量测试为 `166 passed`，前端构建和 Tauri release build 均已通过，生成的桌面程序可连接健康检查正常的本地后端。该结果只覆盖基础启动与构建；本地音频引擎仍取决于 `audio` 可选依赖、模型权重和提供方配置。
+2026-07-24 的运行验证补充：项目全量测试为 `166 passed`，HTTP 环境验证发现 88 条路由，前端构建和 Tauri release build 均已通过，生成的桌面程序可连接健康检查正常的本地后端。该结果只覆盖基础启动与构建；本地音频引擎仍取决于 `audio` 可选依赖、模型权重和提供方配置。
+
+2026-07-26 的桌面 P0 修复补充：通用 API client 已支持 `204`/空响应并统一 API 地址与错误解析；Tauri 已补文件对话框 capability 和本地音频 asset protocol；字幕、台本、音频和目录选择已按用途分离；TaskCenter 通过 Artifact 文件接口播放产物，SubtitleWorkshop 与 VoiceLab 已接入统一播放器；未落地的预设 CRUD 和音色修改入口已明确禁用，不再表现为可操作按钮。桌面前端构建、Tauri release build 和 HTTP 契约测试均通过，release 程序已实机启动并确认原生音频文件对话框可用。
 
 ## 3. 当前已完成
 
@@ -40,6 +42,7 @@
 - TaskResult、Artifact 与 Preview 公共语义已统一，TaskCenter 不再猜测主产物或可播放类型。
 - CapabilityOption 已补齐稳定约束；模型资源状态已区分“已安装”和“当前可执行”。
 - RuntimeEvent 已按任务生成单调递增序列；SSE、TaskCenter 日志和模型安装增量消息使用同一事件结构。
+- 桌面 P0 可用性缺口已收束：文件类型选择、空响应、基础音频预览、关键错误反馈和无效按钮均已处理。
 
 ## 4. 当前仍缺
 
@@ -52,7 +55,7 @@ DOCS 已经收束到：
 - [Provider 与设置契约 v1](../contracts/provider-v1.md)
 - [兼容与迁移说明](../contracts/compatibility.md)
 
-当前主链路请求、任务状态、Provider 设置、结果语义、模型可执行状态和 RuntimeEvent 已经落码。`/pipeline/run` 只作为兼容入口保留，不再是桌面主入口；剩余工作集中在兼容层瘦身。
+当前主链路请求、任务状态、Provider 设置、结果语义、模型可执行状态和 RuntimeEvent 已经落码。旧 Pipeline 与 Tool 同步入口已删除，HTTP 只支持 V1 新客户端；剩余工作集中在内部模型瘦身。
 
 ### P0 已修复残留旧引用
 
@@ -74,7 +77,7 @@ src.core.script_to_subtitle
 
 - `ModelManager` 已是 deprecated 兼容层，但仍存在。
 - Translator、缓存、质量检测和术语库已迁入 LLM 域；`src/core/translate` 只保留兼容转发，等待兼容期结束后删除。
-- `/pipeline/run` 与 `/tools/*` 仍保留同步兼容响应；桌面工具页迁到任务化 API 后可删除这些路径型字段。
+- `/tools/*`、`/pipeline/run` 和 `/pipeline/tasks` 均已删除；公共 HTTP 不再返回路径型兼容结果。
 
 ## 5. 功能域当前状态
 

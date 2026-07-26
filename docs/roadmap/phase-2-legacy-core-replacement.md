@@ -112,21 +112,21 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 目标：
 
-- 新结构优先：`profile_version + stages + profiles`。
-- 旧结构兼容：`pipeline + stages + mix` 在过渡期仍可执行。
+- HTTP 仅接受新结构：`profile_version + stages + profiles`。
+- 旧 `pipeline + stages + mix` 仅允许留在内部 DTO 的清理范围，不再作为客户端输入。
 - 新增 provider 私有参数进入 `provider_options`，不继续扩张平铺字段。
 
 完成标准：
 
 - `PipelineService.create_pipeline_task_spec()` 能生成主链路数据参数契约定义的新结构。
 - `build_execution_plan()` 能消费新结构。
-- 旧 `/pipeline/run` 仍可通过适配层工作。
+- `POST /pipeline-runs` 是唯一 Pipeline 创建入口，旧入口返回 `404`。
 
 完成记录：
 
 - `PipelineService.create_pipeline_task_spec()` 现在生成 `mainline.v1` 的 `profile_version + stages + profiles` 结构。
-- planner 可同时消费新结构与旧 `pipeline + stages + mix` 结构；旧 `/pipeline/run` 仍由 facade 转换后执行。
-- 增加 V1 profile 与旧 profile 的双向回归测试。
+- planner 仍可消费内部遗留结构，但 HTTP 已删除旧请求 schema、转换 facade 和兼容路由。
+- 增加 V1 profile 回归测试，并确认旧平铺 HTTP 请求被拒绝。
 
 ### Slice D：TaskStatus 字段补齐（已完成：2026-07-23）
 
@@ -170,7 +170,7 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 目标：
 
 - Workbench 一次提交统一的 `input/output/execution_profile`。
-- `/pipeline/run` 保留为兼容入口，但不再是 Workbench 主路径。
+- 只保留 `/pipeline-runs`，不再兼容 `/pipeline/run` 或 `/pipeline/tasks`。
 
 完成标准：
 
@@ -244,7 +244,7 @@ Workbench 已走 `/pipeline-runs`，TaskCenter 已消费后端显式阶段。受
 
 ### 结果与产物语义已收口
 
-终态历史与 Artifact 索引已经持久化；TaskResult、主产物和 Preview 公共字段已按 v1 数据契约统一。旧路径型结果字段只保留在兼容执行响应。
+终态历史与 Artifact 索引已经持久化；TaskResult、主产物和 Preview 公共字段已按 v1 数据契约统一。旧路径型结果字段只保留在内部执行模型，公共 HTTP 不再暴露。
 
 ### 旧路径残留会在运行时炸
 
@@ -255,10 +255,10 @@ P0 的 `script_subtitle_service.py` 残留导入已修复。后续仍应对兼�
 满足以下条件时，Phase 2 后段可以认为完成：
 
 1. `PipelineService` 与 planner 优先消费主链路数据参数契约。
-2. `/pipeline/run` 只是兼容适配入口，不再定义新字段。
+2. `/pipeline-runs` 是唯一 Pipeline 创建入口，只接受 V1 嵌套请求。
 3. `CapabilityDescriptor`、`RuntimeEvent`、模型字段和高级参数遵守基础设施契约。
 4. `TaskStatus` 足够支撑 TaskCenter，不再依赖前端阶段推断。
-5. Workbench 主路径为 `session + task`。
+5. Workbench 主路径为一次提交 `/pipeline-runs`，由后端创建并接管任务。
 6. TaskCenter 主路径为 `tasks + artifacts + preview`。
 7. 已删除旧路径没有活跃 import 残留。
 8. `ModelManager` 和 `core.translate` 不再是新服务的默认依赖入口。

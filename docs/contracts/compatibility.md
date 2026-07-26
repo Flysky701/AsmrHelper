@@ -6,8 +6,8 @@
 
 | 项目 | 当前实现或旧文档 | v1 目标 |
 | --- | --- | --- |
-| Pipeline 创建 | Workbench 已使用 `POST /pipeline-runs` 一次提交并返回 `202`；`/pipeline/run` 仅保留兼容 | `POST /pipeline-runs` 一次提交并立即返回 `202` |
-| 执行配置 | Workbench 和 `/pipeline-runs` 已使用统一 `StageProfile`；旧 `stages + profiles` 与平铺参数由兼容层解析 | 每个阶段使用统一 `StageProfile` |
+| Pipeline 创建 | 仅支持 `POST /pipeline-runs` 一次提交并返回 `202` | `POST /pipeline-runs` 一次提交并立即返回 `202` |
+| 执行配置 | HTTP 仅接受统一 `StageProfile` | 每个阶段使用统一 `StageProfile` |
 | 进度范围 | 旧示例同时出现 `42` 和 `0.42` | 固定 `0.0` 到 `1.0` |
 | TTS 标识 | `edge` 与 `edge_tts` 混用 | `edge` |
 | 语言代码 | `zh` 与 `zh-CN` 混用 | 当前稳定使用 `ja`、`zh`、`en` |
@@ -21,37 +21,33 @@
 
 ## 2. 旧接口策略
 
-- `/api/v1/pipeline/run` 暂作为兼容入口，内部转换为新的创建请求。
-- 旧 `ExecutionProfile` 的 `stages + profiles` 在入口处归一化为新的 `StageProfile`。
-- `edge_tts` 在兼容层映射为 `edge`。
-- 旧的整数百分比只在兼容输入中接受，输出始终为 `0.0` 到 `1.0`。
-- 旧任务和产物字段可以继续存储，但不得要求新桌面端依赖。
-
-兼容层应有明确删除条件；不得继续向旧结构增加新能力。
+- 只支持当前 V1 客户端；`/pipeline/run`、`/pipeline/tasks` 和 `/tools/*` 已删除。
+- `POST /pipeline-runs` 不再接受平铺 Pipeline 参数，只接受 `input/output/execution_profile`。
+- 公共结果固定为 TaskResult；HTTP 响应不得出现 `files/primary_output`。
+- 内部旧 DTO 或解析分支不得成为新能力入口，并应继续逐步移除。
 
 ### 2.1 当前保留边界与删除条件
 
 | 兼容项 | 当前真实用途 | 删除条件 |
 | --- | --- | --- |
-| `/api/v1/pipeline/run` | 旧客户端和兼容回归；Workbench、CLI 已不再调用 | 发布一个明确不再支持旧客户端的版本 |
 | `src.core.model_manager` | 仅支持显式旧导入并发出 DeprecationWarning；主服务使用各引擎 registry | 仓库外调用方完成迁移，且兼容期结束 |
 | `src.core.translate` | 已只保留 Translator、缓存、术语和字幕工具的弃用转发；实现分别位于 `core.engines.llm` 与 `core.subtitles` | 兼容期结束且仓库外旧导入完成迁移 |
 | `src.core.translate` 中的字幕工具转发 | 只服务仓库外旧导入；活跃 TTS 预处理已改用 `src.core.subtitles` | 兼容期结束且外部调用迁移完成 |
-| 路径型 `primary_output/files` | 内部执行器与 `/pipeline/run`、`/tools/*` 旧同步响应 | 旧客户端与桌面工具交互迁入任务创建、状态查询和 TaskResult 后，发布移除版本 |
+| 路径型 `primary_output/files` | 仅存在于内部执行器模型 | 内部执行器全面改用 ArtifactRecord 后删除 |
 
 ## 3. 迁移顺序
 
-1. 后端先增加 v1 请求归一化和统一错误模型。已完成；旧结构仅由兼容入口转换。
+1. 后端增加 v1 请求和统一错误模型，并删除旧 HTTP 输入。已完成。
 2. 将 Pipeline 执行移出 API 请求线程，确保创建立即返回。已完成进程内后台执行。
 3. 桌面端切换到权威任务查询、取消、重试和结果接口。已完成。
 4. 修正设置方法、响应包络、凭据状态和 Provider 测试。已完成。
-5. 完成主链路回归后，再删除旧接口和旧字段。
+5. 删除旧接口，路径型字段只允许暂留内部。已完成公共接口部分。
 
 2026-07-23 已验证：Workbench 单次提交、后台接管、显式阶段、协作取消、新任务重试和完整错误消息均已落码。
 
 2026-07-23 已确认并落码重启策略：终态任务、TaskSpec 和 Artifact 索引存入 SQLite；未完成任务在下次加载时删除；桌面端启动后载入历史并按需查询产物；历史任务不直接重试，需从 Workbench 重新提交。全量测试 `139 passed`，桌面端构建通过。
 
-2026-07-23 已完成 StageProfile 收敛：Workbench 直接提交嵌套 `input/output/execution_profile`；每个阶段统一携带 `enabled/provider/model/options/provider_options`；Planner 直接消费该结构，旧平铺请求继续有回归测试。混音延迟统一为 `tts_delay_ms`。全量测试 `141 passed`。
+2026-07-23 已完成 StageProfile 收敛：Workbench 直接提交嵌套 `input/output/execution_profile`；每个阶段统一携带 `enabled/provider/model/options/provider_options`；Planner 直接消费该结构。当时旧平铺请求仍有兼容回归，现已删除。混音延迟统一为 `tts_delay_ms`。全量测试 `141 passed`。
 
 2026-07-23 已完成 Provider 设置收敛：桌面端统一使用 `PUT` 与 `{ "settings": ... }`；读取仅返回 `credential_configured`，不返回原文或伪密钥；空密钥保持原值；Provider 测试会使用当前草稿配置执行真实轻量请求，并返回稳定错误代码。全量测试 `148 passed`，桌面端构建通过。
 
@@ -63,7 +59,11 @@
 
 2026-07-24 已完成翻译核心迁移：Translator、翻译缓存、质量检测和术语库迁入 `core.engines.llm`；繁简映射迁入 `core.subtitles`；LLM registry、ModelManager 内部构造和 core 根导出均使用新实现路径。`core.translate` 只保留带弃用提示的兼容转发。全量测试 `163 passed`。
 
-2026-07-24 已完成执行结果收敛：CLI、`POST /pipeline-runs/execute` 和 `POST /tool-runs` 都从权威 Artifact 索引返回或展示 TaskResult；不再读取 `primary_output/files`。路径型字段仅保留在明确标注的 `/pipeline/run` 与 `/tools/*` 同步兼容路由。全量测试 `166 passed`。
+2026-07-24 已完成执行结果收敛：CLI、`POST /pipeline-runs/execute` 和 `POST /tool-runs` 都从权威 Artifact 索引返回或展示 TaskResult；不再读取 `primary_output/files`。当时路径型字段仍由 `/pipeline/run` 暴露，该入口已在随后清理中删除。全量测试 `166 passed`。
+
+2026-07-24 已完成工具接口任务化：新增 `POST /tool-runs/tasks` 创建工具任务，桌面 `toolsApi` 改用任务创建、执行和 TaskResult 查询；确认没有活跃页面使用旧同步接口后，删除 `/tools/*` 五个路由及旧响应类型。全量测试 `168 passed`，HTTP 环境验证为 90 条路由，桌面构建通过。
+
+2026-07-24 已结束旧客户端兼容：删除 `/pipeline/run`、`/pipeline/tasks`、旧 PipelineRun 请求/响应结构，并取消 `/pipeline-runs` 对平铺请求的联合解析。HTTP 只接受 V1 嵌套 StageProfile。全量测试 `166 passed`，HTTP 环境验证为 88 条路由，桌面构建通过。
 
 ## 4. 回归基线
 

@@ -26,7 +26,7 @@ ASR、TTS、LLM 等能力统一按 Provider 类别扩展，不再分别维护重
 - [总体进度状态](roadmap/overall-progress-status.md)
 - [Phase 2 后段收尾计划](roadmap/phase-2-legacy-core-replacement.md)
 - [主链路重构检查清单](roadmap/mainline-refactor-checklist.md)
-- [重构恢复简报（2026-07-18）](roadmap/restart-briefing-2026-07-18.md)
+- [重构恢复简报（2026-07-18，历史快照）](archived/roadmap/restart-briefing-2026-07-18.md)
 
 路线图是阶段记录。日期较早的内容若与当前架构审计冲突，以较新的实测结果为准。
 
@@ -44,6 +44,7 @@ ASR、TTS、LLM 等能力统一按 Provider 类别扩展，不再分别维护重
 - [归档说明](archived/README.md)
 - [历史契约](archived/contracts/)
 - [历史领域文档](archived/domains/)
+- [历史路线图](archived/roadmap/)
 - [已执行计划](archived/plans/)
 - [历史排查日志](archived/logs/)
 

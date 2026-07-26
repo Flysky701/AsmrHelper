@@ -37,7 +37,7 @@ flowchart LR
 
 | 范围 | 当前已实现 | 尚未收束到目标 |
 | --- | --- | --- |
-| 桌面 Workbench | 使用 `POST /pipeline-runs` 一次提交统一 StageProfile，后端立即返回 `202` 并后台接管 | 旧平铺参数只保留兼容测试 |
+| 桌面 Workbench | 使用 `POST /pipeline-runs` 一次提交统一 StageProfile，后端立即返回 `202` 并后台接管 | 旧平铺 HTTP 参数已删除 |
 | Pipeline | `src/core/orchestration/pipeline/` 已是主执行器，执行已移出 API 请求线程 | 低并发场景保留进程内线程；按产品约定，重启不恢复未完成执行 |
 | 任务中心 | SQLite 保留终态任务与 Artifact 索引；桌面端按统一 TaskResult 读取主产物和预览能力，并通过 RuntimeEvent 展示实时诊断时间线 | 事件不跨重启持久化，历史事实仍以 TaskStatus 与 Artifact 为准 |
 | 字幕 | 新实现位于 `src/core/subtitles/`，旧延迟导入问题已修复并有回归测试 | 字幕资产版本与主链路结果结构仍需统一 |
@@ -53,7 +53,7 @@ flowchart LR
 | --- | --- | --- |
 | Python 语法 | `.venv\Scripts\python.exe -m compileall -q src` | 通过 |
 | Python 测试 | `.venv\Scripts\python.exe -m pytest -q` | `166 passed` |
-| HTTP 启动 | `scripts/verify_env.py` 创建 FastAPI app，发现 94 条路由；`/health` 返回 `ok` | 通过 |
+| HTTP 启动 | `scripts/verify_env.py` 创建 FastAPI app，发现 88 条路由；`/health` 返回 `ok` | 通过 |
 | 前端 | `npm ci`、`npm run build` | 通过 |
 | 桌面打包 | `npm run tauri -- build` | 通过，生成 `desktop/src-tauri/target/release/asmr-helper.exe` |
 | 桌面启动 | 运行已生成应用并连接本地后端 | 已验证 |
@@ -82,17 +82,17 @@ flowchart LR
 
 已完成历史任务持久化（2026-07-23）：终态 TaskSpec、TaskStatus 和 Artifact 索引保存到 SQLite；重启时删除未完成任务及其索引；桌面端重新载入历史，历史任务只读并要求从 Workbench 重新提交。全量测试 `139 passed`。
 
-已完成 StageProfile 收敛（2026-07-23）：Workbench 和 `/pipeline-runs` 使用嵌套 v1 请求；阶段开关、Provider、模型和参数不再分散到两套结构；旧平铺请求只在兼容分支保留。全量测试 `141 passed`。
+已完成 StageProfile 收敛（2026-07-23，2026-07-24 清理兼容）：Workbench 和 `/pipeline-runs` 使用嵌套 v1 请求；旧平铺 HTTP 请求及联合解析已删除。
 
 已完成 Provider 设置收敛（2026-07-23）：设置 API 与桌面端统一使用 Provider v1 包络；凭据读取改为布尔状态，空白写入不覆盖已有密钥；DeepSeek/OpenAI 测试执行真实轻量请求并返回稳定错误代码。全量测试 `148 passed`。
 
 已完成结果语义收敛（2026-07-24）：Task、Pipeline、Tool 结果共享统一 TaskResult；主产物使用 `primary_artifact_id`，Artifact 使用 `type/primary/preview`；TaskCenter 不再读取 `files/primary_output` 或按扩展名猜测。全量测试 `151 passed`。
 
-已完成 CapabilityOption、模型状态、RuntimeEvent、翻译核心与执行结果收敛（2026-07-24）：能力选项和模型可执行状态已稳定；任务生命周期与模型安装使用统一事件流；Translator、缓存、质量检测和术语能力已迁入 LLM 域；CLI、pipeline-run 和 tool-run 的新任务化执行路径都使用 TaskResult。全量测试 `166 passed`。
+已完成 CapabilityOption、模型状态、RuntimeEvent、翻译核心、执行结果与工具接口收敛（2026-07-24）：任务生命周期和模型操作使用统一事件流；翻译实现已归入 LLM 域；所有任务化执行路径使用 TaskResult；旧 Pipeline 与 Tool 同步路由已删除。全量测试 `166 passed`。
 
 | 优先级 | 问题 | 影响 | 建议完成标志 |
 | --- | --- | --- | --- |
-| P3 | 同步工具兼容路由仍存在 | 桌面工具页仍调用 `/tools/*` 并依赖路径型响应 | 工具页切换任务化 API 后删除兼容路由 |
+| P3 | 内部结果模型仍有路径字段 | PipelineResult/ArtifactSet 内部仍含 `primary_output/files` | 内部执行器逐步切换 ArtifactRecord |
 | P3 | Tauri 开发期文件监视曾受 Cargo 产物影响 | Windows 上开发启动可能报 `EBUSY` | 保持 Vite 忽略 `src-tauri/target`，并在开发文档中保留该约束 |
 
 ## 6. DOCS 审计
@@ -105,7 +105,7 @@ flowchart LR
 | 活跃边界 | [领域边界总览](../domains/README.md) | 只定义六组责任边界；ASR、TTS、LLM 作为 Provider 类别扩展，不再重复维护跨层契约 |
 | 活跃设计 | `docs/designs/desktop-ui-redesign-blueprint.md` | 用于 UI 实现方向；实现前应对照源码基线确认进度 |
 | 需持续收束 | [Phase 2 后段收尾计划](phase-2-legacy-core-replacement.md)、[总体进度状态](overall-progress-status.md)、[主链路检查清单](mainline-refactor-checklist.md) | 仍可用，但只作为执行清单；本轮已补充当前状态链接 |
-| 历史快照 | [重构恢复简报（2026-07-18）](restart-briefing-2026-07-18.md) | 记录恢复时的断点；其中旧测试限制已被 7 月 23 日验证结果取代 |
+| 历史快照 | [重构恢复简报（2026-07-18）](../archived/roadmap/restart-briefing-2026-07-18.md) | 已归档；仅记录恢复时断点，其中旧接口与测试限制均不代表当前状态 |
 | 需修订的设计 | `designs/model-asset-management-requirements.md` | 原“`uv sync --all-extras`”建议与当前互斥 optional extra 不再相容，已改为按安装档选择 |
 | 归档资料 | [归档说明](../archived/README.md) | 原 7 份契约和 12 份领域文档已归档；旧路径、旧命令和 `D:/WorkSpace/...` 链接不作为当前操作依据 |
 | 仓库根部历史草案 | `refactor.md` | 保留为历史架构思考，不再是现状对照或执行入口 |

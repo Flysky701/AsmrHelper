@@ -193,11 +193,13 @@ text_utils.py
 
 结果：`166 passed`。
 
-启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（94 routes）可用。
+启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（88 routes）可用。
 
 本地 ASR / 分离 / 混音依赖已移入 `audio` 可选组，避免其阻塞 API 与桌面端首次启动；当前环境已通过 `audio` 安装档安装 CPU PyTorch、Demucs、Faster-Whisper 和 imageio-ffmpeg，并下载 Faster-Whisper Base 权重。最小真实链路（本地音频 → ASR → export）已完成，任务状态为 `completed`。CUDA 仅作为后续性能加速选项，不再是首次本地执行的前置条件。
 
 桌面端已验证：使用 `E:\Dependencies\nodejs` 的 Node v24.18.0、npm v11.16.0 执行 `npm ci` 与 `npm run build` 通过；Rust 1.97.1/Cargo 1.97.1 已安装，`npm run tauri -- build` 通过并生成 `desktop/src-tauri/target/release/asmr-helper.exe`。该程序已启动，后端 `/health` 返回正常。
+
+2026-07-26 完成桌面 P0 可用性修复：API client 支持空响应并统一错误解析；Tauri 原生文件对话框权限已显式配置；文件选择器按音频、字幕、台本和目录分类；TaskCenter、SubtitleWorkshop 与 VoiceLab 的音频入口接入统一播放器；当前后端未支持的预设 CRUD 和音色修改按钮已明确禁用。验证结果为 `npm run build` 通过、Tauri release build 通过、`tests/test_http_api.py` 为 `38 passed`，release 程序已实机确认能够打开带“音频”过滤器的原生文件对话框。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
@@ -216,7 +218,7 @@ text_utils.py
 
 ## 6. 当前最高优先级缺口
 
-1. 将桌面工具页从 `/tools/*` 同步响应迁到任务创建、状态查询和 TaskResult 后，再删除相应兼容路由及路径型字段。
+1. 将内部 PipelineResult/ArtifactSet 中的路径型 `primary_output/files` 继续迁到 ArtifactRecord；公共 HTTP 已不再暴露。
 2. `core.translate` 当前只保留弃用转发；兼容期结束前不再向其中增加实现。
 3. 保持 RuntimeEvent 为进程内诊断时间线；只有出现明确的跨重启审计需求时再评估持久化。
 
