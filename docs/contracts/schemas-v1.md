@@ -44,7 +44,7 @@
   "stages": {
     "separate": {
       "enabled": true,
-      "provider": "htdemucs",
+      "provider": "demucs",
       "model": "htdemucs",
       "options": {},
       "provider_options": {}
@@ -106,7 +106,9 @@ API Key、Base URL、本机模型绝对路径、设备句柄和已初始化客�
 
 ### 3.1 TaskReadiness
 
-`POST /api/v1/runtime/check-task-readiness` 接收 `task_type` 和完整 `execution_profile`。服务端只检查已启用阶段，并按 capability、provider、model、运行依赖与凭据判断是否可入队。
+`POST /api/v1/runtime/check-task-readiness` 接收 `task_type`、完整 `execution_profile` 和可选 `input_path`。服务端只检查已启用阶段，并按 capability、provider、model、运行依赖、媒体工具、输入可解码性与凭据判断是否可入队。
+
+Workbench 的检查用于提前反馈；Pipeline 在创建任务前快速检查，并在 `prepare` 阶段再次执行同一检查。后端检查是所有调用入口的最终门禁。
 
 响应稳定字段：
 
@@ -118,7 +120,7 @@ API Key、Base URL、本机模型绝对路径、设备句柄和已初始化客�
 | `issues` | object[] | 结构化不可执行原因 |
 | `execution_profile` | object | 本次实际检查的 profile |
 
-单个 `issue` 包含 `stage`、`category`、`provider`、`model`、`code`、`requirement`、`message` 和 `action`。`action` 当前使用 `engines` 或 `settings`，供客户端引导用户处理；客户端不得仅凭错误文本猜测去向。
+单个 `issue` 包含 `stage`、`category`、`provider`、`model`、`code`、`requirement`、`message` 和 `action`。`action` 当前使用 `engines`、`settings` 或 `workbench`，供客户端引导用户处理；客户端不得仅凭错误文本猜测去向。
 
 ## 4. Task
 

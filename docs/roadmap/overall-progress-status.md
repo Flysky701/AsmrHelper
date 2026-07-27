@@ -1,6 +1,6 @@
 # AsmrHelper 总体进度状态
 
-日期：2026-07-26（源码结构基线：2026-05-27；最新验证：2026-07-26）
+日期：2026-07-28（源码结构基线：2026-05-27；最新验证：2026-07-28）
 
 ## 1. 事实源
 
@@ -26,6 +26,8 @@
 2026-07-26 的桌面 P0 修复补充：通用 API client 已支持 `204`/空响应并统一 API 地址与错误解析；Tauri 已补文件对话框 capability 和本地音频 asset protocol；字幕、台本、音频和目录选择已按用途分离；TaskCenter 通过 Artifact 文件接口播放产物，SubtitleWorkshop 与 VoiceLab 已接入统一播放器；未落地的预设 CRUD 和音色修改入口已明确禁用，不再表现为可操作按钮。桌面前端构建、Tauri release build 和 HTTP 契约测试均通过，release 程序已实机启动并确认原生音频文件对话框可用。
 
 2026-07-26 的桌面 P1 修复补充：Workbench 的 ASR、TTS、LLM 和分离选项改为读取 `/capabilities`，不再以客户端常量作为事实源；提交任务前调用 `/runtime/check-task-readiness`，后端按启用阶段校验 provider、model、模型可执行状态和云端凭据，并返回结构化问题与处理入口。能力目录同时删除了运行时未注册的 MDX，分离 provider 统一为真实运行时 `demucs`。默认主链路 readiness 已在当前环境验证通过。
+
+2026-07-28 的交叉检查修复补充：字幕翻译真实运行分支的 `Path` 未定义问题已修复；readiness 已成为 Pipeline 创建与 prepare 阶段的后端权威门禁，并覆盖 Edge TTS、实际 FFmpeg 可执行文件和输入媒体解码；DeepSeek 默认模型已统一到 LLM Registry。最新全量测试为 `180 passed`，桌面生产构建通过，Ruff 高风险 `F821/F601` 已清零。
 
 ## 3. 当前已完成
 
@@ -105,7 +107,6 @@ src.core.script_to_subtitle
 
 - 根据 CapabilityOption 动态呈现 Provider 私有参数，先覆盖当前主链路实际需要的字段。
 - 将 TTS 音色列表和 voice profile 与所选 TTS provider 联动，避免音色与引擎不匹配。
-- 为 Edge TTS 等无模型资产的 provider 增加明确的运行依赖检查，使 readiness 不只覆盖模型目录和 API 凭据。
 - 完成真实音频的多 Provider 验收，再进入兼容层瘦身。
 
 ## 7. 一句话结论

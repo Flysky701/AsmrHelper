@@ -179,7 +179,7 @@ text_utils.py
 
 ## 4. 当前验证结果
 
-2026-07-23 已验证：
+2026-07-28 最新验证：
 
 ```text
 .venv\Scripts\python.exe -m compileall -q src
@@ -191,7 +191,7 @@ text_utils.py
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-结果：`166 passed`。
+结果：`180 passed`。
 
 启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（88 routes）可用。
 
@@ -201,7 +201,9 @@ text_utils.py
 
 2026-07-26 完成桌面 P0 可用性修复：API client 支持空响应并统一错误解析；Tauri 原生文件对话框权限已显式配置；文件选择器按音频、字幕、台本和目录分类；TaskCenter、SubtitleWorkshop 与 VoiceLab 的音频入口接入统一播放器；当前后端未支持的预设 CRUD 和音色修改按钮已明确禁用。验证结果为 `npm run build` 通过、Tauri release build 通过、`tests/test_http_api.py` 为 `38 passed`，release 程序已实机确认能够打开带“音频”过滤器的原生文件对话框。
 
-2026-07-26 完成桌面 P1 能力与运行条件接入：Workbench 从 `/capabilities` 加载 ASR、TTS、LLM、separator 的 provider/model；`/runtime/check-task-readiness` 不再只检查工作目录，而是按启用阶段验证 capability、支持模型、模型可执行状态和 provider 凭据，响应包含结构化 `issues`。客户端在创建本地任务和提交后端任务前执行该检查，并按问题类型引导到设置页或引擎与资源页。当前默认组合 `demucs + faster-whisper-base + DeepSeek + Edge TTS` readiness 通过；相关后端测试 `70 passed`，前端生产构建与 Ruff 检查通过。
+2026-07-26 完成桌面 P1 能力与运行条件接入：Workbench 从 `/capabilities` 加载 ASR、TTS、LLM、separator 的 provider/model；`/runtime/check-task-readiness` 不再只检查工作目录，而是按启用阶段验证 capability、支持模型、模型可执行状态和 provider 凭据，响应包含结构化 `issues`。客户端在创建本地任务和提交后端任务前执行该检查，并按问题类型引导到设置页或引擎与资源页。当前默认组合为 `demucs + faster-whisper-base + DeepSeek + Edge TTS`。
+
+2026-07-28 完成交叉检查修复：字幕翻译和双语字幕产物登记的 `Path` 运行错误已修复并覆盖真实分支；Pipeline 在任务创建和 `prepare` 阶段执行后端权威 readiness；默认分离组合统一为 `provider=demucs, model=htdemucs`；readiness 已覆盖 Edge TTS Python 依赖、实际 FFmpeg 可执行文件和逐文件媒体解码探测；DeepSeek 默认模型以 LLM Registry 为唯一运行时事实源，当前为 `deepseek-chat`。全量测试 `180 passed`，桌面生产构建通过，Ruff 的 `F821` 和 `F601` 已清零。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
@@ -221,8 +223,8 @@ text_utils.py
 ## 6. 当前最高优先级缺口
 
 1. 使用 CapabilityOption 驱动当前主链路需要的 Provider 私有参数，并联动 TTS 音色/voice profile。
-2. 为没有模型资产记录的 provider 补运行依赖检查，尤其是 Edge TTS。
-3. 对 ASR、翻译、TTS、混音执行真实音频验收；通过后再继续兼容层瘦身。
+2. 对 ASR、翻译、TTS、混音执行真实音频验收；通过后再继续兼容层瘦身。
+3. Ruff 剩余 `107` 项以无用导入、历史脚本导入顺序和可读性问题为主，按功能域分批清理，不进行无边界自动修复。
 
 ## 7. DOCS 维护规则
 

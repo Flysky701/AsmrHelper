@@ -163,7 +163,7 @@ Provider 测试请求与响应：
 
 - TTS：`edge`
 - ASR：`faster_whisper`
-- 分离：`htdemucs`、`mdx`
+- 分离：Provider 为 `demucs`，模型为 `htdemucs`
 - 翻译：`deepseek`
 - 媒体处理：`ffmpeg`
 
