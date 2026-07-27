@@ -750,6 +750,64 @@ class TestSubtitleRoutes:
         data = resp.json()
         assert data["segment_count"] == 1
 
+    def test_translate_subtitle_registers_artifact(self, client, tmp_path):
+        from src.app.dto import SubtitleTranslationResult
+
+        output_path = str(tmp_path / "translated.vtt")
+        mock_svc = MagicMock()
+        mock_svc.translate_subtitle.return_value = SubtitleTranslationResult(
+            input_path=str(tmp_path / "source.srt"),
+            output_path=output_path,
+            total_segments=2,
+            provider="deepseek",
+            source_lang="ja",
+            target_lang="zh",
+        )
+        mock_artifacts = MagicMock()
+        client.app.dependency_overrides[dependencies.subtitle_service] = _mock_dep(mock_svc)
+        client.app.dependency_overrides[dependencies.artifact_service] = _mock_dep(mock_artifacts)
+
+        resp = client.post(
+            "/api/v1/subtitles/translate",
+            json={
+                "input_path": str(tmp_path / "source.srt"),
+                "output_path": output_path,
+                "task_id": "task-translate",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["total_segments"] == 2
+        assert mock_artifacts.register_artifact.call_args.kwargs["artifact_type"] == "subtitle.vtt"
+
+    def test_bilingualize_subtitle_registers_artifact(self, client, tmp_path):
+        output_path = str(tmp_path / "bilingual.srt")
+        mock_svc = MagicMock()
+        mock_svc.bilingualize_segments.return_value = output_path
+        mock_artifacts = MagicMock()
+        client.app.dependency_overrides[dependencies.subtitle_service] = _mock_dep(mock_svc)
+        client.app.dependency_overrides[dependencies.artifact_service] = _mock_dep(mock_artifacts)
+
+        resp = client.post(
+            "/api/v1/subtitles/bilingualize",
+            json={
+                "segments": [
+                    {
+                        "start": 0,
+                        "end": 1.25,
+                        "text": "hello",
+                        "translation": "你好",
+                    }
+                ],
+                "output_path": output_path,
+                "task_id": "task-bilingual",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["segment_count"] == 1
+        assert mock_artifacts.register_artifact.call_args.kwargs["artifact_type"] == "subtitle.srt"
+
 
 # ─── Resources ────────────────────────────────────────────────────────
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends
 
 from src.api.http.dependencies import artifact_service, script_subtitle_service, subtitle_service

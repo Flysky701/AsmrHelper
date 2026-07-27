@@ -647,6 +647,38 @@ class TestSubtitleService:
         assert "hello" in exported
         assert "-->" in exported
 
+    def test_translate_subtitle_executes_real_path_branch(self, tmp_path, monkeypatch):
+        from src.app.services.subtitle_service import SubtitleService
+
+        subtitle_file = tmp_path / "source.srt"
+        subtitle_file.write_text(
+            "1\n00:00:00,000 --> 00:00:01,250\nhello\n",
+            encoding="utf-8",
+        )
+
+        class FakeLlmRuntime:
+            def translate_texts(self, **kwargs):
+                assert kwargs["texts"] == ["hello"]
+                return ["你好"]
+
+        monkeypatch.setattr(
+            "src.core.engines.llm.LlmOperationRuntime",
+            FakeLlmRuntime,
+        )
+
+        result = SubtitleService().translate_subtitle(
+            input_path=str(subtitle_file),
+            provider="deepseek",
+            source_lang="en",
+            target_lang="zh",
+        )
+
+        output = Path(result.output_path)
+        assert output.name == "source_zh.srt"
+        assert output.exists()
+        assert "你好" in output.read_text(encoding="utf-8")
+        assert result.total_segments == 1
+
 
 class TestPipelineServiceImport:
     """Test PipelineService can be imported and constructed."""
