@@ -183,6 +183,29 @@ class TestPipelineRunRoutes:
         resp = client.post("/api/v1/pipeline-runs", json={})
         assert resp.status_code == 422
 
+    def test_default_pipeline_profile_uses_demucs_provider(self, client):
+        mock_svc = MagicMock()
+        mock_svc.submit_task.return_value = TaskStatus(
+            task_id="pipeline-defaults",
+            task_type="pipeline",
+            state="pending",
+            progress=0.0,
+            created_at="2026-07-28T10:00:00+00:00",
+        )
+        client.app.dependency_overrides[
+            dependencies.pipeline_task_orchestrator
+        ] = _mock_dep(mock_svc)
+
+        resp = client.post(
+            "/api/v1/pipeline-runs",
+            json={"input": {"path": "/test/input.wav"}},
+        )
+
+        assert resp.status_code == 202
+        profile = mock_svc.submit_task.call_args.args[0].execution_profile
+        assert profile["stages"]["separate"]["provider"] == "demucs"
+        assert profile["stages"]["separate"]["model"] == "htdemucs"
+
     def test_execute_pipeline_run_returns_canonical_task_result(self, client):
         from src.core.artifacts import ArtifactRecord
 

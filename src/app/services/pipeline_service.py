@@ -15,7 +15,7 @@ from src.core.orchestration import (
 )
 
 from ..dto import ArtifactSet, PipelineRequest, PipelineResult
-from ..errors import AppExecutionError, AppValidationError
+from ..errors import AppExecutionError, AppValidationError, ResourceValidationError
 from .artifact_service import ArtifactService, get_artifact_service
 from .input_catalog_service import InputCatalogService, get_input_catalog_service
 from .resource_service import ResourceService, get_resource_service
@@ -133,6 +133,7 @@ class PipelineService:
         )
 
         try:
+            self._assert_task_ready(task_spec.execution_profile)
             workspace = self._resource_service.ensure_workspace()
             output_dir = session.resolved_output_dir or str(workspace["output_dir"])
             self._task_service.update_progress(
@@ -230,7 +231,10 @@ class PipelineService:
                     stage=current_stage,
                     error=task_error,
                 )
-            if isinstance(exc, (AppValidationError, AppExecutionError)):
+            if isinstance(
+                exc,
+                (AppValidationError, AppExecutionError, ResourceValidationError),
+            ):
                 raise
             raise AppExecutionError(str(exc)) from exc
 
@@ -288,8 +292,31 @@ class PipelineService:
         if request.target_lang not in SUPPORTED_LANGUAGE_CODES:
             raise AppValidationError(f"unsupported target_lang: {request.target_lang}")
 
+        self._assert_task_ready(request.execution_profile)
         task_spec = self.create_pipeline_task_spec(request, task_source=task_source)
         return self._task_service.get_task(task_spec.task_id), task_spec
+
+    def _assert_task_ready(self, execution_profile: dict[str, Any]) -> None:
+        """Apply the backend-authoritative readiness gate for V1 pipeline profiles."""
+        if execution_profile.get("version") != 1:
+            return
+        readiness = self._resource_service.check_task_readiness(
+            task_type="pipeline",
+            execution_profile=execution_profile,
+        )
+        if readiness.get("ready") is not False:
+            return
+        issues = list(readiness.get("issues") or [])
+        details = "; ".join(
+            f"{issue.get('stage', 'prepare')}: "
+            f"{issue.get('message', issue.get('requirement', 'not ready'))}"
+            for issue in issues
+        )
+        if not details:
+            details = ", ".join(readiness.get("missing_requirements") or [])
+        raise ResourceValidationError(
+            f"pipeline readiness check failed: {details or 'pipeline is not ready'}"
+        )
 
     def list_presets(self) -> list[dict[str, Any]]:
         """Load presets from config/presets.yaml."""

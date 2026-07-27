@@ -768,6 +768,75 @@ class TestPipelineServiceCallbacks:
         )
         assert result.mix_path == "/tmp/output/input_mix.wav"
 
+    def test_prepare_rechecks_v1_readiness_and_fails_task(self):
+        from src.app.errors import ResourceValidationError
+
+        service, executor, task_service, task_spec = self._make_service()
+        task_spec.execution_profile = {
+            "version": 1,
+            "stages": {
+                "asr": {
+                    "enabled": True,
+                    "provider": "faster_whisper",
+                    "model": "faster-whisper-base",
+                }
+            },
+        }
+        service._resource_service.check_task_readiness.return_value = {
+            "ready": False,
+            "missing_requirements": ["faster_whisper"],
+            "issues": [
+                {
+                    "stage": "asr",
+                    "message": "Python dependency is unavailable: faster_whisper",
+                }
+            ],
+        }
+
+        with pytest.raises(ResourceValidationError, match="pipeline readiness check failed"):
+            service.run_pipeline_task_spec(task_spec)
+
+        executor.execute.assert_not_called()
+        failure = task_service.fail_task.call_args.kwargs
+        assert failure["stage"] == "prepare"
+        assert "faster_whisper" in failure["detail"]
+
+    def test_create_pipeline_task_rejects_unready_v1_profile(self):
+        from src.app.dto import PipelineRequest
+        from src.app.errors import ResourceValidationError
+        from src.app.services.pipeline_service import PipelineService
+
+        resource_service = MagicMock()
+        resource_service.check_task_readiness.return_value = {
+            "ready": False,
+            "missing_requirements": ["api.deepseek_api_key"],
+            "issues": [
+                {
+                    "stage": "translate",
+                    "message": "Required provider credential is not configured",
+                }
+            ],
+        }
+        input_catalog_service = MagicMock()
+        service = PipelineService(
+            resource_service=resource_service,
+            task_service=MagicMock(),
+            workspace_service=MagicMock(),
+            input_catalog_service=input_catalog_service,
+            session_service=MagicMock(),
+            artifact_service=MagicMock(),
+            executor=MagicMock(),
+        )
+        request = PipelineRequest(
+            input_path="input.wav",
+            execution_profile={"version": 1, "stages": {}},
+        )
+
+        with pytest.raises(ResourceValidationError, match="translate"):
+            service.create_pipeline_task(request)
+
+        input_catalog_service.inspect_paths.assert_not_called()
+
     def test_cancellation_marks_task_cancelled(self):
         from src.app.errors import AppExecutionError
 

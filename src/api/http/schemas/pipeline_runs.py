@@ -45,7 +45,7 @@ class PipelineStagesRequest(BaseModel):
 
     separate: StageProfileRequest = Field(
         default_factory=lambda: StageProfileRequest(
-            provider="htdemucs",
+            provider="demucs",
             model="htdemucs",
         )
     )
