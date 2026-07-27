@@ -6,7 +6,9 @@ interface WorkbenchParams {
   targetLang: string
   ttsEngine: string
   ttsVoice: string
+  vocalProvider: string
   vocalModel: string
+  asrProvider: string
   asrModel: string
   translateProvider: string
   ttsSpeed: number
@@ -23,8 +25,10 @@ const DEFAULT_PARAMS: WorkbenchParams = {
   targetLang: 'zh',
   ttsEngine: 'edge',
   ttsVoice: 'zh-CN-XiaoxiaoNeural',
+  vocalProvider: 'demucs',
   vocalModel: 'htdemucs',
-  asrModel: 'base',
+  asrProvider: 'faster_whisper',
+  asrModel: 'faster-whisper-base',
   translateProvider: 'deepseek',
   ttsSpeed: 1.0,
   originalVolume: 0.85,

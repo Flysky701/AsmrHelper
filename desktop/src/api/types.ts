@@ -428,6 +428,50 @@ export interface ToolTaskCreateRequest {
   execution_profile?: Record<string, unknown>
 }
 
+export interface CapabilityOptionResponse {
+  name: string
+  type: string
+  required: boolean
+  default: unknown
+  description: string
+  enum: unknown[]
+  min: number | null
+  max: number | null
+  advanced: boolean
+  secret: boolean
+}
+
+export interface CapabilityDescriptorResponse {
+  category: 'asr' | 'tts' | 'llm' | 'separator' | string
+  provider: string
+  display_name: string
+  kind: 'local' | 'cloud' | string
+  supported_models: string[]
+  default_model: string | null
+  common_option_schema: CapabilityOptionResponse[]
+  provider_option_schema: CapabilityOptionResponse[]
+  supports: Record<string, unknown>
+}
+
+export interface TaskReadinessIssueResponse {
+  stage: string
+  category: string
+  provider: string
+  model: string | null
+  code: string
+  requirement: string
+  message: string
+  action: 'engines' | 'settings' | string
+}
+
+export interface TaskReadinessResponse {
+  task_type: string
+  ready: boolean
+  missing_requirements: string[]
+  issues: TaskReadinessIssueResponse[]
+  execution_profile: Record<string, unknown>
+}
+
 export interface ToolDescriptorResponse {
   task_type: string
   name: string

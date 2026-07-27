@@ -520,6 +520,90 @@ class TestResourceService:
         assert statuses["project_root"].available is True
         assert statuses["output_dir"].available is True
 
+    def test_pipeline_readiness_reports_selected_model_runtime_issue(self, tmp_path):
+        from src.app.dto import ModelStatusIssueView, ModelStatusView, ModelSummary
+        from src.app.services.resource_service import ResourceService
+
+        descriptors = MagicMock()
+        descriptors.get_descriptor.return_value = {
+            "supported_models": ["faster-whisper-base"],
+            "default_model": "faster-whisper-base",
+        }
+        models = MagicMock()
+        models.list_models.return_value = [
+            ModelSummary(
+                model_id="faster-whisper-base",
+                kind="local",
+                category="asr",
+                backend="faster_whisper",
+                display_name="faster-whisper base",
+            )
+        ]
+        models.get_model_status.return_value = ModelStatusView(
+            model_id="faster-whisper-base",
+            status="installed",
+            detail="runtime unavailable",
+            executable=False,
+            issues=[
+                ModelStatusIssueView(
+                    code="PYTHON_DEPENDENCY_MISSING",
+                    requirement="faster_whisper",
+                    message="Python dependency is unavailable: faster_whisper",
+                )
+            ],
+        )
+        service = ResourceService(
+            project_root=tmp_path,
+            descriptor_service=descriptors,
+            model_service=models,
+        )
+
+        result = service.check_task_readiness(
+            task_type="pipeline",
+            execution_profile={
+                "stages": {
+                    "asr": {
+                        "enabled": True,
+                        "provider": "faster_whisper",
+                        "model": "faster-whisper-base",
+                    }
+                }
+            },
+        )
+
+        assert result["ready"] is False
+        assert result["missing_requirements"] == ["faster_whisper"]
+        assert result["issues"][0]["stage"] == "asr"
+        assert result["issues"][0]["action"] == "engines"
+
+    def test_pipeline_readiness_ignores_disabled_stage(self, tmp_path):
+        from src.app.services.resource_service import ResourceService
+
+        descriptors = MagicMock()
+        models = MagicMock()
+        models.list_models.return_value = []
+        service = ResourceService(
+            project_root=tmp_path,
+            descriptor_service=descriptors,
+            model_service=models,
+        )
+
+        result = service.check_task_readiness(
+            task_type="pipeline",
+            execution_profile={
+                "stages": {
+                    "translate": {
+                        "enabled": False,
+                        "provider": "missing-provider",
+                        "model": None,
+                    }
+                }
+            },
+        )
+
+        assert result["ready"] is True
+        descriptors.get_descriptor.assert_not_called()
+
 
 class TestSubtitleService:
     """Test SubtitleService document operations."""

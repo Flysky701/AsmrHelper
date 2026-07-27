@@ -201,6 +201,8 @@ text_utils.py
 
 2026-07-26 完成桌面 P0 可用性修复：API client 支持空响应并统一错误解析；Tauri 原生文件对话框权限已显式配置；文件选择器按音频、字幕、台本和目录分类；TaskCenter、SubtitleWorkshop 与 VoiceLab 的音频入口接入统一播放器；当前后端未支持的预设 CRUD 和音色修改按钮已明确禁用。验证结果为 `npm run build` 通过、Tauri release build 通过、`tests/test_http_api.py` 为 `38 passed`，release 程序已实机确认能够打开带“音频”过滤器的原生文件对话框。
 
+2026-07-26 完成桌面 P1 能力与运行条件接入：Workbench 从 `/capabilities` 加载 ASR、TTS、LLM、separator 的 provider/model；`/runtime/check-task-readiness` 不再只检查工作目录，而是按启用阶段验证 capability、支持模型、模型可执行状态和 provider 凭据，响应包含结构化 `issues`。客户端在创建本地任务和提交后端任务前执行该检查，并按问题类型引导到设置页或引擎与资源页。当前默认组合 `demucs + faster-whisper-base + DeepSeek + Edge TTS` readiness 通过；相关后端测试 `70 passed`，前端生产构建与 Ruff 检查通过。
+
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
 说明：
@@ -218,9 +220,9 @@ text_utils.py
 
 ## 6. 当前最高优先级缺口
 
-1. 将内部 PipelineResult/ArtifactSet 中的路径型 `primary_output/files` 继续迁到 ArtifactRecord；公共 HTTP 已不再暴露。
-2. `core.translate` 当前只保留弃用转发；兼容期结束前不再向其中增加实现。
-3. 保持 RuntimeEvent 为进程内诊断时间线；只有出现明确的跨重启审计需求时再评估持久化。
+1. 使用 CapabilityOption 驱动当前主链路需要的 Provider 私有参数，并联动 TTS 音色/voice profile。
+2. 为没有模型资产记录的 provider 补运行依赖检查，尤其是 Edge TTS。
+3. 对 ASR、翻译、TTS、混音执行真实音频验收；通过后再继续兼容层瘦身。
 
 ## 7. DOCS 维护规则
 

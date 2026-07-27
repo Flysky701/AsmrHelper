@@ -90,8 +90,12 @@ class CapabilityDescriptorService:
                 "provider": "qwen3",
                 "display_name": "Qwen3 TTS",
                 "kind": "local",
-                "supported_models": ["default"],
-                "default_model": "default",
+                "supported_models": [
+                    "qwen3-custom-voice",
+                    "qwen3-voice-design",
+                    "qwen3-base",
+                ],
+                "default_model": "qwen3-custom-voice",
                 "common_option_schema": [
                     _option("voice", "string", required=False, default="Vivian", description="Preset voice or speaker"),
                     _option("speed", "number", required=False, default=1.0, description="Synthesis speed"),
@@ -113,8 +117,8 @@ class CapabilityDescriptorService:
                 "provider": "kokoro",
                 "display_name": "Kokoro TTS",
                 "kind": "local",
-                "supported_models": ["default"],
-                "default_model": "default",
+                "supported_models": ["kokoro-82m"],
+                "default_model": "kokoro-82m",
                 "common_option_schema": [
                     _option("voice", "string", required=False, default="af_heart", description="Kokoro voice id"),
                     _option("speed", "number", required=False, default=1.0, description="Synthesis speed"),
@@ -138,8 +142,8 @@ class CapabilityDescriptorService:
                 "provider": "voxcpm2",
                 "display_name": "VoxCPM2",
                 "kind": "local",
-                "supported_models": ["default"],
-                "default_model": "default",
+                "supported_models": ["voxcpm2"],
+                "default_model": "voxcpm2",
                 "common_option_schema": [
                     _option("voice", "string", required=False, default="default", description="Voice mode: default / voice_design / voice_clone"),
                 ],
@@ -355,8 +359,8 @@ class CapabilityDescriptorService:
             },
             {
                 "category": "separator",
-                "provider": "htdemucs",
-                "display_name": "HTDemucs",
+                "provider": "demucs",
+                "display_name": "Demucs",
                 "kind": "local",
                 "supported_models": ["htdemucs", "htdemucs_ft", "htdemucs_6s"],
                 "default_model": "htdemucs",
@@ -364,19 +368,6 @@ class CapabilityDescriptorService:
                 "provider_option_schema": [],
                 "supports": {
                     "multi_stem": True,
-                },
-            },
-            {
-                "category": "separator",
-                "provider": "mdx",
-                "display_name": "MDX",
-                "kind": "local",
-                "supported_models": ["mdx", "mdx_extra"],
-                "default_model": "mdx",
-                "common_option_schema": [],
-                "provider_option_schema": [],
-                "supports": {
-                    "multi_stem": False,
                 },
             },
         ]

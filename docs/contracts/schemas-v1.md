@@ -104,6 +104,22 @@
 
 API Key、Base URL、本机模型绝对路径、设备句柄和已初始化客户端不属于 `ExecutionProfile`。这些值由设置和运行前解析产生。
 
+### 3.1 TaskReadiness
+
+`POST /api/v1/runtime/check-task-readiness` 接收 `task_type` 和完整 `execution_profile`。服务端只检查已启用阶段，并按 capability、provider、model、运行依赖与凭据判断是否可入队。
+
+响应稳定字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `task_type` | string | 被检查的任务类型 |
+| `ready` | boolean | 当前配置是否可执行 |
+| `missing_requirements` | string[] | 便于摘要展示的去重要求 |
+| `issues` | object[] | 结构化不可执行原因 |
+| `execution_profile` | object | 本次实际检查的 profile |
+
+单个 `issue` 包含 `stage`、`category`、`provider`、`model`、`code`、`requirement`、`message` 和 `action`。`action` 当前使用 `engines` 或 `settings`，供客户端引导用户处理；客户端不得仅凭错误文本猜测去向。
+
 ## 4. Task
 
 ```json

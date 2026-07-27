@@ -1,6 +1,6 @@
 # AsmrHelper 总体进度状态
 
-日期：2026-07-23（源码结构基线：2026-05-27；环境与启动验证：2026-07-23）
+日期：2026-07-26（源码结构基线：2026-05-27；最新验证：2026-07-26）
 
 ## 1. 事实源
 
@@ -25,6 +25,8 @@
 
 2026-07-26 的桌面 P0 修复补充：通用 API client 已支持 `204`/空响应并统一 API 地址与错误解析；Tauri 已补文件对话框 capability 和本地音频 asset protocol；字幕、台本、音频和目录选择已按用途分离；TaskCenter 通过 Artifact 文件接口播放产物，SubtitleWorkshop 与 VoiceLab 已接入统一播放器；未落地的预设 CRUD 和音色修改入口已明确禁用，不再表现为可操作按钮。桌面前端构建、Tauri release build 和 HTTP 契约测试均通过，release 程序已实机启动并确认原生音频文件对话框可用。
 
+2026-07-26 的桌面 P1 修复补充：Workbench 的 ASR、TTS、LLM 和分离选项改为读取 `/capabilities`，不再以客户端常量作为事实源；提交任务前调用 `/runtime/check-task-readiness`，后端按启用阶段校验 provider、model、模型可执行状态和云端凭据，并返回结构化问题与处理入口。能力目录同时删除了运行时未注册的 MDX，分离 provider 统一为真实运行时 `demucs`。默认主链路 readiness 已在当前环境验证通过。
+
 ## 3. 当前已完成
 
 - `src/gui/` 已移除，不再作为当前产品或文档基线。
@@ -43,6 +45,7 @@
 - CapabilityOption 已补齐稳定约束；模型资源状态已区分“已安装”和“当前可执行”。
 - RuntimeEvent 已按任务生成单调递增序列；SSE、TaskCenter 日志和模型安装增量消息使用同一事件结构。
 - 桌面 P0 可用性缺口已收束：文件类型选择、空响应、基础音频预览、关键错误反馈和无效按钮均已处理。
+- 桌面 P1 已接入后端能力目录与阶段级 readiness；不可执行配置会在入队前被拦截，并引导至设置或引擎资源页。
 
 ## 4. 当前仍缺
 
@@ -87,7 +90,7 @@ src.core.script_to_subtitle
 | 2 单任务 pipeline 编排执行器 | 主执行器与桌面正式入口已迁移，旧 execution profile 仅在兼容层保留 |
 | 3 统一任务生成与任务队列 | 终态历史已持久化；低并发场景继续使用进程内线程，不建设独立调度器 |
 | 4 单步工具执行体系 | 已接入主干，继续收束兼容 DTO |
-| 5 模型与运行资源管理 | 已落地并继续增强安装链路 |
+| 5 模型与运行资源管理 | 已落地；阶段级 readiness 已接入 Workbench，安装链路继续增强 |
 | 6 配置与提供方接入管理 | Provider v1 设置、凭据状态、草稿验证和真实连通性测试已落地 |
 | 7 字幕与文本资产管理 | 已迁入 `core/subtitles`，残留旧引用已修复 |
 | 8 结果资产与产物索引管理 | TaskResult 与 Artifact 公共结构已统一并持久化 |
@@ -98,10 +101,12 @@ src.core.script_to_subtitle
 
 ## 6. 推荐下一步
 
-### P3：兼容层瘦身
+### P1.5：参数与能力细化
 
-- 收薄 `pipeline_service / audio_tool_service / script_subtitle_service / tts_service / asr_service`。
-- 保留兼容路由，但不让兼容字段继续主导新契约。
+- 根据 CapabilityOption 动态呈现 Provider 私有参数，先覆盖当前主链路实际需要的字段。
+- 将 TTS 音色列表和 voice profile 与所选 TTS provider 联动，避免音色与引擎不匹配。
+- 为 Edge TTS 等无模型资产的 provider 增加明确的运行依赖检查，使 readiness 不只覆盖模型目录和 API 凭据。
+- 完成真实音频的多 Provider 验收，再进入兼容层瘦身。
 
 ## 7. 一句话结论
 
@@ -109,4 +114,4 @@ src.core.script_to_subtitle
 
 当前核心任务是：
 
-> 在已经统一并可诊断的真实主链路上，继续压薄兼容层和旧服务依赖。
+> 在能力目录和入队前检查已经打通的基础上，继续补齐动态参数与真实音频验收。

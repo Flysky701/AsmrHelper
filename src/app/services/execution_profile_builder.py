@@ -81,8 +81,7 @@ class ExecutionProfileBuilder:
         if category == "asr":
             return "faster_whisper"
         if category == "separator":
-            vocal_model = settings.get("processing", {}).get("vocal_model", "htdemucs")
-            return "mdx" if str(vocal_model).startswith("mdx") else "htdemucs"
+            return "demucs"
         raise AppValidationError(f"unsupported execution profile category: {category}")
 
     def _default_model(

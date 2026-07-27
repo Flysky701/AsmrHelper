@@ -1,6 +1,15 @@
 import { api } from './client'
-import type { ResourceStatusListResponse } from './types'
+import type {
+  PipelineExecutionProfileRequest,
+  ResourceStatusListResponse,
+  TaskReadinessResponse,
+} from './types'
 
 export const resourcesApi = {
   getStatus: () => api.get<ResourceStatusListResponse>('/resources/status'),
+  checkTaskReadiness: (taskType: string, executionProfile: PipelineExecutionProfileRequest) =>
+    api.post<TaskReadinessResponse>('/runtime/check-task-readiness', {
+      task_type: taskType,
+      execution_profile: executionProfile,
+    }),
 }

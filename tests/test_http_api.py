@@ -769,6 +769,38 @@ class TestResourceRoutes:
         data = resp.json()
         assert len(data["resources"]) == 3
 
+    def test_task_readiness_exposes_structured_issues(self, client):
+        mock_svc = MagicMock()
+        mock_svc.check_task_readiness.return_value = {
+            "task_type": "pipeline",
+            "ready": False,
+            "missing_requirements": ["DEEPSEEK_API_KEY"],
+            "issues": [
+                {
+                    "stage": "translate",
+                    "category": "llm",
+                    "provider": "deepseek",
+                    "model": "deepseek",
+                    "code": "CREDENTIAL_MISSING",
+                    "requirement": "DEEPSEEK_API_KEY",
+                    "message": "Required provider credential is not configured",
+                    "action": "settings",
+                }
+            ],
+            "execution_profile": {"stages": {}},
+        }
+        client.app.dependency_overrides[dependencies.resource_service] = _mock_dep(mock_svc)
+
+        resp = client.post(
+            "/api/v1/runtime/check-task-readiness",
+            json={"task_type": "pipeline", "execution_profile": {"stages": {}}},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ready"] is False
+        assert data["issues"][0]["action"] == "settings"
+
 
 # ─── Tasks ────────────────────────────────────────────────────────────
 

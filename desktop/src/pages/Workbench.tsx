@@ -2,7 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties, DragEvent, ReactNode } from 'react'
 
 import { pipelineApi } from '@/api/pipeline'
-import type { PipelineRunRequest } from '@/api/types'
+import { capabilitiesApi } from '@/api/engines'
+import { resourcesApi } from '@/api/resources'
+import type {
+  CapabilityDescriptorResponse,
+  PipelineExecutionProfileRequest,
+  PipelineRunRequest,
+  TaskReadinessIssueResponse,
+} from '@/api/types'
 import { useFileSelector } from '@/hooks/useFileSelector'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
 import { useLogStore } from '@/stores/logStore'
@@ -400,6 +407,10 @@ export default function Workbench() {
   const { selectFiles } = useFileSelector()
 
   const [dragOver, setDragOver] = useState(false)
+  const [capabilities, setCapabilities] = useState<CapabilityDescriptorResponse[]>([])
+  const [capabilityError, setCapabilityError] = useState('')
+  const [readinessIssues, setReadinessIssues] = useState<TaskReadinessIssueResponse[]>([])
+  const [checkingReadiness, setCheckingReadiness] = useState(false)
 
   useEffect(() => {
     pipelineApi
@@ -412,6 +423,19 @@ export default function Workbench() {
       })
       .catch(() => undefined)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    capabilitiesApi
+      .list()
+      .then((items) => {
+        setCapabilities(items)
+        setCapabilityError('')
+      })
+      .catch((error) => {
+        setCapabilities([])
+        setCapabilityError(`能力目录加载失败：${error instanceof Error ? error.message : String(error)}`)
+      })
+  }, [])
 
   const runningCount = tasks.filter((task) => task.status === 'running').length
   const pendingCount = tasks.filter((task) => task.status === 'pending').length
@@ -455,87 +479,110 @@ export default function Workbench() {
   const handleExecute = async () => {
     if (selectedFiles.length === 0) return
 
+    const executionProfile: PipelineExecutionProfileRequest = {
+      version: 1,
+      source_lang: params.sourceLang,
+      target_lang: params.targetLang,
+      skip_existing: params.skipExisting,
+      stages: {
+        separate: {
+          enabled: params.useVocalSeparator,
+          provider: params.vocalProvider,
+          model: params.vocalModel,
+          options: { mode: 'vocals' },
+          provider_options: {},
+        },
+        asr: {
+          enabled: true,
+          provider: params.asrProvider,
+          model: params.asrModel,
+          options: {
+            language: params.sourceLang,
+            output_format: 'segments',
+            timestamps: true,
+          },
+          provider_options: params.asrProvider === 'faster_whisper' ? { disable_vad: true } : {},
+        },
+        translate: {
+          enabled: params.sourceLang !== params.targetLang,
+          provider: params.translateProvider,
+          model: null,
+          options: {
+            source_lang: params.sourceLang,
+            target_lang: params.targetLang,
+            preserve_timestamps: true,
+          },
+          provider_options: {},
+        },
+        tts: {
+          enabled: true,
+          provider: params.ttsEngine,
+          model: null,
+          options: {
+            voice: params.ttsVoice,
+            voice_profile_id: params.voiceProfileId,
+            speed: params.ttsSpeed,
+            language: params.targetLang,
+          },
+          provider_options: {},
+        },
+        mix: {
+          enabled: true,
+          provider: 'ffmpeg',
+          model: null,
+          options: {
+            original_volume: params.originalVolume,
+            tts_volume_ratio: params.ttsVolumeRatio,
+            tts_delay_ms: params.ttsDelay * 1000,
+            normalize: true,
+          },
+          provider_options: {},
+        },
+        export: {
+          enabled: true,
+          provider: 'ffmpeg',
+          model: null,
+          options: {
+            subtitle_format: 'srt',
+            include_intermediate_files: true,
+          },
+          provider_options: {},
+        },
+      },
+    }
+
+    setCheckingReadiness(true)
+    setReadinessIssues([])
+    try {
+      const readiness = await resourcesApi.checkTaskReadiness('pipeline', executionProfile)
+      if (!readiness.ready) {
+        setReadinessIssues(readiness.issues)
+        return
+      }
+    } catch (error) {
+      setReadinessIssues([{
+        stage: 'prepare',
+        category: 'runtime',
+        provider: '',
+        model: null,
+        code: 'READINESS_CHECK_FAILED',
+        requirement: 'runtime readiness',
+        message: error instanceof Error ? error.message : String(error),
+        action: 'engines',
+      }])
+      return
+    } finally {
+      setCheckingReadiness(false)
+    }
+
     for (const filePath of selectedFiles) {
-      const asrModel = params.asrModel.startsWith('faster-whisper-')
-        ? params.asrModel
-        : `faster-whisper-${params.asrModel}`
       const request: PipelineRunRequest = {
         input: {
           path: filePath,
           companion_paths: [],
         },
         output: {},
-        execution_profile: {
-          version: 1,
-          source_lang: params.sourceLang,
-          target_lang: params.targetLang,
-          skip_existing: params.skipExisting,
-          stages: {
-            separate: {
-              enabled: params.useVocalSeparator,
-              provider: params.vocalModel.startsWith('mdx') ? 'mdx' : 'htdemucs',
-              model: params.vocalModel,
-              options: { mode: 'vocals' },
-              provider_options: {},
-            },
-            asr: {
-              enabled: true,
-              provider: 'faster_whisper',
-              model: asrModel,
-              options: {
-                language: params.sourceLang,
-                output_format: 'segments',
-                timestamps: true,
-              },
-              provider_options: { disable_vad: true },
-            },
-            translate: {
-              enabled: params.sourceLang !== params.targetLang,
-              provider: params.translateProvider,
-              model: null,
-              options: {
-                source_lang: params.sourceLang,
-                target_lang: params.targetLang,
-                preserve_timestamps: true,
-              },
-              provider_options: {},
-            },
-            tts: {
-              enabled: true,
-              provider: params.ttsEngine,
-              model: null,
-              options: {
-                voice: params.ttsVoice,
-                voice_profile_id: params.voiceProfileId,
-                speed: params.ttsSpeed,
-                language: params.targetLang,
-              },
-              provider_options: {},
-            },
-            mix: {
-              enabled: true,
-              provider: 'ffmpeg',
-              model: null,
-              options: {
-                original_volume: params.originalVolume,
-                tts_volume_ratio: params.ttsVolumeRatio,
-                tts_delay_ms: params.ttsDelay * 1000,
-                normalize: true,
-              },
-              provider_options: {},
-            },
-            export: {
-              enabled: true,
-              provider: 'ffmpeg',
-              model: null,
-              options: {
-                subtitle_format: 'srt',
-                include_intermediate_files: true,
-              },
-              provider_options: {},
-            },
-          },
-        },
+        execution_profile: executionProfile,
       }
 
       const taskId = addTask({
@@ -550,7 +597,7 @@ export default function Workbench() {
           tts_engine: params.ttsEngine,
           tts_voice: params.ttsVoice,
           vocal_model: params.vocalModel,
-          asr_model: asrModel,
+          asr_model: params.asrModel,
           translate_provider: params.translateProvider,
           tts_speed: params.ttsSpeed,
           original_volume: params.originalVolume,
@@ -594,6 +641,30 @@ export default function Workbench() {
     : [{ value: '', label: '加载预设中...' }]
 
   const currentPreset = presets.find((item) => item.id === preset) ?? null
+
+  const descriptorsFor = (category: string) =>
+    capabilities.filter((item) => item.category === category)
+  const providerOptions = (category: string, fallback: Option[]) => {
+    const items = descriptorsFor(category)
+    return items.length > 0
+      ? items.map((item) => ({ value: item.provider, label: item.display_name }))
+      : fallback
+  }
+  const modelsFor = (category: string, provider: string, fallback: Option[]) => {
+    const descriptor = descriptorsFor(category).find((item) => item.provider === provider)
+    return descriptor?.supported_models.length
+      ? descriptor.supported_models.map((model) => ({ value: model, label: model }))
+      : fallback
+  }
+  const defaultModelFor = (category: string, provider: string) =>
+    descriptorsFor(category).find((item) => item.provider === provider)?.default_model ?? ''
+
+  const ttsEngineOptions = providerOptions('tts', TTS_ENGINE_OPTIONS)
+  const translateProviderOptions = providerOptions('llm', TRANSLATE_PROVIDER_OPTIONS)
+  const asrProviderOptions = providerOptions('asr', [{ value: 'faster_whisper', label: 'faster-whisper' }])
+  const asrModelOptions = modelsFor('asr', params.asrProvider, ASR_MODEL_OPTIONS)
+  const vocalProviderOptions = providerOptions('separator', [{ value: 'demucs', label: 'Demucs' }])
+  const vocalModelOptions = modelsFor('separator', params.vocalProvider, VOCAL_MODEL_OPTIONS)
 
   const ttsVoiceOptions = params.ttsEngine === 'qwen3'
     ? [
@@ -699,9 +770,13 @@ export default function Workbench() {
           <ActionButton variant="ghost" disabled={selectedFiles.length === 0} onClick={() => setFiles([])}>
             清空列表
           </ActionButton>
-          <ActionButton variant="primary" disabled={selectedFiles.length === 0} onClick={handleExecute}>
+          <ActionButton
+            variant="primary"
+            disabled={selectedFiles.length === 0 || checkingReadiness || !!capabilityError}
+            onClick={handleExecute}
+          >
             <PlayIcon />
-            创建并执行
+            {checkingReadiness ? '检查运行条件...' : '创建并执行'}
           </ActionButton>
         </div>
 
@@ -904,7 +979,7 @@ export default function Workbench() {
               <SelectField
                 title="TTS 引擎"
                 value={params.ttsEngine}
-                options={TTS_ENGINE_OPTIONS}
+                options={ttsEngineOptions}
                 onChange={(value) => updateParam('ttsEngine', value)}
               />
               <SelectField
@@ -914,21 +989,41 @@ export default function Workbench() {
                 onChange={(value) => updateParam('ttsVoice', value)}
               />
               <SelectField
+                title="ASR 引擎"
+                value={params.asrProvider}
+                options={asrProviderOptions}
+                onChange={(value) => {
+                  updateParam('asrProvider', value)
+                  const defaultModel = defaultModelFor('asr', value)
+                  if (defaultModel) updateParam('asrModel', defaultModel)
+                }}
+              />
+              <SelectField
                 title="ASR 模型"
                 value={params.asrModel}
-                options={ASR_MODEL_OPTIONS}
+                options={asrModelOptions}
                 onChange={(value) => updateParam('asrModel', value)}
               />
               <SelectField
                 title="翻译提供方"
                 value={params.translateProvider}
-                options={TRANSLATE_PROVIDER_OPTIONS}
+                options={translateProviderOptions}
                 onChange={(value) => updateParam('translateProvider', value)}
+              />
+              <SelectField
+                title="分离引擎"
+                value={params.vocalProvider}
+                options={vocalProviderOptions}
+                onChange={(value) => {
+                  updateParam('vocalProvider', value)
+                  const defaultModel = defaultModelFor('separator', value)
+                  if (defaultModel) updateParam('vocalModel', defaultModel)
+                }}
               />
               <SelectField
                 title="分离模型"
                 value={params.vocalModel}
-                options={VOCAL_MODEL_OPTIONS}
+                options={vocalModelOptions}
                 onChange={(value) => updateParam('vocalModel', value)}
               />
             </div>
@@ -979,6 +1074,28 @@ export default function Workbench() {
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0, overflow: 'auto', paddingRight: 4 }}>
           <Section title="执行前确认" caption="点击执行前，先确认这次任务会发生什么">
             <div style={{ display: 'grid', gap: 14 }}>
+              {capabilityError ? (
+                <div style={{ padding: '12px 14px', border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)', fontSize: 12 }}>
+                  {capabilityError}
+                </div>
+              ) : null}
+              {readinessIssues.length > 0 ? (
+                <div style={{ padding: '12px 14px', border: '1px solid var(--warning)', borderRadius: 8, background: 'var(--warning-soft)', fontSize: 12 }}>
+                  <div style={{ fontWeight: 700, color: 'var(--fg)' }}>当前配置暂不可执行</div>
+                  {readinessIssues.map((issue, index) => (
+                    <div key={`${issue.stage}-${issue.code}-${index}`} style={{ marginTop: 6, color: 'var(--muted-strong)' }}>
+                      {issue.stage}：{issue.message}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setPage(readinessIssues.some((issue) => issue.action === 'settings') ? 'settings' : 'engines')}
+                    style={{ marginTop: 10, border: 'none', background: 'transparent', color: 'var(--accent)', padding: 0, cursor: 'pointer', fontWeight: 700 }}
+                  >
+                    前往处理
+                  </button>
+                </div>
+              ) : null}
               <div
                 style={{
                   padding: '14px 16px',
@@ -1000,8 +1117,8 @@ export default function Workbench() {
                 {[
                   { label: '输入文件', value: selectedFiles.length === 0 ? '尚未选择' : `${selectedFiles.length} 个音频` },
                   { label: '目标语言', value: optionLabel(LANG_OPTIONS, params.targetLang) },
-                  { label: 'TTS 引擎', value: optionLabel(TTS_ENGINE_OPTIONS, params.ttsEngine) },
-                  { label: '翻译提供方', value: optionLabel(TRANSLATE_PROVIDER_OPTIONS, params.translateProvider) },
+                  { label: 'TTS 引擎', value: optionLabel(ttsEngineOptions, params.ttsEngine) },
+                  { label: '翻译提供方', value: optionLabel(translateProviderOptions, params.translateProvider) },
                 ].map((item) => (
                   <div
                     key={item.label}

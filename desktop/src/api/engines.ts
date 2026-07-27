@@ -1,29 +1,9 @@
 import { api } from './client'
+import type { CapabilityDescriptorResponse } from './types'
 
-export interface EngineDescriptor {
-    id: string
-    name: string
-    status: string
-    capabilities?: string[]
-}
-
-export interface EngineListResponse {
-    engines: EngineDescriptor[]
-}
-
-export interface ProviderDescriptor {
-    id: string
-    name: string
-    status: string
-    models?: string[]
-}
-
-export interface ProviderListResponse {
-    providers: ProviderDescriptor[]
-}
-
-export const enginesApi = {
-    ttsEngines: () => api.get<EngineListResponse>('/tts/engines'),
-    asrEngines: () => api.get<EngineListResponse>('/asr/engines'),
-    llmProviders: () => api.get<ProviderListResponse>('/llm/providers'),
+export const capabilitiesApi = {
+  list: (category?: string) =>
+    api.get<CapabilityDescriptorResponse[]>(
+      category ? `/capabilities?category=${encodeURIComponent(category)}` : '/capabilities',
+    ),
 }
