@@ -20,6 +20,11 @@ class CapabilityOptionResponse(BaseModel):
     secret: bool = False
 
 
+class CapabilityRuntimeRequirementsResponse(BaseModel):
+    python_modules: list[str] = Field(default_factory=list)
+    system_tools: list[str] = Field(default_factory=list)
+
+
 class CapabilityDescriptorResponse(BaseModel):
     category: str
     provider: str
@@ -30,3 +35,6 @@ class CapabilityDescriptorResponse(BaseModel):
     common_option_schema: list[CapabilityOptionResponse]
     provider_option_schema: list[CapabilityOptionResponse]
     supports: dict[str, Any]
+    runtime_requirements: CapabilityRuntimeRequirementsResponse = Field(
+        default_factory=CapabilityRuntimeRequirementsResponse
+    )

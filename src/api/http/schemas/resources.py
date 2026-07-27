@@ -28,6 +28,7 @@ class RuntimeCapabilitiesResponse(BaseModel):
 class TaskReadinessRequest(BaseModel):
     task_type: str
     execution_profile: dict = Field(default_factory=dict)
+    input_path: str | None = None
 
 
 class TaskReadinessIssueResponse(BaseModel):

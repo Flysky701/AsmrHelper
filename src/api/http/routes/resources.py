@@ -70,5 +70,6 @@ def check_task_readiness(
     data = svc.check_task_readiness(
         task_type=body.task_type,
         execution_profile=body.execution_profile,
+        input_path=body.input_path,
     )
     return TaskReadinessResponse(**data)

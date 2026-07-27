@@ -451,6 +451,10 @@ export interface CapabilityDescriptorResponse {
   common_option_schema: CapabilityOptionResponse[]
   provider_option_schema: CapabilityOptionResponse[]
   supports: Record<string, unknown>
+  runtime_requirements: {
+    python_modules: string[]
+    system_tools: string[]
+  }
 }
 
 export interface TaskReadinessIssueResponse {

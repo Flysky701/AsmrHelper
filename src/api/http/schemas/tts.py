@@ -6,7 +6,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .capabilities import CapabilityOptionResponse
+from .capabilities import (
+    CapabilityOptionResponse,
+    CapabilityRuntimeRequirementsResponse,
+)
 
 
 class SynthesizeRequest(BaseModel):
@@ -36,6 +39,9 @@ class TtsEngineDescriptorResponse(BaseModel):
     common_option_schema: list[CapabilityOptionResponse] = Field(default_factory=list)
     provider_option_schema: list[CapabilityOptionResponse] = Field(default_factory=list)
     supports: dict[str, Any] = Field(default_factory=dict)
+    runtime_requirements: CapabilityRuntimeRequirementsResponse = Field(
+        default_factory=CapabilityRuntimeRequirementsResponse
+    )
 
 
 class TtsEngineListResponse(BaseModel):

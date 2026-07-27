@@ -881,6 +881,33 @@ class TestResourceRoutes:
         data = resp.json()
         assert data["ready"] is False
         assert data["issues"][0]["action"] == "settings"
+        assert mock_svc.check_task_readiness.call_args.kwargs["input_path"] is None
+
+    def test_task_readiness_forwards_input_path(self, client):
+        mock_svc = MagicMock()
+        mock_svc.check_task_readiness.return_value = {
+            "task_type": "pipeline",
+            "ready": True,
+            "missing_requirements": [],
+            "issues": [],
+            "execution_profile": {"stages": {}},
+        }
+        client.app.dependency_overrides[dependencies.resource_service] = _mock_dep(mock_svc)
+
+        resp = client.post(
+            "/api/v1/runtime/check-task-readiness",
+            json={
+                "task_type": "pipeline",
+                "execution_profile": {"stages": {}},
+                "input_path": "E:/audio/input.wav",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert (
+            mock_svc.check_task_readiness.call_args.kwargs["input_path"]
+            == "E:/audio/input.wav"
+        )
 
 
 # ─── Tasks ────────────────────────────────────────────────────────────

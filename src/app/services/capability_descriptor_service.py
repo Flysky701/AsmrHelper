@@ -84,6 +84,10 @@ class CapabilityDescriptorService:
                     "preview": False,
                     "streaming": False,
                 },
+                "runtime_requirements": {
+                    "python_modules": ["edge_tts"],
+                    "system_tools": [],
+                },
             },
             {
                 "category": "tts",
@@ -372,6 +376,10 @@ class CapabilityDescriptorService:
             },
         ]
         for descriptor in descriptors:
+            descriptor.setdefault(
+                "runtime_requirements",
+                {"python_modules": [], "system_tools": []},
+            )
             for option in descriptor["provider_option_schema"]:
                 option["advanced"] = True
         return descriptors

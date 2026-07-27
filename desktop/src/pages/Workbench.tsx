@@ -554,9 +554,19 @@ export default function Workbench() {
     setCheckingReadiness(true)
     setReadinessIssues([])
     try {
-      const readiness = await resourcesApi.checkTaskReadiness('pipeline', executionProfile)
-      if (!readiness.ready) {
-        setReadinessIssues(readiness.issues)
+      const issues: TaskReadinessIssueResponse[] = []
+      for (const filePath of selectedFiles) {
+        const readiness = await resourcesApi.checkTaskReadiness(
+          'pipeline',
+          executionProfile,
+          filePath,
+        )
+        if (!readiness.ready) {
+          issues.push(...readiness.issues)
+        }
+      }
+      if (issues.length > 0) {
+        setReadinessIssues(issues)
         return
       }
     } catch (error) {

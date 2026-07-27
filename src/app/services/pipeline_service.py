@@ -133,7 +133,10 @@ class PipelineService:
         )
 
         try:
-            self._assert_task_ready(task_spec.execution_profile)
+            self._assert_task_ready(
+                task_spec.execution_profile,
+                input_path=input_asset.absolute_path,
+            )
             workspace = self._resource_service.ensure_workspace()
             output_dir = session.resolved_output_dir or str(workspace["output_dir"])
             self._task_service.update_progress(
@@ -292,17 +295,26 @@ class PipelineService:
         if request.target_lang not in SUPPORTED_LANGUAGE_CODES:
             raise AppValidationError(f"unsupported target_lang: {request.target_lang}")
 
-        self._assert_task_ready(request.execution_profile)
+        self._assert_task_ready(
+            request.execution_profile,
+            input_path=request.input_path,
+        )
         task_spec = self.create_pipeline_task_spec(request, task_source=task_source)
         return self._task_service.get_task(task_spec.task_id), task_spec
 
-    def _assert_task_ready(self, execution_profile: dict[str, Any]) -> None:
+    def _assert_task_ready(
+        self,
+        execution_profile: dict[str, Any],
+        *,
+        input_path: str | None = None,
+    ) -> None:
         """Apply the backend-authoritative readiness gate for V1 pipeline profiles."""
         if execution_profile.get("version") != 1:
             return
         readiness = self._resource_service.check_task_readiness(
             task_type="pipeline",
             execution_profile=execution_profile,
+            input_path=input_path,
         )
         if readiness.get("ready") is not False:
             return

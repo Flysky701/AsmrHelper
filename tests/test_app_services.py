@@ -604,6 +604,97 @@ class TestResourceService:
         assert result["ready"] is True
         descriptors.get_descriptor.assert_not_called()
 
+    def test_pipeline_readiness_checks_provider_runtime_dependency(self, tmp_path):
+        from src.app.services.resource_service import ResourceService
+
+        descriptors = MagicMock()
+        descriptors.get_descriptor.return_value = {
+            "supported_models": ["default"],
+            "default_model": "default",
+            "runtime_requirements": {
+                "python_modules": ["edge_tts"],
+                "system_tools": [],
+            },
+        }
+        models = MagicMock()
+        models.list_models.return_value = []
+        service = ResourceService(
+            project_root=tmp_path,
+            descriptor_service=descriptors,
+            model_service=models,
+            module_checker=lambda module: module != "edge_tts",
+        )
+
+        result = service.check_task_readiness(
+            task_type="pipeline",
+            execution_profile={
+                "stages": {
+                    "tts": {
+                        "enabled": True,
+                        "provider": "edge",
+                        "model": None,
+                    }
+                }
+            },
+        )
+
+        assert result["ready"] is False
+        assert result["issues"][0]["code"] == "PYTHON_DEPENDENCY_MISSING"
+        assert result["issues"][0]["requirement"] == "edge_tts"
+
+    def test_pipeline_readiness_checks_ffmpeg_for_mix(self, tmp_path):
+        from src.app.services.resource_service import ResourceService
+
+        models = MagicMock()
+        models.list_models.return_value = []
+        service = ResourceService(
+            project_root=tmp_path,
+            descriptor_service=MagicMock(),
+            model_service=models,
+            ffmpeg_checker=lambda: (False, "Bundled FFmpeg could not be started"),
+        )
+
+        result = service.check_task_readiness(
+            task_type="pipeline",
+            execution_profile={
+                "stages": {
+                    "mix": {
+                        "enabled": True,
+                        "provider": "ffmpeg",
+                        "model": None,
+                    }
+                }
+            },
+        )
+
+        assert result["ready"] is False
+        assert result["issues"][0]["code"] == "SYSTEM_TOOL_MISSING"
+        assert result["issues"][0]["stage"] == "mix"
+
+    def test_pipeline_readiness_rejects_undecodable_input(self, tmp_path):
+        from src.app.services.resource_service import ResourceService
+
+        input_file = tmp_path / "broken.wav"
+        input_file.write_bytes(b"not audio")
+        models = MagicMock()
+        models.list_models.return_value = []
+        service = ResourceService(
+            project_root=tmp_path,
+            descriptor_service=MagicMock(),
+            model_service=models,
+            media_probe=lambda path: (False, f"Cannot decode {path}"),
+        )
+
+        result = service.check_task_readiness(
+            task_type="pipeline",
+            execution_profile={"stages": {}},
+            input_path=str(input_file),
+        )
+
+        assert result["ready"] is False
+        assert result["issues"][0]["code"] == "INPUT_MEDIA_INVALID"
+        assert result["issues"][0]["action"] == "workbench"
+
 
 class TestSubtitleService:
     """Test SubtitleService document operations."""

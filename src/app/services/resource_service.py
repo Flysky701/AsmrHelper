@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import importlib
+import shutil
+import subprocess
 import threading
 from pathlib import Path
+from typing import Callable
 
 from src.core.runtime import ResourceStatus, RuntimeWorkspaceManager
 from .capability_descriptor_service import (
@@ -29,11 +33,17 @@ class ResourceService:
         *,
         descriptor_service: CapabilityDescriptorService | None = None,
         model_service: ModelService | None = None,
+        module_checker: Callable[[str], bool] | None = None,
+        ffmpeg_checker: Callable[[], tuple[bool, str]] | None = None,
+        media_probe: Callable[[str], tuple[bool, str]] | None = None,
     ) -> None:
         self.project_root = (project_root or Path.cwd()).resolve()
         self._manager = RuntimeWorkspaceManager(self.project_root)
         self._descriptor_service = descriptor_service or get_capability_descriptor_service()
         self._model_service = model_service or get_model_service()
+        self._module_checker = module_checker or self._can_import
+        self._ffmpeg_checker = ffmpeg_checker or self._check_ffmpeg_runtime
+        self._media_probe = media_probe or self._probe_media
 
     def ensure_workspace(self) -> dict[str, Path]:
         workspace = self._manager.ensure_workspace()
@@ -75,6 +85,7 @@ class ResourceService:
         *,
         task_type: str,
         execution_profile: dict | None = None,
+        input_path: str | None = None,
     ) -> dict[str, object]:
         profile = dict(execution_profile or {})
         issues: list[dict[str, object]] = []
@@ -94,7 +105,7 @@ class ResourceService:
                 )
 
         if task_type == "pipeline":
-            issues.extend(self._check_pipeline_profile(profile))
+            issues.extend(self._check_pipeline_profile(profile, input_path=input_path))
 
         missing = list(
             dict.fromkeys(str(issue["requirement"]) for issue in issues)
@@ -107,7 +118,12 @@ class ResourceService:
             "execution_profile": profile,
         }
 
-    def _check_pipeline_profile(self, profile: dict) -> list[dict[str, object]]:
+    def _check_pipeline_profile(
+        self,
+        profile: dict,
+        *,
+        input_path: str | None = None,
+    ) -> list[dict[str, object]]:
         stages = profile.get("stages")
         if not isinstance(stages, dict):
             return [
@@ -146,6 +162,35 @@ class ResourceService:
                     )
                 )
                 continue
+
+            requirements = dict(descriptor.get("runtime_requirements") or {})
+            for module in requirements.get("python_modules") or []:
+                if not self._module_checker(str(module)):
+                    issues.append(
+                        self._issue(
+                            stage=stage_name,
+                            category=category,
+                            provider=provider,
+                            model=requested_model,
+                            code="PYTHON_DEPENDENCY_MISSING",
+                            requirement=str(module),
+                            message=f"Python dependency is unavailable: {module}",
+                        )
+                    )
+
+            for tool in requirements.get("system_tools") or []:
+                if shutil.which(str(tool)) is None:
+                    issues.append(
+                        self._issue(
+                            stage=stage_name,
+                            category=category,
+                            provider=provider,
+                            model=requested_model,
+                            code="SYSTEM_TOOL_MISSING",
+                            requirement=str(tool),
+                            message=f"Required system tool is unavailable: {tool}",
+                        )
+                    )
 
             resolved_model = requested_model
             if not resolved_model or resolved_model == "default":
@@ -208,7 +253,176 @@ class ResourceService:
                         message=status.detail or f"Model is not executable: {selected.model_id}",
                     )
                 )
+
+        mix_stage = stages.get("mix")
+        if isinstance(mix_stage, dict) and bool(mix_stage.get("enabled", True)):
+            provider = str(mix_stage.get("provider") or "").strip()
+            if provider != "ffmpeg":
+                issues.append(
+                    self._issue(
+                        stage="mix",
+                        category="media",
+                        provider=provider,
+                        model=None,
+                        code="CAPABILITY_UNAVAILABLE",
+                        requirement=f"media/{provider or '<empty>'}",
+                        message=f"Unsupported mix provider: {provider or '<empty>'}",
+                    )
+                )
+            else:
+                available, detail = self._ffmpeg_checker()
+                if not available:
+                    issues.append(
+                        self._issue(
+                            stage="mix",
+                            category="media",
+                            provider=provider,
+                            model=None,
+                            code="SYSTEM_TOOL_MISSING",
+                            requirement="ffmpeg",
+                            message=detail or "FFmpeg runtime is unavailable",
+                        )
+                    )
+
+        if input_path:
+            issues.extend(self._check_input_path(input_path))
         return issues
+
+    def _check_input_path(self, input_path: str) -> list[dict[str, object]]:
+        source = Path(input_path)
+        if not source.exists():
+            return [
+                self._input_issue(
+                    input_path,
+                    "INPUT_NOT_FOUND",
+                    "Input file does not exist",
+                )
+            ]
+        if not source.is_file():
+            return [
+                self._input_issue(
+                    input_path,
+                    "INPUT_NOT_FILE",
+                    "Pipeline input must be a file",
+                )
+            ]
+        try:
+            if source.stat().st_size <= 0:
+                return [
+                    self._input_issue(
+                        input_path,
+                        "INPUT_EMPTY",
+                        "Input media file is empty",
+                    )
+                ]
+            with source.open("rb"):
+                pass
+        except OSError as exc:
+            return [
+                self._input_issue(
+                    input_path,
+                    "INPUT_NOT_READABLE",
+                    f"Input file is not readable: {exc}",
+                )
+            ]
+
+        available, detail = self._media_probe(str(source))
+        if available:
+            return []
+        return [
+            self._input_issue(
+                input_path,
+                "INPUT_MEDIA_INVALID",
+                detail or "Input file is not decodable audio",
+            )
+        ]
+
+    @classmethod
+    def _input_issue(
+        cls,
+        input_path: str,
+        code: str,
+        message: str,
+    ) -> dict[str, object]:
+        return cls._issue(
+            stage="prepare",
+            category="input",
+            provider="local",
+            model=None,
+            code=code,
+            requirement=input_path,
+            message=message,
+            action="workbench",
+        )
+
+    @staticmethod
+    def _can_import(module: str) -> bool:
+        try:
+            importlib.import_module(module)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _ffmpeg_executable() -> str:
+        from src.utils import get_ffmpeg
+
+        return get_ffmpeg()
+
+    @classmethod
+    def _check_ffmpeg_runtime(cls) -> tuple[bool, str]:
+        try:
+            executable = cls._ffmpeg_executable()
+            if not Path(executable).is_file():
+                return False, f"FFmpeg executable does not exist: {executable}"
+            result = subprocess.run(
+                [executable, "-version"],
+                check=False,
+                capture_output=True,
+                timeout=5,
+            )
+            if result.returncode != 0:
+                return False, "FFmpeg executable could not be started"
+            return True, ""
+        except Exception as exc:
+            return False, f"FFmpeg runtime is unavailable: {exc}"
+
+    @classmethod
+    def _probe_media(cls, input_path: str) -> tuple[bool, str]:
+        try:
+            import soundfile as sf
+
+            info = sf.info(input_path)
+            if info.duration > 0 and info.samplerate > 0 and info.channels > 0:
+                return True, ""
+        except Exception:
+            pass
+
+        try:
+            executable = cls._ffmpeg_executable()
+            result = subprocess.run(
+                [
+                    executable,
+                    "-v",
+                    "error",
+                    "-t",
+                    "0.1",
+                    "-i",
+                    input_path,
+                    "-f",
+                    "null",
+                    "-",
+                ],
+                check=False,
+                capture_output=True,
+                timeout=15,
+            )
+            if result.returncode == 0:
+                return True, ""
+            detail = result.stderr.decode("utf-8", errors="replace").strip()
+            return False, detail or "FFmpeg could not decode the input media"
+        except Exception as exc:
+            return False, f"Input media probe failed: {exc}"
 
     @staticmethod
     def _issue(
