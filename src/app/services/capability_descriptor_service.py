@@ -65,6 +65,9 @@ class CapabilityDescriptorService:
         raise AppValidationError(f"capability descriptor not found: {category}/{provider}")
 
     def _build_descriptors(self) -> list[dict[str, Any]]:
+        from src.core.engines.llm import get_llm_registry
+
+        llm_registry = get_llm_registry()
         descriptors = [
             {
                 "category": "tts",
@@ -178,8 +181,8 @@ class CapabilityDescriptorService:
                 "provider": "deepseek",
                 "display_name": "DeepSeek",
                 "kind": "cloud",
-                "supported_models": ["deepseek-v4-pro", "deepseek-v4-flash"],
-                "default_model": "deepseek-v4-flash",
+                "supported_models": llm_registry.list_models("deepseek"),
+                "default_model": llm_registry.default_model("deepseek"),
                 "common_option_schema": [
                     _option("temperature", "number", required=False, default=0.2, description="Sampling temperature"),
                     _option("max_tokens", "integer", required=False, description="Optional output token limit"),
@@ -197,8 +200,8 @@ class CapabilityDescriptorService:
                 "provider": "openai",
                 "display_name": "OpenAI-compatible",
                 "kind": "cloud",
-                "supported_models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-                "default_model": "gpt-4o-mini",
+                "supported_models": llm_registry.list_models("openai"),
+                "default_model": llm_registry.default_model("openai"),
                 "common_option_schema": [
                     _option("temperature", "number", required=False, default=0.2, description="Sampling temperature"),
                     _option("max_tokens", "integer", required=False, description="Optional output token limit"),

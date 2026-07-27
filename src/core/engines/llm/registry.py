@@ -8,6 +8,22 @@ import json
 from typing import Any, Callable
 
 
+LLM_DEFAULT_MODELS: dict[str, str] = {
+    "deepseek": "deepseek-chat",
+    "openai": "gpt-4o-mini",
+}
+
+LLM_SUPPORTED_MODELS: dict[str, list[str]] = {
+    "deepseek": [
+        "deepseek-chat",
+        "deepseek-reasoner",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+    ],
+    "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+}
+
+
 @dataclass(frozen=True)
 class LlmProviderEntry:
     name: str
@@ -22,16 +38,8 @@ class LlmRegistry:
     _lock = threading.Lock()
 
     # Default model names per provider (used when caller passes empty/'default')
-    DEFAULT_MODELS: dict[str, str] = {
-        "deepseek": "deepseek-chat",
-        "openai": "gpt-4o-mini",
-    }
-
-    # Supported model names per provider (for UI / validation)
-    SUPPORTED_MODELS: dict[str, list[str]] = {
-        "deepseek": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro", "deepseek-v4-flash"],
-        "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-    }
+    DEFAULT_MODELS = LLM_DEFAULT_MODELS
+    SUPPORTED_MODELS = LLM_SUPPORTED_MODELS
 
     def __init__(self) -> None:
         self._providers: dict[str, LlmProviderEntry] = {}

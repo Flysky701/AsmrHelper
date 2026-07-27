@@ -12,13 +12,13 @@ import os
 import time
 import json
 import re
-from pathlib import Path
 from typing import List, Optional, Literal, Tuple
 
 from openai import OpenAI
 
 # 优先从配置文件读取 API Key
 from src.config import config
+from .registry import LLM_SUPPORTED_MODELS
 
 
 # 有意义的语言字符：用于无意义文本检测（与 ASRPostProcessor 逻辑一致）
@@ -44,10 +44,7 @@ class Translator:
     }
 
     # 支持的模型
-    MODELS = {
-        "deepseek": ["deepseek-chat"],
-        "openai": ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
-    }
+    MODELS = LLM_SUPPORTED_MODELS
 
     # 批量翻译配置
     DEFAULT_BATCH_SIZE = 10  # 默认每批 10 句

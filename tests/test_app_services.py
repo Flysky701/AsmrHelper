@@ -207,6 +207,22 @@ class TestCapabilityOptionContract:
         assert option["advanced"] is True
         assert option["secret"] is False
 
+    def test_llm_capability_models_come_from_runtime_registry(self):
+        from src.app.services.capability_descriptor_service import (
+            CapabilityDescriptorService,
+        )
+        from src.core.engines.llm import get_llm_registry
+        from src.core.engines.llm.registry import LLM_SUPPORTED_MODELS
+        from src.core.engines.llm.translator import Translator
+
+        registry = get_llm_registry()
+        descriptor = CapabilityDescriptorService().get_descriptor("llm", "deepseek")
+
+        assert descriptor["default_model"] == registry.default_model("deepseek")
+        assert descriptor["default_model"] == "deepseek-chat"
+        assert descriptor["supported_models"] == registry.list_models("deepseek")
+        assert Translator.MODELS is LLM_SUPPORTED_MODELS
+
 
 class TestTaskService:
     """Test TaskService lifecycle and concurrency."""
