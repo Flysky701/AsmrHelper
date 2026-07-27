@@ -1097,13 +1097,15 @@ export default function Workbench() {
                       {issue.stage}：{issue.message}
                     </div>
                   ))}
-                  <button
-                    type="button"
-                    onClick={() => setPage(readinessIssues.some((issue) => issue.action === 'settings') ? 'settings' : 'engines')}
-                    style={{ marginTop: 10, border: 'none', background: 'transparent', color: 'var(--accent)', padding: 0, cursor: 'pointer', fontWeight: 700 }}
-                  >
-                    前往处理
-                  </button>
+                  {readinessIssues.some((issue) => issue.action !== 'workbench') ? (
+                    <button
+                      type="button"
+                      onClick={() => setPage(readinessIssues.some((issue) => issue.action === 'settings') ? 'settings' : 'engines')}
+                      style={{ marginTop: 10, border: 'none', background: 'transparent', color: 'var(--accent)', padding: 0, cursor: 'pointer', fontWeight: 700 }}
+                    >
+                      前往处理
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
               <div
