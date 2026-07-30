@@ -31,7 +31,9 @@
 
 2026-07-30 的手动验收补充：默认单文件完整链路 `demucs/htdemucs → faster-whisper-base → DeepSeek → Edge TTS → FFmpeg` 已使用真实音频执行通过，任务正常完成并生成最终产物。批量任务、异常恢复和其他 Provider 不包含在本次结论中。
 
-2026-07-30 的 P1.5 第一批补充：Workbench 已直接消费 CapabilityOption 的基础类型参数；TTS 声线从引擎接口动态加载，Qwen3 音色档案按可用状态和引擎过滤，`voice_profile_id` 已按契约进入 `provider_options`。最新全量测试为 `182 passed`，桌面生产构建通过。
+2026-07-30 的 P1.5 第一批补充：Workbench 已直接消费 CapabilityOption 的基础类型参数；TTS 声线从引擎接口动态加载，Qwen3 音色档案按可用状态和引擎过滤，`voice_profile_id` 已按契约进入 `provider_options`。桌面生产构建通过。
+
+2026-07-30 的 Provider / Model 接入流程补充：新增 Provider 与已有 Provider 新增模型已拆分为固定 Server-first Gate；运行模型 ID 与资源项 ID通过 `capability_models` 显式映射，readiness 不再依赖单候选回退；自动守卫会检查模型目录、能力目录、默认模型和参数 schema 一致性。最新全量测试为 `187 passed`。
 
 ## 3. 当前已完成
 
@@ -109,7 +111,7 @@ src.core.script_to_subtitle
 
 ### P1.5：参数与能力细化
 
-- 补齐 CapabilityOption 的对象、数组和文件路径类参数，并增加客户端输入约束。
+- 按固定接入流程核对上游 API 与锁定依赖版本，先完成 Server 参数归一化和权威验证。
 - 补充批量任务、异常恢复和其他 Provider 的真实音频验收，再进入兼容层瘦身。
 
 ## 7. 一句话结论

@@ -450,6 +450,7 @@ models:
     kind: local
     category: separator
     provider: demucs
+    capability_models: [htdemucs, htdemucs_ft, htdemucs_6s]
     family_id: demucs
     variant_group: demucs_main
     variant_tier: standard

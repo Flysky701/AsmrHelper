@@ -592,6 +592,67 @@ class TestResourceService:
         assert result["issues"][0]["stage"] == "asr"
         assert result["issues"][0]["action"] == "engines"
 
+    def test_pipeline_readiness_resolves_explicit_capability_model_mapping(self, tmp_path):
+        from src.app.dto import ModelStatusView, ModelSummary
+        from src.app.services.resource_service import ResourceService
+
+        descriptors = MagicMock()
+        descriptors.get_descriptor.return_value = {
+            "supported_models": ["htdemucs"],
+            "default_model": "htdemucs",
+            "runtime_requirements": {
+                "python_modules": [],
+                "system_tools": [],
+            },
+        }
+        models = MagicMock()
+        models.list_models.return_value = [
+            ModelSummary(
+                model_id="demucs-other",
+                kind="local",
+                category="separator",
+                backend="demucs",
+                display_name="other",
+                capability_models=["other"],
+            ),
+            ModelSummary(
+                model_id="demucs-htdemucs",
+                kind="local",
+                category="separator",
+                backend="demucs",
+                display_name="HTDemucs",
+                capability_models=["htdemucs"],
+            ),
+        ]
+        models.get_model_status.return_value = ModelStatusView(
+            model_id="demucs-htdemucs",
+            status="installed",
+            detail="ready",
+            executable=True,
+        )
+        service = ResourceService(
+            project_root=tmp_path,
+            descriptor_service=descriptors,
+            model_service=models,
+        )
+        service.ensure_workspace()
+
+        result = service.check_task_readiness(
+            task_type="pipeline",
+            execution_profile={
+                "stages": {
+                    "separate": {
+                        "enabled": True,
+                        "provider": "demucs",
+                        "model": "htdemucs",
+                    }
+                }
+            },
+        )
+
+        assert result["ready"] is True
+        models.get_model_status.assert_called_once_with("demucs-htdemucs")
+
     def test_pipeline_readiness_ignores_disabled_stage(self, tmp_path):
         from src.app.services.resource_service import ResourceService
 

@@ -216,7 +216,12 @@ class ResourceService:
                 if model.category == category and model.backend == provider
             ]
             exact = next(
-                (model for model in candidates if model.model_id == resolved_model),
+                (
+                    model
+                    for model in candidates
+                    if resolved_model == model.model_id
+                    or resolved_model in model.capability_models
+                ),
                 None,
             )
             selected = exact or (candidates[0] if len(candidates) == 1 else None)

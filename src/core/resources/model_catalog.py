@@ -35,6 +35,7 @@ class ModelEntry:
     supports_remove: bool = False
     install_strategy: Optional[str] = None
     upstream_name: Optional[str] = None
+    capability_models: List[str] = field(default_factory=list)
     api_key_config: Optional[str] = None
     family_id: Optional[str] = None
     variant_group: Optional[str] = None
@@ -145,6 +146,7 @@ def _validate_entry(raw: Dict[str, Any]) -> ModelEntry:
         supports_remove=bool(raw.get("supports_remove", False)),
         install_strategy=raw.get("install_strategy"),
         upstream_name=raw.get("upstream_name"),
+        capability_models=_list_of_strings(raw.get("capability_models")),
         api_key_config=raw.get("api_key_config"),
         family_id=raw.get("family_id"),
         variant_group=raw.get("variant_group"),

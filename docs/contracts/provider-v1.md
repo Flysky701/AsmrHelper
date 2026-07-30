@@ -1,5 +1,7 @@
 # Provider 与设置契约 v1
 
+新增 Provider 或模型必须遵循 [Provider / Model 接入流程](provider-model-onboarding.md)，先完成上游证据、Server 参数映射、资源目录和自动测试，再由客户端消费。
+
 > 状态：已落码  
 > 适用范围：设置 API、能力发现、Provider 适配器、运行前检查
 

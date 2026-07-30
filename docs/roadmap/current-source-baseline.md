@@ -191,7 +191,7 @@ text_utils.py
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-结果：`182 passed`。
+结果：`187 passed`。
 
 启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（88 routes）可用。
 
@@ -208,6 +208,8 @@ text_utils.py
 2026-07-30 完成默认单文件主链路手动验收：真实音频使用 `demucs/htdemucs → faster-whisper-base → DeepSeek → Edge TTS → FFmpeg` 完整执行成功，任务正常完成并生成最终产物。该结论只覆盖当前默认组合的单文件路径；批量任务、异常恢复和其他 Provider 仍需分别验收。
 
 2026-07-30 完成 P1.5 第一批参数与音色联动：Workbench 直接消费 CapabilityOption，动态呈现当前 ASR、LLM、TTS Provider 的基础类型参数，并按契约把参数写入 `options` 或 `provider_options`；TTS 声线改为读取 `/tts/engines/{engine_id}/voices`，Qwen3 音色档案只显示当前可用且引擎匹配的 profile，`voice_profile_id` 已归入 Provider 私有参数。全量测试 `182 passed`，桌面生产构建通过。
+
+2026-07-30 固化 Provider / Model 接入流程：新增 Provider 与已有 Provider 新增模型使用不同 Gate；上游证据、依赖版本、Runtime Adapter、CapabilityDescriptor、模型资源、Server readiness、自动测试、GUI 和真实验收均有明确完成标准。`config/models.yaml` 新增 `capability_models` 显式映射运行模型 ID，readiness 不再依赖单候选隐式回退；新增自动守卫检查模型目录、能力目录、默认模型和参数 schema 一致性。最新全量测试 `187 passed`。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
@@ -226,7 +228,7 @@ text_utils.py
 
 ## 6. 当前最高优先级缺口
 
-1. 继续补齐 CapabilityOption 的对象、数组和文件路径类参数，并增加客户端输入约束。
+1. 按 Provider 接入流程核对上游 API 与当前锁定版本，在 Server 端建立参数归一化和权威验证；完成后再补对象、数组和路径类 GUI 控件。
 2. 补充批量任务、异常恢复和其他 Provider 的真实音频验收；通过后再继续兼容层瘦身。
 3. Ruff 剩余 `107` 项以无用导入、历史脚本导入顺序和可读性问题为主，按功能域分批清理，不进行无边界自动修复。
 
