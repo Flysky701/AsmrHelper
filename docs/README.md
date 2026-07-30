@@ -8,7 +8,7 @@
 2. [主链路契约 v1](contracts/mainline-v1.md)：桌面端到后台任务的最小稳定流程。
 3. [数据结构契约 v1](contracts/schemas-v1.md)：请求、任务、错误、执行配置和产物字段。
 4. [Provider 与设置契约 v1](contracts/provider-v1.md)：能力、设置、凭据和运行前检查。
-5. [Provider / Model 接入流程](contracts/provider-model-onboarding.md)：新增引擎或模型时必须通过的 Server-first Gate。
+5. [Provider / Model 轻量接入流程](contracts/provider-model-onboarding.md)：个人维护项目新增引擎或模型时使用的 Server-first 最小检查清单。
 6. [兼容与迁移说明](contracts/compatibility.md)：当前实现与目标契约的差异及迁移顺序。
 7. [当前源代码基线](roadmap/current-source-baseline.md)：判断“代码目前已经做到什么”的事实依据。
 
