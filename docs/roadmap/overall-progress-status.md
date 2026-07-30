@@ -39,6 +39,8 @@
 
 2026-07-31 的 Edge TTS 稳定性补充：失败任务与成功重试使用相同参数，确认问题来自瞬时 WebSocket 连接超时。Edge 批量句子改为最多 4 并发、单句网络失败最多尝试 3 次，并提供可选 HTTP 代理参数；项目级代理合成已生成有效 WAV，重启后的 APP 侧验证也已完成。最新全量测试为 `199 passed`。
 
+2026-07-31 的多引擎恢复补充：ASR/TTS 可选 Provider 已重新接入项目模型目录、Pipeline 时间线和资源安装流程；Workbench 会提交明确模型，依赖冲突不再被误报为安装成功。当前注册范围为 ASR `faster_whisper/fun_asr/qwen3_asr`、TTS `edge/qwen3/kokoro/voxcpm2`、LLM `deepseek/openai` 和分离 `demucs`。最新全量测试为 `205 passed`，桌面生产构建通过；真实验收状态单独记录在 [多引擎支持现状](multi-engine-status.md)。
+
 ## 3. 当前已完成
 
 - `src/gui/` 已移除，不再作为当前产品或文档基线。
@@ -107,16 +109,16 @@ src.core.script_to_subtitle
 | 7 字幕与文本资产管理 | 已迁入 `core/subtitles`，残留旧引用已修复 |
 | 8 结果资产与产物索引管理 | TaskResult 与 Artifact 公共结构已统一并持久化 |
 | 9 结果预览与人工确认 | TaskCenter 已按 Artifact 声明展示主产物与音频预览入口 |
-| 10 TTS 引擎管理 | 主干已落地，VoxCPM2 等能力继续扩展 |
-| 11 LLM 能力管理 | 主干已落地，模型参数和 provider 默认值仍在调整 |
-| 12 ASR 引擎管理 | 主干已落地 |
+| 10 TTS 引擎管理 | Edge 已验收；Qwen3、Kokoro、VoxCPM2 已接线，待分别安装和验收 |
+| 11 LLM 能力管理 | DeepSeek 已验收；OpenAI 已接线，待配置凭据和验收 |
+| 12 ASR 引擎管理 | Faster-Whisper 已验收；Fun-ASR、Qwen3-ASR 已接线，待分别安装和验收 |
 
 ## 6. 推荐下一步
 
 ### P1.5：参数与能力细化
 
-- 按固定接入流程核对上游 API 与锁定依赖版本，先完成 Server 参数归一化和权威验证。
-- 补充批量任务、异常恢复和其他 Provider 的真实音频验收，再进入兼容层瘦身。
+- 先选择 Fun-ASR 或 Kokoro 完成一个可选 Provider 的真实短样本主链路验收。
+- 再校准实际选中的 Provider 参数，并补充批量任务和异常恢复验收。
 
 ## 7. 一句话结论
 
@@ -124,4 +126,4 @@ src.core.script_to_subtitle
 
 当前核心任务是：
 
-> 在能力目录和入队前检查已经打通的基础上，继续补齐动态参数与真实音频验收。
+> 多引擎代码链路已经恢复；下一步按需安装并逐个完成真实音频验收，不批量扩张。

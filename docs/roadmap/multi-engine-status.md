@@ -1,0 +1,61 @@
+# 多引擎支持现状
+
+> 更新日期：2026-07-31
+> 本页只记录当前代码、当前环境和真实验收状态。
+
+## 当前结论
+
+多引擎的注册、StageProfile、readiness、模型资源和 Workbench 选择链路已经恢复。
+“已接线”不等于“已在当前机器验收”；没有安装依赖或模型的 Provider 会在任务创建前被 readiness 拦截。
+
+| 类别 | Provider | 代码链路 | 当前环境 | 真实主链路验收 |
+| --- | --- | --- | --- | --- |
+| 分离 | `demucs` | 已接线 | 可执行 | 已通过 |
+| ASR | `faster_whisper` | 已接线 | Base 可执行 | 已通过 |
+| ASR | `fun_asr` | 已接线 | 未安装 | 待验收 |
+| ASR | `qwen3_asr` | 已接线 | 未安装 | 待验收 |
+| 翻译 | `deepseek` | 已接线 | 已配置 | 已通过 |
+| 翻译 | `openai` | 已接线 | 未配置凭据 | 待验收 |
+| TTS | `edge` | 已接线 | 可执行 | 已通过 |
+| TTS | `qwen3` | 已接线 | 未安装 | 待验收 |
+| TTS | `kokoro` | 已接线 | 缺 Python 包和 `espeak-ng` | 待验收 |
+| TTS | `voxcpm2` | 已接线 | 未安装 | 待验收 |
+
+默认真实验收组合仍是：
+
+```text
+demucs/htdemucs
+→ faster-whisper/faster-whisper-base
+→ deepseek/deepseek-chat
+→ edge/default
+→ ffmpeg
+```
+
+## 本轮恢复内容
+
+- Fun-ASR、Qwen3-ASR 和 VoxCPM2 优先使用项目模型目录，不再绕过已下载资源重新解析上游名称。
+- 只有单文本合成接口的 TTS Provider 可以通过通用时间线适配器进入 Pipeline；Kokoro 不再因缺少 `synthesize_segments` 被直接拒绝。
+- Workbench 会提交明确的翻译模型和 TTS 默认模型。
+- 模型依赖安装失败会在大模型下载前终止，异步任务会保留真实失败原因。
+- “引擎与资源”可以触发 Faster-Whisper、Demucs、Kokoro 及其他可安装 Provider 的依赖安装。
+- 下载脚本支持按 Provider 或模型 ID 选择，不再只认识 Whisper 和 Qwen3。
+
+## 安装与验收
+
+优先在 APP 的“引擎与资源”页安装所选模型。命令行入口保留为排障和批量准备工具：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\install_models.py --list
+.\.venv\Scripts\python.exe scripts\install_models.py --provider fun_asr
+.\setup.ps1 -Models -Engines fun_asr
+```
+
+Qwen3-TTS 与 Qwen3-ASR 当前锁定依赖存在冲突，不能把“安装全部引擎”作为同一 Python 环境的验收方式。选择其中一个安装档进行真实验收；在依赖关系更新前不绕过 UV 冲突约束。
+
+每个待验收 Provider 的最小完成条件只有三项：
+
+1. readiness 通过；
+2. 使用短音频或短文本完成一次真实推理；
+3. 在 Pipeline 中确认产物和错误阶段正确。
+
+不要求为每个 Provider 建立额外流程文档。

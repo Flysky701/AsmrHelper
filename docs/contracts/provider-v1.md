@@ -163,10 +163,12 @@ Provider 测试请求与响应：
 
 ## 7. 当前稳定标识
 
-- TTS：`edge`
-- ASR：`faster_whisper`
+- TTS：`edge`、`qwen3`、`kokoro`、`voxcpm2`
+- ASR：`faster_whisper`、`fun_asr`、`qwen3_asr`
 - 分离：Provider 为 `demucs`，模型为 `htdemucs`
-- 翻译：`deepseek`
+- 翻译：`deepseek`、`openai`
 - 媒体处理：`ffmpeg`
+
+稳定标识表示契约和注册名称可使用，不表示当前机器已经安装或完成真实推理验收。各 Provider 的当前状态见 [多引擎支持现状](../roadmap/multi-engine-status.md)。
 
 如需重命名 Provider，必须在兼容层保留旧标识映射，不得只改桌面端或文档中的单侧名称。

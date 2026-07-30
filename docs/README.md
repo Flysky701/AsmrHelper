@@ -9,8 +9,9 @@
 3. [数据结构契约 v1](contracts/schemas-v1.md)：请求、任务、错误、执行配置和产物字段。
 4. [Provider 与设置契约 v1](contracts/provider-v1.md)：能力、设置、凭据和运行前检查。
 5. [Provider / Model 轻量接入流程](contracts/provider-model-onboarding.md)：个人维护项目新增引擎或模型时使用的 Server-first 最小检查清单。
-6. [兼容与迁移说明](contracts/compatibility.md)：当前实现与目标契约的差异及迁移顺序。
-7. [当前源代码基线](roadmap/current-source-baseline.md)：判断“代码目前已经做到什么”的事实依据。
+6. [多引擎支持现状](roadmap/multi-engine-status.md)：区分已接线、当前环境可执行和真实主链路验收。
+7. [兼容与迁移说明](contracts/compatibility.md)：当前实现与目标契约的差异及迁移顺序。
+8. [当前源代码基线](roadmap/current-source-baseline.md)：判断“代码目前已经做到什么”的事实依据。
 
 契约描述目标边界，源代码基线描述当前事实。两者存在差异时，不应猜测；先在兼容说明登记，再通过测试和源代码确认。
 
