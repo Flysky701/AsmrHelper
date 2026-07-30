@@ -9,8 +9,8 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.app.errors import AppError
-from src.app.services import get_model_service
+from src.app.errors import AppError  # noqa: E402
+from src.app.services import get_model_service  # noqa: E402
 
 
 WHISPER_IDS = {
@@ -65,17 +65,60 @@ def main():
     parser.add_argument("--check", action="store_true", help="Only check model status")
     parser.add_argument("--whisper", nargs="?", const="base", help="Install a Whisper model")
     parser.add_argument("--qwen3", nargs="?", const="all", help="Install a Qwen3-TTS model")
-    parser.add_argument("--all", action="store_true", help="Install all supported models")
+    parser.add_argument(
+        "--model",
+        action="append",
+        default=[],
+        help="Install a catalog model id; may be specified more than once",
+    )
+    parser.add_argument(
+        "--provider",
+        action="append",
+        default=[],
+        help="Install every installable model for a provider; may be specified more than once",
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List catalog models and exit",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Install the legacy Full set (Whisper and Qwen3-TTS)",
+    )
     parser.add_argument("--mirror", type=str, default=None, help="HuggingFace mirror URL")
     parser.add_argument("--force", action="store_true", help="Force re-download of existing models")
     args = parser.parse_args()
 
     service = get_model_service()
+    catalog_models = service.list_models(kind="local")
+
+    if args.list:
+        print_header("Catalog models")
+        for model in catalog_models:
+            installable = "installable" if model.supports_install else "external"
+            print(
+                f"  {model.model_id:<36} "
+                f"{model.backend:<18} {installable}"
+            )
+        raise SystemExit(0)
 
     if args.check:
         raise SystemExit(0 if check_status(service) else 1)
 
-    targets = []
+    targets = list(args.model)
+    for provider in args.provider:
+        provider_targets = [
+            model.model_id
+            for model in catalog_models
+            if model.backend == provider and model.supports_install
+        ]
+        if not provider_targets:
+            print_fail(f"Unknown provider or no installable models: {provider}")
+            raise SystemExit(1)
+        targets.extend(provider_targets)
+
     if args.all:
         targets.extend(WHISPER_IDS.values())
         targets.extend(QWEN3_IDS.values())
@@ -96,6 +139,7 @@ def main():
                     raise SystemExit(1)
                 targets.append(model_id)
 
+    targets = list(dict.fromkeys(targets))
     if not targets:
         targets.append("faster-whisper-base")
 

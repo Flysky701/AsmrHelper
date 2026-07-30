@@ -11,6 +11,8 @@
     .\setup.ps1
     .\setup.ps1 -Full
     .\setup.ps1 -Models
+    .\setup.ps1 -Models -Engines fun_asr
+    .\setup.ps1 -Models -Engines qwen3,voxcpm2
     .\setup.ps1 -Models -Full
     .\setup.ps1 -Models -Mirror
     .\setup.ps1 -SkipInstall
@@ -27,6 +29,7 @@ param(
     [switch]$CleanReinstall,
     [switch]$Offline,
     [switch]$SkipFrontend,
+    [string[]]$Engines = @(),
     [string]$PythonVersion = "3.12",
     [string]$PythonPath = ""
 )
@@ -245,7 +248,7 @@ function Invoke-DependencyInstall {
     if ($Models -or $Full) {
         $syncArgs += @("--extra", "audio")
     }
-    if ($Full) {
+    if ($Full -and $Engines.Count -eq 0) {
         $syncArgs += @("--extra", "qwen3")
     }
 
@@ -297,7 +300,11 @@ function Invoke-ModelInstall {
     }
     $args = @($scriptPath)
 
-    if ($Full) {
+    if ($Engines.Count -gt 0) {
+        foreach ($engine in $Engines) {
+            $args += @("--provider", $engine)
+        }
+    } elseif ($Full) {
         $args += "--all"
     }
 
