@@ -213,7 +213,7 @@ text_utils.py
 
 2026-07-30 完成第一批 Server 参数校准：按当前锁定的 `faster-whisper==1.2.1` 与 `edge-tts==7.2.8` 核对上游接口。Faster-Whisper 改用上游正向 `vad_filter`，`beam_size`、`initial_prompt` 和 `no_speech_threshold` 已从 Capability 传到实际 `transcribe` 调用，不再硬编码日语提示词；Edge TTS 的公共 `speed` 倍率已转换为上游 `rate` 百分比。ExecutionProfileBuilder 和 Pipeline readiness 会在运行前检查公开参数的名称、类型和范围。参数校准后的默认真实音频主链路已由 `pipeline-5` 完整执行通过。
 
-2026-07-31 修复 Edge TTS 瞬时连接失败：`pipeline-6` 在 TTS 阶段发生 WebSocket 连接超时，相同参数的 `pipeline-7` 重试成功，确认不是 voice/speed 参数错误。Edge 句子合成改为最多 4 个并发连接，单句瞬时网络错误最多尝试 3 次，并支持 Capability 中的可选 `proxy`。当前开发机通过 `http://127.0.0.1:7890` 完成项目级真实 Edge TTS → WAV 探测；全量测试 `199 passed`。
+2026-07-31 修复 Edge TTS 瞬时连接失败：`pipeline-6` 在 TTS 阶段发生 WebSocket 连接超时，相同参数的 `pipeline-7` 重试成功，确认不是 voice/speed 参数错误。Edge 句子合成改为最多 4 个并发连接，单句瞬时网络错误最多尝试 3 次，并支持 Capability 中的可选 `proxy`。当前开发机通过 `http://127.0.0.1:7890` 完成项目级真实 Edge TTS → WAV 探测；修复重启后，用户已完成 APP 侧验证。全量测试 `199 passed`。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
