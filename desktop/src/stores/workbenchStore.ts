@@ -51,6 +51,7 @@ interface WorkbenchStore {
   advExpanded: boolean
   presetsLoading: boolean
   presets: PresetItem[]
+  capabilityOptions: Record<string, Record<string, unknown>>
 
   setFiles: (files: string[]) => void
   removeFile: (path: string) => void
@@ -59,6 +60,7 @@ interface WorkbenchStore {
   setPresets: (presets: PresetItem[]) => void
   setPresetsLoading: (loading: boolean) => void
   updateParam: <K extends keyof WorkbenchParams>(key: K, value: WorkbenchParams[K]) => void
+  updateCapabilityOption: (scope: string, name: string, value: unknown) => void
   toggleLayer2: () => void
   toggleLayer3: () => void
   toggleCommon: () => void
@@ -79,6 +81,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
   advExpanded: false,
   presetsLoading: false,
   presets: [],
+  capabilityOptions: {},
 
   setFiles: (files) => set({ selectedFiles: files }),
   removeFile: (path) =>
@@ -91,6 +94,16 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
   setPresetsLoading: (loading) => set({ presetsLoading: loading }),
   updateParam: (key, value) =>
     set((s) => ({ params: { ...s.params, [key]: value } })),
+  updateCapabilityOption: (scope, name, value) =>
+    set((s) => ({
+      capabilityOptions: {
+        ...s.capabilityOptions,
+        [scope]: {
+          ...s.capabilityOptions[scope],
+          [name]: value,
+        },
+      },
+    })),
   toggleLayer2: () => set((s) => ({ layer2Expanded: !s.layer2Expanded })),
   toggleLayer3: () => set((s) => ({ layer3Expanded: !s.layer3Expanded })),
   toggleCommon: () => set((s) => ({ commonExpanded: !s.commonExpanded })),
@@ -102,6 +115,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
       selectedFolder: null,
       preset: '',
       params: { ...DEFAULT_PARAMS },
+      capabilityOptions: {},
       layer2Expanded: true,
       layer3Expanded: false,
       commonExpanded: true,

@@ -437,6 +437,32 @@ class TestTtsRoutes:
         assert data["engines"][0]["provider"] == "kokoro"
         assert data["engines"][0]["common_option_schema"][0]["name"] == "voice"
 
+    def test_list_tts_voices(self, client):
+        mock_svc = MagicMock()
+        mock_svc.list_voices.return_value = [
+            {
+                "id": "zh-CN-XiaoxiaoNeural",
+                "name": "晓晓（女）",
+                "language": "zh-CN",
+            }
+        ]
+        client.app.dependency_overrides[dependencies.tts_engine_service] = _mock_dep(mock_svc)
+
+        resp = client.get("/api/v1/tts/engines/edge/voices")
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "engine_id": "edge",
+            "voices": [
+                {
+                    "id": "zh-CN-XiaoxiaoNeural",
+                    "name": "晓晓（女）",
+                    "language": "zh-CN",
+                }
+            ],
+        }
+        mock_svc.list_voices.assert_called_once_with("edge")
+
     def test_synthesize_success(self, client, tmp_path):
         mock_svc = MagicMock()
         result_mock = MagicMock()

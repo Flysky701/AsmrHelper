@@ -4,11 +4,16 @@ import type { CSSProperties, DragEvent, ReactNode } from 'react'
 import { pipelineApi } from '@/api/pipeline'
 import { capabilitiesApi } from '@/api/engines'
 import { resourcesApi } from '@/api/resources'
+import { ttsApi } from '@/api/tts'
+import { voiceApi } from '@/api/voice'
 import type {
   CapabilityDescriptorResponse,
+  CapabilityOptionResponse,
   PipelineExecutionProfileRequest,
   PipelineRunRequest,
   TaskReadinessIssueResponse,
+  TtsVoiceItemResponse,
+  VoiceProfileSummaryResponse,
 } from '@/api/types'
 import { useFileSelector } from '@/hooks/useFileSelector'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
@@ -109,6 +114,36 @@ function fileName(path: string) {
 
 function optionLabel(options: Option[], value: string) {
   return options.find((item) => item.value === value)?.label ?? value
+}
+
+function capabilityScope(
+  category: string,
+  provider: string,
+  schema: 'common' | 'provider',
+) {
+  return `${category}/${provider}/${schema}`
+}
+
+function optionPayload(
+  descriptor: CapabilityDescriptorResponse | undefined,
+  schema: 'common' | 'provider',
+  values: Record<string, Record<string, unknown>>,
+) {
+  if (!descriptor) return {}
+  const scope = capabilityScope(descriptor.category, descriptor.provider, schema)
+  const current = values[scope] ?? {}
+  const definitions = schema === 'common'
+    ? descriptor.common_option_schema
+    : descriptor.provider_option_schema
+
+  return Object.fromEntries(
+    definitions.flatMap((option) => {
+      const value = current[option.name] ?? option.default
+      return value === null || value === undefined || value === ''
+        ? []
+        : [[option.name, value]]
+    }),
+  )
 }
 
 function formatRelativeTime(timestamp: number) {
@@ -379,6 +414,117 @@ function ToggleField({
   )
 }
 
+const CAPABILITY_OPTION_LABELS: Record<string, string> = {
+  disable_vad: '禁用 VAD',
+  beam_size: 'Beam Size',
+  temperature: 'Temperature',
+  max_tokens: '最大 Token 数',
+  emotion: '情绪提示',
+  device_map: '设备映射',
+  dtype: '计算精度',
+  batch_size: '批大小',
+  sentence_timestamp: '句级时间戳',
+  trust_remote_code: '允许远程代码',
+  max_inference_batch_size: '最大推理批大小',
+  max_new_tokens: '最大生成 Token 数',
+  return_time_stamps: '返回时间戳',
+  cfg_value: 'CFG 强度',
+  inference_timesteps: '推理步数',
+  load_denoiser: '加载降噪器',
+  sample_rate: '采样率',
+  lang_code: '语言代码',
+}
+
+function CapabilityOptionField({
+  option,
+  context,
+  value,
+  onChange,
+}: {
+  option: CapabilityOptionResponse
+  context: string
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  if (option.secret || option.type === 'array' || option.type === 'object') return null
+
+  const title = `${context} · ${CAPABILITY_OPTION_LABELS[option.name] ?? option.name}`
+  const hint = option.description || undefined
+
+  if (option.type === 'boolean') {
+    return (
+      <ToggleField
+        title={title}
+        hint={hint}
+        checked={Boolean(value)}
+        onChange={onChange}
+      />
+    )
+  }
+
+  if (option.enum.length > 0) {
+    return (
+      <SelectField
+        title={title}
+        hint={hint}
+        value={String(value ?? '')}
+        options={option.enum.map((item) => ({ value: String(item), label: String(item) }))}
+        onChange={onChange}
+      />
+    )
+  }
+
+  if (option.type === 'number' || option.type === 'integer') {
+    return (
+      <div>
+        <FieldLabel title={title} hint={hint} />
+        <input
+          type="number"
+          value={value === null || value === undefined ? '' : String(value)}
+          min={option.min ?? undefined}
+          max={option.max ?? undefined}
+          step={option.type === 'integer' ? 1 : 'any'}
+          onChange={(event) => {
+            const raw = event.target.value
+            onChange(raw === '' ? null : Number(raw))
+          }}
+          style={{
+            width: '100%',
+            minHeight: 40,
+            padding: '0 12px',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--border)',
+            background: 'var(--surface)',
+            color: 'var(--fg)',
+            fontSize: 13,
+          }}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <FieldLabel title={title} hint={hint} />
+      <input
+        type="text"
+        value={String(value ?? '')}
+        onChange={(event) => onChange(event.target.value)}
+        style={{
+          width: '100%',
+          minHeight: 40,
+          padding: '0 12px',
+          borderRadius: 'var(--radius-sm)',
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          color: 'var(--fg)',
+          fontSize: 13,
+        }}
+      />
+    </div>
+  )
+}
+
 export default function Workbench() {
   useTaskPolling(3000)
 
@@ -387,6 +533,7 @@ export default function Workbench() {
     preset,
     presets,
     params,
+    capabilityOptions,
     commonExpanded,
     modelExpanded,
     advExpanded,
@@ -394,6 +541,7 @@ export default function Workbench() {
     removeFile,
     setPreset,
     updateParam,
+    updateCapabilityOption,
     toggleCommon,
     toggleModel,
     toggleAdv,
@@ -409,6 +557,9 @@ export default function Workbench() {
   const [dragOver, setDragOver] = useState(false)
   const [capabilities, setCapabilities] = useState<CapabilityDescriptorResponse[]>([])
   const [capabilityError, setCapabilityError] = useState('')
+  const [ttsVoices, setTtsVoices] = useState<TtsVoiceItemResponse[]>([])
+  const [ttsVoiceError, setTtsVoiceError] = useState('')
+  const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfileSummaryResponse[]>([])
   const [readinessIssues, setReadinessIssues] = useState<TaskReadinessIssueResponse[]>([])
   const [checkingReadiness, setCheckingReadiness] = useState(false)
 
@@ -435,6 +586,45 @@ export default function Workbench() {
         setCapabilities([])
         setCapabilityError(`能力目录加载失败：${error instanceof Error ? error.message : String(error)}`)
       })
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ttsApi
+      .listVoices(params.ttsEngine)
+      .then((response) => {
+        if (cancelled) return
+        setTtsVoices(response.voices)
+        setTtsVoiceError('')
+
+        const currentVoice = useWorkbenchStore.getState().params.ttsVoice
+        if (!response.voices.some((voice) => voice.id === currentVoice)) {
+          const descriptor = capabilities.find(
+            (item) => item.category === 'tts' && item.provider === params.ttsEngine,
+          )
+          const declaredDefault = descriptor?.common_option_schema
+            .find((option) => option.name === 'voice')?.default
+          const nextVoice = response.voices.find(
+            (voice) => voice.id === declaredDefault,
+          )?.id ?? response.voices[0]?.id
+          if (nextVoice) updateParam('ttsVoice', nextVoice)
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setTtsVoices([])
+        setTtsVoiceError(`音色列表加载失败：${error instanceof Error ? error.message : String(error)}`)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [params.ttsEngine, capabilities, updateParam])
+
+  useEffect(() => {
+    voiceApi
+      .listProfiles()
+      .then(setVoiceProfiles)
+      .catch(() => setVoiceProfiles([]))
   }, [])
 
   const runningCount = tasks.filter((task) => task.status === 'running').length
@@ -479,6 +669,24 @@ export default function Workbench() {
   const handleExecute = async () => {
     if (selectedFiles.length === 0) return
 
+    const asrDescriptor = capabilities.find(
+      (item) => item.category === 'asr' && item.provider === params.asrProvider,
+    )
+    const llmDescriptor = capabilities.find(
+      (item) => item.category === 'llm' && item.provider === params.translateProvider,
+    )
+    const ttsDescriptor = capabilities.find(
+      (item) => item.category === 'tts' && item.provider === params.ttsEngine,
+    )
+    const asrProviderOptions = optionPayload(asrDescriptor, 'provider', capabilityOptions)
+    const llmCommonOptions = optionPayload(llmDescriptor, 'common', capabilityOptions)
+    const ttsProviderOptions = optionPayload(ttsDescriptor, 'provider', capabilityOptions)
+    if (params.voiceProfileId) {
+      ttsProviderOptions.voice_profile_id = params.voiceProfileId
+    } else {
+      delete ttsProviderOptions.voice_profile_id
+    }
+
     const executionProfile: PipelineExecutionProfileRequest = {
       version: 1,
       source_lang: params.sourceLang,
@@ -501,7 +709,7 @@ export default function Workbench() {
             output_format: 'segments',
             timestamps: true,
           },
-          provider_options: params.asrProvider === 'faster_whisper' ? { disable_vad: true } : {},
+          provider_options: asrProviderOptions,
         },
         translate: {
           enabled: params.sourceLang !== params.targetLang,
@@ -511,6 +719,7 @@ export default function Workbench() {
             source_lang: params.sourceLang,
             target_lang: params.targetLang,
             preserve_timestamps: true,
+            ...llmCommonOptions,
           },
           provider_options: {},
         },
@@ -520,11 +729,10 @@ export default function Workbench() {
           model: null,
           options: {
             voice: params.ttsVoice,
-            voice_profile_id: params.voiceProfileId,
             speed: params.ttsSpeed,
             language: params.targetLang,
           },
-          provider_options: {},
+          provider_options: ttsProviderOptions,
         },
         mix: {
           enabled: true,
@@ -676,7 +884,7 @@ export default function Workbench() {
   const vocalProviderOptions = providerOptions('separator', [{ value: 'demucs', label: 'Demucs' }])
   const vocalModelOptions = modelsFor('separator', params.vocalProvider, VOCAL_MODEL_OPTIONS)
 
-  const ttsVoiceOptions = params.ttsEngine === 'qwen3'
+  const fallbackTtsVoiceOptions = params.ttsEngine === 'qwen3'
     ? [
         { value: 'Serena', label: 'Serena (预设)' },
         { value: 'Vivian', label: 'Vivian (预设)' },
@@ -689,6 +897,36 @@ export default function Workbench() {
         { value: 'ja-JP-NanamiNeural', label: 'NanamiNeural' },
         { value: 'en-US-JennyNeural', label: 'JennyNeural' },
       ]
+  const ttsVoiceOptions = ttsVoices.length > 0
+    ? ttsVoices.map((voice) => ({
+        value: voice.id,
+        label: `${voice.name}${voice.language ? ` · ${voice.language}` : ''}`,
+      }))
+    : fallbackTtsVoiceOptions
+
+  const selectedDescriptors = [
+    capabilities.find((item) => item.category === 'asr' && item.provider === params.asrProvider),
+    capabilities.find((item) => item.category === 'llm' && item.provider === params.translateProvider),
+    capabilities.find((item) => item.category === 'tts' && item.provider === params.ttsEngine),
+  ].filter((item): item is CapabilityDescriptorResponse => Boolean(item))
+
+  const dynamicCapabilityOptions = selectedDescriptors.flatMap((descriptor) => {
+    const schemas: Array<['common' | 'provider', CapabilityOptionResponse[]]> = [
+      ['common', descriptor.common_option_schema],
+      ['provider', descriptor.provider_option_schema],
+    ]
+    return schemas.flatMap(([schema, options]) => options
+      .filter((option) => !['language', 'voice', 'speed', 'voice_profile_id'].includes(option.name))
+      .map((option) => ({
+        descriptor,
+        option,
+        scope: capabilityScope(descriptor.category, descriptor.provider, schema),
+      })))
+  })
+
+  const availableVoiceProfiles = voiceProfiles.filter(
+    (profile) => profile.available && profile.engine.startsWith('qwen3'),
+  )
 
   const stageSummary = [
     {
@@ -990,14 +1228,33 @@ export default function Workbench() {
                 title="TTS 引擎"
                 value={params.ttsEngine}
                 options={ttsEngineOptions}
-                onChange={(value) => updateParam('ttsEngine', value)}
+                onChange={(value) => {
+                  updateParam('ttsEngine', value)
+                  updateParam('voiceProfileId', null)
+                }}
               />
               <SelectField
                 title="TTS 声线"
+                hint={ttsVoiceError || '由当前 TTS Provider 提供'}
                 value={params.ttsVoice}
                 options={ttsVoiceOptions}
                 onChange={(value) => updateParam('ttsVoice', value)}
               />
+              {params.ttsEngine === 'qwen3' ? (
+                <SelectField
+                  title="音色档案"
+                  hint={availableVoiceProfiles.length > 0 ? '仅显示当前可用的 Qwen3 音色档案' : '当前没有可用的 Qwen3 音色档案'}
+                  value={params.voiceProfileId ?? ''}
+                  options={[
+                    { value: '', label: '不使用音色档案' },
+                    ...availableVoiceProfiles.map((profile) => ({
+                      value: profile.id,
+                      label: `${profile.name} · ${profile.category}`,
+                    })),
+                  ]}
+                  onChange={(value) => updateParam('voiceProfileId', value || null)}
+                />
+              ) : null}
               <SelectField
                 title="ASR 引擎"
                 value={params.asrProvider}
@@ -1077,6 +1334,15 @@ export default function Workbench() {
                 displayValue={`${params.ttsDelay.toFixed(2)}s`}
                 onChange={(value) => updateParam('ttsDelay', value)}
               />
+              {dynamicCapabilityOptions.map(({ descriptor, option, scope }) => (
+                <CapabilityOptionField
+                  key={`${scope}/${option.name}`}
+                  option={option}
+                  context={descriptor.display_name}
+                  value={capabilityOptions[scope]?.[option.name] ?? option.default}
+                  onChange={(value) => updateCapabilityOption(scope, option.name, value)}
+                />
+              ))}
             </div>
           </Section>
         </div>

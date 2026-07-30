@@ -365,6 +365,17 @@ export interface VoiceProfileResponse {
   available: boolean
 }
 
+export interface TtsVoiceItemResponse {
+  id: string
+  name: string
+  language: string
+}
+
+export interface TtsVoicesResponse {
+  engine_id: string
+  voices: TtsVoiceItemResponse[]
+}
+
 export interface VoiceDesignRequest {
   description: string
   name: string
