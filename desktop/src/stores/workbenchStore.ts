@@ -11,6 +11,7 @@ interface WorkbenchParams {
   asrProvider: string
   asrModel: string
   translateProvider: string
+  translateModel: string
   ttsSpeed: number
   originalVolume: number
   ttsVolumeRatio: number
@@ -30,6 +31,7 @@ const DEFAULT_PARAMS: WorkbenchParams = {
   asrProvider: 'faster_whisper',
   asrModel: 'faster-whisper-base',
   translateProvider: 'deepseek',
+  translateModel: 'deepseek-chat',
   ttsSpeed: 1.0,
   originalVolume: 0.85,
   ttsVolumeRatio: 0.5,

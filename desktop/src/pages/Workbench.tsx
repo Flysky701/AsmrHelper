@@ -714,7 +714,7 @@ export default function Workbench() {
         translate: {
           enabled: params.sourceLang !== params.targetLang,
           provider: params.translateProvider,
-          model: null,
+          model: params.translateModel || llmDescriptor?.default_model || null,
           options: {
             source_lang: params.sourceLang,
             target_lang: params.targetLang,
@@ -726,7 +726,7 @@ export default function Workbench() {
         tts: {
           enabled: true,
           provider: params.ttsEngine,
-          model: null,
+          model: ttsDescriptor?.default_model || null,
           options: {
             voice: params.ttsVoice,
             speed: params.ttsSpeed,
@@ -817,6 +817,7 @@ export default function Workbench() {
           vocal_model: params.vocalModel,
           asr_model: params.asrModel,
           translate_provider: params.translateProvider,
+          translate_model: params.translateModel,
           tts_speed: params.ttsSpeed,
           original_volume: params.originalVolume,
           tts_volume_ratio: params.ttsVolumeRatio,
@@ -879,6 +880,7 @@ export default function Workbench() {
 
   const ttsEngineOptions = providerOptions('tts', TTS_ENGINE_OPTIONS)
   const translateProviderOptions = providerOptions('llm', TRANSLATE_PROVIDER_OPTIONS)
+  const translateModelOptions = modelsFor('llm', params.translateProvider, [])
   const asrProviderOptions = providerOptions('asr', [{ value: 'faster_whisper', label: 'faster-whisper' }])
   const asrModelOptions = modelsFor('asr', params.asrProvider, ASR_MODEL_OPTIONS)
   const vocalProviderOptions = providerOptions('separator', [{ value: 'demucs', label: 'Demucs' }])
@@ -942,7 +944,7 @@ export default function Workbench() {
     {
       title: STAGE_NAMES[2],
       enabled: params.sourceLang !== params.targetLang,
-      detail: `${optionLabel(LANG_OPTIONS, params.sourceLang)} → ${optionLabel(LANG_OPTIONS, params.targetLang)} · ${params.translateProvider}`,
+      detail: `${optionLabel(LANG_OPTIONS, params.sourceLang)} → ${optionLabel(LANG_OPTIONS, params.targetLang)} · ${params.translateProvider}/${params.translateModel}`,
     },
     {
       title: STAGE_NAMES[3],
@@ -1275,7 +1277,17 @@ export default function Workbench() {
                 title="翻译提供方"
                 value={params.translateProvider}
                 options={translateProviderOptions}
-                onChange={(value) => updateParam('translateProvider', value)}
+                onChange={(value) => {
+                  updateParam('translateProvider', value)
+                  const defaultModel = defaultModelFor('llm', value)
+                  if (defaultModel) updateParam('translateModel', defaultModel)
+                }}
+              />
+              <SelectField
+                title="翻译模型"
+                value={params.translateModel}
+                options={translateModelOptions}
+                onChange={(value) => updateParam('translateModel', value)}
               />
               <SelectField
                 title="分离引擎"

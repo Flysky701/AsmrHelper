@@ -45,6 +45,7 @@ venv.bak/
 # Testing
 # =====================
 .pytest_cache/
+.tmp/
 .coverage
 htmlcov/
 tests/reports/
