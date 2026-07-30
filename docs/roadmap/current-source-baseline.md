@@ -205,6 +205,8 @@ text_utils.py
 
 2026-07-28 完成交叉检查修复：字幕翻译和双语字幕产物登记的 `Path` 运行错误已修复并覆盖真实分支；Pipeline 在任务创建和 `prepare` 阶段执行后端权威 readiness；默认分离组合统一为 `provider=demucs, model=htdemucs`；readiness 已覆盖 Edge TTS Python 依赖、实际 FFmpeg 可执行文件和逐文件媒体解码探测；DeepSeek 默认模型以 LLM Registry 为唯一运行时事实源，当前为 `deepseek-chat`。随后清理历史测试与执行配置：CLI/batch 平铺参数在 PipelineService 边界统一归一化为 StageProfile V1，planner 不再接受旧 profile，测试中的假 provider 与旧兼容断言已修正，同时保留旧 HTTP 路由和旧模块路径的负向架构守卫。全量测试 `181 passed`，桌面生产构建通过，Ruff 的 `F821` 和 `F601` 已清零。
 
+2026-07-30 完成默认单文件主链路手动验收：真实音频使用 `demucs/htdemucs → faster-whisper-base → DeepSeek → Edge TTS → FFmpeg` 完整执行成功，任务正常完成并生成最终产物。该结论只覆盖当前默认组合的单文件路径；批量任务、异常恢复和其他 Provider 仍需分别验收。
+
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
 说明：
@@ -223,7 +225,7 @@ text_utils.py
 ## 6. 当前最高优先级缺口
 
 1. 使用 CapabilityOption 驱动当前主链路需要的 Provider 私有参数，并联动 TTS 音色/voice profile。
-2. 对 ASR、翻译、TTS、混音执行真实音频验收；通过后再继续兼容层瘦身。
+2. 补充批量任务、异常恢复和其他 Provider 的真实音频验收；通过后再继续兼容层瘦身。
 3. Ruff 剩余 `107` 项以无用导入、历史脚本导入顺序和可读性问题为主，按功能域分批清理，不进行无边界自动修复。
 
 ## 7. DOCS 维护规则

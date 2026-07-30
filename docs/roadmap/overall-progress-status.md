@@ -1,6 +1,6 @@
 # AsmrHelper 总体进度状态
 
-日期：2026-07-28（源码结构基线：2026-05-27；最新验证：2026-07-28）
+日期：2026-07-30（源码结构基线：2026-05-27；最新验证：2026-07-30）
 
 ## 1. 事实源
 
@@ -28,6 +28,8 @@
 2026-07-26 的桌面 P1 修复补充：Workbench 的 ASR、TTS、LLM 和分离选项改为读取 `/capabilities`，不再以客户端常量作为事实源；提交任务前调用 `/runtime/check-task-readiness`，后端按启用阶段校验 provider、model、模型可执行状态和云端凭据，并返回结构化问题与处理入口。能力目录同时删除了运行时未注册的 MDX，分离 provider 统一为真实运行时 `demucs`。默认主链路 readiness 已在当前环境验证通过。
 
 2026-07-28 的交叉检查修复补充：字幕翻译真实运行分支的 `Path` 未定义问题已修复；readiness 已成为 Pipeline 创建与 prepare 阶段的后端权威门禁，并覆盖 Edge TTS、实际 FFmpeg 可执行文件和输入媒体解码；DeepSeek 默认模型已统一到 LLM Registry。随后完成历史测试与执行配置清理：CLI/batch 默认参数统一归一化为 StageProfile V1，planner 拒绝旧 profile，测试中的假 provider 已修正；最新全量测试为 `181 passed`，桌面生产构建通过，Ruff 高风险 `F821/F601` 已清零。
+
+2026-07-30 的手动验收补充：默认单文件完整链路 `demucs/htdemucs → faster-whisper-base → DeepSeek → Edge TTS → FFmpeg` 已使用真实音频执行通过，任务正常完成并生成最终产物。批量任务、异常恢复和其他 Provider 不包含在本次结论中。
 
 ## 3. 当前已完成
 
@@ -107,7 +109,7 @@ src.core.script_to_subtitle
 
 - 根据 CapabilityOption 动态呈现 Provider 私有参数，先覆盖当前主链路实际需要的字段。
 - 将 TTS 音色列表和 voice profile 与所选 TTS provider 联动，避免音色与引擎不匹配。
-- 完成真实音频的多 Provider 验收，再进入兼容层瘦身。
+- 补充批量任务、异常恢复和其他 Provider 的真实音频验收，再进入兼容层瘦身。
 
 ## 7. 一句话结论
 
