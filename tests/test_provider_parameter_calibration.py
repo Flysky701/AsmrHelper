@@ -48,8 +48,8 @@ def test_faster_whisper_runtime_forwards_advertised_options() -> None:
         },
     )
 
+    assert Path(kwargs.pop("model_size")).name == "base"
     assert kwargs == {
-        "model_size": "base",
         "language": "auto",
         "vad_filter": True,
         "beam_size": 3,
@@ -145,6 +145,28 @@ def test_edge_runtime_forwards_optional_proxy() -> None:
     )
 
     assert kwargs["proxy"] == "http://127.0.0.1:7890"
+
+
+def test_voxcpm_runtime_prefers_managed_model_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.core.engines.tts.service as service_module
+
+    monkeypatch.setattr(
+        service_module,
+        "resolve_model_reference",
+        lambda model_id: r"E:\Projects\AsmrHelper\models\voxcpm2",
+    )
+    kwargs = TtsEngineRuntime._build_engine_kwargs(
+        "voxcpm2",
+        {
+            "model": "voxcpm2",
+            "common_options": {"voice": "default"},
+            "provider_options": {},
+        },
+    )
+
+    assert kwargs["model_dir"] == r"E:\Projects\AsmrHelper\models\voxcpm2"
 
 
 def test_capability_validation_rejects_invalid_calibrated_options() -> None:
@@ -273,3 +295,41 @@ def test_readiness_rejects_invalid_edge_speed_before_runtime(tmp_path) -> None:
     assert result["ready"] is False
     assert result["issues"][0]["code"] == "OPTION_INVALID"
     assert "speed must be <= 2.0" in result["issues"][0]["message"]
+
+
+def test_generic_tts_provider_is_adapted_to_pipeline_segments(tmp_path) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    class TextOnlyEngine:
+        def synthesize(self, text, output_path):
+            sf.write(output_path, np.full(800, 0.25, dtype="float32"), 8000)
+            return output_path
+
+    class Registry:
+        def get(self, name, **kwargs):
+            assert name == "kokoro"
+            return TextOnlyEngine()
+
+    output_path = tmp_path / "tts.wav"
+    runtime = TtsEngineRuntime(registry=Registry())
+    runtime.synthesize_segments(
+        segments=[
+            {"text": "first", "start_time": 0.0, "end_time": 0.1},
+            {"text": "second", "start_time": 0.2, "end_time": 0.3},
+        ],
+        output_dir=str(tmp_path),
+        output_path=str(output_path),
+        profile={
+            "provider": "kokoro",
+            "model": "kokoro-82m",
+            "common_options": {"voice": "af_heart", "speed": 1.0},
+            "provider_options": {},
+        },
+        reference_duration=0.5,
+        sample_rate=16000,
+    )
+
+    info = sf.info(str(output_path))
+    assert info.samplerate == 16000
+    assert info.frames == 8000

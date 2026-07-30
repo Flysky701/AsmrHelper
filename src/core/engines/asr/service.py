@@ -5,18 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from src.core.resources.model_catalog import DEFAULT_CATALOG_PATH, ModelCatalog, ModelCatalogError
+from src.core.resources.model_reference import resolve_model_reference
 from src.core.subtitles import SubtitleDocument, SubtitleSegment
 
 from .registry import get_asr_registry
-
-_catalog = ModelCatalog(DEFAULT_CATALOG_PATH)
-
-_MODEL_ID_PREFIX_MAP = {
-    "faster-whisper-": "faster_whisper",
-    "fun-asr-": "fun_asr",
-    "qwen3-asr-": "qwen3_asr",
-}
 
 
 def _resolve_model_name(provider: str, model_id: str) -> str:
@@ -29,19 +21,14 @@ def _resolve_model_name(provider: str, model_id: str) -> str:
     if not model_id:
         return model_id
 
+    resolved = resolve_model_reference(model_id)
+    if resolved != model_id:
+        return resolved
+
     if provider == "faster_whisper":
         prefix = "faster-whisper-"
         return model_id[len(prefix) :] if model_id.startswith(prefix) else model_id
 
-    # Try catalog lookup; if found, return upstream_name
-    try:
-        entry = _catalog.get(model_id)
-        if entry and entry.upstream_name:
-            return entry.upstream_name
-    except ModelCatalogError:
-        # model_id might be an upstream name (e.g. 'FunAudioLLM/Fun-ASR-Nano-2512')
-        # pass through to engine as-is
-        pass
     return model_id
 
 
