@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.core.orchestration.pipeline import PipelineExecutionContext, build_execution_plan
 
 
@@ -16,7 +18,7 @@ def test_planner_consumes_unified_stage_profiles():
             "stages": {
                 "separate": {
                     "enabled": False,
-                    "provider": "htdemucs",
+                    "provider": "demucs",
                     "model": "htdemucs",
                     "options": {"mode": "vocals"},
                     "provider_options": {},
@@ -73,7 +75,7 @@ def test_planner_consumes_unified_stage_profiles():
     assert plan.target_lang == "zh"
     assert plan.skip_existing is True
     assert plan.separation.enabled is False
-    assert plan.separation.provider == "htdemucs"
+    assert plan.separation.provider == "demucs"
     assert plan.asr.model == "faster-whisper-small"
     assert plan.asr.provider_options["disable_vad"] is True
     assert plan.translation.model == "default"
@@ -83,39 +85,53 @@ def test_planner_consumes_unified_stage_profiles():
     assert plan.subtitle.export_format == "vtt"
 
 
-def test_planner_consumes_mainline_v1_profile():
+def test_planner_consumes_internal_batch_metadata_on_v1_profile():
     context = PipelineExecutionContext(
         task_id="pipeline-1",
         input_path="C:/input/demo.wav",
         output_dir="C:/output",
         execution_profile={
-            "profile_version": "mainline.v1",
+            "version": 1,
             "source_lang": "ja",
             "target_lang": "zh",
             "skip_existing": True,
+            "output_mode": "batch",
+            "batch_root_dir": "C:/batch-output",
             "stages": {
-                "separate": False,
-                "asr": True,
-                "translate": True,
-                "tts": False,
-                "mix": False,
-                "export": False,
-            },
-            "profiles": {
-                "separator": {"provider": "builtin", "model": "htdemucs"},
+                "separate": {
+                    "enabled": False,
+                    "provider": "demucs",
+                    "model": "htdemucs",
+                },
                 "asr": {
+                    "enabled": True,
                     "provider": "faster_whisper",
                     "model": "faster-whisper-base",
-                    "common_options": {"language": "ja", "timestamps": True},
+                    "options": {"language": "ja", "timestamps": True},
                 },
-                "translation": {
+                "translate": {
+                    "enabled": True,
                     "provider": "deepseek",
-                    "model": "default",
-                    "common_options": {"target_lang": "zh"},
+                    "model": None,
+                    "options": {"target_lang": "zh"},
                 },
-                "tts": {"provider": "edge", "model": "default"},
-                "mix": {"common_options": {"original_volume": 0.7}},
-                "export": {"common_options": {"subtitle_format": "vtt"}},
+                "tts": {
+                    "enabled": False,
+                    "provider": "edge",
+                    "model": None,
+                },
+                "mix": {
+                    "enabled": False,
+                    "provider": "ffmpeg",
+                    "model": None,
+                    "options": {"original_volume": 0.7},
+                },
+                "export": {
+                    "enabled": False,
+                    "provider": "ffmpeg",
+                    "model": None,
+                    "options": {"subtitle_format": "vtt"},
+                },
             },
         },
     )
@@ -133,9 +149,11 @@ def test_planner_consumes_mainline_v1_profile():
     assert plan.subtitle.enabled is False
     assert plan.asr.common_options["timestamps"] is True
     assert plan.mix.original_volume == 0.7
+    assert plan.output_mode == "batch"
+    assert plan.batch_root_dir == "C:/batch-output"
 
 
-def test_planner_keeps_legacy_profile_compatible():
+def test_planner_rejects_removed_legacy_profile():
     context = PipelineExecutionContext(
         task_id="pipeline-legacy",
         input_path="C:/input/demo.wav",
@@ -156,9 +174,8 @@ def test_planner_keeps_legacy_profile_compatible():
         },
     )
 
-    plan = build_execution_plan(context)
-
-    assert plan.source_lang == "en"
-    assert plan.separation.enabled is False
-    assert plan.skip_existing is True
-    assert plan.mix.original_volume == 0.6
+    with pytest.raises(
+        ValueError,
+        match="expected StageProfile version 1",
+    ):
+        build_execution_plan(context)

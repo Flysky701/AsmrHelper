@@ -81,7 +81,7 @@ class PipelineExecutionPlan:
 
     # Stage bindings
     separation: StageBinding = field(default_factory=lambda: StageBinding(
-        kind=StageKind.SEPARATION, provider="builtin", model="htdemucs",
+        kind=StageKind.SEPARATION, provider="demucs", model="htdemucs",
     ))
     asr: StageBinding = field(default_factory=lambda: StageBinding(
         kind=StageKind.ASR, provider="faster_whisper", model="faster-whisper-base",
@@ -112,27 +112,6 @@ class PipelineExecutionPlan:
         if self.mix.enabled:
             stages.append(StageKind.MIX)
         return stages
-
-    @property
-    def legacy_active_steps(self) -> list[str]:
-        """Return the legacy pipeline step names for enabled stages.
-
-        This narrows the legacy core down to execution mechanics while the
-        orchestration layer remains the source of truth for stage intent.
-        """
-        stage_map = {
-            StageKind.SEPARATION: "vocal_separator",
-            StageKind.ASR: "asr",
-            StageKind.TRANSLATION: "translate",
-            StageKind.TTS: "tts",
-            StageKind.MIX: "mixer",
-        }
-        return [
-            stage_map[stage_kind]
-            for stage_kind in self.active_stage_kinds
-            if stage_kind in stage_map
-        ]
-
 
 @dataclass(slots=True)
 class PipelineExecutionContext:

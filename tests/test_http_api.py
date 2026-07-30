@@ -97,7 +97,7 @@ class TestPipelineRunRoutes:
             "stages": {
                 "separate": {
                     "enabled": False,
-                    "provider": "htdemucs",
+                    "provider": "demucs",
                     "model": "htdemucs",
                     "options": {"mode": "vocals"},
                     "provider_options": {},

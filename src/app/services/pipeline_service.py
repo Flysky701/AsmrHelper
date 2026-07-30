@@ -295,8 +295,9 @@ class PipelineService:
         if request.target_lang not in SUPPORTED_LANGUAGE_CODES:
             raise AppValidationError(f"unsupported target_lang: {request.target_lang}")
 
+        execution_profile = self._resolve_execution_profile(request)
         self._assert_task_ready(
-            request.execution_profile,
+            execution_profile,
             input_path=request.input_path,
         )
         task_spec = self.create_pipeline_task_spec(request, task_source=task_source)
@@ -310,7 +311,9 @@ class PipelineService:
     ) -> None:
         """Apply the backend-authoritative readiness gate for V1 pipeline profiles."""
         if execution_profile.get("version") != 1:
-            return
+            raise AppValidationError(
+                "pipeline execution profile must use StageProfile version 1"
+            )
         readiness = self._resource_service.check_task_readiness(
             task_type="pipeline",
             execution_profile=execution_profile,
@@ -373,7 +376,7 @@ class PipelineService:
         self,
         request: PipelineRequest,
         *,
-        task_source: str = "legacy-pipeline-route",
+        task_source: str = "pipeline-service",
     ):
         workspace = self._workspace_service.resolve()
         inspected_assets = self._input_catalog_service.inspect_paths([request.input_path])
@@ -396,45 +399,62 @@ class PipelineService:
                 "custom_output_dir": request.output_dir or None,
             },
         )
-        execution_profile = request.execution_profile or {
-            "profile_version": "mainline.v1",
+        execution_profile = self._resolve_execution_profile(request)
+        task_spec, _ = self._task_service.create_task_spec(
+            task_type="pipeline",
+            task_source=task_source,
+            session_id=session.session_id,
+            input_asset_id=primary_asset.asset_id,
+            companion_asset_ids=companion_asset_ids,
+            execution_profile=execution_profile,
+        )
+        return task_spec
+
+    @staticmethod
+    def _resolve_execution_profile(request: PipelineRequest) -> dict[str, Any]:
+        if request.execution_profile:
+            profile = dict(request.execution_profile)
+            if profile.get("version") != 1 or not isinstance(
+                profile.get("stages"), dict
+            ):
+                raise AppValidationError(
+                    "pipeline execution profile must use StageProfile version 1"
+                )
+            return profile
+
+        return {
+            "version": 1,
             "source_lang": request.source_lang,
             "target_lang": request.target_lang,
             "skip_existing": request.skip_existing,
+            # Internal batch layout metadata. Public HTTP schemas forbid these
+            # fields, so they cannot become a second client contract.
             "output_mode": request.output_mode,
             "batch_root_dir": request.batch_root_dir,
             "stages": {
-                "separate": request.use_vocal_separator,
-                "asr": True,
-                "translate": True,
-                "tts": True,
-                "mix": True,
-                "export": True,
-            },
-            "profiles": {
-                "separator": {
-                    "category": "separator",
-                    "provider": "builtin",
+                "separate": {
+                    "enabled": request.use_vocal_separator,
+                    "provider": "demucs",
                     "model": request.vocal_model,
-                    "common_options": {"mode": "vocals"},
+                    "options": {"mode": "vocals"},
                     "provider_options": {},
                 },
                 "asr": {
-                    "category": "asr",
+                    "enabled": True,
                     "provider": "faster_whisper",
                     "model": request.asr_model,
-                    "common_options": {
+                    "options": {
                         "language": request.source_lang,
                         "output_format": "segments",
                         "timestamps": True,
                     },
                     "provider_options": {"disable_vad": True},
                 },
-                "translation": {
-                    "category": "llm",
+                "translate": {
+                    "enabled": request.source_lang != request.target_lang,
                     "provider": request.translate_provider,
-                    "model": request.translate_model or "default",
-                    "common_options": {
+                    "model": request.translate_model or None,
+                    "options": {
                         "source_lang": request.source_lang,
                         "target_lang": request.target_lang,
                         "preserve_timestamps": True,
@@ -442,10 +462,10 @@ class PipelineService:
                     "provider_options": {},
                 },
                 "tts": {
-                    "category": "tts",
+                    "enabled": True,
                     "provider": request.tts_engine,
-                    "model": "default",
-                    "common_options": {
+                    "model": None,
+                    "options": {
                         "voice": request.tts_voice,
                         "voice_profile_id": request.voice_profile_id,
                         "speed": request.tts_speed,
@@ -456,22 +476,22 @@ class PipelineService:
                     },
                 },
                 "mix": {
-                    "category": "mix",
-                    "provider": "local",
-                    "model": "default",
-                    "common_options": {
+                    "enabled": True,
+                    "provider": "ffmpeg",
+                    "model": None,
+                    "options": {
                         "original_volume": request.original_volume,
                         "tts_volume_ratio": request.tts_volume_ratio,
-                        "tts_delay": request.tts_delay,
+                        "tts_delay_ms": request.tts_delay * 1000,
                         "normalize": True,
                     },
                     "provider_options": {},
                 },
                 "export": {
-                    "category": "export",
-                    "provider": "local",
-                    "model": "default",
-                    "common_options": {
+                    "enabled": True,
+                    "provider": "ffmpeg",
+                    "model": None,
+                    "options": {
                         "subtitle_format": "srt",
                         "include_intermediate_files": True,
                     },
@@ -479,15 +499,6 @@ class PipelineService:
                 },
             },
         }
-        task_spec, _ = self._task_service.create_task_spec(
-            task_type="pipeline",
-            task_source=task_source,
-            session_id=session.session_id,
-            input_asset_id=primary_asset.asset_id,
-            companion_asset_ids=companion_asset_ids,
-            execution_profile=execution_profile,
-        )
-        return task_spec
 
     def _resolve_companion_subtitle_path(self, companion_asset_ids: list[str]) -> str | None:
         for asset_id in companion_asset_ids:
@@ -503,15 +514,8 @@ class PipelineService:
                 str(execution_profile.get("source_lang", "ja")),
                 str(execution_profile.get("target_lang", "zh")),
             )
-        if execution_profile.get("profile_version") == "mainline.v1":
-            return (
-                str(execution_profile.get("source_lang", "ja")),
-                str(execution_profile.get("target_lang", "zh")),
-            )
-        pipeline_options = dict(execution_profile.get("pipeline", {}))
-        return (
-            str(pipeline_options.get("source_lang", "ja")),
-            str(pipeline_options.get("target_lang", "zh")),
+        raise AppValidationError(
+            "pipeline execution profile must use StageProfile version 1"
         )
 
     def _register_pipeline_artifacts(

@@ -132,7 +132,7 @@ def pipeline_group():
 @click.option("--vocal-model", default="htdemucs", help="Separator model")
 @click.option("--asr-model", default="faster-whisper-base", help="ASR model id")
 @click.option("--translate-provider", default="deepseek", help="Translation provider")
-@click.option("--tts-delay", default=0, type=float, help="TTS delay (ms)")
+@click.option("--tts-delay", default=0, type=float, help="TTS delay (seconds)")
 @click.option("--skip-existing", is_flag=True, help="Skip steps whose outputs already exist")
 def pipeline_run(
     input_path: str,

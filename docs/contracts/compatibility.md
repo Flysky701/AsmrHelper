@@ -49,6 +49,8 @@
 
 2026-07-23 已完成 StageProfile 收敛：Workbench 直接提交嵌套 `input/output/execution_profile`；每个阶段统一携带 `enabled/provider/model/options/provider_options`；Planner 直接消费该结构。当时旧平铺请求仍有兼容回归，现已删除。混音延迟统一为 `tts_delay_ms`。全量测试 `141 passed`。
 
+2026-07-28 已完成内部执行配置收敛：CLI 与 batch 的平铺参数在 PipelineService 边界统一转换为 StageProfile V1，并在任务创建及 `prepare` 阶段执行同一套 readiness；planner 已拒绝旧 `pipeline/stages/mix` profile，旧 HTTP 路由和旧模块路径的负向架构测试继续保留。
+
 2026-07-23 已完成 Provider 设置收敛：桌面端统一使用 `PUT` 与 `{ "settings": ... }`；读取仅返回 `credential_configured`，不返回原文或伪密钥；空密钥保持原值；Provider 测试会使用当前草稿配置执行真实轻量请求，并返回稳定错误代码。全量测试 `148 passed`，桌面端构建通过。
 
 2026-07-24 已完成结果语义收敛：Task、Pipeline 和 Tool 结果统一为 `task_id + primary_artifact_id + artifacts + warnings`；Artifact 公共字段统一为 `type/primary/preview`；TaskCenter 改查权威结果接口，不再从文件扩展名或 `files` 映射猜测主产物和预览能力。全量测试 `151 passed`，桌面端构建通过。

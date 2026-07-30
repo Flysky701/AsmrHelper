@@ -1,4 +1,6 @@
-# AsmrHelper 当前架构与文档审计
+# AsmrHelper 架构与文档审计快照（2026-07-23）
+
+> 本文是指定提交附近的历史审计快照，不再作为当前实现基线。当前状态以 [当前源码基线](current-source-baseline.md) 和 [整体进度状态](overall-progress-status.md) 为准。
 
 日期：2026-07-23  
 适用分支：`refactor/re-design`  
@@ -12,7 +14,7 @@
 
 1. 当前源码、`git status` 与实际验证结果。
 2. [当前源码基线](current-source-baseline.md)。
-3. 本文和活跃的 V1 契约文档。
+3. 活跃的 V1 契约文档。
 4. 旧 roadmap、设计草案和 `docs/archived/` 中的历史记录。
 
 文档中的“目标/契约”不等于已经实现；“归档/历史”不等于当前待办。新增功能前必须先检查当前代码是否已具备对应能力。

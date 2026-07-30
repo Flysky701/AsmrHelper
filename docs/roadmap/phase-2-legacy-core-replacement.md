@@ -112,7 +112,7 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 目标：
 
-- HTTP 仅接受新结构：`profile_version + stages + profiles`。
+- HTTP 仅接受 V1 `input/output/execution_profile`，其中 `execution_profile` 使用 `version + stages`。
 - 旧 `pipeline + stages + mix` 仅允许留在内部 DTO 的清理范围，不再作为客户端输入。
 - 新增 provider 私有参数进入 `provider_options`，不继续扩张平铺字段。
 
@@ -124,9 +124,9 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 完成记录：
 
-- `PipelineService.create_pipeline_task_spec()` 现在生成 `mainline.v1` 的 `profile_version + stages + profiles` 结构。
-- planner 仍可消费内部遗留结构，但 HTTP 已删除旧请求 schema、转换 facade 和兼容路由。
-- 增加 V1 profile 回归测试，并确认旧平铺 HTTP 请求被拒绝。
+- `PipelineService` 会将 CLI 和 batch 的内部平铺参数归一化为同一套 StageProfile V1，再执行 readiness 和任务创建。
+- planner 只消费 StageProfile V1；旧 `pipeline/stages/mix` profile 已拒绝，HTTP 也已删除旧请求 schema、转换 facade 和兼容路由。
+- 增加 V1 profile、内部默认参数归一化和旧 profile 拒绝回归测试，并确认旧平铺 HTTP 请求被拒绝。
 
 ### Slice D：TaskStatus 字段补齐（已完成：2026-07-23）
 

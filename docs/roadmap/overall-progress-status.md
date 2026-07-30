@@ -27,7 +27,7 @@
 
 2026-07-26 的桌面 P1 修复补充：Workbench 的 ASR、TTS、LLM 和分离选项改为读取 `/capabilities`，不再以客户端常量作为事实源；提交任务前调用 `/runtime/check-task-readiness`，后端按启用阶段校验 provider、model、模型可执行状态和云端凭据，并返回结构化问题与处理入口。能力目录同时删除了运行时未注册的 MDX，分离 provider 统一为真实运行时 `demucs`。默认主链路 readiness 已在当前环境验证通过。
 
-2026-07-28 的交叉检查修复补充：字幕翻译真实运行分支的 `Path` 未定义问题已修复；readiness 已成为 Pipeline 创建与 prepare 阶段的后端权威门禁，并覆盖 Edge TTS、实际 FFmpeg 可执行文件和输入媒体解码；DeepSeek 默认模型已统一到 LLM Registry。最新全量测试为 `180 passed`，桌面生产构建通过，Ruff 高风险 `F821/F601` 已清零。
+2026-07-28 的交叉检查修复补充：字幕翻译真实运行分支的 `Path` 未定义问题已修复；readiness 已成为 Pipeline 创建与 prepare 阶段的后端权威门禁，并覆盖 Edge TTS、实际 FFmpeg 可执行文件和输入媒体解码；DeepSeek 默认模型已统一到 LLM Registry。随后完成历史测试与执行配置清理：CLI/batch 默认参数统一归一化为 StageProfile V1，planner 拒绝旧 profile，测试中的假 provider 已修正；最新全量测试为 `181 passed`，桌面生产构建通过，Ruff 高风险 `F821/F601` 已清零。
 
 ## 3. 当前已完成
 
@@ -39,7 +39,7 @@
 - 桌面端 `desktop/` 已完成第一轮页面重构和后端接线，不是空壳阶段。
 - 模型资源与安装链路近期继续推进，已包含异步安装、进度状态、按需安装 Python 依赖等能力。
 - P0 已修复字幕服务的旧模块懒加载，并有真实 runtime 导入回归测试。
-- P1 已完成后端主链路数据收束：PipelineService 生成 `mainline.v1` profile，planner 兼容新旧结构；TaskStatus/API 已提供显式 stage、时间线、结构化 error 与 artifact_set_id，pipeline executor 显式回写阶段。
+- P1 已完成后端主链路数据收束：HTTP、CLI 与 batch 最终统一为 StageProfile V1，planner 不再接受旧 profile；TaskStatus/API 已提供显式 stage、时间线、结构化 error 与 artifact_set_id，pipeline executor 显式回写阶段。
 - Workbench 已切换到 `POST /pipeline-runs` 和统一 StageProfile；TaskCenter 已消费后端显式阶段、错误与终态历史。
 - 终态任务与 Artifact 索引已持久化到 SQLite；重启时删除未完成任务，历史任务保持只读。
 - Provider 设置已统一为 Provider v1 包络，凭据只读状态与真实连通性测试已落码。
