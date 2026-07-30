@@ -42,7 +42,7 @@ def transcribe(
     common_options.setdefault("language", body.language)
     provider_options = dict(body.provider_options)
     if body.provider == "faster_whisper":
-        provider_options.setdefault("disable_vad", True)
+        provider_options.setdefault("vad_filter", False)
 
     result = svc.transcribe_file(
         input_path=body.input_path,

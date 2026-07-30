@@ -22,8 +22,6 @@ class TtsEngineRuntime:
         profile: dict[str, Any],
     ) -> str:
         engine_id = str(profile["provider"])
-        common_options = dict(profile.get("common_options", {}))
-        provider_options = dict(profile.get("provider_options", {}))
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         engine = self._registry.get(engine_id, **self._build_engine_kwargs(engine_id, profile))
@@ -42,8 +40,6 @@ class TtsEngineRuntime:
         compress_ratio: float = 0.75,
     ) -> tuple[str, Any]:
         engine_id = str(profile["provider"])
-        common_options = dict(profile.get("common_options", {}))
-        provider_options = dict(profile.get("provider_options", {}))
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         engine = self._registry.get(engine_id, **self._build_engine_kwargs(engine_id, profile))
@@ -67,6 +63,12 @@ class TtsEngineRuntime:
 
         voice = str(common_options.get("voice", "")).strip()
         speed = float(common_options.get("speed", 1.0))
+
+        if engine_id == "edge":
+            return {
+                "voice": voice or "zh-CN-XiaoxiaoNeural",
+                "rate": TtsEngineRuntime._edge_rate_from_speed(speed),
+            }
 
         if engine_id == "kokoro":
             return {
@@ -100,3 +102,11 @@ class TtsEngineRuntime:
             if key not in kwargs:
                 kwargs[key] = value
         return kwargs
+
+    @staticmethod
+    def _edge_rate_from_speed(speed: float) -> str:
+        """Map the project-wide speed multiplier to edge-tts's signed percent."""
+        if not 0.5 <= speed <= 2.0:
+            raise ValueError("Edge TTS speed must be between 0.5 and 2.0")
+        percent = round((speed - 1.0) * 100)
+        return f"{percent:+d}%"

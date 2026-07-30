@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from src.core.runtime import ResourceStatus, RuntimeWorkspaceManager
+from ..errors import AppValidationError
 from .capability_descriptor_service import (
     CapabilityDescriptorService,
     get_capability_descriptor_service,
@@ -159,6 +160,36 @@ class ResourceService:
                         code="CAPABILITY_UNAVAILABLE",
                         requirement=f"{category}/{provider or '<empty>'}",
                         message=f"Unsupported {category} provider: {provider or '<empty>'}",
+                    )
+                )
+                continue
+
+            common_options = stage.get("common_options")
+            if not isinstance(common_options, dict):
+                common_options = stage.get("options")
+            if not isinstance(common_options, dict):
+                common_options = {}
+            provider_options = stage.get("provider_options")
+            if not isinstance(provider_options, dict):
+                provider_options = {}
+            try:
+                self._descriptor_service.validate_options(
+                    category=category,
+                    provider=provider,
+                    common_options=common_options,
+                    provider_options=provider_options,
+                    allow_unknown_common=True,
+                )
+            except AppValidationError as exc:
+                issues.append(
+                    self._issue(
+                        stage=stage_name,
+                        category=category,
+                        provider=provider,
+                        model=requested_model,
+                        code="OPTION_INVALID",
+                        requirement="capability options",
+                        message=str(exc),
                     )
                 )
                 continue

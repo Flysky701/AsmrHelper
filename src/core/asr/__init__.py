@@ -19,9 +19,8 @@ import math
 import time
 import sys
 from pathlib import Path
-from typing import Optional, List, Literal, Callable
+from typing import Optional, List, Callable
 
-import numpy as np
 from faster_whisper import WhisperModel
 
 from .postprocess import ASRPostProcessor, PostProcessConfig
@@ -50,7 +49,10 @@ class ASRRecognizer:
         device: str = "auto",
         language: Optional[str] = None,
         compute_type: str = "float16",
-        disable_vad: bool = True,
+        vad_filter: bool = False,
+        beam_size: int = 5,
+        initial_prompt: Optional[str] = None,
+        no_speech_threshold: float = 0.9,
         postprocess_config: Optional[PostProcessConfig] = None,
     ):
         """
@@ -61,7 +63,10 @@ class ASRRecognizer:
             device: 计算设备 (cuda/cpu/auto)
             language: 语言代码 (ja/zh/en/auto)
             compute_type: 计算精度
-            disable_vad: 是否禁用 VAD（ASMR 需要保留轻声）
+            vad_filter: 是否使用 Silero VAD 过滤非语音
+            beam_size: 解码 Beam 大小
+            initial_prompt: 可选识别上下文提示
+            no_speech_threshold: 无语音概率阈值
             postprocess_config: 后处理配置，为 None 时使用默认配置
         """
         self.model_size = model_size
@@ -79,7 +84,14 @@ class ASRRecognizer:
             self.device = device if device == "cuda" else "cpu"
 
         self.language = self.LANG_CODES.get(language, language)
-        self.disable_vad = disable_vad
+        if beam_size < 1:
+            raise ValueError("beam_size must be >= 1")
+        if not 0.0 <= no_speech_threshold <= 1.0:
+            raise ValueError("no_speech_threshold must be between 0 and 1")
+        self.vad_filter = vad_filter
+        self.beam_size = beam_size
+        self.initial_prompt = initial_prompt
+        self.no_speech_threshold = no_speech_threshold
         # CPU 使用 int8 加速
         self.compute_type = compute_type if self.device == "cuda" else "int8"
 
@@ -136,20 +148,20 @@ class ASRRecognizer:
         segments, info = self.model.transcribe(
             str(audio_path),
             language=self.language,
-            vad_filter=not self.disable_vad,
+            vad_filter=self.vad_filter,
             vad_parameters=dict(
                 min_silence_duration_ms=500,
                 speech_pad_ms=200,
-            ) if not self.disable_vad else None,
+            ) if self.vad_filter else None,
             word_timestamps=True,  # 开启逐词时间戳（用于 TTS 对齐优化）
-            beam_size=5,
+            beam_size=self.beam_size,
             best_of=5,
             temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],  # 多温度重试，提高轻声识别率
             condition_on_previous_text=True,   # 利用上下文
-            initial_prompt="これはASMR音声です。ゆっくりとした静かな音声です。",  # 引导模型识别轻声
+            initial_prompt=self.initial_prompt,
             compression_ratio_threshold=2.4,
             log_prob_threshold=-1.0,
-            no_speech_threshold=0.9,  # 高阈值保留 ASMR 轻声，让模型更难将轻声判断为无语音
+            no_speech_threshold=self.no_speech_threshold,
         )
 
         # 获取音频时长

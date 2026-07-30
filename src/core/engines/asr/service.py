@@ -105,7 +105,15 @@ class AsrEngineRuntime:
         }
 
         if provider == "faster_whisper":
-            kwargs["disable_vad"] = bool(provider_options.get("disable_vad", True))
+            supported = (
+                "vad_filter",
+                "beam_size",
+                "initial_prompt",
+                "no_speech_threshold",
+            )
+            for key in supported:
+                if key in provider_options:
+                    kwargs[key] = provider_options[key]
             return kwargs
 
         if provider == "fun_asr":

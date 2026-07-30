@@ -36,6 +36,22 @@ def _option(
     }
 
 
+def _matches_option_type(type_name: str, value: Any) -> bool:
+    if type_name == "boolean":
+        return isinstance(value, bool)
+    if type_name == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if type_name == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if type_name == "string":
+        return isinstance(value, str)
+    if type_name == "array":
+        return isinstance(value, list)
+    if type_name == "object":
+        return isinstance(value, dict)
+    return False
+
+
 class CapabilityDescriptorService:
     """Registry of supported capability descriptors."""
 
@@ -64,6 +80,72 @@ class CapabilityDescriptorService:
                 return deepcopy(item)
         raise AppValidationError(f"capability descriptor not found: {category}/{provider}")
 
+    def validate_options(
+        self,
+        *,
+        category: str,
+        provider: str,
+        common_options: dict[str, Any] | None = None,
+        provider_options: dict[str, Any] | None = None,
+        allow_unknown_common: bool = False,
+    ) -> None:
+        """Validate runtime options against the advertised capability schema."""
+        descriptor = self.get_descriptor(category, provider)
+        self._validate_option_group(
+            descriptor["common_option_schema"],
+            common_options or {},
+            label=f"{category}/{provider}.common_options",
+            allow_unknown=allow_unknown_common,
+        )
+        self._validate_option_group(
+            descriptor["provider_option_schema"],
+            provider_options or {},
+            label=f"{category}/{provider}.provider_options",
+            allow_unknown=False,
+        )
+
+    @staticmethod
+    def _validate_option_group(
+        schema: list[dict[str, Any]],
+        values: dict[str, Any],
+        *,
+        label: str,
+        allow_unknown: bool,
+    ) -> None:
+        entries = {entry["name"]: entry for entry in schema}
+        unknown = sorted(set(values) - set(entries))
+        if unknown and not allow_unknown:
+            raise AppValidationError(
+                f"{label} contains unsupported options: {', '.join(unknown)}"
+            )
+
+        for name, entry in entries.items():
+            if name not in values:
+                if entry.get("required") and entry.get("default") is None:
+                    raise AppValidationError(f"{label}.{name} is required")
+                continue
+
+            value = values[name]
+            if not _matches_option_type(str(entry["type"]), value):
+                raise AppValidationError(
+                    f"{label}.{name} must be {entry['type']}"
+                )
+            enum = list(entry.get("enum") or [])
+            if enum and value not in enum:
+                raise AppValidationError(
+                    f"{label}.{name} must be one of {enum}"
+                )
+            min_value = entry.get("min")
+            max_value = entry.get("max")
+            if min_value is not None and value < min_value:
+                raise AppValidationError(
+                    f"{label}.{name} must be >= {min_value}"
+                )
+            if max_value is not None and value > max_value:
+                raise AppValidationError(
+                    f"{label}.{name} must be <= {max_value}"
+                )
+
     def _build_descriptors(self) -> list[dict[str, Any]]:
         from src.core.engines.llm import get_llm_registry
 
@@ -78,7 +160,15 @@ class CapabilityDescriptorService:
                 "default_model": "default",
                 "common_option_schema": [
                     _option("voice", "string", required=True, default="zh-CN-XiaoxiaoNeural", description="TTS voice"),
-                    _option("speed", "number", required=False, default=1.0, description="Playback speed"),
+                    _option(
+                        "speed",
+                        "number",
+                        required=False,
+                        default=1.0,
+                        min_value=0.5,
+                        max_value=2.0,
+                        description="Speech speed multiplier mapped to Edge rate",
+                    ),
                 ],
                 "provider_option_schema": [],
                 "supports": {
@@ -231,8 +321,36 @@ class CapabilityDescriptorService:
                     _option("language", "string", required=False, default="ja", description="Language hint"),
                 ],
                 "provider_option_schema": [
-                    _option("disable_vad", "boolean", required=False, default=True, description="Disable VAD filtering"),
-                    _option("beam_size", "integer", required=False, description="Optional beam size"),
+                    _option(
+                        "vad_filter",
+                        "boolean",
+                        required=False,
+                        default=False,
+                        description="Filter non-speech with Silero VAD",
+                    ),
+                    _option(
+                        "beam_size",
+                        "integer",
+                        required=False,
+                        default=5,
+                        min_value=1,
+                        description="Beam size used for decoding",
+                    ),
+                    _option(
+                        "initial_prompt",
+                        "string",
+                        required=False,
+                        description="Optional transcription context prompt",
+                    ),
+                    _option(
+                        "no_speech_threshold",
+                        "number",
+                        required=False,
+                        default=0.9,
+                        min_value=0.0,
+                        max_value=1.0,
+                        description="No-speech probability threshold",
+                    ),
                 ],
                 "supports": {
                     "language_hint": True,

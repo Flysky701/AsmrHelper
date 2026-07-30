@@ -28,7 +28,7 @@ def test_planner_consumes_unified_stage_profiles():
                     "provider": "faster_whisper",
                     "model": "faster-whisper-small",
                     "options": {"language": "ja", "timestamps": True},
-                    "provider_options": {"disable_vad": True},
+                    "provider_options": {"vad_filter": False},
                 },
                 "translate": {
                     "enabled": True,
@@ -77,7 +77,7 @@ def test_planner_consumes_unified_stage_profiles():
     assert plan.separation.enabled is False
     assert plan.separation.provider == "demucs"
     assert plan.asr.model == "faster-whisper-small"
-    assert plan.asr.provider_options["disable_vad"] is True
+    assert plan.asr.provider_options["vad_filter"] is False
     assert plan.translation.model == "default"
     assert plan.tts.common_options["speed"] == 1.1
     assert plan.mix.original_volume == 0.7

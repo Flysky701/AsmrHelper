@@ -33,7 +33,9 @@
 
 2026-07-30 的 P1.5 第一批补充：Workbench 已直接消费 CapabilityOption 的基础类型参数；TTS 声线从引擎接口动态加载，Qwen3 音色档案按可用状态和引擎过滤，`voice_profile_id` 已按契约进入 `provider_options`。桌面生产构建通过。
 
-2026-07-30 的 Provider / Model 接入流程补充：新增 Provider 与已有 Provider 新增模型已拆分为固定 Server-first Gate；运行模型 ID 与资源项 ID通过 `capability_models` 显式映射，readiness 不再依赖单候选回退；自动守卫会检查模型目录、能力目录、默认模型和参数 schema 一致性。最新全量测试为 `187 passed`。
+2026-07-30 的 Provider / Model 接入流程补充：流程已精简为“确认上游、完成 Server、真实验收”三步；运行模型 ID 与资源项 ID 通过 `capability_models` 显式映射，自动守卫保留运行关键一致性检查。
+
+2026-07-30 的第一批参数校准补充：Faster-Whisper 的 VAD、Beam、提示词和无语音阈值已与锁定版本的真实接口统一，Edge TTS 的公共速度倍率会转换为上游 rate 百分比；直接能力调用和 Pipeline readiness 均会提前检查公开参数。最新全量测试为 `196 passed`，真实音频需按新参数重新验收。
 
 ## 3. 当前已完成
 

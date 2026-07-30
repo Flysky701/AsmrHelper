@@ -191,7 +191,7 @@ text_utils.py
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-结果：`187 passed`。
+结果：`196 passed`。
 
 启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（88 routes）可用。
 
@@ -209,7 +209,9 @@ text_utils.py
 
 2026-07-30 完成 P1.5 第一批参数与音色联动：Workbench 直接消费 CapabilityOption，动态呈现当前 ASR、LLM、TTS Provider 的基础类型参数，并按契约把参数写入 `options` 或 `provider_options`；TTS 声线改为读取 `/tts/engines/{engine_id}/voices`，Qwen3 音色档案只显示当前可用且引擎匹配的 profile，`voice_profile_id` 已归入 Provider 私有参数。全量测试 `182 passed`，桌面生产构建通过。
 
-2026-07-30 固化并精简 Provider / Model 接入流程：已有 Provider 增加普通模型只需登记能力、资源映射和最小验证；新增 Provider 按“确认上游事实、完成 Server、真实验收”三步处理，不要求逐 Gate 文档或提交。`config/models.yaml` 使用 `capability_models` 显式映射运行模型 ID，readiness 不再依赖单候选隐式回退；自动守卫只检查模型目录、能力目录、默认模型和参数 schema 等运行关键一致性。最新全量测试 `187 passed`。
+2026-07-30 固化并精简 Provider / Model 接入流程：已有 Provider 增加普通模型只需登记能力、资源映射和最小验证；新增 Provider 按“确认上游事实、完成 Server、真实验收”三步处理，不要求逐 Gate 文档或提交。`config/models.yaml` 使用 `capability_models` 显式映射运行模型 ID，readiness 不再依赖单候选隐式回退；自动守卫只检查模型目录、能力目录、默认模型和参数 schema 等运行关键一致性。当时全量测试 `187 passed`。
+
+2026-07-30 完成第一批 Server 参数校准：按当前锁定的 `faster-whisper==1.2.1` 与 `edge-tts==7.2.8` 核对上游接口。Faster-Whisper 改用上游正向 `vad_filter`，`beam_size`、`initial_prompt` 和 `no_speech_threshold` 已从 Capability 传到实际 `transcribe` 调用，不再硬编码日语提示词；Edge TTS 的公共 `speed` 倍率已转换为上游 `rate` 百分比。ExecutionProfileBuilder 和 Pipeline readiness 会在运行前检查公开参数的名称、类型和范围。全量测试 `196 passed`；本批参数变更尚待重新执行默认真实音频验收。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 

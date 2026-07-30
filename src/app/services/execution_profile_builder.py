@@ -55,6 +55,12 @@ class ExecutionProfileBuilder:
             descriptor["provider_option_schema"],
             provider_options or {},
         )
+        self.descriptor_service.validate_options(
+            category=category,
+            provider=resolved_provider,
+            common_options=resolved_common,
+            provider_options=resolved_provider_options,
+        )
 
         return {
             "category": category,

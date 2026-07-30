@@ -107,7 +107,7 @@ class TestPipelineRunRoutes:
                     "provider": "faster_whisper",
                     "model": "faster-whisper-base",
                     "options": {"language": "ja"},
-                    "provider_options": {"disable_vad": True},
+                    "provider_options": {"vad_filter": False},
                 },
                 "translate": {
                     "enabled": True,

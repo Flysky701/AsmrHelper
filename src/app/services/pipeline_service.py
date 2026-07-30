@@ -448,7 +448,7 @@ class PipelineService:
                         "output_format": "segments",
                         "timestamps": True,
                     },
-                    "provider_options": {"disable_vad": True},
+                    "provider_options": {"vad_filter": False},
                 },
                 "translate": {
                     "enabled": request.source_lang != request.target_lang,
