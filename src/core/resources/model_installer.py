@@ -71,6 +71,8 @@ class ModelInstaller:
             return self._download_qwen3(entry, mirror)
         if strategy == "huggingface_snapshot":
             return self._download_huggingface_snapshot(entry, mirror)
+        if strategy == "package":
+            return self.verify_local_model(entry)
         raise ValueError(f"unknown install strategy: {strategy}")
 
     def _download_whisper(self, entry: ModelEntry, mirror: Optional[str]) -> bool:

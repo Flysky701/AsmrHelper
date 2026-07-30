@@ -9,6 +9,7 @@ from __future__ import annotations
 import threading
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -222,6 +223,30 @@ class TestCapabilityOptionContract:
         assert descriptor["default_model"] == "deepseek-chat"
         assert descriptor["supported_models"] == registry.list_models("deepseek")
         assert Translator.MODELS is LLM_SUPPORTED_MODELS
+
+
+class TestModelService:
+    def test_async_install_fails_task_when_core_install_returns_false(self):
+        from src.app.services.model_service import ModelService
+
+        finished = threading.Event()
+        task_service = MagicMock()
+        task_service.create_task_spec.return_value = (
+            SimpleNamespace(task_id="model-install-1"),
+            SimpleNamespace(task_id="model-install-1"),
+        )
+        task_service.fail_task.side_effect = lambda task_id, message: finished.set()
+        core_service = MagicMock()
+        core_service.get_model.return_value = SimpleNamespace(kind="local")
+        core_service.install.return_value = False
+        service = ModelService(core_service=core_service, task_service=task_service)
+
+        task_id = service.install_model_async("optional-model")
+
+        assert task_id == "model-install-1"
+        assert finished.wait(timeout=1)
+        task_service.complete_task.assert_not_called()
+        task_service.fail_task.assert_called_once()
 
 
 class TestTaskService:

@@ -152,7 +152,7 @@ class ModelService:
         def _run():
             try:
                 task_svc.start_task(task_id, "installing")
-                self.core_service.install(
+                installed = self.core_service.install(
                     model_id,
                     mirror=mirror,
                     force=force,
@@ -162,6 +162,10 @@ class ModelService:
                     allow_fallback_variant=allow_fallback_variant,
                     on_progress=lambda frac, msg: task_svc.update_progress(task_id, frac, msg),
                 )
+                if not installed:
+                    raise RuntimeError(
+                        f"model installation failed or runtime dependencies conflict: {model_id}"
+                    )
                 task_svc.complete_task(task_id, "installed")
             except Exception as exc:
                 logger.error("async install failed for %s: %s", model_id, exc)

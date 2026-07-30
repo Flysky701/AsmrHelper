@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from textwrap import dedent
 
+import pytest
+
 from src.core.resources.model_catalog import ModelEntry
 from src.core.resources.model_service import ModelService
 from src.core.resources.model_status import ModelState, ModelStatusResolver
@@ -67,6 +69,82 @@ def test_install_family_all_expands_family_members_and_required_assets(tmp_path)
 
     assert result is True
     assert installed_ids == ["family-base", "shared-tokenizer", "family-large"]
+
+
+def test_install_stops_before_model_download_when_runtime_dependencies_fail(tmp_path):
+    catalog_path = tmp_path / "models.yaml"
+    catalog_path.write_text(
+        dedent(
+            """
+            models:
+              - id: optional-model
+                kind: local
+                category: asr
+                provider: optional
+                display_name: Optional Model
+                description: Optional model
+                install_root: models
+                install_path: optional/model
+                supports_install: true
+                install_strategy: huggingface_snapshot
+                upstream_name: example/optional-model
+                required_python_extras: [optional]
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    service = ModelService(catalog_path=catalog_path)
+    downloaded: list[str] = []
+    def fail_dependencies(entry):
+        raise RuntimeError("dependency conflict")
+
+    service._install_runtime_packages = fail_dependencies
+    service.installer.install_local_model = (
+        lambda entry, mirror=None, force=False: downloaded.append(entry.id) or True
+    )
+
+    with pytest.raises(RuntimeError, match="dependency conflict"):
+        service.install("optional-model")
+
+    assert downloaded == []
+
+
+def test_runtime_dependency_install_reports_subprocess_failure(
+    monkeypatch,
+    tmp_path,
+):
+    entry = ModelEntry(
+        id="optional-model",
+        kind="local",
+        category="asr",
+        provider="optional",
+        display_name="Optional Model",
+        description="test",
+        install_root=str(tmp_path),
+        install_path="optional/model",
+        required_python_extras=["optional"],
+    )
+    service = ModelService()
+    monkeypatch.setattr(
+        service,
+        "_resolve_installer",
+        lambda: {
+            "extras_cmd": lambda extras, cwd: ["install-extra"],
+            "packages_cmd": lambda packages: ["install-package"],
+        },
+    )
+
+    class FailedResult:
+        returncode = 1
+        stderr = "dependency conflict"
+
+    monkeypatch.setattr(
+        "src.core.resources.model_service.subprocess.run",
+        lambda *args, **kwargs: FailedResult(),
+    )
+
+    with pytest.raises(RuntimeError, match="dependency conflict"):
+        service._install_runtime_packages(entry)
 
 
 def test_installed_assets_are_not_executable_when_python_dependency_is_missing(tmp_path):

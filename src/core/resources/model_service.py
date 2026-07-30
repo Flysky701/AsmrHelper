@@ -51,6 +51,11 @@ class ModelService:
         if entry.kind == "cloud":
             raise ValueError(f"{model_id} is a cloud model and cannot be installed")
 
+        # Fail before a potentially large model download when its runtime
+        # dependencies cannot be installed in the active environment.
+        if install_dependencies:
+            self._install_runtime_packages(entry)
+
         # Try installing the primary model
         success = self._install_with_fallback(
             entry,
@@ -62,10 +67,6 @@ class ModelService:
 
         if not success:
             return False
-
-        # Install dependencies if requested
-        if install_dependencies:
-            self._install_runtime_packages(entry)
 
         # Install additional models/assets based on install_mode
         plan = self._resolve_install_plan(
@@ -163,12 +164,18 @@ class ModelService:
                     cwd=str(PROJECT_ROOT),
                 )
                 if result.returncode != 0:
-                    logger.warning(
-                        "install extras failed for %s: %s",
-                        entry.id, (result.stderr or "")[-500:],
+                    detail = (result.stderr or result.stdout or "unknown error")[-500:]
+                    raise RuntimeError(
+                        f"failed to install optional dependency group "
+                        f"{','.join(extras)} for {entry.id}: {detail}"
                     )
             except Exception as exc:
-                logger.warning("install extras error for %s: %s", entry.id, exc)
+                if isinstance(exc, RuntimeError):
+                    raise
+                raise RuntimeError(
+                    f"failed to install optional dependency group "
+                    f"{','.join(extras)} for {entry.id}: {exc}"
+                ) from exc
 
         # Install explicit packages (e.g. for models without project extras)
         if packages:
@@ -184,12 +191,16 @@ class ModelService:
                     cwd=str(PROJECT_ROOT),
                 )
                 if result.returncode != 0:
-                    logger.warning(
-                        "install packages failed for %s: %s",
-                        entry.id, (result.stderr or "")[-300:],
+                    detail = (result.stderr or result.stdout or "unknown error")[-300:]
+                    raise RuntimeError(
+                        f"failed to install runtime packages for {entry.id}: {detail}"
                     )
             except Exception as exc:
-                logger.warning("install packages error for %s: %s", entry.id, exc)
+                if isinstance(exc, RuntimeError):
+                    raise
+                raise RuntimeError(
+                    f"failed to install runtime packages for {entry.id}: {exc}"
+                ) from exc
 
     @staticmethod
     def _resolve_installer() -> dict:

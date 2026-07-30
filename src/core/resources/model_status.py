@@ -50,6 +50,7 @@ class ModelStatusResolver:
         "demucs": ("demucs",),
     }
     _EXTRA_IMPORTS = {
+        "audio": ("torch",),
         "funasr": ("funasr",),
         "qwen_asr": ("qwen_asr",),
         "qwen3": ("qwen_tts",),
