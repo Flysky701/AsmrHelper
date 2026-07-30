@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Optional, Literal, List
 
 import edge_tts
+from edge_tts.exceptions import NoAudioReceived
+from aiohttp import ClientError
+import numpy as np
 import soundfile as sf
+
+from src.utils import get_ffmpeg
 
 
 def _run_async(coro):
@@ -28,9 +33,6 @@ def _run_async(coro):
             future = pool.submit(asyncio.run, coro)
             return future.result()
     return asyncio.run(coro)
-import numpy as np
-
-from src.utils import get_ffmpeg, ensure_dir
 
 
 def _clean_text_for_tts(text: str) -> str:
@@ -60,6 +62,11 @@ def _apply_fade(audio: np.ndarray, sample_rate: int, fade_in_ms: int = 30, fade_
 class EdgeTTSEngine:
     """Edge-TTS 引擎"""
 
+    MAX_CONCURRENT_REQUESTS = 4
+    MAX_NETWORK_ATTEMPTS = 3
+    CONNECT_TIMEOUT_SECONDS = 15
+    RECEIVE_TIMEOUT_SECONDS = 60
+
     # 预设音色
     VOICES = {
         "zh-CN-XiaoxiaoNeural": "晓晓（女）",
@@ -84,6 +91,7 @@ class EdgeTTSEngine:
         rate: str = "+0%",
         volume: str = "+0%",
         pitch: str = "+0Hz",
+        proxy: Optional[str] = None,
     ):
         """
         初始化 Edge-TTS 引擎
@@ -93,11 +101,13 @@ class EdgeTTSEngine:
             rate: 语速 (+/-%)
             volume: 音量 (+/-%)
             pitch: 音调 (+/-Hz)
+            proxy: 可选 HTTP 代理
         """
         self.voice = voice
         self.rate = rate
         self.volume = volume
         self.pitch = pitch
+        self.proxy = proxy.strip() if proxy else None
 
         print(f"[EdgeTTS] 音色: {voice} ({self.VOICES.get(voice, 'unknown')})")
 
@@ -118,15 +128,7 @@ class EdgeTTSEngine:
         # Edge-TTS 默认输出 MP3（有损），先用临时文件存储再转为 WAV
         temp_mp3 = output_path.with_suffix(".mp3")
 
-        communicate = edge_tts.Communicate(
-            text,
-            self.voice,
-            rate=self.rate,
-            volume=self.volume,
-            pitch=self.pitch,
-        )
-
-        await communicate.save(str(temp_mp3))
+        await self._save_mp3_with_retry(text, temp_mp3)
 
         # 转换为 WAV 无损格式（强制 WAV 输出）
         try:
@@ -136,6 +138,37 @@ class EdgeTTSEngine:
             temp_mp3.unlink(missing_ok=True)
 
         return str(output_path)
+
+    async def _save_mp3_with_retry(self, text: str, temp_mp3: Path) -> None:
+        """Retry transient Edge network failures without rerunning the pipeline."""
+        for attempt in range(1, self.MAX_NETWORK_ATTEMPTS + 1):
+            try:
+                communicate = edge_tts.Communicate(
+                    text,
+                    self.voice,
+                    rate=self.rate,
+                    volume=self.volume,
+                    pitch=self.pitch,
+                    proxy=self.proxy,
+                    connect_timeout=self.CONNECT_TIMEOUT_SECONDS,
+                    receive_timeout=self.RECEIVE_TIMEOUT_SECONDS,
+                )
+                await communicate.save(str(temp_mp3))
+                return
+            except (ClientError, TimeoutError, NoAudioReceived) as exc:
+                temp_mp3.unlink(missing_ok=True)
+                if attempt >= self.MAX_NETWORK_ATTEMPTS:
+                    raise RuntimeError(
+                        "Edge TTS request failed after "
+                        f"{self.MAX_NETWORK_ATTEMPTS} attempts "
+                        f"({type(exc).__name__})"
+                    ) from exc
+                print(
+                    "[EdgeTTS] 网络请求重试 "
+                    f"{attempt}/{self.MAX_NETWORK_ATTEMPTS - 1}: "
+                    f"{type(exc).__name__}"
+                )
+                await asyncio.sleep(0.5 * attempt)
 
     def _convert_to_wav(self, input_path: Path, output_path: Path):
         """将音频转换为 WAV 无损格式"""
@@ -164,9 +197,15 @@ class EdgeTTSEngine:
         return _run_async(self.synthesize_async(text, output_path))
 
     async def _synthesize_all_async(self, sentences: List[str], temp_files: List[Path]):
-        """并发合成所有句子（避免多次 asyncio.run 创建新事件循环）"""
+        """Bound Edge requests so one task does not open dozens of WebSockets."""
+        semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_REQUESTS)
+
+        async def synthesize_one(sentence: str, temp_file: Path) -> None:
+            async with semaphore:
+                await self.synthesize_async(sentence, str(temp_file))
+
         tasks = [
-            self.synthesize_async(sent, str(tf))
+            synthesize_one(sent, tf)
             for sent, tf in zip(sentences, temp_files)
             if sent.strip()
         ]
@@ -359,7 +398,7 @@ class Qwen3TTSEngine:
 
         # 检查是否安装
         try:
-            import qwen_tts
+            __import__("qwen_tts")
         except ImportError:
             raise ImportError("请先安装 qwen-tts: pip install qwen-tts")
 
@@ -552,6 +591,7 @@ class TTSEngine:
         rate: str = "+0%",
         volume: str = "+0%",
         pitch: str = "+0Hz",
+        proxy: str = None,
         voice_profile_id: str = None,
     ):
         """
@@ -564,6 +604,7 @@ class TTSEngine:
             rate: 语速 (仅 Edge-TTS, +/-%)
             volume: 音量 (仅 Edge-TTS, +/-%)
             pitch: 音调 (仅 Edge-TTS, +/-Hz)
+            proxy: 可选 Edge-TTS HTTP 代理
             voice_profile_id: 音色配置 ID（Qwen3 专用）
         """
         self.engine_type = engine
@@ -574,6 +615,7 @@ class TTSEngine:
                 rate=rate,
                 volume=volume,
                 pitch=pitch,
+                proxy=proxy,
             )
         elif engine == "qwen3":
             self.engine = Qwen3TTSEngine(
@@ -650,7 +692,6 @@ class TTSEngine:
 
         synthesized_count = 0
         failed_count = 0
-        total_segments = len(segments)
 
         valid_indices = []
         valid_texts = []

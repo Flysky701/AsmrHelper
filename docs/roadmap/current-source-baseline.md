@@ -191,7 +191,7 @@ text_utils.py
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-结果：`196 passed`。
+结果：`199 passed`。
 
 启动环境使用 Python 3.12.13，`scripts/verify_env.py` 已确认 FastAPI、Uvicorn、HTTP API（88 routes）可用。
 
@@ -211,7 +211,9 @@ text_utils.py
 
 2026-07-30 固化并精简 Provider / Model 接入流程：已有 Provider 增加普通模型只需登记能力、资源映射和最小验证；新增 Provider 按“确认上游事实、完成 Server、真实验收”三步处理，不要求逐 Gate 文档或提交。`config/models.yaml` 使用 `capability_models` 显式映射运行模型 ID，readiness 不再依赖单候选隐式回退；自动守卫只检查模型目录、能力目录、默认模型和参数 schema 等运行关键一致性。当时全量测试 `187 passed`。
 
-2026-07-30 完成第一批 Server 参数校准：按当前锁定的 `faster-whisper==1.2.1` 与 `edge-tts==7.2.8` 核对上游接口。Faster-Whisper 改用上游正向 `vad_filter`，`beam_size`、`initial_prompt` 和 `no_speech_threshold` 已从 Capability 传到实际 `transcribe` 调用，不再硬编码日语提示词；Edge TTS 的公共 `speed` 倍率已转换为上游 `rate` 百分比。ExecutionProfileBuilder 和 Pipeline readiness 会在运行前检查公开参数的名称、类型和范围。全量测试 `196 passed`；本批参数变更尚待重新执行默认真实音频验收。
+2026-07-30 完成第一批 Server 参数校准：按当前锁定的 `faster-whisper==1.2.1` 与 `edge-tts==7.2.8` 核对上游接口。Faster-Whisper 改用上游正向 `vad_filter`，`beam_size`、`initial_prompt` 和 `no_speech_threshold` 已从 Capability 传到实际 `transcribe` 调用，不再硬编码日语提示词；Edge TTS 的公共 `speed` 倍率已转换为上游 `rate` 百分比。ExecutionProfileBuilder 和 Pipeline readiness 会在运行前检查公开参数的名称、类型和范围。参数校准后的默认真实音频主链路已由 `pipeline-5` 完整执行通过。
+
+2026-07-31 修复 Edge TTS 瞬时连接失败：`pipeline-6` 在 TTS 阶段发生 WebSocket 连接超时，相同参数的 `pipeline-7` 重试成功，确认不是 voice/speed 参数错误。Edge 句子合成改为最多 4 个并发连接，单句瞬时网络错误最多尝试 3 次，并支持 Capability 中的可选 `proxy`。当前开发机通过 `http://127.0.0.1:7890` 完成项目级真实 Edge TTS → WAV 探测；全量测试 `199 passed`。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 

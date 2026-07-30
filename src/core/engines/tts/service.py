@@ -65,10 +65,14 @@ class TtsEngineRuntime:
         speed = float(common_options.get("speed", 1.0))
 
         if engine_id == "edge":
-            return {
+            kwargs = {
                 "voice": voice or "zh-CN-XiaoxiaoNeural",
                 "rate": TtsEngineRuntime._edge_rate_from_speed(speed),
             }
+            proxy = str(provider_options.get("proxy") or "").strip()
+            if proxy:
+                kwargs["proxy"] = proxy
+            return kwargs
 
         if engine_id == "kokoro":
             return {

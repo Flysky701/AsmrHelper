@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
+from aiohttp import ClientConnectionError
 import pytest
 
 from src.app.errors import AppValidationError
@@ -127,6 +130,23 @@ def test_edge_speed_is_mapped_to_upstream_rate(
     }
 
 
+def test_edge_runtime_forwards_optional_proxy() -> None:
+    kwargs = TtsEngineRuntime._build_engine_kwargs(
+        "edge",
+        {
+            "common_options": {
+                "voice": "zh-CN-XiaoxiaoNeural",
+                "speed": 1.0,
+            },
+            "provider_options": {
+                "proxy": "http://127.0.0.1:7890",
+            },
+        },
+    )
+
+    assert kwargs["proxy"] == "http://127.0.0.1:7890"
+
+
 def test_capability_validation_rejects_invalid_calibrated_options() -> None:
     service = CapabilityDescriptorService()
 
@@ -158,6 +178,67 @@ def test_capability_validation_rejects_invalid_calibrated_options() -> None:
             },
             provider_options={"rate": "+10%"},
         )
+
+
+@pytest.mark.asyncio
+async def test_edge_network_request_retries_transient_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    import src.core.tts as tts_module
+
+    calls: list[dict] = []
+
+    class FakeCommunicate:
+        def __init__(self, text, voice, **kwargs):
+            calls.append(kwargs)
+
+        async def save(self, output_path):
+            if len(calls) < 3:
+                raise ClientConnectionError("temporary failure")
+            Path(output_path).write_bytes(b"mp3")
+
+    async def no_wait(delay):
+        return None
+
+    monkeypatch.setattr(tts_module.edge_tts, "Communicate", FakeCommunicate)
+    monkeypatch.setattr(tts_module.asyncio, "sleep", no_wait)
+    engine = tts_module.EdgeTTSEngine(proxy="http://127.0.0.1:7890")
+    output_path = tmp_path / "probe.mp3"
+
+    await engine._save_mp3_with_retry("test", output_path)
+
+    assert len(calls) == 3
+    assert calls[0]["proxy"] == "http://127.0.0.1:7890"
+    assert output_path.read_bytes() == b"mp3"
+
+
+@pytest.mark.asyncio
+async def test_edge_batch_synthesis_limits_websocket_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    import src.core.tts as tts_module
+
+    active = 0
+    peak = 0
+
+    async def fake_synthesize(text, output_path):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return output_path
+
+    engine = tts_module.EdgeTTSEngine()
+    monkeypatch.setattr(engine, "synthesize_async", fake_synthesize)
+    sentences = [f"sentence {index}" for index in range(12)]
+    outputs = [tmp_path / f"{index}.wav" for index in range(12)]
+
+    await engine._synthesize_all_async(sentences, outputs)
+
+    assert peak == engine.MAX_CONCURRENT_REQUESTS
 
 
 def test_readiness_rejects_invalid_edge_speed_before_runtime(tmp_path) -> None:

@@ -170,7 +170,14 @@ class CapabilityDescriptorService:
                         description="Speech speed multiplier mapped to Edge rate",
                     ),
                 ],
-                "provider_option_schema": [],
+                "provider_option_schema": [
+                    _option(
+                        "proxy",
+                        "string",
+                        required=False,
+                        description="Optional HTTP proxy, for example http://127.0.0.1:7890",
+                    ),
+                ],
                 "supports": {
                     "voice_list": True,
                     "voice_clone": False,
