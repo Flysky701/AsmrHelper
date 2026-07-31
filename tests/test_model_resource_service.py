@@ -9,7 +9,7 @@ from textwrap import dedent
 import pytest
 
 from src.core.resources.model_catalog import ModelEntry
-from src.core.resources.model_installer import ModelInstaller
+from src.core.resources.model_installer import ModelDownloadError, ModelInstaller
 from src.core.resources.model_service import ModelService
 from src.core.resources.model_status import ModelState, ModelStatusResolver
 
@@ -264,7 +264,7 @@ def test_download_environment_uses_large_model_timeouts(monkeypatch):
 
 
 def test_download_subprocess_error_is_propagated(tmp_path):
-    with pytest.raises(RuntimeError, match="ReadTimeout while downloading model"):
+    with pytest.raises(ModelDownloadError, match="ReadTimeout while downloading model") as exc_info:
         ModelInstaller._run_with_progress(
             [
                 sys.executable,
@@ -276,6 +276,71 @@ def test_download_subprocess_error_is_propagated(tmp_path):
             on_progress=None,
             cwd=str(tmp_path),
         )
+
+    assert "ReadTimeout while downloading model" in exc_info.value.detail
+
+
+def test_interrupted_download_retries_with_resume(tmp_path, monkeypatch):
+    entry = ModelEntry(
+        id="sample-model",
+        kind="local",
+        category="tts",
+        provider="sample",
+        display_name="Sample",
+        description="test",
+        install_root=str(tmp_path),
+        install_path="sample",
+        supports_install=True,
+        install_strategy="huggingface_snapshot",
+        upstream_name="sample/model",
+    )
+    installer = ModelInstaller(project_root=tmp_path)
+    attempts = 0
+    progress: list[str] = []
+
+    def fake_run(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ModelDownloadError("connection interrupted")
+        return True
+
+    monkeypatch.setattr(installer, "_run_with_progress", fake_run)
+    monkeypatch.setattr(installer, "verify_local_model", lambda current: True)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+
+    installed = installer.install_with_progress(
+        entry,
+        on_progress=lambda fraction, message: progress.append(message),
+    )
+
+    assert installed is True
+    assert attempts == 2
+    assert "download interrupted; resuming attempt 2/3" in progress
+
+
+def test_huggingface_snapshot_downloads_one_file_at_a_time(tmp_path):
+    entry = ModelEntry(
+        id="sample-model",
+        kind="local",
+        category="tts",
+        provider="sample",
+        display_name="Sample",
+        description="test",
+        install_root=str(tmp_path),
+        install_path="sample",
+        supports_install=True,
+        install_strategy="huggingface_snapshot",
+        upstream_name="sample/model",
+    )
+
+    cmd, _env = ModelInstaller(project_root=tmp_path)._build_download_cmd(
+        entry,
+        "huggingface_snapshot",
+        None,
+    )
+
+    assert "max_workers=1" in cmd[-1]
 
 
 def test_installed_assets_are_not_executable_when_python_dependency_is_missing(tmp_path):

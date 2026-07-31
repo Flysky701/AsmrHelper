@@ -33,6 +33,12 @@ QWEN3_REPOS = {
 }
 
 
+class ModelDownloadError(RuntimeError):
+    def __init__(self, message: str, *, detail: str = "") -> None:
+        super().__init__(message)
+        self.detail = detail
+
+
 class ModelInstaller:
     def __init__(self, project_root: Path | None = None):
         self.project_root = project_root or PROJECT_ROOT
@@ -119,7 +125,7 @@ class ModelInstaller:
             "os.environ['PYTHONUTF8'] = '1'\n"
             "os.environ['PYTHONIOENCODING'] = 'utf-8'\n"
             "from huggingface_hub import snapshot_download\n"
-            f"snapshot_download({repo!r}, local_dir={str(target_dir)!r})\n",
+            f"snapshot_download({repo!r}, local_dir={str(target_dir)!r}, max_workers=1)\n",
         ]
         result = subprocess.run(
             cmd,
@@ -148,7 +154,7 @@ class ModelInstaller:
             "os.environ['PYTHONUTF8'] = '1'\n"
             "os.environ['PYTHONIOENCODING'] = 'utf-8'\n"
             "from huggingface_hub import snapshot_download\n"
-            f"snapshot_download(repo_id={repo!r}, local_dir={str(target_dir)!r})\n",
+            f"snapshot_download(repo_id={repo!r}, local_dir={str(target_dir)!r}, max_workers=1)\n",
         ]
         result = subprocess.run(
             cmd,
@@ -208,11 +214,25 @@ class ModelInstaller:
         if on_progress:
             on_progress(0.0, "starting download")
 
-        success = self._run_with_progress(
-            cmd, env, timeout, on_progress,
-            cwd=str(self.project_root),
-            monitor_dir=str(install_dir),
-        )
+        success = False
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                success = self._run_with_progress(
+                    cmd, env, timeout, on_progress,
+                    cwd=str(self.project_root),
+                    monitor_dir=str(install_dir),
+                )
+                break
+            except ModelDownloadError:
+                if attempt >= max_attempts:
+                    raise
+                if on_progress:
+                    on_progress(
+                        0.0,
+                        f"download interrupted; resuming attempt {attempt + 1}/{max_attempts}",
+                    )
+                time.sleep(min(attempt * 2, 5))
         if not success:
             logger.error("%s download failed", entry.id)
             return False
@@ -257,7 +277,7 @@ class ModelInstaller:
             "os.environ['PYTHONUTF8'] = '1'\n"
             "os.environ['PYTHONIOENCODING'] = 'utf-8'\n"
             "from huggingface_hub import snapshot_download\n"
-            f"snapshot_download(repo_id={repo!r}, local_dir={str(target_dir)!r})\n",
+            f"snapshot_download(repo_id={repo!r}, local_dir={str(target_dir)!r}, max_workers=1)\n",
         ]
         return cmd, env
 
@@ -281,7 +301,7 @@ class ModelInstaller:
                 env=env,
             )
         except OSError as exc:
-            raise RuntimeError(f"failed to start model download: {exc}") from exc
+            raise ModelDownloadError(f"failed to start model download: {exc}") from exc
 
         if on_progress and monitor_dir:
             def _monitor():
@@ -303,12 +323,17 @@ class ModelInstaller:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.communicate()
-            raise RuntimeError(f"model download timed out after {timeout} seconds")
+            raise ModelDownloadError(f"model download timed out after {timeout} seconds")
 
         if proc.returncode != 0:
             detail = (stderr or stdout or "no subprocess output").strip()[-2000:]
-            raise RuntimeError(
-                f"model download failed (exit code {proc.returncode}): {detail}"
+            summary = next(
+                (line.strip() for line in reversed(detail.splitlines()) if line.strip()),
+                "no subprocess output",
+            )
+            raise ModelDownloadError(
+                f"model download failed (exit code {proc.returncode}): {summary}",
+                detail=detail,
             )
         return proc.returncode == 0
 

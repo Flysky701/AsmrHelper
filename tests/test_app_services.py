@@ -271,7 +271,7 @@ class TestModelService:
             SimpleNamespace(task_id="model-install-1"),
             SimpleNamespace(task_id="model-install-1"),
         )
-        task_service.fail_task.side_effect = lambda task_id, message: finished.set()
+        task_service.fail_task.side_effect = lambda task_id, message, **kwargs: finished.set()
         core_service = MagicMock()
         core_service.get_model.return_value = SimpleNamespace(kind="local")
         core_service.install.return_value = False

@@ -170,7 +170,11 @@ class ModelService:
                 task_svc.complete_task(task_id, "installed")
             except Exception as exc:
                 logger.error("async install failed for %s: %s", model_id, exc)
-                task_svc.fail_task(task_id, str(exc))
+                task_svc.fail_task(
+                    task_id,
+                    str(exc),
+                    detail=str(getattr(exc, "detail", "") or ""),
+                )
 
         thread = threading.Thread(target=_run, name=f"install-{model_id}", daemon=True)
         thread.start()
