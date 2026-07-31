@@ -52,6 +52,8 @@ demucs/htdemucs
 
 Qwen3-TTS 与 Qwen3-ASR 当前锁定依赖存在冲突，不能把“安装全部引擎”作为同一 Python 环境的验收方式。选择其中一个安装档进行真实验收；在依赖关系更新前不绕过 UV 冲突约束。
 
+后续按需隔离方案及实施边界见 [运行环境隔离 TODO](runtime-environment-isolation-todo.md)。该计划不阻塞当前模型下载链路修复，也不会在用户未选择安装模型时创建环境。
+
 每个待验收 Provider 的最小完成条件只有三项：
 
 1. readiness 通过；
