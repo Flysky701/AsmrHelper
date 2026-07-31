@@ -152,7 +152,7 @@ class ModelService:
 
         def _run():
             try:
-                task_svc.start_task(task_id, "installing")
+                task_svc.start_task(task_id, "waiting for model installer")
                 installed = self.core_service.install(
                     model_id,
                     mirror=mirror,

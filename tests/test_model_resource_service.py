@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import sys
+import threading
+import time
 from textwrap import dedent
 
 import pytest
@@ -191,6 +194,90 @@ def test_package_install_with_progress_does_not_start_download(tmp_path, monkeyp
     assert progress == [(1.0, "runtime packages installed")]
 
 
+def test_model_installs_are_serialized(tmp_path):
+    catalog_path = tmp_path / "models.yaml"
+    catalog_path.write_text(
+        dedent(
+            """
+            models:
+              - id: first
+                kind: local
+                category: asr
+                provider: sample
+                display_name: First
+                description: test
+                install_root: models
+                install_path: first
+                supports_install: true
+                install_strategy: huggingface_snapshot
+                upstream_name: sample/first
+              - id: second
+                kind: local
+                category: asr
+                provider: sample
+                display_name: Second
+                description: test
+                install_root: models
+                install_path: second
+                supports_install: true
+                install_strategy: huggingface_snapshot
+                upstream_name: sample/second
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    service = ModelService(catalog_path=catalog_path)
+    active = 0
+    max_active = 0
+    counter_lock = threading.Lock()
+
+    def fake_install(entry, mirror=None, force=False):
+        nonlocal active, max_active
+        with counter_lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with counter_lock:
+            active -= 1
+        return True
+
+    service.installer.install_local_model = fake_install
+    threads = [
+        threading.Thread(target=service.install, args=(model_id,))
+        for model_id in ("first", "second")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=1)
+
+    assert max_active == 1
+
+
+def test_download_environment_uses_large_model_timeouts(monkeypatch):
+    monkeypatch.delenv("HF_HUB_ETAG_TIMEOUT", raising=False)
+    monkeypatch.delenv("HF_HUB_DOWNLOAD_TIMEOUT", raising=False)
+    env = ModelInstaller._build_download_env(None)
+
+    assert int(env["HF_HUB_ETAG_TIMEOUT"]) >= 30
+    assert int(env["HF_HUB_DOWNLOAD_TIMEOUT"]) >= 120
+
+
+def test_download_subprocess_error_is_propagated(tmp_path):
+    with pytest.raises(RuntimeError, match="ReadTimeout while downloading model"):
+        ModelInstaller._run_with_progress(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.stderr.write('ReadTimeout while downloading model'); sys.exit(1)",
+            ],
+            dict(os.environ),
+            timeout=10,
+            on_progress=None,
+            cwd=str(tmp_path),
+        )
+
+
 def test_installed_assets_are_not_executable_when_python_dependency_is_missing(tmp_path):
     install_dir = tmp_path / "whisper" / "base"
     install_dir.mkdir(parents=True)
@@ -242,6 +329,31 @@ def test_installed_assets_are_executable_when_runtime_requirements_are_ready(tmp
     assert status.status == ModelState.INSTALLED
     assert status.executable is True
     assert status.issues == ()
+
+
+def test_nested_file_does_not_satisfy_required_top_level_asset(tmp_path):
+    install_dir = tmp_path / "qwen3tts" / "custom-voice"
+    nested_dir = install_dir / "speech_tokenizer"
+    nested_dir.mkdir(parents=True)
+    (nested_dir / "model.safetensors").write_bytes(b"tokenizer")
+    entry = ModelEntry(
+        id="qwen3-custom-voice",
+        kind="local",
+        category="tts",
+        provider="qwen3",
+        display_name="Qwen3 CustomVoice",
+        description="test",
+        install_root=str(tmp_path),
+        install_path="qwen3tts/custom-voice",
+        required_files=["model.safetensors"],
+        install_strategy="qwen3",
+    )
+    resolver = ModelStatusResolver(import_checker=lambda module: True)
+
+    status = resolver.resolve(entry)
+
+    assert status.status == ModelState.INVALID
+    assert status.issues[0].requirement == "model.safetensors"
 
 
 def test_system_tool_requirement_is_reported_separately(tmp_path):

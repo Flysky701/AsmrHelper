@@ -76,9 +76,7 @@ class ModelInstaller:
         raise ValueError(f"unknown install strategy: {strategy}")
 
     def _download_whisper(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
-        env = os.environ.copy()
-        if mirror:
-            env["HF_ENDPOINT"] = mirror
+        env = self._build_download_env(mirror)
 
         repo = WHISPER_REPOS[entry.id]
         target_dir = entry.resolved_install_dir()
@@ -110,9 +108,7 @@ class ModelInstaller:
         return result.returncode == 0 and self.verify_local_model(entry)
 
     def _download_qwen3(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
-        env = os.environ.copy()
-        if mirror:
-            env["HF_ENDPOINT"] = mirror
+        env = self._build_download_env(mirror)
 
         repo = QWEN3_REPOS[entry.id]
         target_dir = entry.resolved_install_dir()
@@ -138,9 +134,7 @@ class ModelInstaller:
         return result.returncode == 0 and self.verify_local_model(entry)
 
     def _download_huggingface_snapshot(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
-        env = os.environ.copy()
-        if mirror:
-            env["HF_ENDPOINT"] = mirror
+        env = self._build_download_env(mirror)
 
         repo = entry.upstream_name
         if not repo:
@@ -232,9 +226,7 @@ class ModelInstaller:
         self, entry: ModelEntry, strategy: str, mirror: Optional[str]
     ) -> tuple[list[str], dict[str, str]]:
         """Build the subprocess command and env for a download strategy."""
-        env = os.environ.copy()
-        if mirror:
-            env["HF_ENDPOINT"] = mirror
+        env = self._build_download_env(mirror)
 
         if strategy == "whisper":
             repo = WHISPER_REPOS[entry.id]
@@ -289,8 +281,7 @@ class ModelInstaller:
                 env=env,
             )
         except OSError as exc:
-            logger.error("failed to start subprocess: %s", exc)
-            return False
+            raise RuntimeError(f"failed to start model download: {exc}") from exc
 
         if on_progress and monitor_dir:
             def _monitor():
@@ -308,17 +299,24 @@ class ModelInstaller:
             threading.Thread(target=_monitor, daemon=True).start()
 
         try:
-            _stdout, stderr = proc.communicate(timeout=timeout)
+            stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.communicate()
-            logger.error("download timed out after %ds", timeout)
-            return False
+            raise RuntimeError(f"model download timed out after {timeout} seconds")
 
         if proc.returncode != 0:
-            logger.error(
-                "download subprocess failed (rc=%d): %s",
-                proc.returncode,
-                (stderr or "")[-500:],
+            detail = (stderr or stdout or "no subprocess output").strip()[-2000:]
+            raise RuntimeError(
+                f"model download failed (exit code {proc.returncode}): {detail}"
             )
         return proc.returncode == 0
+
+    @staticmethod
+    def _build_download_env(mirror: Optional[str]) -> dict[str, str]:
+        env = os.environ.copy()
+        if mirror:
+            env["HF_ENDPOINT"] = mirror
+        env.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
+        env.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "120")
+        return env

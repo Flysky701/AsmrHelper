@@ -19,6 +19,7 @@ class ModelService:
         self.catalog = ModelCatalog(catalog_path or DEFAULT_CATALOG_PATH)
         self.status_resolver = ModelStatusResolver()
         self.installer = ModelInstaller()
+        self._install_lock = threading.Lock()
 
     def list_models(self, kind: str | None = None, category: str | None = None) -> List[ModelEntry]:
         return self.catalog.list(kind=kind, category=category)
@@ -50,6 +51,31 @@ class ModelService:
         entry = self.get_model(model_id)
         if entry.kind == "cloud":
             raise ValueError(f"{model_id} is a cloud model and cannot be installed")
+
+        with self._install_lock:
+            return self._install_entry(
+                entry,
+                mirror=mirror,
+                force=force,
+                install_mode=install_mode,
+                install_dependencies=install_dependencies,
+                install_recommended_assets=install_recommended_assets,
+                allow_fallback_variant=allow_fallback_variant,
+                on_progress=on_progress,
+            )
+
+    def _install_entry(
+        self,
+        entry: ModelEntry,
+        *,
+        mirror: str | None,
+        force: bool,
+        install_mode: str,
+        install_dependencies: bool,
+        install_recommended_assets: bool,
+        allow_fallback_variant: bool,
+        on_progress: Callable[[float, str], None] | None,
+    ) -> bool:
 
         # Fail before a potentially large model download when its runtime
         # dependencies cannot be installed in the active environment.

@@ -253,9 +253,4 @@ class ModelStatusResolver:
 
     @staticmethod
     def _has_required_file(install_dir: Path, required_file: str) -> bool:
-        if (install_dir / required_file).exists():
-            return True
-        return any(
-            path.name == required_file
-            for path in install_dir.rglob(required_file)
-        )
+        return (install_dir / required_file).is_file()
