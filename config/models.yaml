@@ -244,7 +244,7 @@ models:
     supports_remove: true
     install_strategy: huggingface_snapshot
     upstream_name: Qwen/Qwen3-ASR-0.6B
-    runtime_profile: transformers_basic
+    runtime_profile: qwen_asr
     supported_os: [windows, linux]
     supported_python:
       min: "3.10"
@@ -280,7 +280,7 @@ models:
     supports_remove: true
     install_strategy: huggingface_snapshot
     upstream_name: Qwen/Qwen3-ASR-1.7B
-    runtime_profile: transformers_basic
+    runtime_profile: qwen_asr
     supported_os: [windows, linux]
     supported_python:
       min: "3.10"
@@ -313,7 +313,9 @@ models:
     supports_remove: true
     install_strategy: qwen3
     upstream_name: CustomVoice
-    runtime_profile: python_package_local
+    runtime_profile: qwen_tts
+    requires_gpu: true
+    min_cuda: "12.6"
     supported_os: [windows, linux]
     supported_python:
       min: "3.10"
@@ -347,7 +349,9 @@ models:
     supports_remove: true
     install_strategy: qwen3
     upstream_name: VoiceDesign
-    runtime_profile: python_package_local
+    runtime_profile: qwen_tts
+    requires_gpu: true
+    min_cuda: "12.6"
     supported_os: [windows, linux]
     supported_python:
       min: "3.10"
@@ -380,7 +384,9 @@ models:
     supports_remove: true
     install_strategy: qwen3
     upstream_name: Base
-    runtime_profile: python_package_local
+    runtime_profile: qwen_tts
+    requires_gpu: true
+    min_cuda: "12.6"
     supported_os: [windows, linux]
     supported_python:
       min: "3.10"

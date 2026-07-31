@@ -13,7 +13,7 @@ conflicts = [[
 
 [manifest]
 overrides = [
-    { name = "numpy", specifier = ">=2.0.0" },
+    { name = "numpy", specifier = ">=2.0.0,<2.5.0" },
     { name = "onnxruntime", specifier = ">=1.20.0,<1.24.0" },
 ]
 
@@ -252,6 +252,7 @@ qwen-asr = [
 ]
 qwen3 = [
     { name = "accelerate" },
+    { name = "numpy" },
     { name = "qwen-tts" },
 ]
 voxcpm2 = [
@@ -274,6 +275,7 @@ requires-dist = [
     { name = "imageio-ffmpeg", marker = "extra == 'audio'", specifier = ">=0.4.0" },
     { name = "kokoro", marker = "extra == 'kokoro'", specifier = ">=0.9.4" },
     { name = "numpy", specifier = ">=1.24.0" },
+    { name = "numpy", marker = "extra == 'qwen3'", specifier = ">=2.0.0,<2.5.0" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "opencc", specifier = ">=1.1.0" },
     { name = "pdfplumber", specifier = ">=0.11.9" },

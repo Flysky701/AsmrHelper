@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from src.config import config
+from src.core.runtime import RuntimeProfileResolver, get_runtime_profile_resolver
 
 from .model_catalog import ModelEntry
 
@@ -64,10 +65,12 @@ class ModelStatusResolver:
         import_checker: Callable[[str], bool] | None = None,
         tool_checker: Callable[[str], bool] | None = None,
         gpu_checker: Callable[[], bool] | None = None,
+        runtime_resolver: RuntimeProfileResolver | None = None,
     ) -> None:
         self._import_checker = import_checker or self._can_import
         self._tool_checker = tool_checker or self._has_system_tool
         self._gpu_checker = gpu_checker or self._has_cuda_gpu
+        self._runtime_resolver = runtime_resolver or get_runtime_profile_resolver()
 
     def resolve(self, entry: ModelEntry) -> ModelStatus:
         if entry.kind == "cloud":
@@ -186,6 +189,7 @@ class ModelStatusResolver:
     def _runtime_issues(self, entry: ModelEntry) -> list[ModelStatusIssue]:
         issues: list[ModelStatusIssue] = []
         modules: list[str] = []
+        runtime = self._runtime_resolver.resolve(entry.runtime_profile)
         runtime_key = entry.provider or entry.engine or ""
         modules.extend(self._RUNTIME_IMPORTS.get(runtime_key, ()))
         for extra in entry.required_python_extras:
@@ -195,8 +199,25 @@ class ModelStatusResolver:
             if module:
                 modules.append(module)
 
+        runtime_missing = runtime.isolated and not runtime.python_executable.is_file()
+        if runtime_missing:
+            issues.append(
+                ModelStatusIssue(
+                    "RUNTIME_ENVIRONMENT_MISSING",
+                    runtime.id,
+                    f"Runtime environment is not installed: {runtime.id}",
+                )
+            )
+
         for module in dict.fromkeys(modules):
-            if not self._import_checker(module):
+            if runtime_missing:
+                continue
+            available = (
+                self._runtime_resolver.check_modules(runtime.id, [module])
+                if runtime.isolated and runtime.python_executable.is_file()
+                else self._import_checker(module)
+            )
+            if not available:
                 issues.append(
                     ModelStatusIssue(
                         "PYTHON_DEPENDENCY_MISSING",
@@ -215,7 +236,12 @@ class ModelStatusResolver:
                     )
                 )
 
-        if entry.requires_gpu and not self._gpu_checker():
+        has_gpu = (
+            self._runtime_resolver.has_cuda(runtime.id)
+            if runtime.isolated and runtime.python_executable.is_file()
+            else self._gpu_checker()
+        )
+        if entry.requires_gpu and not runtime_missing and not has_gpu:
             issues.append(
                 ModelStatusIssue(
                     "GPU_UNAVAILABLE",

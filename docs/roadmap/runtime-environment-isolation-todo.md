@@ -1,6 +1,6 @@
-# 运行环境隔离 TODO
+# 运行环境隔离进度
 
-> 状态：待实施；仅在用户明确安装或执行需要隔离的模型时触发。
+> 状态：第一阶段已实施；`qwen_tts` 已落地，`qwen_asr` 仅完成环境 ID 声明，尚未创建环境或验收。
 
 ## 原则
 
@@ -12,21 +12,27 @@
 
 ## TODO
 
-- [ ] 逐个核对本地 Provider 的 Python、Torch/CUDA、系统工具和模型资产要求。
-- [ ] 将 `runtime_profile` 收敛为可执行环境 ID，首批只定义 `main`、`qwen_asr`、`qwen_tts`。
-- [ ] 实现 `RuntimeProfileResolver`，统一解析环境目录和 Python 解释器，不保存机器绝对路径。
-- [ ] 模型安装时先判断能否复用现有环境；仅在确认冲突且用户已点击安装时创建隔离环境。
-- [ ] 让依赖安装和模型状态检查面向目标解释器，而不是固定使用主进程解释器。
-- [ ] 在 Pipeline 与 Engine Registry 之间增加按 Provider 路由的 Runtime Router。
-- [ ] 实现一个通用阶段 Worker，通过文件路径和 StageProfile V1 交换请求、产物及结构化错误。
+- [ ] 逐个核对本地 Provider 的 Python、Torch/CUDA、系统工具和模型资产要求；Qwen3-TTS / Qwen3-ASR 冲突已确认，其余按实际选择继续。
+- [x] 将 `runtime_profile` 收敛为可执行环境 ID，首批定义 `main`、`qwen_asr`、`qwen_tts`。
+- [x] 实现 `RuntimeProfileResolver`，统一解析 `.runtimes/<id>` 和 Python 解释器，不保存机器绝对路径。
+- [x] 模型安装仅在用户选择安装时创建目标隔离环境；模型资产继续共用 `models/`。
+- [x] 依赖安装和模型状态检查面向目标解释器，并缓存短期探测结果。
+- [x] TTS Runtime Router 按 `qwen3 -> qwen_tts` 路由；默认 Provider 仍在主进程执行。
+- [x] 实现短生命周期 TTS Worker，通过 JSON StageProfile 和文件路径交换请求、产物及结构化错误。
 - [ ] 先验收 `Qwen3-ASR -> 翻译 -> Qwen3-TTS`，确认两个冲突环境可在同一任务中顺序执行并释放显存。
 - [ ] 只有真实解析或加载证明冲突时，才为 FunASR、Kokoro、VoxCPM2 增加新的环境档。
 - [ ] 最后补充客户端环境状态展示；客户端不负责推断依赖关系，也不自动安装。
 
-## 本轮不做
+## 当前边界
 
-- 不预创建任何隔离环境。
-- 不安装 Qwen3-ASR 或 Qwen3-TTS 依赖。
+- 不预创建未选择的隔离环境；当前只存在 `qwen_tts`。
+- 不安装 Qwen3-ASR 依赖或模型。
 - 不引入常驻模型服务、容器或多节点调度。
-- 不把环境隔离作为当前模型下载功能的前置条件。
+- `qwen_tts` Worker 每次阶段执行后退出并释放显存，不建设常驻推理服务。
 
+## 已验证基线（2026-08-01）
+
+- 主 `.venv` 保持 Torch CPU 与 `transformers 4.57.6`；Qwen3-TTS 环境使用 Torch `2.10.0+cu126`、`transformers 4.57.3` 和 NumPy `2.4.6`。
+- RTX 4070 Ti SUPER 的 CUDA 探测和真实张量运算通过。
+- Qwen3 CustomVoice 通过服务层和正式 `/api/v1/tts/synthesize` 三次生成有效 24 kHz WAV；Worker 退出后无残留 Qwen Python 进程。
+- Pipeline 真实任务由用户下一步手动验收。

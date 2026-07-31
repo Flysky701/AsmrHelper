@@ -133,7 +133,7 @@ def test_runtime_dependency_install_reports_subprocess_failure(
     monkeypatch.setattr(
         service,
         "_resolve_installer",
-        lambda: {
+        lambda _python=None: {
             "extras_cmd": lambda extras, cwd: ["install-extra"],
             "packages_cmd": lambda packages: ["install-package"],
         },

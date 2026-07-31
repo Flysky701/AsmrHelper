@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
+from src.core.runtime import RuntimeProfileResolver, get_runtime_profile_resolver
+
 from .model_catalog import DEFAULT_CATALOG_PATH, ModelCatalog, ModelEntry
 from .model_installer import ModelInstaller
 from .model_status import ModelStatus, ModelStatusResolver
@@ -15,9 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 class ModelService:
-    def __init__(self, catalog_path: Path | None = None):
+    def __init__(
+        self,
+        catalog_path: Path | None = None,
+        runtime_resolver: RuntimeProfileResolver | None = None,
+    ):
         self.catalog = ModelCatalog(catalog_path or DEFAULT_CATALOG_PATH)
-        self.status_resolver = ModelStatusResolver()
+        self.runtime_resolver = runtime_resolver or get_runtime_profile_resolver()
+        self.status_resolver = ModelStatusResolver(runtime_resolver=self.runtime_resolver)
         self.installer = ModelInstaller()
         self._install_lock = threading.Lock()
 
@@ -176,7 +183,25 @@ class ModelService:
         if not extras and not packages:
             return
 
-        installer = self._resolve_installer()
+        runtime = self.runtime_resolver.ensure_environment(entry.runtime_profile or "main")
+        installer = self._resolve_installer(str(runtime.python_executable))
+        install_env = self.runtime_resolver.subprocess_env()
+
+        for cmd in self.runtime_resolver.build_bootstrap_commands(runtime):
+            result = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=1800,
+                cwd=str(PROJECT_ROOT),
+                env=install_env,
+            )
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "unknown error")[-1000:]
+                raise RuntimeError(f"failed to bootstrap runtime {runtime.id}: {detail}")
 
         # Install via project extras (preferred — resolves all transitive deps)
         if extras:
@@ -188,8 +213,11 @@ class ModelService:
                     check=False,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=600,
                     cwd=str(PROJECT_ROOT),
+                    env=install_env,
                 )
                 if result.returncode != 0:
                     detail = (result.stderr or result.stdout or "unknown error")[-500:]
@@ -215,8 +243,11 @@ class ModelService:
                     check=False,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=300,
                     cwd=str(PROJECT_ROOT),
+                    env=install_env,
                 )
                 if result.returncode != 0:
                     detail = (result.stderr or result.stdout or "unknown error")[-300:]
@@ -230,8 +261,10 @@ class ModelService:
                     f"failed to install runtime packages for {entry.id}: {exc}"
                 ) from exc
 
+        self.runtime_resolver.clear_probe_cache(runtime.id)
+
     @staticmethod
-    def _resolve_installer() -> dict:
+    def _resolve_installer(python_executable: str | None = None) -> dict:
         """Determine whether to use uv or pip for package installation.
 
         Returns dict with 'extras_cmd' and 'packages_cmd' callables that
@@ -239,25 +272,26 @@ class ModelService:
         """
         import shutil
 
+        target_python = python_executable or sys.executable
         uv_path = shutil.which("uv")
         if uv_path:
             return {
                 "extras_cmd": lambda extras, cwd: [
-                    uv_path, "pip", "install", "--python", sys.executable,
+                    uv_path, "pip", "install", "--python", target_python,
                     *[f"{cwd}[{','.join(extras)}]"],
                 ],
                 "packages_cmd": lambda packages: [
-                    uv_path, "pip", "install", "--python", sys.executable, *packages,
+                    uv_path, "pip", "install", "--python", target_python, *packages,
                 ],
             }
 
         return {
             "extras_cmd": lambda extras, cwd: [
-                sys.executable, "-m", "pip", "install", "--quiet",
+                target_python, "-m", "pip", "install", "--quiet",
                 "-e", f"{cwd}[{','.join(extras)}]",
             ],
             "packages_cmd": lambda packages: [
-                sys.executable, "-m", "pip", "install", "--quiet", *packages,
+                target_python, "-m", "pip", "install", "--quiet", *packages,
             ],
         }
 

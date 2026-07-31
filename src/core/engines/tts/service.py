@@ -13,8 +13,13 @@ from .registry import get_tts_registry
 class TtsEngineRuntime:
     """Execute TTS synthesis against the legacy engine implementation."""
 
-    def __init__(self, registry=None) -> None:
+    def __init__(self, registry=None, *, runtime_router=None, enable_runtime_routing: bool = True) -> None:
         self._registry = registry or get_tts_registry()
+        self._runtime_router = runtime_router
+        if enable_runtime_routing and self._runtime_router is None:
+            from src.core.runtime import get_runtime_router
+
+            self._runtime_router = get_runtime_router()
 
     def synthesize_text(
         self,
@@ -26,6 +31,14 @@ class TtsEngineRuntime:
         engine_id = str(profile["provider"])
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        if self._runtime_router and self._runtime_router.tts_profile(engine_id):
+            return self._runtime_router.synthesize_text(
+                {
+                    "text": text,
+                    "output_path": output_path,
+                    "profile": profile,
+                }
+            )
         engine = self._registry.get(engine_id, **self._build_engine_kwargs(engine_id, profile))
         return engine.synthesize(text, output_path)
 
@@ -44,6 +57,20 @@ class TtsEngineRuntime:
         engine_id = str(profile["provider"])
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        if self._runtime_router and self._runtime_router.tts_profile(engine_id):
+            result_path = self._runtime_router.synthesize_segments(
+                {
+                    "segments": segments,
+                    "output_dir": output_dir,
+                    "output_path": output_path,
+                    "profile": profile,
+                    "reference_duration": reference_duration,
+                    "sample_rate": sample_rate,
+                    "max_tts_ratio": max_tts_ratio,
+                    "compress_ratio": compress_ratio,
+                }
+            )
+            return result_path, None
         engine = self._registry.get(engine_id, **self._build_engine_kwargs(engine_id, profile))
         if hasattr(engine, "synthesize_segments"):
             engine.synthesize_segments(
