@@ -54,6 +54,8 @@ class ModelService:
         # Fail before a potentially large model download when its runtime
         # dependencies cannot be installed in the active environment.
         if install_dependencies:
+            if on_progress:
+                on_progress(0.0, "installing runtime dependencies")
             self._install_runtime_packages(entry)
 
         # Try installing the primary model
@@ -215,11 +217,11 @@ class ModelService:
         if uv_path:
             return {
                 "extras_cmd": lambda extras, cwd: [
-                    uv_path, "pip", "install",
+                    uv_path, "pip", "install", "--python", sys.executable,
                     *[f"{cwd}[{','.join(extras)}]"],
                 ],
                 "packages_cmd": lambda packages: [
-                    uv_path, "pip", "install", *packages,
+                    uv_path, "pip", "install", "--python", sys.executable, *packages,
                 ],
             }
 

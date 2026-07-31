@@ -219,6 +219,7 @@ export interface ModelSummaryResponse {
   category: string
   backend: string
   display_name: string
+  install_strategy: string
   supports_install: boolean
   supports_remove: boolean
   family_id?: string | null

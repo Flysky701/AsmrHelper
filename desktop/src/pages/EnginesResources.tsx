@@ -67,10 +67,18 @@ export default function EnginesResources() {
     }
   }
 
-  const handleInstall = async (modelId: string) => {
-    setInstalling(prev => ({ ...prev, [modelId]: { active: true, message: '准备下载...' } }))
+  const handleInstall = async (model: ModelSummaryResponse) => {
+    const modelId = model.model_id
+    const packageOnly = model.install_strategy === 'package'
+    setInstalling(prev => ({
+      ...prev,
+      [modelId]: { active: true, message: packageOnly ? '准备安装运行依赖...' : '准备下载...' },
+    }))
     try {
-      const res = await modelsApi.installAsync(modelId)
+      const res = await modelsApi.installAsync(modelId, {
+        install_mode: model.default_install_mode || 'single',
+        install_dependencies: true,
+      })
       if (res.task_id) {
         const pollInterval = setInterval(async () => {
           try {
@@ -338,6 +346,22 @@ export default function EnginesResources() {
                           : null
                         const installState = installing[model.model_id]
                         const isInstalling = !!installState?.active || status?.status === 'installing'
+                        const missingPythonDependency = status?.issues?.some(
+                          issue => issue.code === 'PYTHON_DEPENDENCY_MISSING',
+                        ) ?? false
+                        const needsInstall =
+                          !status ||
+                          status.status === 'not_installed' ||
+                          status.status === 'missing' ||
+                          status.status === 'invalid' ||
+                          missingPythonDependency
+                        const installLabel = model.install_strategy === 'package'
+                          ? '安装依赖'
+                          : missingPythonDependency
+                            ? '修复依赖'
+                            : status?.status === 'invalid'
+                              ? '重新安装'
+                              : '安装'
                         return (
                           <div key={model.model_id} style={{
                             display: 'grid', gridTemplateColumns: '1fr auto auto',
@@ -365,7 +389,7 @@ export default function EnginesResources() {
                                   {statusInfo.label}
                                 </span>
                               )}
-                              {model.variant_tier === 'primary' && (
+                              {model.is_primary_variant && (
                                 <span style={{
                                   fontSize: '10px', padding: '1px 6px', borderRadius: '3px', fontWeight: 500,
                                   background: 'oklch(95% 0.02 255)', color: 'var(--accent)',
@@ -388,13 +412,13 @@ export default function EnginesResources() {
                                 null
                               ) : (
                                 <>
-                                  {(!status || status.status === 'not_installed' || status.status === 'missing' || status.status === 'invalid') && model.supports_install ? (
-                                    <button onClick={() => handleInstall(model.model_id)} style={{
+                                  {needsInstall && model.supports_install ? (
+                                    <button onClick={() => handleInstall(model)} style={{
                                       fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
                                       borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
                                       color: 'white', cursor: 'pointer',
                                     }}>
-                                      {status?.status === 'invalid' ? '重新安装' : '安装'}
+                                      {installLabel}
                                     </button>
                                   ) : (
                                     <button onClick={() => handleVerify(model.model_id)} style={{

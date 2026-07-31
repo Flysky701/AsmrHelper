@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import sys
 from textwrap import dedent
 
 import pytest
 
 from src.core.resources.model_catalog import ModelEntry
+from src.core.resources.model_installer import ModelInstaller
 from src.core.resources.model_service import ModelService
 from src.core.resources.model_status import ModelState, ModelStatusResolver
 
@@ -145,6 +147,48 @@ def test_runtime_dependency_install_reports_subprocess_failure(
 
     with pytest.raises(RuntimeError, match="dependency conflict"):
         service._install_runtime_packages(entry)
+
+
+def test_uv_runtime_dependency_install_targets_running_interpreter(monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: "uv.exe" if name == "uv" else None)
+
+    installer = ModelService._resolve_installer()
+
+    extras_cmd = installer["extras_cmd"](["kokoro"], "E:/Projects/AsmrHelper")
+    packages_cmd = installer["packages_cmd"](["soundfile>=0.12.0"])
+    assert extras_cmd[:5] == ["uv.exe", "pip", "install", "--python", sys.executable]
+    assert packages_cmd[:5] == ["uv.exe", "pip", "install", "--python", sys.executable]
+
+
+def test_package_install_with_progress_does_not_start_download(tmp_path, monkeypatch):
+    entry = ModelEntry(
+        id="kokoro",
+        kind="local",
+        category="tts",
+        provider="kokoro",
+        display_name="Kokoro",
+        description="test",
+        install_root=str(tmp_path),
+        install_path="kokoro",
+        supports_install=True,
+        install_strategy="package",
+    )
+    installer = ModelInstaller(project_root=tmp_path)
+    monkeypatch.setattr(installer, "verify_local_model", lambda current: True)
+    monkeypatch.setattr(
+        installer,
+        "_run_with_progress",
+        lambda *args, **kwargs: pytest.fail("package installs must not start a download subprocess"),
+    )
+    progress: list[tuple[float, str]] = []
+
+    installed = installer.install_with_progress(
+        entry,
+        on_progress=lambda fraction, message: progress.append((fraction, message)),
+    )
+
+    assert installed is True
+    assert progress == [(1.0, "runtime packages installed")]
 
 
 def test_installed_assets_are_not_executable_when_python_dependency_is_missing(tmp_path):

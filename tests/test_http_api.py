@@ -615,6 +615,7 @@ class TestModelRoutes:
                 category="asr",
                 backend="faster_whisper",
                 display_name="Whisper Base",
+                install_strategy="whisper",
             ),
         ]
         client.app.dependency_overrides[dependencies.model_service] = _mock_dep(mock_svc)
@@ -624,6 +625,7 @@ class TestModelRoutes:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["model_id"] == "whisper-base"
+        assert data[0]["install_strategy"] == "whisper"
         assert data[0]["family_id"] is None
         assert data[0]["install_modes"] == []
 

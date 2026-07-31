@@ -35,6 +35,7 @@ class ModelService:
                 category=entry.category,
                 backend=entry.provider or entry.engine or "-",
                 display_name=entry.display_name,
+                install_strategy=entry.install_strategy,
                 capability_models=entry.capability_models or [entry.id],
                 supports_install=entry.supports_install,
                 supports_remove=entry.supports_remove,

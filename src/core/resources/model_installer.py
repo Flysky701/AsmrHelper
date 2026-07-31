@@ -189,6 +189,16 @@ class ModelInstaller:
         if not entry.supports_install:
             raise ValueError(f"model cannot be installed: {entry.id}")
 
+        strategy = entry.install_strategy
+        if strategy == "package":
+            installed = self.verify_local_model(entry)
+            if on_progress:
+                on_progress(
+                    1.0 if installed else 0.0,
+                    "runtime packages installed" if installed else "runtime packages unavailable",
+                )
+            return installed
+
         status = self._status.resolve(entry)
         if status.status == ModelState.INSTALLED and not force:
             if on_progress:
@@ -198,7 +208,6 @@ class ModelInstaller:
         install_dir = entry.resolved_install_dir()
         install_dir.parent.mkdir(parents=True, exist_ok=True)
 
-        strategy = entry.install_strategy
         cmd, env = self._build_download_cmd(entry, strategy, mirror)
         timeout = 600 if strategy == "whisper" else 3600
 
@@ -299,10 +308,17 @@ class ModelInstaller:
             threading.Thread(target=_monitor, daemon=True).start()
 
         try:
-            proc.wait(timeout=timeout)
+            _stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.communicate()
             logger.error("download timed out after %ds", timeout)
             return False
 
+        if proc.returncode != 0:
+            logger.error(
+                "download subprocess failed (rc=%d): %s",
+                proc.returncode,
+                (stderr or "")[-500:],
+            )
         return proc.returncode == 0

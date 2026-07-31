@@ -215,7 +215,7 @@ text_utils.py
 
 2026-07-31 修复 Edge TTS 瞬时连接失败：`pipeline-6` 在 TTS 阶段发生 WebSocket 连接超时，相同参数的 `pipeline-7` 重试成功，确认不是 voice/speed 参数错误。Edge 句子合成改为最多 4 个并发连接，单句瞬时网络错误最多尝试 3 次，并支持 Capability 中的可选 `proxy`。当前开发机通过 `http://127.0.0.1:7890` 完成项目级真实 Edge TTS → WAV 探测；修复重启后，用户已完成 APP 侧验证。全量测试 `199 passed`。
 
-2026-07-31 恢复多引擎主干：Fun-ASR、Qwen3-ASR 和 VoxCPM2 已绑定项目模型目录，Kokoro 可通过通用时间线适配进入 Pipeline；Workbench 会提交明确的翻译模型和 TTS 默认模型。模型资源页及安装脚本支持按 Provider 安装，依赖冲突会在模型下载前失败并保留真实错误。当前全量测试 `205 passed`，桌面生产构建通过；除默认组合外的 Provider 仍需按 [多引擎支持现状](multi-engine-status.md) 分别安装和真实验收。
+2026-08-01 模型安装链路继续收敛：Fun-ASR、Qwen3-ASR 和 VoxCPM2 已绑定项目模型目录，Kokoro 可通过通用时间线适配进入 Pipeline；Workbench 会提交明确的翻译模型和 TTS 默认模型。客户端异步安装已兼容纯 Python 包策略，能按模型默认模式安装或修复缺失的 Python 依赖；UV 明确向后端当前解释器安装，下载子进程输出不会再阻塞长任务。当前全量测试 `207 passed`，桌面生产构建通过；除默认组合外的 Provider 仍需按 [多引擎支持现状](multi-engine-status.md) 分别安装和真实验收，环境隔离后续按 [运行环境隔离 TODO](runtime-environment-isolation-todo.md) 按需实施。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 

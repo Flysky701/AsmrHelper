@@ -164,6 +164,7 @@ class ModelSummary:
     category: str
     backend: str
     display_name: str
+    install_strategy: str = ""
     capability_models: list[str] = field(default_factory=list)
     supports_install: bool = False
     supports_remove: bool = False
