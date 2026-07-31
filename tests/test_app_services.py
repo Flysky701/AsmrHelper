@@ -226,6 +226,42 @@ class TestCapabilityOptionContract:
 
 
 class TestModelService:
+    def test_list_models_normalizes_missing_install_strategy(self):
+        from src.app.services.model_service import ModelService
+
+        core_service = MagicMock()
+        core_service.list_models.return_value = [
+            SimpleNamespace(
+                id="deepseek",
+                kind="cloud",
+                category="llm",
+                provider="deepseek",
+                engine=None,
+                display_name="DeepSeek API",
+                install_strategy=None,
+                capability_models=[],
+                supports_install=False,
+                supports_remove=False,
+                family_id=None,
+                variant_group=None,
+                variant_tier=None,
+                is_primary_variant=False,
+                dependency_group=None,
+                runtime_profile=None,
+                preferred_runtime=None,
+                install_modes=[],
+                default_install_mode=None,
+                required_assets=[],
+                recommended_assets=[],
+                required_system_tools=[],
+                supported_os=[],
+            )
+        ]
+
+        models = ModelService(core_service=core_service).list_models()
+
+        assert models[0].install_strategy == ""
+
     def test_async_install_fails_task_when_core_install_returns_false(self):
         from src.app.services.model_service import ModelService
 
