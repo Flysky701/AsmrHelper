@@ -35,4 +35,4 @@
 - 主 `.venv` 保持 Torch CPU 与 `transformers 4.57.6`；Qwen3-TTS 环境使用 Torch `2.10.0+cu126`、`transformers 4.57.3` 和 NumPy `2.4.6`。
 - RTX 4070 Ti SUPER 的 CUDA 探测和真实张量运算通过。
 - Qwen3 CustomVoice 通过服务层和正式 `/api/v1/tts/synthesize` 三次生成有效 24 kHz WAV；Worker 退出后无残留 Qwen Python 进程。
-- Pipeline 真实任务由用户下一步手动验收。
+- 用户已完成 `pipeline-8` 单文件真实任务验收，任务在 `export` 阶段正常完成。

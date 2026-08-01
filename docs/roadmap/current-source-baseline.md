@@ -217,7 +217,7 @@ text_utils.py
 
 2026-08-01 模型安装链路继续收敛：Fun-ASR、Qwen3-ASR 和 VoxCPM2 已绑定项目模型目录，Kokoro 可通过通用时间线适配进入 Pipeline；Workbench 会提交明确的翻译模型和 TTS 默认模型。客户端异步安装已兼容纯 Python 包策略，能按模型默认模式安装或修复缺失的 Python 依赖；UV 明确向后端当前解释器安装，下载子进程输出不会再阻塞长任务。模型列表会把云端模型缺省的安装策略归一化为空字符串，避免资源页请求返回 500。大模型下载改为后端串行和单文件执行并延长读取超时；连接中断会重启下载进程，从 HuggingFace `.incomplete` 文件自动续传，最终 subprocess 错误会进入任务。模型文件按声明路径精确校验，避免子目录同名权重造成假完成。当前全量测试 `214 passed`，桌面生产构建通过；除默认组合外的 Provider 仍需按 [多引擎支持现状](multi-engine-status.md) 分别安装和真实验收，环境隔离后续按 [运行环境隔离 TODO](runtime-environment-isolation-todo.md) 按需实施。
 
-2026-08-01 完成运行环境隔离第一阶段与 Qwen3 CustomVoice Server 验收：`runtime_profile` 已定义 `main`、`qwen_asr`、`qwen_tts`，只有用户实际选择的 Qwen3-TTS 创建 `.runtimes/qwen_tts`；模型资产继续共享 `models/`。模型安装、状态和 CUDA 检查面向目标解释器，TTS Runtime Router 通过短生命周期 Worker 执行 Qwen3，结构化错误及完整 Worker traceback 写入后端日志。当前隔离环境为 Torch `2.10.0+cu126`、`transformers 4.57.3`、NumPy `2.4.6`，正式 TTS API 已生成有效 24 kHz 非静音 WAV，重复执行后无残留 Qwen Worker。全量测试 `219 passed`，桌面生产构建与 Ruff `F821/F601` 通过；Qwen3 Pipeline 由用户下一步手动验收。
+2026-08-01 完成运行环境隔离第一阶段与 Qwen3 CustomVoice 验收：`runtime_profile` 已定义 `main`、`qwen_asr`、`qwen_tts`，只有用户实际选择的 Qwen3-TTS 创建 `.runtimes/qwen_tts`；模型资产继续共享 `models/`。模型安装、状态和 CUDA 检查面向目标解释器，TTS Runtime Router 通过短生命周期 Worker 执行 Qwen3，结构化错误及完整 Worker traceback 写入后端日志。当前隔离环境为 Torch `2.10.0+cu126`、`transformers 4.57.3`、NumPy `2.4.6`，正式 TTS API 已生成有效 24 kHz 非静音 WAV，重复执行后无残留 Qwen Worker。全量测试 `219 passed`，桌面生产构建与 Ruff `F821/F601` 通过。随后用户完成 `pipeline-8` 单文件手动验收，任务由 Workbench 提交并在 `export` 阶段正常完成，Qwen3 CustomVoice 的真实 Pipeline 主链路已通过。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
@@ -236,9 +236,9 @@ text_utils.py
 
 ## 6. 当前最高优先级缺口
 
-1. 使用已通过 Server 验收的 Qwen3 CustomVoice 完成单文件 Pipeline 手动验收。
-2. 用户实际选择 Qwen3-ASR 时，再创建并接通 `qwen_asr` Worker，随后验收两个隔离阶段顺序执行与显存释放。
-3. 补充批量任务和异常恢复验收；通过后再继续兼容层瘦身。
+1. 补充批量任务和异常恢复验收，确认单个任务失败不会阻塞后续任务。
+2. 选择下一个实际需要的 Provider；若选择 Qwen3-ASR，再创建并接通 `qwen_asr` Worker，验收两个隔离阶段顺序执行与显存释放。
+3. 通过批量与恢复验收后，再继续兼容层瘦身。
 4. Ruff 剩余项按功能域分批清理，不进行无边界自动修复。
 
 ## 7. DOCS 维护规则

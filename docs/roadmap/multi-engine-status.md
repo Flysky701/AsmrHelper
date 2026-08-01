@@ -17,7 +17,7 @@
 | 翻译 | `deepseek` | 已接线 | 已配置 | 已通过 |
 | 翻译 | `openai` | 已接线 | 未配置凭据 | 待验收 |
 | TTS | `edge` | 已接线 | 可执行 | 已通过 |
-| TTS | `qwen3` | 已接线并路由隔离 Worker | CustomVoice 可执行 | Server 真实合成通过；Pipeline 待验收 |
+| TTS | `qwen3` | 已接线并路由隔离 Worker | CustomVoice 可执行 | 单文件 Pipeline 已通过（`pipeline-8`） |
 | TTS | `kokoro` | 已接线 | 缺 Python 包和 `espeak-ng` | 待验收 |
 | TTS | `voxcpm2` | 已接线 | 未安装 | 待验收 |
 
@@ -60,6 +60,8 @@ demucs/htdemucs
 Qwen3-TTS 与 Qwen3-ASR 当前锁定依赖存在冲突，不能把“安装全部引擎”作为同一 Python 环境的验收方式。选择其中一个安装档进行真实验收；在依赖关系更新前不绕过 UV 冲突约束。
 
 2026-08-01 已为用户选择的 Qwen3-TTS 实施 `.runtimes/qwen_tts`：模型权重仍在共享 `models/`，主进程通过短生命周期 Worker 执行合成。Qwen3-ASR 只登记为独立 `qwen_asr` 环境 ID，未创建环境、未安装依赖。
+
+同日用户完成 `pipeline-8` 手动验收，任务从 Workbench 提交并在 `export` 阶段正常完成，确认 Qwen3 CustomVoice 已能进入真实单文件主链路。
 
 后续按需隔离方案及实施边界见 [运行环境隔离 TODO](runtime-environment-isolation-todo.md)。该计划不阻塞当前模型下载链路修复，也不会在用户未选择安装模型时创建环境。
 
