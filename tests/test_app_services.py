@@ -1178,7 +1178,10 @@ class TestBatchPipelineServiceCompanions:
         audio_file.write_bytes(b"audio")
 
         pipeline_service = MagicMock()
-        pipeline_service.create_pipeline_task_spec.return_value = MagicMock(task_id="pipeline-1")
+        pipeline_service.create_pipeline_task.return_value = (
+            MagicMock(task_id="pipeline-1"),
+            MagicMock(task_id="pipeline-1"),
+        )
         input_catalog_service = MagicMock()
         input_catalog_service.inspect_paths.return_value = [
             MagicMock(asset_id="asset-1", absolute_path=str(audio_file))
@@ -1195,5 +1198,6 @@ class TestBatchPipelineServiceCompanions:
 
         service.create_batch_task_specs(request)
 
-        request_arg = pipeline_service.create_pipeline_task_spec.call_args.args[0]
+        request_arg = pipeline_service.create_pipeline_task.call_args.args[0]
         assert request_arg.vtt_path == str(tmp_path / "sample.vtt")
+        assert request_arg.asr_model == "faster-whisper-base"

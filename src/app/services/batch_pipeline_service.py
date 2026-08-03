@@ -155,12 +155,11 @@ class BatchPipelineService:
                 output_mode="batch" if request.use_batch_output_structure else "single",
                 batch_root_dir=batch_root_dir,
             )
-            task_specs.append(
-                self._pipeline_service.create_pipeline_task_spec(
-                    pipeline_request,
-                    task_source="batch-pipeline",
-                )
+            _, task_spec = self._pipeline_service.create_pipeline_task(
+                pipeline_request,
+                task_source="batch-pipeline",
             )
+            task_specs.append(task_spec)
         return task_specs
 
     def _resolve_input_files(self, request: BatchPipelineRequest) -> list[Path]:
@@ -188,11 +187,13 @@ class BatchPipelineService:
         cancel_event=None,
     ) -> BatchItemResult:
         started_at = time.time()
+        input_file = task_id
         try:
             task_spec = self._task_service.get_task_spec(task_id)
             session = self._session_service.get_session(task_spec.session_id)
             input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
             input_path = Path(input_asset.absolute_path)
+            input_file = str(input_path)
             _, batch_root_dir = self._resolve_task_output(request, input_path)
             if request.use_batch_output_structure:
                 expected_output = str(
@@ -232,7 +233,7 @@ class BatchPipelineService:
             )
         except Exception as exc:
             return BatchItemResult(
-                file=str(task_id),
+                file=input_file,
                 status="failed",
                 task_id=task_id,
                 error=str(exc),

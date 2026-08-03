@@ -41,6 +41,10 @@
 
 2026-07-31 的多引擎恢复补充：ASR/TTS 可选 Provider 已重新接入项目模型目录、Pipeline 时间线和资源安装流程；Workbench 会提交明确模型，依赖冲突不再被误报为安装成功。当前注册范围为 ASR `faster_whisper/fun_asr/qwen3_asr`、TTS `edge/qwen3/kokoro/voxcpm2`、LLM `deepseek/openai` 和分离 `demucs`。最新全量测试为 `205 passed`，桌面生产构建通过；真实验收状态单独记录在 [多引擎支持现状](multi-engine-status.md)。
 
+2026-08-03 的后端 P0 验收补充：顺序批量任务已验证单项 TTS 失败不会阻塞后续任务，任务状态、失败阶段和 Artifact 归属保持隔离；Edge 瞬时失败、模型下载中断重试、Worker 异常退出清理、取消后新任务重提均有确定性恢复验收。批处理已接入权威 readiness，失败项保留输入路径，直接执行 `verify_env.py` 的项目根解析已修复。全量测试 `226 passed`，桌面生产构建通过。当前先收束后端事实和安装边界，GUI 整理延后。
+
+批量能力的现行边界是同步 HTTP 聚合：每项有独立 task 与 Artifact，但尚无 batch 级任务、状态查询或取消接口，桌面页面也尚未实际接入。Worker 异常退出当前采用明确失败和人工重提，不承诺自动重启。
+
 ## 3. 当前已完成
 
 - `src/gui/` 已移除，不再作为当前产品或文档基线。
@@ -117,8 +121,9 @@ src.core.script_to_subtitle
 
 ### P1.5：参数与能力细化
 
-- 先选择 Fun-ASR 或 Kokoro 完成一个可选 Provider 的真实短样本主链路验收。
-- 再校准实际选中的 Provider 参数，并补充批量任务和异常恢复验收。
+- 先整理后端能力、模型资产、运行环境和兼容实现的事实清单，明确默认安装档与可选 Provider 边界。
+- 再按实际需要选择 Qwen3-ASR、Fun-ASR 或 Kokoro 中的一个完成真实短样本主链路验收。
+- 后端基线稳定后，再对照真实 API 整理 GUI 页面、状态和组件，不新增无后端能力支撑的入口。
 
 ## 7. 一句话结论
 

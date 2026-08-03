@@ -19,7 +19,7 @@ class BatchPipelineRequest:
     tts_engine: str = "edge"
     tts_voice: str = "zh-CN-XiaoxiaoNeural"
     vocal_model: str = "htdemucs"
-    asr_model: str = "base"
+    asr_model: str = "faster-whisper-base"
     translate_provider: str = "deepseek"
     tts_speed: float = 1.0
     original_volume: float = 0.85

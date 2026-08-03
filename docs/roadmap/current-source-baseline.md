@@ -219,6 +219,10 @@ text_utils.py
 
 2026-08-01 完成运行环境隔离第一阶段与 Qwen3 CustomVoice 验收：`runtime_profile` 已定义 `main`、`qwen_asr`、`qwen_tts`，只有用户实际选择的 Qwen3-TTS 创建 `.runtimes/qwen_tts`；模型资产继续共享 `models/`。模型安装、状态和 CUDA 检查面向目标解释器，TTS Runtime Router 通过短生命周期 Worker 执行 Qwen3，结构化错误及完整 Worker traceback 写入后端日志。当前隔离环境为 Torch `2.10.0+cu126`、`transformers 4.57.3`、NumPy `2.4.6`，正式 TTS API 已生成有效 24 kHz 非静音 WAV，重复执行后无残留 Qwen Worker。全量测试 `219 passed`，桌面生产构建与 Ruff `F821/F601` 通过。随后用户完成 `pipeline-8` 单文件手动验收，任务由 Workbench 提交并在 `export` 阶段正常完成，Qwen3 CustomVoice 的真实 Pipeline 主链路已通过。
 
+2026-08-03 完成后端 P0 批量与异常恢复验收：顺序批量任务以确定性服务层故障注入验证“成功 → TTS 失败 → 成功”，中间失败不阻塞后续任务；三个任务分别保留 `completed/failed/completed` 状态，失败阶段为 `tts`，成功产物严格归属于各自 task_id。Edge TTS 瞬时连接失败重试、模型下载中断后保留 partial 文件并重试、隔离 Worker 无响应退出及交换文件清理、任务取消后以新 task_id 重提并生成新产物均已覆盖。批处理创建改走后端权威 readiness，失败汇总保留原输入路径；`verify_env.py` 可从项目外目录直接执行。全量测试 `226 passed`，桌面生产构建、compileall、Ruff `F821/F601` 均通过。该结论验证后端编排与恢复语义；Edge 和下载故障采用确定性模拟，不宣称真实外部网络在任意故障下均可恢复。
+
+当前边界必须保持明确：`POST /pipeline/batch` 仍是等待全部项目结束后返回的同步聚合接口，每个输入会创建独立 Pipeline task，但尚无独立 batch task_id、批量状态查询或 HTTP 批量取消入口；桌面端仅有 API 封装，当前页面未消费该接口。取消后重提验收针对单任务 `PipelineTaskOrchestrator`；Worker 异常退出会使当前任务明确失败并清理交换文件，不会自动重启 Worker，恢复方式是重提新任务。
+
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
 说明：
@@ -236,10 +240,11 @@ text_utils.py
 
 ## 6. 当前最高优先级缺口
 
-1. 补充批量任务和异常恢复验收，确认单个任务失败不会阻塞后续任务。
+1. 先完成后端能力、运行环境、模型安装策略和兼容层的事实清单；GUI 只消费已确认的后端能力，不继续扩张设想型入口。
 2. 选择下一个实际需要的 Provider；若选择 Qwen3-ASR，再创建并接通 `qwen_asr` Worker，验收两个隔离阶段顺序执行与显存释放。
-3. 通过批量与恢复验收后，再继续兼容层瘦身。
-4. Ruff 剩余项按功能域分批清理，不进行无边界自动修复。
+3. 清理可重建缓存和构建产物前先给出精确目录、体积与恢复方式；模型权重和隔离环境按保留策略处理，不直接批量删除。
+4. 后端能力基线稳定后再整理 Workbench、SubtitleWorkshop 和 UI 组件体系。
+5. 兼容层与 Ruff 剩余项按功能域分批清理，不进行无边界自动修复。
 
 ## 7. DOCS 维护规则
 
