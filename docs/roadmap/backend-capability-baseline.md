@@ -1,0 +1,154 @@
+# AsmrHelper 后端能力事实清单
+
+> 更新时间：2026-08-04
+>
+> 事实优先级：当前源码与运行探测 > 自动测试 > 真实手动验收 > 设计文档。
+> 本文只说明后端现在能做什么、当前机器是否具备条件，以及哪些接口仍只是接线或兼容入口。
+
+## 1. 状态定义
+
+| 状态 | 含义 |
+| --- | --- |
+| 已实现 | 路由、服务和核心实现存在，自动测试通过 |
+| 环境可执行 | 当前机器的依赖、工具、凭据和模型状态检查通过 |
+| 真实验收 | 使用真实音频或文本走过正式 API/Pipeline 并得到有效产物 |
+| 已接线 | 已进入能力目录或 Registry，但缺环境、模型、凭据或真实验收 |
+| 受限 | 能力存在，但同步方式、恢复语义或旧实现使其不能按完整产品能力使用 |
+
+“有 HTTP 路由”不等于“真实验收”；“模型文件存在”也不等于“当前可执行”。
+
+## 2. 当前后端主干
+
+当前合理主链路为：
+
+```text
+Tauri / React
+→ FastAPI
+→ app services
+→ Pipeline / Tool orchestration
+→ engine registry / isolated runtime worker
+→ TaskStatus / RuntimeEvent / Artifact
+```
+
+当前应用共注册 `88` 条路由，其中包含 OpenAPI、Swagger、ReDoc 等 4 条文档路由。主链路不是旧 GUI，也不是旧 `src/core/pipeline`。
+
+## 3. 功能域事实
+
+| 功能域 | 当前事实 | 验证程度 | 明确边界 |
+| --- | --- | --- | --- |
+| Workspace | 可解析项目工作区和输出目录 | 已实现、自动测试 | 不是多项目工作区管理器 |
+| Input | 可检查输入路径、媒体类型和伴随字幕 | 已实现、自动测试 | 不保存媒体内容，只保存资产描述 |
+| Session | Pipeline/Tool 创建时生成会话并记录输入及输出策略 | 已实现、自动测试 | 当前主要是执行上下文，不是可编辑项目文档 |
+| 单文件 Pipeline | StageProfile V1、readiness、后台执行、阶段进度、错误与产物已统一 | 默认 Edge 链路和 Qwen3-TTS 单文件链路真实验收 | 仅进程内线程，不提供跨重启续跑 |
+| 批量 Pipeline | 每个输入创建独立 Pipeline task；单项失败不阻塞后续项 | 服务层故障注入验收通过 | `/pipeline/batch` 是同步聚合；无 batch task_id、批量查询和 HTTP 批量取消 |
+| Task | pending/running/completed/failed/cancelled/skipped、SSE RuntimeEvent、取消、重提、审核字段 | 已实现、自动测试 | Pipeline retry 创建新 task；重启后的历史任务只读 |
+| Queue | 可查看队列快照和 running count | 已实现 | 只是进程内低并发状态，不是持久化调度器 |
+| Persistence | SQLite 保存终态 TaskSpec、TaskStatus 和 Artifact | 已实现、重启测试通过 | 启动时删除未完成任务及其 Artifact，不恢复执行 |
+| Artifact | 按 task_id 登记主产物、字幕、中间音频和预览类型 | 已实现、批量归属验收通过 | 内部 PipelineResult 仍保留少量路径型字段 |
+| Readiness | 校验输入解码、Provider/Model、Python 依赖、系统工具、GPU 和凭据 | 已实现，Pipeline 创建及 prepare 双重检查 | 只检查任务实际选择的阶段；不会自动安装资源 |
+| Model catalog | 模型列表、状态、安装、验证、删除和卸载接口存在 | 已实现、自动测试 | “installed”和“executable”是不同状态 |
+| Model install | 异步安装任务、串行大模型下载、真实错误、超时和中断重试 | 已实现；中断保留 partial 文件验收通过 | 恢复依赖 Hugging Face 对同一目标目录的续传能力 |
+| Runtime isolation | `main/qwen_tts/qwen_asr/fun_asr` 环境 ID；ASR/TTS 可路由短生命周期 Worker | Qwen3-TTS 真实验收；ASR Worker 自动测试 | Worker 异常会失败并清理，不会自动重启 |
+| Settings | 设置读取、有效值、校验、脱敏写入和 Provider 连通性测试 | 已实现、自动测试 | 旧 `api` 设置形状仍有兼容解析 |
+| Capability | ASR/TTS/LLM/Separator 的模型、默认值和参数 schema 可查询 | 已实现、Workbench 已消费 | 描述符表示支持范围，不表示当前环境已安装 |
+| Subtitle | load/parse/normalize/translate/bilingualize/export/script-to-vtt/script-to-subtitle | 已实现、真实分支与单元测试覆盖 | 翻译仍依赖已配置 LLM |
+| Tool task | 分离、格式转换、切分、字幕翻译、音量预览可创建任务并登记产物 | 已实现、自动测试 | 桌面页面目前没有实际消费 `toolsApi` |
+| Voice profile | profile 列表、详情、删除、设计、克隆、分析、预览路由存在 | profile 读取可用；其余未完成隔离链路验收 | Design/Clone/Preview 仍直接依赖旧 Qwen 管理器，不能视为稳定能力 |
+
+## 4. Provider 与模型事实
+
+### 4.1 当前能力目录
+
+| 类别 | Provider | 默认模型 | 当前机器 | 真实验收 |
+| --- | --- | --- | --- | --- |
+| Separator | `demucs` | `htdemucs` | 可执行 | 已通过 |
+| ASR | `faster_whisper` | `faster-whisper-base` | Tiny/Base/Small/Medium/Large-v3 均被状态服务判定可执行 | Base 已通过；其他尺寸未逐个验收 |
+| ASR | `qwen3_asr` | `qwen3-asr-0.6b` | 0.6B/1.7B 权重和 `qwen_asr` 环境存在，CPU Torch 可用 | 尚未真实推理或 Pipeline 验收 |
+| ASR | `fun_asr` | `fun-asr-nano-2512` | `fun_asr` 环境存在；模型资产缺失 | 待验收 |
+| LLM | `deepseek` | `deepseek-chat` | 凭据已配置 | 已通过 |
+| LLM | `openai` | `gpt-4o-mini` | 未配置凭据 | 待验收 |
+| TTS | `edge` | `default` | 可执行 | 已通过；瞬时网络失败有重试 |
+| TTS | `qwen3` | `qwen3-custom-voice` | 权重和 `qwen_tts` 环境存在 | CustomVoice 单文件 Pipeline 已通过；Base/VoiceDesign 未验收 |
+| TTS | `kokoro` | `kokoro-82m` | Python 包存在，缺 `espeak-ng` | 待验收 |
+| TTS | `voxcpm2` | `voxcpm2` | 模型和 Python 包均缺失 | 待验收 |
+
+受当前受限执行环境影响，`qwen_tts` 的 UV Python trampoline 探测会返回权限错误；正常用户进程中的正式 API 和 `pipeline-8` 已完成真实验收。因此该探测不能推翻已有真实验收，但模型状态页仍需在正式 APP 进程中复核显示是否正确。
+
+### 4.2 默认产品组合
+
+当前唯一可以定义为默认已验收组合的是：
+
+```text
+demucs/htdemucs
+→ faster_whisper/faster-whisper-base
+→ deepseek/deepseek-chat
+→ edge/default 或 qwen3/qwen3-custom-voice
+→ ffmpeg
+```
+
+Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均属于可选能力，不应进入默认安装承诺。
+
+## 5. 本机环境与资产现状
+
+2026-08-04 只读扫描结果：
+
+| 路径 | 大小 | 判断 |
+| --- | ---: | --- |
+| `.venv` | 1.61 GB | 主 API/基础音频环境，但仍能导入 Qwen、Kokoro、Gradio，尚未达到最小环境目标 |
+| `.runtimes/qwen_tts` | 约 4.55 GB | 已验收的 Qwen3-TTS CUDA 隔离环境 |
+| `.runtimes/qwen_asr` | 约 1.22 GB | 已创建，当前为 CPU Torch，未真实验收 |
+| `.runtimes/fun_asr` | 约 1.08 GB | 已创建，当前为 CPU Torch，缺模型资产 |
+| `models/whisper` | 约 5.08 GB | 五个尺寸同时存在，默认只需要 Base |
+| `models/qwen3tts` | 约 12.65 GB | CustomVoice/Base/VoiceDesign 同时存在，只有 CustomVoice 已验收 |
+| `models/qwen3asr` | 约 6.13 GB | 0.6B/1.7B 同时存在，均未真实验收 |
+| `.uv-cache` | 约 10.18 GB | 可重建依赖缓存，不是业务能力 |
+| `desktop/src-tauri/target` | 约 8.04 GB | 可重建 Rust/Tauri 构建产物 |
+| `.cache` | 约 0.88 GB | 下载和工具缓存，应按目录确认后清理 |
+
+当前目标环境边界应是：
+
+- `.venv`：FastAPI、Edge TTS、基础音频链路和开发测试；
+- `.runtimes/qwen_tts`：Qwen3-TTS；
+- `.runtimes/qwen_asr`、`.runtimes/fun_asr`：只有用户选择并完成验收后保留；
+- Kokoro、VoxCPM2 等能力不进入默认环境。
+
+环境精简必须通过重新解析依赖和重建环境完成，不手工删除单个传递依赖。
+
+## 6. 当前兼容层
+
+### 可以进入删除评估
+
+- `src/core/model_manager.py`：已 deprecated；当前主服务使用各领域 Registry，源码中未发现新的直接调用。
+- `src/core/translate`：实现已迁到 `core.engines.llm` 和 `core.subtitles`，当前主要是弃用转发。
+- `/tasks/{id}/review-status`、POST `/review-note`、`/task-queue`：与当前 PATCH/PUT 或 `/tasks/queue` 重复，属于兼容别名候选。
+- `/pipeline-runs/start`、`/pipeline-runs/execute`：手动分步/同步执行入口，Workbench 主路径不使用；删除前应确认 CLI 和外部调用。
+
+### 现在不能删除
+
+- `src/core/tts`：Edge/Qwen 实际实现、Voice Profile 和 Voice Designer 仍在其中。
+- `src/core/asr`：Faster-Whisper Registry 仍创建其中的 `ASRRecognizer`。
+- `src/core/vocal_separator`：Demucs Registry 仍创建其中的 `VocalSeparator`。
+- `src/mixer`：Pipeline 和工具服务仍直接使用 `Mixer`。
+- `asmr_bilingual.py`、`batch_process.py`：README 仍公开为兼容 CLI。
+
+删除这些旧命名模块前，必须先把真实实现迁入 `core/engines` 或新的领域目录，而不是只删除导入入口。
+
+## 7. GUI 必须遵守的后端边界
+
+- Workbench 可以使用：能力目录、StageProfile V1、readiness、单文件后台任务、取消、活动任务重提和 Artifact 结果。
+- Workbench 暂不能宣称：可管理批次、批量取消、批量恢复或跨重启续跑。
+- TaskCenter 可以展示终态历史和活动任务；历史任务不能原地重试，只能重新提交。
+- EnginesResources 可以展示模型和异步安装；必须同时展示 `installed` 与 `executable`，不能只看文件是否存在。
+- SubtitleWorkshop 已有后端支撑，可在契约范围内整理，不需要重新设计后端。
+- VoiceLab 的 profile 浏览可以保留；Design、Clone、Preview 在迁移到隔离 Worker并完成真实验收前应标记实验性或禁用。
+- VoiceLab 当前把 `ref_text` 发送给 `/voice/analyze-segments`，而后端契约需要 `subtitle_path/audio_language`；该字段目前不会产生页面设想的效果。
+- 桌面端虽然定义了 `pipelineApi.batch` 和 `toolsApi`，现有页面没有实际消费，不能据此认为 GUI 功能已完成。
+
+## 8. 后端下一步
+
+1. 在正式 APP 进程复核 Qwen3-TTS 模型状态展示，解决“真实可用但探测可能显示不可执行”的环境差异。
+2. 选择是否验收 Qwen3-ASR 0.6B；若选择，执行真实短音频推理和 `Qwen3-ASR → DeepSeek → Qwen3-TTS` Pipeline，并确认两个 Worker 顺序退出。
+3. 在批量 GUI 设计前决定：保持同步批处理工具，还是新增 batch task 聚合、状态查询和取消契约。
+4. 将 Voice Design/Clone/Preview 迁移到 `qwen_tts` Worker；迁移前不把这些路由视为稳定产品能力。
+5. 制定模型保留清单后，再删除多余 Whisper/Qwen 权重；制定环境重建方案后，再清理主环境重复依赖。
+6. 完成上述事实收束后，再按页面逐一整理 GUI，不新增后端未支持的状态和操作。

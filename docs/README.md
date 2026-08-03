@@ -4,14 +4,15 @@
 
 建议按以下顺序阅读：
 
-1. [当前架构与文档审计](roadmap/current-architecture-and-doc-audit-2026-07-23.md)：项目现状、已验证问题和优先级。
-2. [主链路契约 v1](contracts/mainline-v1.md)：桌面端到后台任务的最小稳定流程。
-3. [数据结构契约 v1](contracts/schemas-v1.md)：请求、任务、错误、执行配置和产物字段。
-4. [Provider 与设置契约 v1](contracts/provider-v1.md)：能力、设置、凭据和运行前检查。
-5. [Provider / Model 轻量接入流程](contracts/provider-model-onboarding.md)：个人维护项目新增引擎或模型时使用的 Server-first 最小检查清单。
-6. [多引擎支持现状](roadmap/multi-engine-status.md)：区分已接线、当前环境可执行和真实主链路验收。
-7. [兼容与迁移说明](contracts/compatibility.md)：当前实现与目标契约的差异及迁移顺序。
-8. [当前源代码基线](roadmap/current-source-baseline.md)：判断“代码目前已经做到什么”的事实依据。
+1. [后端能力事实清单](roadmap/backend-capability-baseline.md)：区分已实现、环境可执行、真实验收和受限能力。
+2. [当前源代码基线](roadmap/current-source-baseline.md)：判断当前代码阶段、验证结果和优先级。
+3. [主链路契约 v1](contracts/mainline-v1.md)：桌面端到后台任务的最小稳定流程。
+4. [数据结构契约 v1](contracts/schemas-v1.md)：请求、任务、错误、执行配置和产物字段。
+5. [Provider 与设置契约 v1](contracts/provider-v1.md)：能力、设置、凭据和运行前检查。
+6. [Provider / Model 轻量接入流程](contracts/provider-model-onboarding.md)：个人维护项目新增引擎或模型时使用的 Server-first 最小检查清单。
+7. [多引擎支持现状](roadmap/multi-engine-status.md)：区分已接线、当前环境可执行和真实主链路验收。
+8. [兼容与迁移说明](contracts/compatibility.md)：当前实现与目标契约的差异及迁移顺序。
+9. [2026-07-23 架构审计快照](roadmap/current-architecture-and-doc-audit-2026-07-23.md)：仅用于追溯当时判断，不再作为当前事实源。
 
 契约描述目标边界，源代码基线描述当前事实。两者存在差异时，不应猜测；先在兼容说明登记，再通过测试和源代码确认。
 
@@ -24,6 +25,7 @@ ASR、TTS、LLM 等能力统一按 Provider 类别扩展，不再分别维护重
 ## 路线图与进度
 
 - [当前架构与文档审计（2026-07-23）](roadmap/current-architecture-and-doc-audit-2026-07-23.md)
+- [后端能力事实清单](roadmap/backend-capability-baseline.md)
 - [当前源代码基线](roadmap/current-source-baseline.md)
 - [总体进度状态](roadmap/overall-progress-status.md)
 - [Phase 2 后段收尾计划](roadmap/phase-2-legacy-core-replacement.md)

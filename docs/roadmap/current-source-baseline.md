@@ -223,6 +223,8 @@ text_utils.py
 
 当前边界必须保持明确：`POST /pipeline/batch` 仍是等待全部项目结束后返回的同步聚合接口，每个输入会创建独立 Pipeline task，但尚无独立 batch task_id、批量状态查询或 HTTP 批量取消入口；桌面端仅有 API 封装，当前页面未消费该接口。取消后重提验收针对单任务 `PipelineTaskOrchestrator`；Worker 异常退出会使当前任务明确失败并清理交换文件，不会自动重启 Worker，恢复方式是重提新任务。
 
+2026-08-04 已完成 [后端能力事实清单](backend-capability-baseline.md)：按“已实现、环境可执行、真实验收、已接线、受限”区分当前能力，并明确批量、历史任务、运行环境、VoiceLab、兼容层和 GUI 可依赖边界。后续 GUI 整理以该清单和当前源码为准，不再从路由存在或设计稿推断能力已完成。
+
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
 说明：
@@ -240,11 +242,12 @@ text_utils.py
 
 ## 6. 当前最高优先级缺口
 
-1. 先完成后端能力、运行环境、模型安装策略和兼容层的事实清单；GUI 只消费已确认的后端能力，不继续扩张设想型入口。
-2. 选择下一个实际需要的 Provider；若选择 Qwen3-ASR，再创建并接通 `qwen_asr` Worker，验收两个隔离阶段顺序执行与显存释放。
-3. 清理可重建缓存和构建产物前先给出精确目录、体积与恢复方式；模型权重和隔离环境按保留策略处理，不直接批量删除。
-4. 后端能力基线稳定后再整理 Workbench、SubtitleWorkshop 和 UI 组件体系。
-5. 兼容层与 Ruff 剩余项按功能域分批清理，不进行无边界自动修复。
+1. 在正式 APP 进程复核 Qwen3-TTS 状态展示，确认真实可用状态不会被受限探测误报。
+2. 选择是否验收 Qwen3-ASR；若选择，执行 `Qwen3-ASR → DeepSeek → Qwen3-TTS` 真实 Pipeline，并验证两个 Worker 顺序退出。
+3. 在批量 GUI 设计前决定是否新增 batch task、聚合状态和取消契约。
+4. 将 Voice Design/Clone/Preview 迁移到隔离 Worker；迁移前不作为稳定 GUI 能力。
+5. 确定模型与环境保留策略后再清理缓存、权重和重复依赖，随后按事实清单整理 GUI。
+6. 兼容层与 Ruff 剩余项按功能域分批清理，不进行无边界自动修复。
 
 ## 7. DOCS 维护规则
 
