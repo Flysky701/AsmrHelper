@@ -8,18 +8,44 @@ from typing import Any
 
 
 def _execute(request: dict[str, Any]) -> dict[str, Any]:
-    from src.core.engines.tts.service import TtsEngineRuntime
-
     operation = str(request.get("operation") or "")
     payload = dict(request.get("payload") or {})
-    runtime = TtsEngineRuntime(enable_runtime_routing=False)
     if operation == "tts.synthesize_text":
+        from src.core.engines.tts.service import TtsEngineRuntime
+
+        runtime = TtsEngineRuntime(enable_runtime_routing=False)
         output_path = runtime.synthesize_text(**payload)
+        return {"output_path": str(output_path)}
     elif operation == "tts.synthesize_segments":
+        from src.core.engines.tts.service import TtsEngineRuntime
+
+        runtime = TtsEngineRuntime(enable_runtime_routing=False)
         output_path, _engine = runtime.synthesize_segments(**payload)
-    else:
-        raise ValueError(f"unsupported runtime worker operation: {operation}")
-    return {"output_path": str(output_path)}
+        return {"output_path": str(output_path)}
+    elif operation == "asr.transcribe_file":
+        from src.core.engines.asr.service import AsrEngineRuntime
+
+        runtime = AsrEngineRuntime(enable_runtime_routing=False)
+        document = runtime.transcribe_file(**payload)
+        return {
+            "document": {
+                "segments": [
+                    {
+                        "start": segment.start,
+                        "end": segment.end,
+                        "text": segment.text,
+                        "language": segment.language,
+                        "confidence": segment.confidence,
+                    }
+                    for segment in document.segments
+                ],
+                "language": document.language,
+                "format": document.format,
+                "source_path": document.source_path,
+                "warnings": list(document.warnings),
+            }
+        }
+    raise ValueError(f"unsupported runtime worker operation: {operation}")
 
 
 def main() -> int:

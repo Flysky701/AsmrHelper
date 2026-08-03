@@ -27,12 +27,22 @@ class RuntimeProfile:
 class RuntimeProfileResolver:
     """Resolve named Python environments without persisting machine paths."""
 
+    _PROFILE_EXTRAS = {
+        "qwen_tts": "qwen3",
+        "qwen_asr": "qwen_asr",
+        "fun_asr": "funasr",
+    }
+    # Qwen3-TTS has a verified CUDA runtime. ASR runtimes declare ordinary
+    # torch explicitly in the model catalog so CPU-only hosts remain usable.
+    _CUDA_TORCH_PROFILES = {"qwen_tts"}
+
     _ALIASES = {
         "": "main",
         "main": "main",
         "python_package_local": "main",
         "qwen_tts": "qwen_tts",
         "qwen_asr": "qwen_asr",
+        "fun_asr": "fun_asr",
     }
 
     def __init__(self, project_root: Path | None = None) -> None:
@@ -63,8 +73,8 @@ class RuntimeProfileResolver:
             isolated=True,
             environment_dir=environment_dir,
             python_executable=executable,
-            project_extra={"qwen_tts": "qwen3", "qwen_asr": "qwen_asr"}[normalized],
-            cuda_torch=normalized == "qwen_tts",
+            project_extra=self._PROFILE_EXTRAS[normalized],
+            cuda_torch=normalized in self._CUDA_TORCH_PROFILES,
         )
 
     def ensure_environment(self, profile_id: str) -> RuntimeProfile:

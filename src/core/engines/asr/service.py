@@ -35,8 +35,16 @@ def _resolve_model_name(provider: str, model_id: str) -> str:
 class AsrEngineRuntime:
     """Execute ASR transcription against the legacy recognizer."""
 
-    def __init__(self, registry=None) -> None:
+    def __init__(self, registry=None, *, runtime_router=None, enable_runtime_routing: bool = True) -> None:
         self._registry = registry or get_asr_registry()
+        self._runtime_router = runtime_router
+        # Injected registries are primarily used by in-process tests and
+        # extensions. Keep those calls local unless a router is explicitly
+        # supplied; the application path uses the default runtime router.
+        if enable_runtime_routing and self._runtime_router is None and registry is None:
+            from src.core.runtime import get_runtime_router
+
+            self._runtime_router = get_runtime_router()
 
     def transcribe_file(
         self,
@@ -52,6 +60,16 @@ class AsrEngineRuntime:
         common_options = dict(profile.get("common_options", {}))
         provider_options = dict(profile.get("provider_options", {}))
         provider = str(profile.get("provider", "faster_whisper"))
+
+        if self._runtime_router and self._runtime_router.asr_profile(provider):
+            result = self._runtime_router.transcribe_file(
+                {
+                    "input_path": str(source_path),
+                    "output_path": output_path,
+                    "profile": profile,
+                }
+            )
+            return self._document_from_worker_result(result, output_path=output_path)
 
         recognizer = self._registry.get(
             provider,
@@ -76,6 +94,30 @@ class AsrEngineRuntime:
             language=str(common_options.get("language", "ja")),
             format="srt" if output_path else "",
             source_path=output_path or "",
+        )
+
+    @staticmethod
+    def _document_from_worker_result(
+        result: dict[str, Any], *, output_path: str | None
+    ) -> SubtitleDocument:
+        payload = dict(result.get("document") or {})
+        segments = [
+            SubtitleSegment(
+                start=float(item.get("start", 0.0)),
+                end=float(item.get("end", 0.0)),
+                text=str(item.get("text", "")),
+                language=str(item.get("language", "")),
+                confidence=float(item.get("confidence", 0.0)),
+            )
+            for item in payload.get("segments", [])
+            if isinstance(item, dict)
+        ]
+        return SubtitleDocument(
+            segments=segments,
+            language=str(payload.get("language", "")),
+            format=str(payload.get("format", "")),
+            source_path=str(payload.get("source_path") or output_path or ""),
+            warnings=[str(item) for item in payload.get("warnings", [])],
         )
 
     @staticmethod

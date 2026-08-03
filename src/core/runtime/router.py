@@ -22,6 +22,10 @@ class RuntimeWorkerError(RuntimeError):
 class RuntimeRouter:
     """Run providers with conflicting dependencies in short-lived workers."""
 
+    _ASR_PROFILES = {
+        "fun_asr": "fun_asr",
+        "qwen3_asr": "qwen_asr",
+    }
     _TTS_PROFILES = {"qwen3": "qwen_tts"}
 
     def __init__(
@@ -34,6 +38,18 @@ class RuntimeRouter:
 
     def tts_profile(self, provider: str) -> str | None:
         return self._TTS_PROFILES.get(provider)
+
+    def asr_profile(self, provider: str) -> str | None:
+        return self._ASR_PROFILES.get(provider)
+
+    def transcribe_file(self, payload: dict[str, Any]) -> dict[str, Any]:
+        profile = dict(payload.get("profile") or {})
+        provider = str(profile.get("provider") or "")
+        return self._run_worker(
+            "asr.transcribe_file",
+            payload,
+            self.asr_profile(provider),
+        )
 
     def synthesize_text(self, payload: dict[str, Any]) -> str:
         result = self._run_worker("tts.synthesize_text", payload, self.tts_profile(str(payload["profile"]["provider"])))

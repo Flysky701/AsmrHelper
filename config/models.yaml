@@ -160,6 +160,7 @@ models:
     is_primary_variant: true
     dependency_group: fun_asr
     required_python_extras: [funasr]
+    required_runtime_packages: ["torch>=2.4.0"]
     display_name: Fun-ASR Nano 2512
     description: Fun-ASR Nano multilingual speech recognition model weights from Hugging Face.
     install_root: models
@@ -174,7 +175,7 @@ models:
     supports_remove: true
     install_strategy: huggingface_snapshot
     upstream_name: FunAudioLLM/Fun-ASR-Nano-2512
-    runtime_profile: python_package_local
+    runtime_profile: fun_asr
     supported_os: [windows, linux, macos]
     supported_python:
       min: "3.10"
@@ -194,6 +195,7 @@ models:
     variant_tier: full
     dependency_group: fun_asr
     required_python_extras: [funasr]
+    required_runtime_packages: ["torch>=2.4.0"]
     display_name: Fun-ASR MLT Nano 2512
     description: Fun-ASR multilingual 31-language model weights from Hugging Face.
     install_root: models
@@ -208,7 +210,7 @@ models:
     supports_remove: true
     install_strategy: huggingface_snapshot
     upstream_name: FunAudioLLM/Fun-ASR-MLT-Nano-2512
-    runtime_profile: python_package_local
+    runtime_profile: fun_asr
     supported_os: [windows, linux, macos]
     supported_python:
       min: "3.10"
@@ -229,6 +231,7 @@ models:
     is_primary_variant: true
     dependency_group: qwen3_asr
     required_python_extras: [qwen_asr]
+    required_runtime_packages: ["torch>=2.4.0"]
     display_name: Qwen3-ASR 0.6B
     description: Qwen3-ASR 0.6B multilingual offline ASR model from Hugging Face.
     install_root: models
@@ -263,6 +266,7 @@ models:
     variant_tier: full
     dependency_group: qwen3_asr
     required_python_extras: [qwen_asr]
+    required_runtime_packages: ["torch>=2.4.0"]
     display_name: Qwen3-ASR 1.7B
     description: Qwen3-ASR 1.7B multilingual offline ASR model from Hugging Face.
     install_root: models
