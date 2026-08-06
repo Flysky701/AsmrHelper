@@ -66,7 +66,7 @@ class ToolRegistry:
             companion_paths=companion_paths,
             task_source="desktop-tool-run",
         )
-        return self._task_service.get_task(spec.task_id)
+        return self._dispatcher.submit(spec.task_id)
 
     def run_task(self, task_id: str) -> dict[str, Any]:
         result = self._dispatcher.run(task_id)

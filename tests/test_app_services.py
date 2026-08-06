@@ -920,6 +920,42 @@ class TestPipelineServiceImport:
         assert service._executor is not None
 
 
+class TestAudioToolTaskSpec:
+    def test_custom_output_dir_selects_custom_session_policy(self, tmp_path):
+        from src.app.services.audio_tool_service import AudioToolService
+
+        task_service = MagicMock()
+        task_service.create_task_spec.return_value = (MagicMock(task_id="tool.convert-1"), False)
+        workspace_service = MagicMock()
+        workspace_service.resolve.return_value = MagicMock(workspace_id="workspace-1")
+        input_catalog_service = MagicMock()
+        input_catalog_service.inspect_paths.return_value = [
+            MagicMock(asset_id="asset-1", kind="audio")
+        ]
+        session_service = MagicMock()
+        output_dir = tmp_path / "custom-output"
+        service = AudioToolService(
+            task_service=task_service,
+            workspace_service=workspace_service,
+            input_catalog_service=input_catalog_service,
+            session_service=session_service,
+            artifact_service=MagicMock(),
+            subtitle_service=MagicMock(),
+            separator_runtime=MagicMock(),
+        )
+
+        service.create_tool_task_spec(
+            task_type="tool.convert",
+            input_path="input.wav",
+            execution_profile={"output_dir": str(output_dir)},
+        )
+
+        assert session_service.create_session.call_args.kwargs["output_policy"] == {
+            "mode": "custom-dir",
+            "custom_output_dir": str(output_dir),
+        }
+
+
 class TestPipelineServiceCallbacks:
     """Test PipelineService progress/cancel passthrough semantics."""
 

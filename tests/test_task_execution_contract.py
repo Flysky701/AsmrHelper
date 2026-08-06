@@ -185,6 +185,44 @@ def test_tool_registry_executes_through_dispatcher_with_stage_and_result():
     assert task.artifact_set_id == spec.task_id
 
 
+def test_tool_registry_create_task_submits_background_execution():
+    from src.app.services.tool_registry import ToolRegistry
+
+    service = TaskService()
+
+    class AudioTools:
+        def create_tool_task_spec(self, *, task_type, input_path, execution_profile, companion_paths, task_source):
+            spec, _ = service.create_task_spec(
+                task_type=task_type,
+                task_source=task_source,
+                session_id="session-1",
+                input_asset_id=input_path,
+                companion_asset_ids=list(companion_paths or []),
+                execution_profile=execution_profile,
+            )
+            return spec
+
+        def run_tool_task_spec(self, spec, *, manage_lifecycle, cancel_event):
+            assert manage_lifecycle is False
+            return {
+                "primary_output": f"{spec.task_id}.wav",
+                "artifact_set_id": spec.task_id,
+            }
+
+    tools = ToolRegistry(audio_tool_service=AudioTools(), task_service=service)
+
+    accepted = tools.create_task(
+        task_type="tool.convert",
+        input_path="input.wav",
+        execution_profile={"target_format": "wav"},
+        companion_paths=[],
+    )
+
+    assert accepted.state in {"running", "completed"}
+    _wait_for(service, accepted.task_id, "completed")
+    assert service.get_task(accepted.task_id).stage == "convert"
+
+
 def test_model_install_uses_dispatcher_and_reports_install_stage():
     from types import SimpleNamespace
 

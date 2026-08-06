@@ -266,6 +266,7 @@ class AudioToolService:
             companion_asset_ids = [
                 asset.asset_id for asset in self._input_catalog_service.inspect_paths(companion_paths)
             ]
+        custom_output_dir = execution_profile.get("output_dir") or None
         session = self._session_service.create_session(
             workspace_id=workspace.workspace_id,
             mode="single-audio" if input_asset.kind == "audio" else "subtitle-only",
@@ -273,8 +274,8 @@ class AudioToolService:
             primary_input_asset_id=input_asset.asset_id,
             companion_asset_ids=companion_asset_ids,
             output_policy={
-                "mode": "workspace-default",
-                "custom_output_dir": execution_profile.get("output_dir") or None,
+                "mode": "custom-dir" if custom_output_dir else "workspace-default",
+                "custom_output_dir": custom_output_dir,
             },
         )
         task_spec, _ = self._task_service.create_task_spec(
