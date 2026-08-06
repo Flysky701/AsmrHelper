@@ -149,6 +149,20 @@ class VoiceService:
             prompt_cache_path=result.get("prompt_cache_path", ""),
         )
 
+    def submit_design_voice(self, request: VoiceDesignRequest):
+        if not request.description:
+            raise AppValidationError("description is required")
+        if not request.name:
+            raise AppValidationError("name is required")
+        return self._submit_voice_task(
+            "design",
+            {
+                "description": request.description,
+                "name": request.name,
+                "ref_text": request.ref_text or None,
+            },
+        )
+
     # --- Voice Clone ---
 
     def clone_voice(self, request: VoiceCloneRequest) -> VoiceCloneResult:
@@ -183,6 +197,23 @@ class VoiceService:
             category=result["category"],
             ref_audio_path=result.get("ref_audio_path", ""),
             prompt_cache_path=result.get("prompt_cache_path", ""),
+        )
+
+    def submit_clone_voice(self, request: VoiceCloneRequest):
+        if not request.audio_path:
+            raise AppValidationError("audio_path is required")
+        if not request.name:
+            raise AppValidationError("name is required")
+        audio_path = Path(request.audio_path)
+        if not audio_path.exists():
+            raise AppValidationError(f"audio file does not exist: {request.audio_path}")
+        return self._submit_voice_task(
+            "clone",
+            {
+                "audio_path": str(audio_path),
+                "name": request.name,
+                "ref_text": request.ref_text or None,
+            },
         )
 
     # --- Segment Analysis ---
@@ -258,7 +289,32 @@ class VoiceService:
             audio_path=result["audio_path"],
         )
 
+    def submit_preview_voice(self, request: VoicePreviewRequest):
+        if not request.profile_id:
+            raise AppValidationError("profile_id is required")
+        self._get_profile_or_raise(request.profile_id)
+        return self._submit_voice_task(
+            "preview",
+            {
+                "profile_id": request.profile_id,
+                "text": request.text or None,
+                "speed": request.speed,
+            },
+        )
+
     def _run_voice_task(self, operation: str, payload: dict) -> dict:
+        task = self._create_voice_task(operation, payload)
+        result = self._dispatcher.run(task.task_id)
+        if not isinstance(result, dict):
+            raise AppExecutionError(f"voice task returned no result: {task.task_id}")
+        result["task_id"] = task.task_id
+        return result
+
+    def _submit_voice_task(self, operation: str, payload: dict):
+        task = self._create_voice_task(operation, payload)
+        return self._dispatcher.submit(task.task_id)
+
+    def _create_voice_task(self, operation: str, payload: dict):
         if operation == "preview":
             payload = {
                 **payload,
@@ -266,17 +322,16 @@ class VoiceService:
                     PROJECT_ROOT / ".tmp" / f"voice-preview-{uuid.uuid4().hex}.wav"
                 ),
             }
-        _, task = self._task_service.create_task_spec(
+        task, _ = self._task_service.create_task_spec(
             task_type=f"voice.{operation}",
             task_source="voice-lab",
             session_id="",
+            input_asset_id=str(
+                payload.get("audio_path") or payload.get("profile_id") or ""
+            ),
             execution_profile={"operation": operation, **payload},
         )
-        result = self._dispatcher.run(task.task_id)
-        if not isinstance(result, dict):
-            raise AppExecutionError(f"voice task returned no result: {task.task_id}")
-        result["task_id"] = task.task_id
-        return result
+        return task
 
     def _execute_voice_task(self, task_spec, context):
         profile = dict(task_spec.execution_profile)

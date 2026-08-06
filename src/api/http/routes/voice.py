@@ -5,16 +5,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from src.api.http.dependencies import voice_service
+from src.api.http.schemas.tasks import TaskStatusResponse
 from src.api.http.schemas.voice import (
     SegmentAnalyzeRequest,
     SegmentAnalyzeResponse,
     SegmentInfoResponse,
     VoiceCloneRequest,
-    VoiceCloneResponse,
     VoiceDesignRequest,
-    VoiceDesignResponse,
     VoicePreviewRequest,
-    VoicePreviewResponse,
     VoiceProfileResponse,
     VoiceProfileSummaryResponse,
 )
@@ -77,44 +75,30 @@ def delete_profile(
     svc.delete_profile(profile_id)
 
 
-@router.post("/design", response_model=VoiceDesignResponse)
+@router.post("/design", response_model=TaskStatusResponse, status_code=201)
 def design_voice(
     body: VoiceDesignRequest,
     svc: VoiceService = Depends(voice_service),
 ):
-    result = svc.design_voice(VoiceDesignDTO(
+    task = svc.submit_design_voice(VoiceDesignDTO(
         description=body.description,
         name=body.name,
         ref_text=body.ref_text,
     ))
-    return VoiceDesignResponse(
-        profile_id=result.profile_id,
-        name=result.name,
-        category=result.category,
-        task_id=result.task_id,
-        ref_audio_path=result.ref_audio_path,
-        prompt_cache_path=result.prompt_cache_path,
-    )
+    return TaskStatusResponse.from_task_status(task)
 
 
-@router.post("/clone", response_model=VoiceCloneResponse)
+@router.post("/clone", response_model=TaskStatusResponse, status_code=201)
 def clone_voice(
     body: VoiceCloneRequest,
     svc: VoiceService = Depends(voice_service),
 ):
-    result = svc.clone_voice(VoiceCloneDTO(
+    task = svc.submit_clone_voice(VoiceCloneDTO(
         audio_path=body.audio_path,
         name=body.name,
         ref_text=body.ref_text,
     ))
-    return VoiceCloneResponse(
-        profile_id=result.profile_id,
-        name=result.name,
-        category=result.category,
-        task_id=result.task_id,
-        ref_audio_path=result.ref_audio_path,
-        prompt_cache_path=result.prompt_cache_path,
-    )
+    return TaskStatusResponse.from_task_status(task)
 
 
 @router.post("/analyze-segments", response_model=SegmentAnalyzeResponse)
@@ -148,19 +132,15 @@ def analyze_segments(
     )
 
 
-@router.post("/profiles/{profile_id}/preview", response_model=VoicePreviewResponse)
+@router.post("/profiles/{profile_id}/preview", response_model=TaskStatusResponse, status_code=201)
 def preview_voice(
     profile_id: str,
     body: VoicePreviewRequest,
     svc: VoiceService = Depends(voice_service),
 ):
-    result = svc.preview_voice(VoicePreviewDTO(
+    task = svc.submit_preview_voice(VoicePreviewDTO(
         profile_id=profile_id,
         text=body.text,
         speed=body.speed,
     ))
-    return VoicePreviewResponse(
-        profile_id=result.profile_id,
-        task_id=result.task_id,
-        audio_path=result.audio_path,
-    )
+    return TaskStatusResponse.from_task_status(task)

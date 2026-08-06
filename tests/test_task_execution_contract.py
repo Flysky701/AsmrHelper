@@ -314,3 +314,35 @@ def test_voice_preview_uses_runtime_router_and_registers_task_artifact(tmp_path)
     assert task.artifact_set_id == result.task_id
     assert task_artifacts.primary_output == result.audio_path
     assert all(item.task_id == result.task_id for item in task_artifacts.entries)
+
+
+def test_voice_preview_submission_returns_before_result_is_consumed(tmp_path):
+    from types import SimpleNamespace
+
+    from src.app.dto import VoicePreviewRequest
+    from src.app.services.artifact_service import ArtifactService
+    from src.app.services.voice_service import VoiceService
+
+    service = TaskService()
+
+    class VoiceRuntime:
+        def preview_voice(self, _payload):
+            output = tmp_path / "submitted-preview.wav"
+            output.write_bytes(b"RIFF")
+            return str(output)
+
+    voices = VoiceService(
+        task_service=service,
+        artifact_service=ArtifactService(),
+        runtime_router=VoiceRuntime(),
+    )
+    voices._get_profile_or_raise = lambda _profile_id: SimpleNamespace(id="voice-1")
+
+    accepted = voices.submit_preview_voice(
+        VoicePreviewRequest(profile_id="voice-1", text="hello", speed=1.0)
+    )
+
+    assert accepted.state in {"running", "completed"}
+    _wait_for(service, accepted.task_id, "completed")
+    completed = service.get_task(accepted.task_id)
+    assert completed.stage == "preview"

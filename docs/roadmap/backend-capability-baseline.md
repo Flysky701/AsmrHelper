@@ -141,8 +141,8 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - TaskCenter 已按 Task V1 修正重试语义：本会话失败任务重试时创建新任务并保留 `retry_of_task_id`，旧任务不再被新 ID 覆盖；页面不再提供后端不存在的“清理/移出任务”操作。非 Pipeline 任务显示自身后端阶段，失败详情直接消费结构化错误，历史参数通过 TaskSpec 补读。
 - EnginesResources 可以展示模型和异步安装；必须同时展示 `installed` 与 `executable`，不能只看文件是否存在。
 - SubtitleWorkshop 已有后端支撑，可在契约范围内整理，不需要重新设计后端。
-- VoiceLab 的 profile 浏览、Design、Clone、Preview 可以保留；这些是 Qwen3-TTS 专属扩展，不应显示为所有 TTS 引擎的通用能力。
-- VoiceLab 已按后端契约提交 `subtitle_path/audio_language`，并消费 `score/recommended_indices/warnings`；设计档案的 `custom` 分类、创建后详情和内置预设不可删除边界也已对齐。
+- VoiceLab 的 profile 浏览、Design、Clone、Preview 可以保留；这些是 Qwen3-TTS 专属扩展，不应显示为所有 TTS 引擎的通用能力。三项生成操作均为创建即提交的后台 Task，结果和试听产物统一从 TaskCenter 获取。
+- VoiceLab 的片段分析按后端契约提交 `subtitle_path/audio_language`，并消费 `score/recommended_indices/warnings`；它是克隆表单的同步结构化查询。设计档案的 `custom` 分类和内置预设不可删除边界已对齐。
 - AudioTools 已消费后端工具目录和任务创建接口；工具目录读取失败或未声明某项能力时，页面会禁用提交，不把客户端常量当成可用事实。
 - SubtitleWorkshop 的字幕翻译已复用 `tool.translate_subtitle`；台本转字幕使用 `subtitle.script_to_vtt` 后台任务，提交后统一到 TaskCenter 查看阶段、错误与产物。完整模式缺少音频、已有字幕模式缺少字幕时会在客户端先拦截。
 - Workbench 的多文件操作是“逐文件创建独立 Pipeline Task”，不是 BatchRun 实体；每项失败不阻塞后续提交，状态与产物仍按各自 task_id 隔离。
@@ -161,13 +161,15 @@ Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内�
 
 Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。本轮没有引入 root task、executor version、资源标签、BatchRun 实体或分布式队列。
 
-自动化基线为 `249 passed`，覆盖 Tool 创建即后台提交、自定义输出目录，以及台本任务自动输出和 Artifact 归属。当前环境自检注册 89 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
+自动化基线为 `253 passed`，覆盖 Tool/字幕/Voice 创建即后台提交、自定义输出目录、台本自动输出和 Artifact 归属。当前环境自检注册 89 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
 
 2026-08-07 使用固定非敏感日语测试句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` 正式 Pipeline。任务 `pipeline-1` 在 `export` 阶段完成，登记混音、双语字幕、TTS WAV 和 ASR 文本四类 Artifact；ASR 文本与测试句一致，字幕包含有效中文翻译，TTS 产物为 24 kHz、6.48 秒 WAV，执行后无 Qwen Worker 残留。该验收不包含用户素材外发。
 
 验收准备同时发现并修复 Edge TTS 的 MP3 输出冲突：以前 `.mp3` 会被 FFmpeg 同时作为输入和输出；现在 MP3 直接保留 Edge 原始结果，WAV 才进入转码，其他扩展名在网络请求前明确拒绝。
 
 Voice 扩展验收使用非敏感合成音频完成：Clone 生成可用档案与 prompt cache，Preview 生成 24 kHz、4 秒 WAV；VoiceDesign 生成 24 kHz、2.56 秒参考音频与 prompt cache；两类任务均登记独立 Artifact，测试档案随后通过正式删除接口清理。Analyze 使用实际音频和字幕返回有效片段、推荐索引与语言不匹配警告。验收中修复其残留旧 ASR 调用：现在统一通过 ASR Runtime 解析资源模型 ID。
+
+Voice 正式路由随后改为后台提交。使用内置 A1 与固定非敏感短句请求 Preview，POST 在 Worker 完成前返回 `201`；`voice.preview-1` 随后在 `preview/completed` 结束并登记一个有效 WAV 主 Artifact，执行后无 Qwen Worker 残留。
 
 环境重建后再次执行默认正式 Pipeline：非敏感合成样本按 `Demucs → Faster-Whisper Base → DeepSeek → Edge TTS → FFmpeg` 完成 `pipeline-1`，终态为 `export/completed`，登记混音、双语字幕、分离人声、TTS 和转写文本 5 个 Artifact。分离人声与 TTS 均为 6.48 秒，字幕包含有效日文原文与中文译文；启动助手同时通过独立端口健康检查、真实 PID、持久日志和退出后端口释放验收。
 

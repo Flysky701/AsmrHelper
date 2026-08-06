@@ -741,6 +741,37 @@ class TestModelRoutes:
 # ─── Subtitles ────────────────────────────────────────────────────────
 
 
+class TestVoiceTaskRoutes:
+    @pytest.mark.parametrize(
+        ("path", "method_name", "payload", "task_type"),
+        [
+            ("/api/v1/voice/design", "submit_design_voice", {"name": "voice", "description": "warm"}, "voice.design"),
+            ("/api/v1/voice/clone", "submit_clone_voice", {"name": "voice", "audio_path": "input.wav"}, "voice.clone"),
+            ("/api/v1/voice/profiles/A1/preview", "submit_preview_voice", {"text": "hello", "speed": 1.0}, "voice.preview"),
+        ],
+    )
+    def test_voice_long_operations_return_task_snapshot(
+        self, client, path, method_name, payload, task_type
+    ):
+        mock_svc = MagicMock()
+        getattr(mock_svc, method_name).return_value = TaskStatus(
+            task_id=f"{task_type}-1",
+            task_type=task_type,
+            task_source="voice-lab",
+            state="running",
+            stage=task_type.split(".")[-1],
+            progress=0.1,
+            created_at="2026-08-07T00:00:00+00:00",
+        )
+        client.app.dependency_overrides[dependencies.voice_service] = _mock_dep(mock_svc)
+
+        response = client.post(path, json=payload)
+
+        assert response.status_code == 201
+        assert response.json()["task_type"] == task_type
+        getattr(mock_svc, method_name).assert_called_once()
+
+
 class TestSubtitleRoutes:
     def test_create_script_to_vtt_task_submits_background_work(self, client):
         mock_svc = MagicMock()

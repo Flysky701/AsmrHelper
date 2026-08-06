@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { voiceApi } from '@/api/voice'
 import type { VoiceProfileSummaryResponse, VoiceProfileResponse, SegmentInfo } from '@/api/types'
 import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
-import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
+import { useNavStore } from '@/stores/navStore'
+import { useTaskStore } from '@/stores/taskStore'
+import type { TaskStatus } from '@/stores/taskStore'
 
 // ── Types ────────────────────────────────────────────
 type FilterKind = 'all' | 'preset' | 'design' | 'clone'
@@ -218,7 +220,9 @@ function errorMessage(error: unknown): string {
 // ── Component ────────────────────────────────────────
 export default function VoiceLab() {
   const { selectFiles } = useFileSelector()
-  const showAudio = useAudioPlayerStore((state) => state.show)
+  const setPage = useNavStore((state) => state.setPage)
+  const addTask = useTaskStore((state) => state.addTask)
+  const updateTask = useTaskStore((state) => state.updateTask)
   const [profiles, setProfiles] = useState<VoiceProfileSummaryResponse[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<VoiceProfileResponse | null>(null)
@@ -238,7 +242,6 @@ export default function VoiceLab() {
 
   // Preview state
   const [previewText, setPreviewText] = useState('哥哥，今天给你做个特别的按摩哦，先从肩膀开始，放松一下吧。')
-  const [previewAudio, setPreviewAudio] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
 
   // Instruct editing
@@ -249,9 +252,6 @@ export default function VoiceLab() {
   const [recommendedIndices, setRecommendedIndices] = useState<number[]>([])
   const [analysisWarnings, setAnalysisWarnings] = useState<string[]>([])
   const [analyzing, setAnalyzing] = useState(false)
-
-  // Design result
-  const [designResult, setDesignResult] = useState<{ ref_audio_path: string; prompt_cache_path: string } | null>(null)
 
   // Loading states
   const [designing, setDesigning] = useState(false)
@@ -275,8 +275,6 @@ export default function VoiceLab() {
   const handleSelect = useCallback(async (id: string, category: string) => {
     setActionError('')
     setSelectedId(id)
-    setPreviewAudio(null)
-    setDesignResult(null)
     setSegments([])
     setRecommendedIndices([])
     setAnalysisWarnings([])
@@ -317,35 +315,61 @@ export default function VoiceLab() {
     if (!selectedId) return
     setActionError('')
     setPreviewLoading(true)
+    const localTaskId = addTask({
+      jobType: 'voice-preview',
+      sourceName: detail?.name || selectedId,
+      sourcePath: selectedId,
+      params: { profile_id: selectedId, text: previewText, speed: 1.0 },
+    })
+    updateTask(localTaskId, { message: '正在创建音色试听任务' })
     try {
-      const res = await voiceApi.preview(selectedId, { text: previewText, speed: 1.0 })
-      setPreviewAudio(res.audio_path)
-      showAudio(res.audio_path, `音色试听 · ${detail?.name || selectedId}`)
-      useAudioPlayerStore.getState().setPlaying(true)
+      const remote = await voiceApi.preview(selectedId, { text: previewText, speed: 1.0 })
+      updateTask(localTaskId, {
+        serverTaskId: remote.task_id,
+        status: remote.state as TaskStatus,
+        stage: remote.stage ?? undefined,
+        progress: Math.round(remote.progress * 100),
+        message: remote.message || '后端已接管音色试听任务',
+        detail: remote.detail,
+      })
+      setPage('task-center')
     } catch (error) {
+      updateTask(localTaskId, { status: 'failed', message: '音色试听任务创建失败', errorMessage: String(error) })
       setActionError(`试听生成失败：${errorMessage(error)}`)
     } finally {
       setPreviewLoading(false)
     }
-  }, [detail?.name, previewText, selectedId, showAudio])
+  }, [addTask, detail?.name, previewText, selectedId, setPage, updateTask])
 
   const handleDesign = useCallback(async () => {
     if (!designName || !designDesc) return
     setActionError('')
     setDesigning(true)
+    const localTaskId = addTask({
+      jobType: 'voice-design',
+      sourceName: designName,
+      sourcePath: '',
+      params: { name: designName, description: designDesc, ref_text: designRefText || undefined },
+    })
+    updateTask(localTaskId, { message: '正在创建音色设计任务' })
     try {
-      const res = await voiceApi.design({ name: designName, description: designDesc, ref_text: designRefText || undefined })
-      setDesignResult({ ref_audio_path: res.ref_audio_path, prompt_cache_path: res.prompt_cache_path })
-      await loadProfiles()
-      setDetail(await voiceApi.getProfile(res.profile_id))
-      setSelectedId(res.profile_id)
-      setPanel('design-detail')
+      const remote = await voiceApi.design({ name: designName, description: designDesc, ref_text: designRefText || undefined })
+      updateTask(localTaskId, {
+        serverTaskId: remote.task_id,
+        status: remote.state as TaskStatus,
+        stage: remote.stage ?? undefined,
+        progress: Math.round(remote.progress * 100),
+        message: remote.message || '后端已接管音色设计任务',
+        detail: remote.detail,
+      })
+      setPage('task-center')
     } catch (error) {
+      updateTask(localTaskId, { status: 'failed', message: '音色设计任务创建失败', errorMessage: String(error) })
       setActionError(`音色设计失败：${errorMessage(error)}`)
     } finally {
       setDesigning(false)
     }
-  }, [designName, designDesc, designRefText, loadProfiles])
+  }, [addTask, designName, designDesc, designRefText, setPage, updateTask])
 
   const handleAnalyze = useCallback(async () => {
     if (!cloneAudioPath) return
@@ -374,18 +398,31 @@ export default function VoiceLab() {
     if (!cloneAudioPath || !cloneName) return
     setActionError('')
     setCloning(true)
+    const localTaskId = addTask({
+      jobType: 'voice-clone',
+      sourceName: cloneName,
+      sourcePath: cloneAudioPath,
+      params: { audio_path: cloneAudioPath, name: cloneName, ref_text: cloneRefText || undefined },
+    })
+    updateTask(localTaskId, { message: '正在创建音色克隆任务' })
     try {
-      const res = await voiceApi.clone({ audio_path: cloneAudioPath, name: cloneName, ref_text: cloneRefText || undefined })
-      await loadProfiles()
-      setDetail(await voiceApi.getProfile(res.profile_id))
-      setSelectedId(res.profile_id)
-      setPanel('clone-detail')
+      const remote = await voiceApi.clone({ audio_path: cloneAudioPath, name: cloneName, ref_text: cloneRefText || undefined })
+      updateTask(localTaskId, {
+        serverTaskId: remote.task_id,
+        status: remote.state as TaskStatus,
+        stage: remote.stage ?? undefined,
+        progress: Math.round(remote.progress * 100),
+        message: remote.message || '后端已接管音色克隆任务',
+        detail: remote.detail,
+      })
+      setPage('task-center')
     } catch (error) {
+      updateTask(localTaskId, { status: 'failed', message: '音色克隆任务创建失败', errorMessage: String(error) })
       setActionError(`音色克隆失败：${errorMessage(error)}`)
     } finally {
       setCloning(false)
     }
-  }, [cloneAudioPath, cloneName, cloneRefText, loadProfiles])
+  }, [addTask, cloneAudioPath, cloneName, cloneRefText, setPage, updateTask])
 
   const handleDelete = useCallback(async () => {
     if (!selectedId) return
@@ -428,7 +465,6 @@ export default function VoiceLab() {
   const showCreate = (type: 'design' | 'clone') => {
     setSelectedId(null)
     setDetail(null)
-    setDesignResult(null)
     setSegments([])
     setRecommendedIndices([])
     setAnalysisWarnings([])
@@ -615,17 +651,6 @@ export default function VoiceLab() {
                 </div>
               </div>
             </div>
-            {designResult && (
-              <div style={S.panel}>
-                <div style={S.panelHeader}>生成结果<span style={S.panelSubtitle}>— ref_audio + prompt_cache 已生成</span></div>
-                <div style={S.panelBody}>
-                  <div style={S.detailGrid}>
-                    {renderDetailField('参考音频路径', designResult.ref_audio_path, { mono: true, full: true })}
-                    {renderDetailField('Prompt Cache 路径', designResult.prompt_cache_path, { mono: true, full: true })}
-                  </div>
-                </div>
-              </div>
-            )}
             {renderPreviewPanel()}
           </>
         )
@@ -788,11 +813,9 @@ export default function VoiceLab() {
           <PlayIcon /> {previewLoading ? '生成中...' : '试听'}
         </button>
       </div>
-      {previewAudio && (
-        <div style={{ padding: '8px 16px 12px', fontSize: 11, color: 'var(--muted)' }}>
-          已生成并载入播放器: {previewAudio}
-        </div>
-      )}
+      <div style={{ padding: '8px 16px 12px', fontSize: 11, color: 'var(--muted)' }}>
+        试听作为后台任务执行，完成后可在任务中心播放产物。
+      </div>
     </div>
   )
 

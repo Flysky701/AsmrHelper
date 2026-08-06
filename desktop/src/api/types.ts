@@ -402,28 +402,10 @@ export interface VoiceDesignRequest {
   ref_text?: string
 }
 
-export interface VoiceDesignResponse {
-  profile_id: string
-  name: string
-  category: string
-  task_id: string
-  ref_audio_path: string
-  prompt_cache_path: string
-}
-
 export interface VoiceCloneRequest {
   audio_path: string
   name: string
   ref_text?: string
-}
-
-export interface VoiceCloneResponse {
-  profile_id: string
-  name: string
-  category: string
-  task_id: string
-  ref_audio_path: string
-  prompt_cache_path: string
 }
 
 export interface SegmentAnalyzeRequest {
@@ -454,12 +436,6 @@ export interface SegmentAnalyzeResponse {
 export interface VoicePreviewRequest {
   text: string
   speed?: number
-}
-
-export interface VoicePreviewResponse {
-  profile_id: string
-  task_id: string
-  audio_path: string
 }
 
 // ── Tool tasks ─────────────────────────────────────────

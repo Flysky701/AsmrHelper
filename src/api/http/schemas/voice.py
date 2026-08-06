@@ -34,28 +34,10 @@ class VoiceDesignRequest(BaseModel):
     ref_text: str = Field("", description="Reference text for synthesis")
 
 
-class VoiceDesignResponse(BaseModel):
-    profile_id: str
-    name: str
-    category: str
-    task_id: str = ""
-    ref_audio_path: str = ""
-    prompt_cache_path: str = ""
-
-
 class VoiceCloneRequest(BaseModel):
     audio_path: str = Field(..., description="Path to reference audio file")
     name: str = Field(..., description="Display name for the new voice")
     ref_text: str = Field("", description="Reference text for synthesis")
-
-
-class VoiceCloneResponse(BaseModel):
-    profile_id: str
-    name: str
-    category: str
-    task_id: str = ""
-    ref_audio_path: str = ""
-    prompt_cache_path: str = ""
 
 
 class SegmentAnalyzeRequest(BaseModel):
@@ -83,12 +65,7 @@ class SegmentAnalyzeResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+# Generation routes reuse the shared task-status response schema.
 class VoicePreviewRequest(BaseModel):
     text: str = Field("", description="Text to synthesize")
     speed: float = Field(1.0, description="Speech speed")
-
-
-class VoicePreviewResponse(BaseModel):
-    profile_id: str
-    task_id: str = ""
-    audio_path: str = ""

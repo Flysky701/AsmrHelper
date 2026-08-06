@@ -3,13 +3,11 @@ import type {
   VoiceProfileSummaryResponse,
   VoiceProfileResponse,
   VoiceDesignRequest,
-  VoiceDesignResponse,
   VoiceCloneRequest,
-  VoiceCloneResponse,
   SegmentAnalyzeRequest,
   SegmentAnalyzeResponse,
   VoicePreviewRequest,
-  VoicePreviewResponse,
+  TaskStatusResponse,
 } from './types'
 
 export const voiceApi = {
@@ -23,14 +21,14 @@ export const voiceApi = {
     api.delete<void>(`/voice/profiles/${profileId}`),
 
   design: (body: VoiceDesignRequest) =>
-    api.post<VoiceDesignResponse>('/voice/design', body),
+    api.post<TaskStatusResponse>('/voice/design', body),
 
   clone: (body: VoiceCloneRequest) =>
-    api.post<VoiceCloneResponse>('/voice/clone', body),
+    api.post<TaskStatusResponse>('/voice/clone', body),
 
   analyzeSegments: (body: SegmentAnalyzeRequest) =>
     api.post<SegmentAnalyzeResponse>('/voice/analyze-segments', body),
 
   preview: (profileId: string, body: VoicePreviewRequest) =>
-    api.post<VoicePreviewResponse>(`/voice/profiles/${profileId}/preview`, body),
+    api.post<TaskStatusResponse>(`/voice/profiles/${profileId}/preview`, body),
 }

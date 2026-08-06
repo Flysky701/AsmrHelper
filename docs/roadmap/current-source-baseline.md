@@ -229,9 +229,9 @@ text_utils.py
 
 同日 Voice Design、Clone、Preview 和 Analyze 完成正式 API 真实验收：设计与克隆档案可用，参考音频、prompt cache 和试听 WAV 均有效且按任务登记 Artifact，测试档案经正式接口删除；片段分析返回有效候选与警告。分析链路已从旧 ASR 识别器迁到统一 ASR Runtime，修复 `faster-whisper-base` 资源 ID 被底层误当模型尺寸的问题。
 
-VoiceLab 随后按真实契约完成对齐：设计档案使用 `custom` 分类，设计/克隆完成后立即加载详情；片段分析提交 `subtitle_path/audio_language` 并显示后端 `score/recommended_indices/warnings`；预设音色不再提供无效删除按钮，GPU 状态也不再硬编码为“可用”。桌面生产构建通过。
+VoiceLab 随后按真实契约完成对齐：Design/Clone/Preview 创建后台 Task 并跳转 TaskCenter，生成期间可以查看阶段、取消和重提，完成后从 Artifact 获取参考音频、prompt cache 或试听 WAV；片段分析继续提交 `subtitle_path/audio_language` 并显示后端 `score/recommended_indices/warnings`。预设音色不再提供无效删除按钮，GPU 状态也不再硬编码为“可用”。
 
-主 `.venv` 与 Qwen TTS、Qwen ASR、FunASR 三个隔离运行时已统一迁移到项目内 UV Python 3.12.13，不再继承 AetherSwap Conda 或用户目录 UV Python。主环境与三个隔离环境的依赖一致性检查均通过；重建后 Qwen3-ASR 0.6B、Qwen3 CustomVoice 和默认正式 Pipeline 均完成真实推理。FunASR 只确认运行时可导入，模型资产缺失，仍应显示为未安装。当前自动化基线为 `249 passed`，桌面生产构建、89 路由环境检查、`compileall` 与 Ruff `F821/F601` 均通过；旧环境以 `.runtimes/*-backup-*` 保留，尚未删除。
+主 `.venv` 与 Qwen TTS、Qwen ASR、FunASR 三个隔离运行时已统一迁移到项目内 UV Python 3.12.13，不再继承 AetherSwap Conda 或用户目录 UV Python。主环境与三个隔离环境的依赖一致性检查均通过；重建后 Qwen3-ASR 0.6B、Qwen3 CustomVoice 和默认正式 Pipeline 均完成真实推理。FunASR 只确认运行时可导入，模型资产缺失，仍应显示为未安装。当前自动化基线为 `253 passed`，桌面生产构建、89 路由环境检查、`compileall` 与 Ruff `F821/F601` 均通过；旧环境以 `.runtimes/*-backup-*` 保留，尚未删除。
 
 TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是新增任务并展示 `retry_of_task_id`；移除了后端不支持、且会被下次同步撤销的“清理已完成/从列表移除”；模型安装、Tool 和 Voice 等非 Pipeline 任务不再套用七阶段 Pipeline 时间线；失败任务直接显示后端错误码、阶段和详情，历史任务参数从 `/tasks/{id}/spec` 补读。本地浏览器模式已逐页复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings，未发现控制台错误；这不包含 Tauri 原生文件对话框与正式窗口验收。
 
@@ -244,20 +244,14 @@ TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是
 
 ## 5. 当前项目阶段判断
 
-当前项目不应再定义为 Phase 2 中期。
-
-更准确的定位：
-
-> Phase 2 后段：旧 GUI、旧 pipeline 包、旧字幕脚本包已经从源码树移除，新 core 主干及主要公共契约已建立并被调用；当前剩余工作是兼容入口收束和残留旧依赖压薄。
+当前后端执行架构、隔离运行时、主要 GUI 页面和正式 Release 已进入收尾验收阶段。旧 GUI、旧 Pipeline 包、失效字幕/PDF/音色生成脚本和重复构建入口已经移除；当前不再以 Phase 2 旧切片描述进度。
 
 ## 6. 当前最高优先级缺口
 
-1. 在正式 APP 进程复核 Qwen3-TTS 状态展示，确认真实可用状态不会被受限探测误报。
-2. 选择是否验收 Qwen3-ASR；若选择，执行 `Qwen3-ASR → DeepSeek → Qwen3-TTS` 真实 Pipeline，并验证两个 Worker 顺序退出。
-3. 在批量 GUI 设计前决定是否新增 batch task、聚合状态和取消契约。
-4. 将 Voice Design/Clone/Preview 迁移到隔离 Worker；迁移前不作为稳定 GUI 能力。
-5. 确定模型与环境保留策略后再清理缓存、权重和重复依赖，随后按事实清单整理 GUI。
-6. 兼容层与 Ruff 剩余项按功能域分批清理，不进行无边界自动修复。
+1. 在正式 Tauri 窗口完成文件/目录选择、字幕任务、Voice 后台任务、任务取消与 Artifact 播放的可见交互确认。
+2. 保持 Workbench 多文件等于多个独立 Task；除非产品明确需要批次级查询/取消，否则不引入 BatchRun。
+3. 用户确认当前环境与模型后，删除 `.runtimes/*-backup-*`；可选模型权重按实际保留需求另行确认，不以“存在但未验收”冒充产品完成。
+4. 未配置或未安装的 OpenAI、Fun-ASR、Kokoro、VoxCPM2 继续显示真实不可用原因；只有实际选择后才安装并验收。
 
 ## 7. DOCS 维护规则
 
