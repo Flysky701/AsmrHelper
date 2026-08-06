@@ -23,16 +23,35 @@ export interface TaskStatusResponse {
   error: Record<string, unknown> | null
   task_type: string
   task_source: string
+  session_id: string
   input_asset_id: string
   created_at: string
   queued_at: string | null
   started_at: string | null
   updated_at: string
   finished_at: string | null
+  artifact_set_id: string | null
+  retry_of_task_id: string | null
+  review_state: '' | 'accepted' | 'needs_review' | 'needs_rework'
+  review_note: string
 }
 
 export interface TaskListResponse {
   tasks: TaskStatusResponse[]
+}
+
+export interface TaskSpecResponse {
+  task_id: string
+  task_type: string
+  task_source: string
+  session_id: string
+  input_asset_id: string
+  companion_asset_ids: string[]
+  execution_profile: Record<string, unknown>
+  priority: number
+  dedupe_key: string
+  retry_of_task_id: string | null
+  created_at: string
 }
 
 export interface RuntimeEventResponse {

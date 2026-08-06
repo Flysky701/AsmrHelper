@@ -138,6 +138,7 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - Workbench 可以使用：能力目录、StageProfile V1、readiness、单文件后台任务、取消、活动任务重提和 Artifact 结果。
 - Workbench 暂不能宣称：可管理批次、批量取消、批量恢复或跨重启续跑。
 - TaskCenter 可以展示终态历史和活动任务；历史任务不能原地重试，只能重新提交。
+- TaskCenter 已按 Task V1 修正重试语义：本会话失败任务重试时创建新任务并保留 `retry_of_task_id`，旧任务不再被新 ID 覆盖；页面不再提供后端不存在的“清理/移出任务”操作。非 Pipeline 任务显示自身后端阶段，失败详情直接消费结构化错误，历史参数通过 TaskSpec 补读。
 - EnginesResources 可以展示模型和异步安装；必须同时展示 `installed` 与 `executable`，不能只看文件是否存在。
 - SubtitleWorkshop 已有后端支撑，可在契约范围内整理，不需要重新设计后端。
 - VoiceLab 的 profile 浏览、Design、Clone、Preview 可以保留；这些是 Qwen3-TTS 专属扩展，不应显示为所有 TTS 引擎的通用能力。
@@ -174,3 +175,4 @@ Voice 扩展验收使用非敏感合成音频完成：Clone 生成可用档案�
 - 后端由隐藏进程启动，日志持久写入 `logs/backend.log`；启动失败会显示日志尾部，不再只表现为窗口闪退。
 - 后端通过 PID 文件发布实际 Uvicorn 进程号。已实测启动器返回 PID、日志 PID 和活动进程一致，结束后进程被清理。
 - 当前自动化环境不能加载 Computer Use 的 `@oai/sky` 组件，因此本轮只确认进程、健康检查和构建事实；窗口可见性与页面交互不能据此标记为已验收。
+- 已通过本地浏览器模式复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings 的真实渲染与后端交互；模型状态、失败阶段/错误、Voice 预设边界和凭据不回显均符合当前事实。该结果覆盖 React 页面，不替代 Tauri 原生文件选择与正式桌面窗口验收。

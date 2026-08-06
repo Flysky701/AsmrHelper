@@ -165,6 +165,13 @@ function pipelineStageIndex(task: Task): number {
 }
 
 function stageLabel(task: Task) {
+  if (task.jobType !== 'pipeline') {
+    if (task.status === 'completed') return '任务已完成'
+    if (task.status === 'failed') return `任务在“${task.stage || '执行'}”阶段失败`
+    if (task.status === 'cancelled') return '任务已取消'
+    if (task.status === 'skipped') return '任务被跳过'
+    return task.stage || '等待执行'
+  }
   if (task.status === 'completed') return '成品已产出'
   const currentStage = PIPELINE_STAGES[pipelineStageIndex(task)] ?? '准备'
   if (task.status === 'failed') return `任务在“${currentStage}”阶段失败`
@@ -183,6 +190,8 @@ function jobTypeLabel(jobType: JobType) {
     split: '切分',
     'translate-subtitle': '字幕翻译',
     'script-to-vtt': 'Script 转 VTT',
+    'volume-preview': '音量预览',
+    'model-install': '模型安装',
     'voice-design': '音色设计',
     'voice-clone': '音色克隆',
     'voice-preview': '音色试听',
@@ -218,6 +227,7 @@ function formatParamValue(value: unknown) {
   if (typeof value === 'boolean') return value ? '开启' : '关闭'
   if (typeof value === 'number') return Number.isInteger(value) ? `${value}` : value.toFixed(2)
   if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'object') return JSON.stringify(value, null, 2)
   return String(value)
 }
 
@@ -280,7 +290,7 @@ export default function TaskCenter() {
   const setFilter = useTaskStore((state) => state.setFilter)
   const selectedTaskId = useTaskStore((state) => state.selectedTaskId)
   const selectTask = useTaskStore((state) => state.selectTask)
-  const removeTask = useTaskStore((state) => state.removeTask)
+  const addTask = useTaskStore((state) => state.addTask)
   const updateTask = useTaskStore((state) => state.updateTask)
 
   const logs = useLogStore((state) => state.logs)
@@ -298,6 +308,7 @@ export default function TaskCenter() {
   const runningTasks = tasks.filter((task) => task.status === 'running')
   const pendingTasks = tasks.filter((task) => task.status === 'pending')
   const failedTasks = tasks.filter((task) => task.status === 'failed')
+  const retryableFailedTasks = failedTasks.filter((task) => !task.historical)
   const completedTasks = tasks.filter((task) => task.status === 'completed')
 
   const taskLogs = selectedTask ? logs.filter((entry) => entry.taskId === selectedTask.id) : logs
@@ -312,6 +323,34 @@ export default function TaskCenter() {
       (event) => addRuntimeEvent(event, selectedTask.id),
     )
   }, [addRuntimeEvent, selectedTask?.id, selectedTask?.serverTaskId])
+
+  useEffect(() => {
+    if (!selectedTask?.serverTaskId) return
+    if (selectedTask.specLoaded) return
+
+    let cancelled = false
+    tasksApi.spec(selectedTask.serverTaskId)
+      .then((spec) => {
+        if (cancelled) return
+        updateTask(selectedTask.id, {
+          params: spec.execution_profile,
+          retryOfTaskId: spec.retry_of_task_id ?? undefined,
+          specLoaded: true,
+        })
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          addLog({
+            level: 'warn',
+            content: `读取任务参数失败：${String(error)}`,
+            taskId: selectedTask.id,
+          })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [addLog, selectedTask?.id, selectedTask?.serverTaskId, selectedTask?.specLoaded, updateTask])
 
   useEffect(() => {
     if (!selectedTask?.serverTaskId) return
@@ -406,24 +445,32 @@ export default function TaskCenter() {
 
     try {
       const response = await tasksApi.retry(task.serverTaskId)
-      updateTask(taskId, {
+      const newTaskId = addTask({
         serverTaskId: response.task_id,
-        status: 'pending',
+        jobType: task.jobType,
+        sourceName: task.sourceName,
+        sourcePath: task.sourcePath,
         stage: response.stage ?? undefined,
+        retryOfTaskId: response.retry_of_task_id ?? task.serverTaskId,
+        historical: false,
+        params: { ...task.params },
+      })
+      updateTask(newTaskId, {
+        status: response.state as TaskStatus,
         progress: Math.round(response.progress * 100),
         message: response.message || '任务已重新排队',
         detail: response.detail,
-        startedAt: undefined,
-        finishedAt: undefined,
+        createdAt: Date.parse(response.created_at) || Date.now(),
       })
-      addLog({ level: 'info', content: `任务已重试：${response.task_id}`, taskId })
+      selectTask(newTaskId)
+      addLog({ level: 'info', content: `已创建重试任务：${response.task_id}`, taskId: newTaskId })
     } catch (error) {
       addLog({ level: 'error', content: `重试失败：${String(error)}`, taskId })
     }
   }
 
   const handleRetryFailedTasks = async () => {
-    for (const task of failedTasks) {
+    for (const task of retryableFailedTasks) {
       await handleRetry(task.id)
     }
   }
@@ -432,10 +479,6 @@ export default function TaskCenter() {
     for (const task of runningTasks) {
       await handleCancel(task.id)
     }
-  }
-
-  const handleClearCompletedTasks = () => {
-    completedTasks.forEach((task) => removeTask(task.id))
   }
 
   const handlePlayArtifact = (artifactId: string, title: string) => {
@@ -468,14 +511,11 @@ export default function TaskCenter() {
         </div>
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginLeft: 'auto' }}>
-          <ToolbarButton variant="secondary" onClick={handleRetryFailedTasks} disabled={failedTasks.length === 0}>
+          <ToolbarButton variant="secondary" onClick={handleRetryFailedTasks} disabled={retryableFailedTasks.length === 0}>
             重试失败任务
           </ToolbarButton>
           <ToolbarButton variant="secondary" onClick={handleCancelRunningTasks} disabled={runningTasks.length === 0}>
             取消运行中
-          </ToolbarButton>
-          <ToolbarButton variant="ghost" onClick={handleClearCompletedTasks} disabled={completedTasks.length === 0}>
-            清理已完成
           </ToolbarButton>
         </div>
 
@@ -643,16 +683,33 @@ export default function TaskCenter() {
                     >
                       取消
                     </ToolbarButton>
-                    <ToolbarButton variant="ghost" onClick={() => removeTask(selectedTask.id)}>
-                      从列表移除
-                    </ToolbarButton>
                   </div>
                 </div>
+
+                {selectedTask.status === 'failed' && selectedTask.errorMessage ? (
+                  <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--error-soft)', border: '1px solid color-mix(in oklch, var(--error) 24%, transparent)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--error)' }}>
+                      {typeof selectedTask.error?.code === 'string' ? selectedTask.error.code : 'TASK_FAILED'}
+                      {' · '}{selectedTask.stage || '执行'}
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 13, color: 'var(--fg)', wordBreak: 'break-word' }}>
+                      {selectedTask.errorMessage}
+                    </div>
+                    {selectedTask.detail && selectedTask.detail !== selectedTask.errorMessage ? (
+                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)', wordBreak: 'break-word' }}>
+                        {selectedTask.detail}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
                   {[
                     { label: '当前阶段', value: stageLabel(selectedTask) },
                     { label: '任务 ID', value: selectedTask.serverTaskId || selectedTask.id },
+                    ...(selectedTask.retryOfTaskId
+                      ? [{ label: '重试自任务', value: selectedTask.retryOfTaskId }]
+                      : []),
                     { label: '耗时', value: formatDuration((selectedTask.finishedAt ?? Date.now()) - (selectedTask.startedAt ?? selectedTask.createdAt)) },
                     { label: '源文件', value: selectedTask.sourcePath },
                   ].map((item) => (
@@ -686,9 +743,18 @@ export default function TaskCenter() {
                     />
                   </div>
 
-                  <div style={{ marginTop: 18 }}>
-                    <PipelineTimeline task={selectedTask} />
-                  </div>
+                  {selectedTask.jobType === 'pipeline' ? (
+                    <div style={{ marginTop: 18 }}>
+                      <PipelineTimeline task={selectedTask} />
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 18, padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>后端阶段</div>
+                      <div style={{ marginTop: 6, fontSize: 13, fontWeight: 600 }}>
+                        {selectedTask.stage || (selectedTask.status === 'pending' ? '等待执行' : '执行')}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>

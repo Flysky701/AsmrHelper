@@ -9,6 +9,8 @@ export type JobType =
   | 'split'
   | 'translate-subtitle'
   | 'script-to-vtt'
+  | 'volume-preview'
+  | 'model-install'
   | 'voice-design'
   | 'voice-clone'
   | 'voice-preview'
@@ -53,6 +55,9 @@ export interface Task {
     warnings: string[]
   }
   errorMessage?: string
+  error?: Record<string, unknown>
+  retryOfTaskId?: string
+  specLoaded?: boolean
   historical?: boolean
   params: Record<string, unknown>
 }
@@ -66,11 +71,8 @@ interface TaskStore {
 
   addTask: (task: Omit<Task, 'id' | 'status' | 'progress' | 'createdAt' | 'message' | 'detail'>) => string
   updateTask: (id: string, patch: Partial<Task>) => void
-  removeTask: (id: string) => void
   setFilter: (filter: FilterType) => void
   selectTask: (id: string | null) => void
-  startAll: () => void
-  pauseAll: () => void
   syncFromServer: (serverTasks: Array<{
     task_id: string
     task_type?: string
@@ -84,6 +86,7 @@ interface TaskStore {
     created_at?: string
     started_at?: string | null
     finished_at?: string | null
+    retry_of_task_id?: string | null
   }>) => void
 }
 
@@ -100,6 +103,22 @@ function parseServerTime(value?: string | null) {
   if (!value) return undefined
   const parsed = Date.parse(value)
   return Number.isNaN(parsed) ? undefined : parsed
+}
+
+function jobTypeFromServer(taskType?: string): JobType {
+  const mapping: Record<string, JobType> = {
+    pipeline: 'pipeline',
+    'tool.separate': 'separate',
+    'tool.convert': 'convert',
+    'tool.split': 'split',
+    'tool.translate_subtitle': 'translate-subtitle',
+    'tool.volume_preview': 'volume-preview',
+    model_install: 'model-install',
+    'voice.design': 'voice-design',
+    'voice.clone': 'voice-clone',
+    'voice.preview': 'voice-preview',
+  }
+  return mapping[taskType || ''] ?? 'unknown'
 }
 
 export const useTaskStore = create<TaskStore>((set) => ({
@@ -160,29 +179,9 @@ export const useTaskStore = create<TaskStore>((set) => ({
       }),
     })),
 
-  removeTask: (id) =>
-    set((s) => ({
-      tasks: s.tasks.filter((t) => t.id !== id),
-      selectedTaskId: s.selectedTaskId === id ? null : s.selectedTaskId,
-    })),
-
   setFilter: (filter) => set({ filter }),
 
   selectTask: (id) => set({ selectedTaskId: id }),
-
-  startAll: () =>
-    set((s) => ({
-      tasks: s.tasks.map((t) =>
-        t.status === 'pending' ? { ...t, status: 'running' as const } : t
-      ),
-    })),
-
-  pauseAll: () =>
-    set((s) => ({
-      tasks: s.tasks.map((t) =>
-        t.status === 'running' ? { ...t, status: 'pending' as const } : t
-      ),
-    })),
 
   syncFromServer: (serverTasks) =>
     set((s) => {
@@ -200,6 +199,8 @@ export const useTaskStore = create<TaskStore>((set) => ({
           message: remote.message,
           detail: remote.detail,
           errorMessage: taskErrorMessage(remote.error),
+          error: remote.error ?? undefined,
+          retryOfTaskId: remote.retry_of_task_id ?? undefined,
           startedAt: parseServerTime(remote.started_at) ?? local.startedAt,
           finishedAt: parseServerTime(remote.finished_at) ?? local.finishedAt,
         }
@@ -212,7 +213,7 @@ export const useTaskStore = create<TaskStore>((set) => ({
         .map((remote) => ({
           id: `server-${remote.task_id}`,
           serverTaskId: remote.task_id,
-          jobType: remote.task_type === 'pipeline' ? 'pipeline' : 'unknown',
+          jobType: jobTypeFromServer(remote.task_type),
           sourceName: remote.input_asset_id || remote.task_id,
           sourcePath: '',
           status: remote.state as TaskStatus,
@@ -224,6 +225,8 @@ export const useTaskStore = create<TaskStore>((set) => ({
           startedAt: parseServerTime(remote.started_at),
           finishedAt: parseServerTime(remote.finished_at),
           errorMessage: taskErrorMessage(remote.error),
+          error: remote.error ?? undefined,
+          retryOfTaskId: remote.retry_of_task_id ?? undefined,
           historical:
             remote.state === 'completed' ||
             remote.state === 'failed' ||

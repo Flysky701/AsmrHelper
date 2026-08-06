@@ -4,6 +4,7 @@ import type {
   TaskArtifactsResponse,
   TaskListResponse,
   TaskResultResponse,
+  TaskSpecResponse,
   TaskStatusResponse,
 } from './types'
 
@@ -12,6 +13,9 @@ export const tasksApi = {
 
   get: (taskId: string) =>
     api.get<TaskStatusResponse>(`/tasks/${taskId}`),
+
+  spec: (taskId: string) =>
+    api.get<TaskSpecResponse>(`/tasks/${taskId}/spec`),
 
   cancel: (taskId: string) =>
     api.post<TaskStatusResponse>(`/tasks/${taskId}/cancel`),
