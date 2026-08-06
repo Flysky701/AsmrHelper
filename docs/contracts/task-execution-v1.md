@@ -28,6 +28,8 @@ Tool 领域入口 `POST /api/v1/tool-runs/tasks` 同样是“创建并提交”�
 
 Voice Design、Clone 与 Preview 的正式 HTTP 入口也返回 TaskStatus `201`，不等待 Qwen Worker 完成。桌面端提交后进入 TaskCenter；生成的参考音频、prompt cache 和试听 WAV 通过统一 TaskResult 获取。片段分析仍是克隆表单的同步结构化查询，不伪装成可取消后台任务。
 
+ASR、LLM 与 TTS 的单次直连接口是底层同步诊断面，不是桌面产品任务入口；它们用于 Provider 校准和真实推理探测，不承诺 Task 生命周期。任何需要进度、取消、重试和 Artifact 归属的用户操作必须走 Pipeline、Tool 或 Voice Task。
+
 ## 2. 状态契约
 
 - 创建时为 `pending`；Dispatcher 只允许从 `pending` 开始一次，执行器退出前保持 `running`。

@@ -241,6 +241,8 @@ TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是
 
 静态清理随后扩展到 Ruff `F401`：删除 30 余个经验证无引用的历史导入，同时为 `TaskPreviewResponse`、Pipeline service facade 和 `format_timestamp` 保留显式兼容重导出。全量测试确认这些公共入口未被机械清理破坏。
 
+桌面 API 表面也按实际页面消费继续收束：删除未使用的 ASR、翻译和 TTS 合成直连封装及对应 TypeScript 类型；后端同名同步接口保留为 Provider 诊断面。Workbench 的用户长任务仍只走 Pipeline，字幕翻译走 Tool，音色生成走 Voice Task。
+
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
 说明：

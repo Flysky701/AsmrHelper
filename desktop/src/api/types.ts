@@ -177,60 +177,6 @@ export interface BatchPipelineResponse {
   total_duration: number
 }
 
-// ── ASR ────────────────────────────────────────────────
-export interface TranscribeRequest {
-  input_path: string
-  output_path?: string | null
-  model?: string
-  language?: string
-}
-
-export interface TranscribeSegment {
-  start: number
-  end: number
-  text: string
-}
-
-export interface TranscribeResponse {
-  segments: TranscribeSegment[]
-  output_path: string | null
-  text: string
-}
-
-// ── Translation ────────────────────────────────────────
-export interface TranslateRequest {
-  input_path: string
-  output_path?: string | null
-  provider?: string
-  source_lang?: string
-  target_lang?: string
-}
-
-export interface TranslateResponse {
-  items: string[]
-  provider: string
-  source_lang: string
-  target_lang: string
-}
-
-// ── TTS ────────────────────────────────────────────────
-export interface SynthesizeRequest {
-  input_path: string
-  output_path: string
-  engine?: string
-  model?: string
-  voice?: string
-  speed?: number
-  common_options?: Record<string, unknown>
-  provider_options?: Record<string, unknown>
-}
-
-export interface SynthesizeResponse {
-  engine: string
-  voice: string
-  output_path: string
-}
-
 // ── Models ─────────────────────────────────────────────
 export interface ModelSummaryResponse {
   model_id: string

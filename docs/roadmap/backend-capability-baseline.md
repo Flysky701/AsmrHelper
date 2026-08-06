@@ -159,6 +159,8 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 
 Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内共享的 `TaskDispatcher` 与 `ExecutorRegistry`。通用 Task HTTP 创建接口会立即提交执行；未知任务类型在创建边界拒绝，已声明但没有 callable 的类型在执行边界明确失败，不会永久停留在 `pending`。重复的 Pipeline start/execute 与 Tool 同步执行 HTTP 入口已删除，避免同一 Task 被二次接管。
 
+`/asr/transcribe`、`/llm/translate`、`/llm/operations/run` 与 `/tts/synthesize` 保留为底层引擎诊断/真实推理验收接口，调用时同步返回领域结果，不提供 Task 取消、重试或历史语义。正式桌面长任务不消费这些接口，而是通过 Pipeline、Tool 或 Voice Task 执行；桌面 API 层已删除未使用的直连封装，只保留 Workbench 需要的 TTS 音色查询。
+
 Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。本轮没有引入 root task、executor version、资源标签、BatchRun 实体或分布式队列。
 
 自动化基线为 `254 passed`，覆盖 Tool/字幕/Voice 创建即后台提交、自定义输出目录、台本自动输出、Artifact 归属和失效执行入口守卫。删除 3 条重复同步执行入口后，当前环境自检注册 86 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601/F401` 同步通过。

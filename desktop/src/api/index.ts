@@ -1,8 +1,6 @@
 export { api, ApiError } from './client'
 export * from './types'
 export { pipelineApi } from './pipeline'
-export { asrApi } from './asr'
-export { translationApi } from './translation'
 export { ttsApi } from './tts'
 export { modelsApi } from './models'
 export { subtitlesApi } from './subtitles'
