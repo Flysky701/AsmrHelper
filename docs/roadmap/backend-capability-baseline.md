@@ -175,6 +175,7 @@ Voice 扩展验收使用非敏感合成音频完成：Clone 生成可用档案�
 - `GUIRun.bat` 默认优先启动已有 release；没有 release 时才进入开发模式。`--installed` 不要求 Node/Rust，`--dev` 和 `--release` 才检查构建工具。
 - 后端由隐藏进程启动，日志持久写入 `logs/backend.log`；启动失败会显示日志尾部，不再只表现为窗口闪退。
 - 后端通过 PID 文件发布实际 Uvicorn 进程号。已实测启动器返回 PID、日志 PID 和活动进程一致，结束后进程被清理。
+- 正式 `tauri build` 已生成 `desktop/src-tauri/target/release/asmr-helper.exe`；随后通过 `GUIRun.bat --release` 启动，桌面进程保持响应，并实际请求 capabilities、tasks、presets、voice profiles 和 Edge voices。窗口内容与原生文件选择仍需可见交互确认。
 - 当前自动化环境不能加载 Computer Use 的 `@oai/sky` 组件，因此本轮只确认进程、健康检查和构建事实；窗口可见性与页面交互不能据此标记为已验收。
 - 已通过本地浏览器模式复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings 的真实渲染与后端交互；模型状态、失败阶段/错误、Voice 预设边界和凭据不回显均符合当前事实。该结果覆盖 React 页面，不替代 Tauri 原生文件选择与正式桌面窗口验收。
 
