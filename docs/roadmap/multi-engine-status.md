@@ -1,6 +1,6 @@
 # 多引擎支持现状
 
-> 更新日期：2026-08-01
+> 更新日期：2026-08-07
 > 本页只记录当前代码、当前环境和真实验收状态。
 
 ## 当前结论
@@ -12,13 +12,13 @@
 | --- | --- | --- | --- | --- |
 | 分离 | `demucs` | 已接线 | 可执行 | 已通过 |
 | ASR | `faster_whisper` | 已接线 | Base 可执行 | 已通过 |
-| ASR | `fun_asr` | 已接线 | 未安装 | 待验收 |
-| ASR | `qwen3_asr` | 已接线 | 未安装 | 待验收 |
+| ASR | `fun_asr` | 已接线并路由隔离 Worker | 环境存在，模型缺失 | 待验收 |
+| ASR | `qwen3_asr` | 已接线并路由隔离 Worker | 0.6B/1.7B 可执行 | 0.6B 直接 API 与双 Worker Pipeline 已通过 |
 | 翻译 | `deepseek` | 已接线 | 已配置 | 已通过 |
 | 翻译 | `openai` | 已接线 | 未配置凭据 | 待验收 |
 | TTS | `edge` | 已接线 | 可执行 | 已通过 |
-| TTS | `qwen3` | 已接线并路由隔离 Worker | CustomVoice 可执行 | 单文件 Pipeline 已通过（`pipeline-8`） |
-| TTS | `kokoro` | 已接线 | 缺 Python 包和 `espeak-ng` | 待验收 |
+| TTS | `qwen3` | 已接线并路由隔离 Worker | CustomVoice 在正常用户进程可执行 | 单文件 Pipeline 与双 Worker Pipeline 已通过 |
+| TTS | `kokoro` | 已接线 | Python 包存在，缺 `espeak-ng` | 待验收 |
 | TTS | `voxcpm2` | 已接线 | 未安装 | 待验收 |
 
 默认真实验收组合仍是：
@@ -28,6 +28,15 @@ demucs/htdemucs
 → faster-whisper/faster-whisper-base
 → deepseek/deepseek-chat
 → edge/default
+→ ffmpeg
+```
+
+已通过的可选组合为：
+
+```text
+qwen3_asr/qwen3-asr-0.6b
+→ deepseek/deepseek-chat
+→ qwen3/qwen3-custom-voice
 → ffmpeg
 ```
 
@@ -59,9 +68,11 @@ demucs/htdemucs
 
 Qwen3-TTS 与 Qwen3-ASR 当前锁定依赖存在冲突，不能把“安装全部引擎”作为同一 Python 环境的验收方式。选择其中一个安装档进行真实验收；在依赖关系更新前不绕过 UV 冲突约束。
 
-2026-08-01 已为用户选择的 Qwen3-TTS 实施 `.runtimes/qwen_tts`：模型权重仍在共享 `models/`，主进程通过短生命周期 Worker 执行合成。Qwen3-ASR 只登记为独立 `qwen_asr` 环境 ID，未创建环境、未安装依赖。
+2026-08-01 已为用户选择的 Qwen3-TTS 实施 `.runtimes/qwen_tts`：模型权重仍在共享 `models/`，主进程通过短生命周期 Worker 执行合成。随后 `.runtimes/qwen_asr` 已创建并安装 CPU 运行依赖，0.6B/1.7B 权重均可被状态服务判定为可执行。
 
 同日用户完成 `pipeline-8` 手动验收，任务从 Workbench 提交并在 `export` 阶段正常完成，确认 Qwen3 CustomVoice 已能进入真实单文件主链路。
+
+2026-08-07 使用固定非敏感合成句完成 Qwen3-ASR 0.6B 直接 HTTP 推理，并完成 `Qwen3-ASR → DeepSeek → Qwen3 CustomVoice` Pipeline；任务在 `export` 阶段完成并生成混音、双语字幕、TTS WAV 和 ASR 文本，执行后无隔离 Worker 残留。
 
 后续按需隔离方案及实施边界见 [运行环境隔离 TODO](runtime-environment-isolation-todo.md)。该计划不阻塞当前模型下载链路修复，也不会在用户未选择安装模型时创建环境。
 

@@ -225,6 +225,8 @@ text_utils.py
 
 2026-08-04 已完成 [后端能力事实清单](backend-capability-baseline.md)：按“已实现、环境可执行、真实验收、已接线、受限”区分当前能力，并明确批量、历史任务、运行环境、VoiceLab、兼容层和 GUI 可依赖边界。后续 GUI 整理以该清单和当前源码为准，不再从路由存在或设计稿推断能力已完成。
 
+2026-08-07 启动链路已补齐隐藏后端、持久日志、真实 PID 清理和 installed/dev/release 三种模式。Qwen3-ASR 0.6B 已通过直接 HTTP API；随后使用固定非敏感合成句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` Pipeline，得到混音、双语字幕、TTS WAV 和 ASR 文本四类有效 Artifact，且无 Worker 残留。验收中发现并修复 Edge TTS 的 MP3 同路径转码错误。全量自动化更新为 `243 passed`，桌面生产构建、`compileall` 和 Ruff `F821/F601` 通过；GUI 可见交互仍需 Computer Use 恢复后单独验收。最新逐项边界以 [后端能力事实清单](backend-capability-baseline.md) 为准。
+
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
 说明：

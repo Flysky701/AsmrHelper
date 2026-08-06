@@ -1,6 +1,6 @@
 # AsmrHelper 后端能力事实清单
 
-> 更新时间：2026-08-04
+> 更新时间：2026-08-07
 >
 > 事实优先级：当前源码与运行探测 > 自动测试 > 真实手动验收 > 设计文档。
 > 本文只说明后端现在能做什么、当前机器是否具备条件，以及哪些接口仍只是接线或兼容入口。
@@ -48,7 +48,7 @@ Tauri / React
 | Readiness | 校验输入解码、Provider/Model、Python 依赖、系统工具、GPU 和凭据 | 已实现，Pipeline 创建及 prepare 双重检查 | 只检查任务实际选择的阶段；不会自动安装资源 |
 | Model catalog | 模型列表、状态、安装、验证、删除和卸载接口存在 | 已实现、自动测试 | “installed”和“executable”是不同状态 |
 | Model install | 异步安装任务、串行大模型下载、真实错误、超时和中断重试 | 已实现；中断保留 partial 文件验收通过 | 恢复依赖 Hugging Face 对同一目标目录的续传能力 |
-| Runtime isolation | `main/qwen_tts/qwen_asr/fun_asr` 环境 ID；ASR/TTS 可路由短生命周期 Worker | Qwen3-TTS 真实验收；ASR Worker 自动测试 | Worker 异常会失败并清理，不会自动重启 |
+| Runtime isolation | `main/qwen_tts/qwen_asr/fun_asr` 环境 ID；ASR/TTS 可路由短生命周期 Worker | Qwen3-TTS、Qwen3-ASR 0.6B 直接 API 与双 Worker Pipeline 真实验收 | Worker 异常会失败并清理，不会自动重启 |
 | Settings | 设置读取、有效值、校验、脱敏写入和 Provider 连通性测试 | 已实现、自动测试 | 旧 `api` 设置形状仍有兼容解析 |
 | Capability | ASR/TTS/LLM/Separator 的模型、默认值和参数 schema 可查询 | 已实现、Workbench 已消费 | 描述符表示支持范围，不表示当前环境已安装 |
 | Subtitle | load/parse/normalize/translate/bilingualize/export/script-to-vtt/script-to-subtitle | 已实现、真实分支与单元测试覆盖 | 翻译仍依赖已配置 LLM |
@@ -63,12 +63,12 @@ Tauri / React
 | --- | --- | --- | --- | --- |
 | Separator | `demucs` | `htdemucs` | 可执行 | 已通过 |
 | ASR | `faster_whisper` | `faster-whisper-base` | Tiny/Base/Small/Medium/Large-v3 均被状态服务判定可执行 | Base 已通过；其他尺寸未逐个验收 |
-| ASR | `qwen3_asr` | `qwen3-asr-0.6b` | 0.6B/1.7B 权重和 `qwen_asr` 环境存在，CPU Torch 可用 | 尚未真实推理或 Pipeline 验收 |
+| ASR | `qwen3_asr` | `qwen3-asr-0.6b` | 0.6B/1.7B 权重和 `qwen_asr` 环境存在，CPU Torch 可用 | 0.6B 已通过直接 HTTP API，并进入合成样本双 Worker Pipeline |
 | ASR | `fun_asr` | `fun-asr-nano-2512` | `fun_asr` 环境存在；模型资产缺失 | 待验收 |
 | LLM | `deepseek` | `deepseek-chat` | 凭据已配置 | 已通过 |
 | LLM | `openai` | `gpt-4o-mini` | 未配置凭据 | 待验收 |
 | TTS | `edge` | `default` | 可执行 | 已通过；瞬时网络失败有重试 |
-| TTS | `qwen3` | `qwen3-custom-voice` | 权重和 `qwen_tts` 环境存在 | CustomVoice 单文件 Pipeline 已通过；Base/VoiceDesign 未验收 |
+| TTS | `qwen3` | `qwen3-custom-voice` | 权重和 `qwen_tts` 环境存在 | CustomVoice 已通过用户音频单文件 Pipeline 和合成样本双 Worker Pipeline；Base/VoiceDesign 未验收 |
 | TTS | `kokoro` | `kokoro-82m` | Python 包存在，缺 `espeak-ng` | 待验收 |
 | TTS | `voxcpm2` | `voxcpm2` | 模型和 Python 包均缺失 | 待验收 |
 
@@ -96,11 +96,11 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 | --- | ---: | --- |
 | `.venv` | 1.61 GB | 主 API/基础音频环境，但仍能导入 Qwen、Kokoro、Gradio，尚未达到最小环境目标 |
 | `.runtimes/qwen_tts` | 约 4.55 GB | 已验收的 Qwen3-TTS CUDA 隔离环境 |
-| `.runtimes/qwen_asr` | 约 1.22 GB | 已创建，当前为 CPU Torch，未真实验收 |
+| `.runtimes/qwen_asr` | 约 1.22 GB | 已创建，当前为 CPU Torch；0.6B 直接 ASR 已真实验收 |
 | `.runtimes/fun_asr` | 约 1.08 GB | 已创建，当前为 CPU Torch，缺模型资产 |
 | `models/whisper` | 约 5.08 GB | 五个尺寸同时存在，默认只需要 Base |
 | `models/qwen3tts` | 约 12.65 GB | CustomVoice/Base/VoiceDesign 同时存在，只有 CustomVoice 已验收 |
-| `models/qwen3asr` | 约 6.13 GB | 0.6B/1.7B 同时存在，均未真实验收 |
+| `models/qwen3asr` | 约 6.13 GB | 0.6B/1.7B 同时存在；0.6B 已直接推理验收，1.7B 未验收 |
 | `.uv-cache` | 约 10.18 GB | 可重建依赖缓存，不是业务能力 |
 | `desktop/src-tauri/target` | 约 8.04 GB | 可重建 Rust/Tauri 构建产物 |
 | `.cache` | 约 0.88 GB | 下载和工具缓存，应按目录确认后清理 |
@@ -147,9 +147,9 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 ## 8. 后端下一步
 
 1. 在正式 APP 进程复核 Qwen3-TTS 模型状态展示，解决“真实可用但探测可能显示不可执行”的环境差异。
-2. 选择是否验收 Qwen3-ASR 0.6B；若选择，执行真实短音频推理和 `Qwen3-ASR → DeepSeek → Qwen3-TTS` Pipeline，并确认两个 Worker 顺序退出。
+2. 对已迁移到 `qwen_tts` Worker 的 Voice Design/Clone/Preview 执行真实模型验收；验收前不把这些路由视为稳定产品能力。
 3. 在批量 GUI 设计前决定：保持同步批处理工具，还是新增 batch task 聚合、状态查询和取消契约。
-4. 对已迁移到 `qwen_tts` Worker 的 Voice Design/Clone/Preview 执行真实模型验收；验收前不把这些路由视为稳定产品能力。
+4. 使用 Computer Use 复核正式 APP 中的模型状态、任务时间线和结果预览；当前组件权限故障解除前不把进程级检查等同于 GUI 验收。
 5. 制定模型保留清单后，再删除多余 Whisper/Qwen 权重；制定环境重建方案后，再清理主环境重复依赖。
 6. 完成上述事实收束后，再按页面逐一整理 GUI，不新增后端未支持的状态和操作。
 
@@ -159,4 +159,15 @@ Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内�
 
 Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。本轮没有引入 root task、executor version、资源标签、BatchRun 实体或分布式队列。
 
-自动化基线为 `239 passed`，覆盖 Task V1、Executor Registry、通用 HTTP 提交、Pipeline 连续执行/失败隔离/取消重提、Worker 交换文件清理，以及 Tool、模型安装、Voice Preview 的 Dispatcher 适配。Voice Qwen 真实模型执行仍与路由和单元测试覆盖分开报告，不能仅凭自动测试标记为真实验收。
+自动化基线为 `243 passed`，覆盖 Task V1、Executor Registry、通用 HTTP 提交、Pipeline 连续执行/失败隔离/取消重提、Worker 交换文件清理，以及 Tool、模型安装、Voice Preview、启动日志、真实 PID 管理和 Edge MP3 输出。桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。Voice Qwen 真实模型执行仍与路由和单元测试覆盖分开报告，不能仅凭自动测试标记为真实验收。
+
+2026-08-07 使用固定非敏感日语测试句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` 正式 Pipeline。任务 `pipeline-1` 在 `export` 阶段完成，登记混音、双语字幕、TTS WAV 和 ASR 文本四类 Artifact；ASR 文本与测试句一致，字幕包含有效中文翻译，TTS 产物为 24 kHz、6.48 秒 WAV，执行后无 Qwen Worker 残留。该验收不包含用户素材外发。
+
+验收准备同时发现并修复 Edge TTS 的 MP3 输出冲突：以前 `.mp3` 会被 FFmpeg 同时作为输入和输出；现在 MP3 直接保留 Edge 原始结果，WAV 才进入转码，其他扩展名在网络请求前明确拒绝。
+
+## 9. 启动与日志事实（2026-08-07）
+
+- `GUIRun.bat` 默认优先启动已有 release；没有 release 时才进入开发模式。`--installed` 不要求 Node/Rust，`--dev` 和 `--release` 才检查构建工具。
+- 后端由隐藏进程启动，日志持久写入 `logs/backend.log`；启动失败会显示日志尾部，不再只表现为窗口闪退。
+- 后端通过 PID 文件发布实际 Uvicorn 进程号。已实测启动器返回 PID、日志 PID 和活动进程一致，结束后进程被清理。
+- 当前自动化环境不能加载 Computer Use 的 `@oai/sky` 组件，因此本轮只确认进程、健康检查和构建事实；窗口可见性与页面交互不能据此标记为已验收。

@@ -117,13 +117,23 @@ class EdgeTTSEngine:
 
         Args:
             text: 待合成文本
-            output_path: 输出文件路径（必须是 .wav 格式）
+            output_path: 输出文件路径（支持 .wav 或 .mp3）
 
         Returns:
             str: 输出文件路径
         """
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        suffix = output_path.suffix.lower()
+        if suffix not in {".wav", ".mp3"}:
+            raise ValueError("Edge TTS output_path must use .wav or .mp3")
+
+        # Edge-TTS already returns MP3. Do not ask FFmpeg to read and overwrite
+        # the same file when the caller explicitly requests that format.
+        if suffix == ".mp3":
+            await self._save_mp3_with_retry(text, output_path)
+            return str(output_path)
 
         # Edge-TTS 默认输出 MP3（有损），先用临时文件存储再转为 WAV
         temp_mp3 = output_path.with_suffix(".mp3")

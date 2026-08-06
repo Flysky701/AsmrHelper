@@ -236,6 +236,41 @@ async def test_edge_network_request_retries_transient_failure(
 
 
 @pytest.mark.asyncio
+async def test_edge_synthesize_keeps_requested_mp3_without_in_place_conversion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    import src.core.tts as tts_module
+
+    async def fake_save(text, output_path):
+        Path(output_path).write_bytes(b"mp3")
+
+    engine = tts_module.EdgeTTSEngine()
+    monkeypatch.setattr(engine, "_save_mp3_with_retry", fake_save)
+    monkeypatch.setattr(
+        engine,
+        "_convert_to_wav",
+        lambda *_: pytest.fail("MP3 output must not be converted in place"),
+    )
+    output_path = tmp_path / "probe.mp3"
+
+    written = await engine.synthesize_async("test", str(output_path))
+
+    assert written == str(output_path)
+    assert output_path.read_bytes() == b"mp3"
+
+
+@pytest.mark.asyncio
+async def test_edge_synthesize_rejects_unsupported_output_extension(tmp_path) -> None:
+    import src.core.tts as tts_module
+
+    engine = tts_module.EdgeTTSEngine()
+
+    with pytest.raises(ValueError, match="must use .wav or .mp3"):
+        await engine.synthesize_async("test", str(tmp_path / "probe.flac"))
+
+
+@pytest.mark.asyncio
 async def test_edge_batch_synthesis_limits_websocket_concurrency(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
