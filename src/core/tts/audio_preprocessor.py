@@ -356,35 +356,32 @@ class AudioPreprocessor:
         self._report(progress_callback, f"ASR 识别中 (模型: {model_size}, 语言: {language})...", 32)
 
         try:
-            from src.core.asr import ASRRecognizer
+            from src.core.engines.asr.service import AsrEngineRuntime
 
-            # 创建 ASR 识别器（使用配置中的模型）
-            asr = ASRRecognizer(model_size=model_size, language=language)
-
-            # ASR 识别
-            segments = asr.recognize(
-                audio_path=audio_path,
-                progress_callback=lambda cur, dur, cnt: self._report(
-                    progress_callback,
-                    f"ASR: {cur:.1f}s / {dur:.1f}s",
-                    32 + int((cur / dur * 100) * 0.08) if dur > 0 else 32
-                ),
-                show_progress=False,
+            # Voice analysis is a real ASR consumer. Route it through the
+            # current engine runtime so catalog model IDs are normalized in
+            # exactly the same way as direct ASR and Pipeline execution.
+            document = AsrEngineRuntime().transcribe_file(
+                input_path=str(audio_path),
+                output_path=None,
+                profile={
+                    "provider": "faster_whisper",
+                    "model": str(model_size),
+                    "common_options": {"language": language},
+                    "provider_options": {"vad_filter": False},
+                },
             )
 
-            # 卸载模型释放内存
-            asr.unload()
-
-            if not segments:
+            if not document.segments:
                 raise ValueError("ASR 识别结果为空")
 
             # 转换为标准格式
             result = []
-            for seg in segments:
+            for seg in document.segments:
                 result.append({
-                    "start": seg.get("start", 0.0),
-                    "end": seg.get("end", 0.0),
-                    "text": seg.get("text", "").strip(),
+                    "start": float(seg.start),
+                    "end": float(seg.end),
+                    "text": str(seg.text).strip(),
                 })
 
             return result
