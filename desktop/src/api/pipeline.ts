@@ -3,8 +3,6 @@ import type {
   PipelineRunRequest,
   PipelineTaskCreateResponse,
   PipelinePresetsResponse,
-  BatchPipelineRequest,
-  BatchPipelineResponse,
 } from './types'
 
 export const pipelineApi = {
@@ -12,7 +10,4 @@ export const pipelineApi = {
     api.post<PipelineTaskCreateResponse>('/pipeline-runs', body),
 
   presets: () => api.get<PipelinePresetsResponse>('/pipeline/presets'),
-
-  batch: (body: BatchPipelineRequest) =>
-    api.post<BatchPipelineResponse>('/pipeline/batch', body),
 }

@@ -137,46 +137,6 @@ export interface PipelinePresetsResponse {
   presets: PresetItem[]
 }
 
-export interface BatchPipelineRequest {
-  input_files?: string[]
-  input_dir?: string
-  output_base_dir?: string
-  source_lang?: string
-  target_lang?: string
-  use_vocal_separator?: boolean
-  tts_engine?: string
-  tts_voice?: string
-  vocal_model?: string
-  asr_model?: string
-  translate_provider?: string
-  tts_speed?: number
-  original_volume?: number
-  tts_volume_ratio?: number
-  tts_delay?: number
-  skip_existing?: boolean
-  max_workers?: number
-  use_batch_output_structure?: boolean
-  voice_profile_id?: string | null
-}
-
-export interface BatchItemResultResponse {
-  file: string
-  status: string
-  task_id: string | null
-  output: string | null
-  error: string | null
-  duration: number
-}
-
-export interface BatchPipelineResponse {
-  items: BatchItemResultResponse[]
-  total_count: number
-  success_count: number
-  skipped_count: number
-  failed_count: number
-  total_duration: number
-}
-
 // ── Models ─────────────────────────────────────────────
 export interface ModelSummaryResponse {
   model_id: string

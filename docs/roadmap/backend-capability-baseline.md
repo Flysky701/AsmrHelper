@@ -146,7 +146,7 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - AudioTools 已消费后端工具目录和任务创建接口；工具目录读取失败或未声明某项能力时，页面会禁用提交，不把客户端常量当成可用事实。
 - SubtitleWorkshop 的字幕翻译已复用 `tool.translate_subtitle`；台本转字幕使用 `subtitle.script_to_vtt` 后台任务，提交后统一到 TaskCenter 查看阶段、错误与产物。完整模式缺少音频、已有字幕模式缺少字幕时会在客户端先拦截。
 - Workbench 的多文件操作是“逐文件创建独立 Pipeline Task”，不是 BatchRun 实体；每项失败不阻塞后续提交，状态与产物仍按各自 task_id 隔离。
-- 桌面端仍保留 `pipelineApi.batch` 封装，但现有页面没有消费，不能据此认为存在 batch 级状态、取消或恢复能力。
+- 桌面端已删除无人消费的 `pipelineApi.batch` 封装；当前只呈现 Workbench 的逐文件独立 Task，不暗示存在 batch 级状态、取消或恢复能力。
 
 ## 8. 后端下一步
 

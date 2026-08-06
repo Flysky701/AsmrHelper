@@ -243,6 +243,8 @@ TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是
 
 桌面 API 表面也按实际页面消费继续收束：删除未使用的 ASR、翻译和 TTS 合成直连封装及对应 TypeScript 类型；后端同名同步接口保留为 Provider 诊断面。Workbench 的用户长任务仍只走 Pipeline，字幕翻译走 Tool，音色生成走 Voice Task。
 
+同样无人消费的 `pipelineApi.batch` 与 TypeScript 批量响应类型已删除。后端同步聚合仍用于服务层批量验收，但桌面只展示“多个输入对应多个独立 Task”的真实产品边界，不再留下 BatchRun 已接入的代码暗示。
+
 最新源码已再次完成 Tauri release 构建并以 installed 模式启动。正式 `ASMR Helper` 窗口进程响应正常，后端健康、能力、任务历史、预设、音色档案与 Edge 音色请求均成功，启动日志无错误；Computer Use 初始化仍被 Codex 宿主目录权限拒绝，所以该结论不包含原生文件选择和窗口按钮点击。
 
 正式窗口生命周期随后修复：主窗口 `CloseRequested` 不再依赖 Tauri 默认退出时序，而是显式结束 AppHandle。新 release 连续 3 次“启动—标准关闭—APP 退出—后端端口释放”均通过，解决了间歇性无窗口残留进程问题。
