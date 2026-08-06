@@ -14,7 +14,6 @@ from src.api.http.schemas.tool_runs import (
     ToolDescriptorResponse,
     ToolListResponse,
     ToolTaskCreateRequest,
-    ToolTaskRunRequest,
 )
 from src.app.services import ToolRegistry
 
@@ -42,15 +41,6 @@ def create_tool_task(
         execution_profile=body.execution_profile,
     )
     return TaskStatusResponse.from_task_status(task)
-
-
-@router.post("", response_model=TaskResultResponse)
-def run_tool_task(
-    body: ToolTaskRunRequest,
-    svc: ToolRegistry = Depends(tool_registry),
-):
-    result = svc.run_task(body.task_id)
-    return TaskResultResponse.from_view(svc.get_task_result(result["task"].task_id))
 
 
 @router.get("/{task_id}", response_model=TaskResultResponse)

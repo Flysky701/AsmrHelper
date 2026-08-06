@@ -16,7 +16,6 @@ from src.app.dto import (
     ModelStatusIssueView,
     ModelSummary,
     ModelVerificationResult,
-    PipelineResult,
     ResourceStatus,
     TaskStatus,
     TranslationResult,
@@ -207,87 +206,17 @@ class TestPipelineRunRoutes:
         assert profile["stages"]["separate"]["provider"] == "demucs"
         assert profile["stages"]["separate"]["model"] == "htdemucs"
 
-    def test_execute_pipeline_run_returns_canonical_task_result(self, client):
-        from src.core.artifacts import ArtifactRecord
-
-        mock_svc = MagicMock()
-        mock_svc.run_task.return_value = PipelineResult(
-            success=True,
-            input_path="/test/input.wav",
-            task_id="pipeline-1",
-        )
-        mock_svc.get_task_result.return_value = {
-            "task_id": "pipeline-1",
-            "primary_artifact_id": "artifact-1",
-            "artifacts": [
-                ArtifactRecord(
-                    artifact_id="artifact-1",
-                    task_id="pipeline-1",
-                    artifact_type="audio.mix",
-                    path="/test/output/mix.wav",
-                    is_primary=True,
-                    preview_kind="audio",
-                )
-            ],
-            "warnings": [],
-        }
-        client.app.dependency_overrides[
-            dependencies.pipeline_task_orchestrator
-        ] = _mock_dep(mock_svc)
-
-        resp = client.post(
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/pipeline-runs/start",
             "/api/v1/pipeline-runs/execute",
-            json={"task_id": "pipeline-1"},
-        )
-
-        assert resp.status_code == 200
-        assert set(resp.json()) == {
-            "task_id",
-            "primary_artifact_id",
-            "artifacts",
-            "warnings",
-        }
-        assert resp.json()["artifacts"][0]["type"] == "audio.mix"
-        assert "primary_output" not in resp.json()
-        assert "files" not in resp.json()
-
-    def test_execute_tool_run_returns_canonical_task_result(self, client):
-        from src.core.artifacts import ArtifactRecord
-
-        mock_svc = MagicMock()
-        mock_svc.run_task.return_value = {
-            "task": TaskStatus(task_id="tool.convert-1", state="completed"),
-        }
-        mock_svc.get_task_result.return_value = {
-            "task_id": "tool.convert-1",
-            "primary_artifact_id": "artifact-1",
-            "artifacts": [
-                ArtifactRecord(
-                    artifact_id="artifact-1",
-                    task_id="tool.convert-1",
-                    artifact_type="audio.wav",
-                    path="/test/output.wav",
-                    is_primary=True,
-                    preview_kind="audio",
-                )
-            ],
-            "warnings": [],
-        }
-        client.app.dependency_overrides[dependencies.tool_registry] = _mock_dep(mock_svc)
-
-        resp = client.post(
             "/api/v1/tool-runs",
-            json={"task_id": "tool.convert-1"},
-        )
-
-        assert resp.status_code == 200
-        assert set(resp.json()) == {
-            "task_id",
-            "primary_artifact_id",
-            "artifacts",
-            "warnings",
-        }
-        assert resp.json()["artifacts"][0]["type"] == "audio.wav"
+        ],
+    )
+    def test_replaced_manual_execution_routes_are_unavailable(self, client, path):
+        resp = client.post(path, json={"task_id": "obsolete-task"})
+        assert resp.status_code in {404, 405}
 
     def test_create_tool_task_uses_task_driven_contract(self, client):
         mock_svc = MagicMock()

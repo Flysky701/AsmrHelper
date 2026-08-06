@@ -9,10 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from .tasks import TaskStatusResponse
 
 
-class PipelineTaskRunRequest(BaseModel):
-    task_id: str = Field(..., description="Task ID for a pipeline task")
-
-
 class PipelineRunAcceptedResponse(BaseModel):
     task: TaskStatusResponse
 

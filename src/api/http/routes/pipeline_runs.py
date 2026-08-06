@@ -8,7 +8,6 @@ from src.api.http.dependencies import pipeline_task_orchestrator
 from src.api.http.schemas.pipeline_runs import (
     PipelineRunAcceptedResponse,
     PipelineRunCreateRequest,
-    PipelineTaskRunRequest,
 )
 from src.app.dto import PipelineRequest
 from src.api.http.schemas.tasks import (
@@ -33,15 +32,6 @@ def _to_v1_pipeline_request(body: PipelineRunCreateRequest) -> PipelineRequest:
     )
 
 
-@router.post("/start", response_model=TaskStatusResponse)
-def start_pipeline_task(
-    body: PipelineTaskRunRequest,
-    svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator),
-):
-    task = svc.start_task(body.task_id)
-    return TaskStatusResponse.from_task_status(task)
-
-
 @router.post("", response_model=PipelineRunAcceptedResponse, status_code=202)
 def submit_pipeline_run(
     body: PipelineRunCreateRequest,
@@ -51,15 +41,6 @@ def submit_pipeline_run(
     return PipelineRunAcceptedResponse(
         task=TaskStatusResponse.from_task_status(task),
     )
-
-
-@router.post("/execute", response_model=TaskResultResponse)
-def execute_pipeline_task(
-    body: PipelineTaskRunRequest,
-    svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator),
-):
-    result = svc.run_task(body.task_id)
-    return TaskResultResponse.from_view(svc.get_task_result(result.task_id))
 
 
 @router.get("/{task_id}", response_model=TaskResultResponse)

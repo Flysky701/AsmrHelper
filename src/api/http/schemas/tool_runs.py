@@ -14,10 +14,6 @@ class ToolTaskCreateRequest(BaseModel):
     execution_profile: dict[str, Any] = Field(default_factory=dict)
 
 
-class ToolTaskRunRequest(BaseModel):
-    task_id: str = Field(..., description="Task ID for a tool task")
-
-
 class ToolDescriptorResponse(BaseModel):
     task_type: str
     name: str

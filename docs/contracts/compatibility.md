@@ -21,7 +21,7 @@
 
 ## 2. 旧接口策略
 
-- 只支持当前 V1 客户端；`/pipeline/run`、`/pipeline/tasks` 和 `/tools/*` 已删除。
+- 只支持当前 V1 客户端；`/pipeline/run`、`/pipeline/tasks`、`/pipeline-runs/start`、`/pipeline-runs/execute`、同步 `POST /tool-runs` 和 `/tools/*` 已删除。
 - `POST /pipeline-runs` 不再接受平铺 Pipeline 参数，只接受 `input/output/execution_profile`。
 - 公共结果固定为 TaskResult；HTTP 响应不得出现 `files/primary_output`。
 - 内部旧 DTO 或解析分支不得成为新能力入口，并应继续逐步移除。
@@ -61,7 +61,7 @@
 
 2026-07-24 已完成翻译核心迁移：Translator、翻译缓存、质量检测和术语库迁入 `core.engines.llm`；繁简映射迁入 `core.subtitles`；LLM registry、ModelManager 内部构造和 core 根导出均使用新实现路径。`core.translate` 只保留带弃用提示的兼容转发。全量测试 `163 passed`。
 
-2026-07-24 已完成执行结果收敛：CLI、`POST /pipeline-runs/execute` 和 `POST /tool-runs` 都从权威 Artifact 索引返回或展示 TaskResult；不再读取 `primary_output/files`。当时路径型字段仍由 `/pipeline/run` 暴露，该入口已在随后清理中删除。全量测试 `166 passed`。
+2026-07-24 曾完成同步执行结果收敛：CLI、当时的 `POST /pipeline-runs/execute` 和 `POST /tool-runs` 都从权威 Artifact 索引返回或展示 TaskResult。两条同步 HTTP 执行入口已在 2026-08-07 删除；正式产品只保留创建即提交与结果查询。
 
 2026-07-24 已完成工具接口任务化：新增 `POST /tool-runs/tasks` 创建工具任务，桌面 `toolsApi` 改用任务创建、执行和 TaskResult 查询；确认没有活跃页面使用旧同步接口后，删除 `/tools/*` 五个路由及旧响应类型。全量测试 `168 passed`，HTTP 环境验证为 90 条路由，桌面构建通过。
 

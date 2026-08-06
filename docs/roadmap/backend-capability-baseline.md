@@ -121,7 +121,7 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - `src/core/model_manager.py`：已 deprecated；当前主服务使用各领域 Registry，源码中未发现新的直接调用。
 - `src/core/translate`：实现已迁到 `core.engines.llm` 和 `core.subtitles`，当前主要是弃用转发。
 - `/tasks/{id}/review-status`、POST `/review-note`、`/task-queue`：与当前 PATCH/PUT 或 `/tasks/queue` 重复，属于兼容别名候选。
-- `/pipeline-runs/start`、`/pipeline-runs/execute`：手动分步/同步执行入口，Workbench 主路径不使用；删除前应确认 CLI 和外部调用。
+- Pipeline 与 Tool 的旧手动启动/同步执行 HTTP 入口已删除；创建接口是唯一正式执行入口，结果由 GET 查询。
 
 ### 现在不能删除
 
@@ -157,11 +157,11 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 
 ## Task Execution V1 收口进度（2026-08-04）
 
-Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内共享的 `TaskDispatcher` 与 `ExecutorRegistry`。通用 Task HTTP 创建接口会立即提交执行；未知任务类型在创建边界拒绝，已声明但没有 callable 的类型在执行边界明确失败，不会永久停留在 `pending`。
+Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内共享的 `TaskDispatcher` 与 `ExecutorRegistry`。通用 Task HTTP 创建接口会立即提交执行；未知任务类型在创建边界拒绝，已声明但没有 callable 的类型在执行边界明确失败，不会永久停留在 `pending`。重复的 Pipeline start/execute 与 Tool 同步执行 HTTP 入口已删除，避免同一 Task 被二次接管。
 
 Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。本轮没有引入 root task、executor version、资源标签、BatchRun 实体或分布式队列。
 
-自动化基线为 `253 passed`，覆盖 Tool/字幕/Voice 创建即后台提交、自定义输出目录、台本自动输出和 Artifact 归属。当前环境自检注册 89 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
+自动化基线为 `253 passed`，覆盖 Tool/字幕/Voice 创建即后台提交、自定义输出目录、台本自动输出和 Artifact 归属。删除 3 条重复同步执行入口后，当前环境自检注册 86 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
 
 2026-08-07 使用固定非敏感日语测试句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` 正式 Pipeline。任务 `pipeline-1` 在 `export` 阶段完成，登记混音、双语字幕、TTS WAV 和 ASR 文本四类 Artifact；ASR 文本与测试句一致，字幕包含有效中文翻译，TTS 产物为 24 kHz、6.48 秒 WAV，执行后无 Qwen Worker 残留。该验收不包含用户素材外发。
 
