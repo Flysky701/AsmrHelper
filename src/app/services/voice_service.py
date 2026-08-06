@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import threading
+import uuid
+from pathlib import Path
 
 from ..dto import (
     SegmentAnalyzeRequest,
@@ -19,12 +21,39 @@ from ..dto import (
     VoicePreviewResult,
 )
 from ..errors import AppExecutionError, AppValidationError
+from src.config import PROJECT_ROOT
+from src.core.runtime import RuntimeRouter, get_runtime_router
+from src.core.tasks import TaskDispatcher
+
+from .artifact_service import ArtifactService, get_artifact_service
+from .task_service import TaskService, get_task_dispatcher, get_task_service
 
 logger = logging.getLogger(__name__)
 
 
 class VoiceService:
     """Stable application-facing facade for voice operations."""
+
+    def __init__(
+        self,
+        task_service: TaskService | None = None,
+        dispatcher: TaskDispatcher | None = None,
+        artifact_service: ArtifactService | None = None,
+        runtime_router: RuntimeRouter | None = None,
+    ) -> None:
+        self._task_service = task_service or get_task_service()
+        self._dispatcher = dispatcher or (
+            get_task_dispatcher()
+            if task_service is None
+            else TaskDispatcher(
+                self._task_service.registry,
+                task_service=self._task_service,
+            )
+        )
+        self._artifact_service = artifact_service or get_artifact_service()
+        self._runtime_router = runtime_router or get_runtime_router()
+        for task_type in ("voice.design", "voice.clone", "voice.preview"):
+            self._dispatcher.register_executor(task_type, self._execute_voice_task)
 
     # --- Profile CRUD ---
 
@@ -96,25 +125,28 @@ class VoiceService:
             raise AppValidationError("name is required")
 
         try:
-            from src.core.tts.voice_designer import get_voice_designer
-
-            designer = get_voice_designer()
-            profile = designer.design_and_generate(
-                description=request.description,
-                name=request.name,
-                ref_text=request.ref_text or None,
+            result = self._run_voice_task(
+                "design",
+                {
+                    "description": request.description,
+                    "name": request.name,
+                    "ref_text": request.ref_text or None,
+                },
             )
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc
+        except AppValidationError:
+            raise
         except Exception as exc:
             raise AppExecutionError(str(exc)) from exc
 
         return VoiceDesignResult(
-            profile_id=profile.id,
-            name=profile.name,
-            category=profile.category,
-            ref_audio_path=profile.get_ref_audio_path(),
-            prompt_cache_path=profile.get_prompt_cache_path(),
+            task_id=result["task_id"],
+            profile_id=result["profile_id"],
+            name=result["name"],
+            category=result["category"],
+            ref_audio_path=result.get("ref_audio_path", ""),
+            prompt_cache_path=result.get("prompt_cache_path", ""),
         )
 
     # --- Voice Clone ---
@@ -125,19 +157,17 @@ class VoiceService:
         if not request.name:
             raise AppValidationError("name is required")
 
+        audio_path = Path(request.audio_path)
+        if not audio_path.exists():
+            raise AppValidationError(f"audio file does not exist: {request.audio_path}")
         try:
-            from src.core.tts.voice_designer import get_voice_designer
-            from pathlib import Path
-
-            audio_path = Path(request.audio_path)
-            if not audio_path.exists():
-                raise AppValidationError(f"audio file does not exist: {request.audio_path}")
-
-            designer = get_voice_designer()
-            profile = designer.clone_from_audio(
-                audio_path=str(audio_path),
-                name=request.name,
-                ref_text=request.ref_text or None,
+            result = self._run_voice_task(
+                "clone",
+                {
+                    "audio_path": str(audio_path),
+                    "name": request.name,
+                    "ref_text": request.ref_text or None,
+                },
             )
         except AppValidationError:
             raise
@@ -147,11 +177,12 @@ class VoiceService:
             raise AppExecutionError(str(exc)) from exc
 
         return VoiceCloneResult(
-            profile_id=profile.id,
-            name=profile.name,
-            category=profile.category,
-            ref_audio_path=profile.get_ref_audio_path(),
-            prompt_cache_path=profile.get_prompt_cache_path(),
+            task_id=result["task_id"],
+            profile_id=result["profile_id"],
+            name=result["name"],
+            category=result["category"],
+            ref_audio_path=result.get("ref_audio_path", ""),
+            prompt_cache_path=result.get("prompt_cache_path", ""),
         )
 
     # --- Segment Analysis ---
@@ -205,13 +236,16 @@ class VoiceService:
         profile = self._get_profile_or_raise(request.profile_id)
 
         try:
-            from src.core.tts.voice_designer import get_voice_designer
-
-            designer = get_voice_designer()
-            audio_path = designer.preview_profile(
-                profile=profile,
-                text=request.text or None,
-                speed=request.speed,
+            result = self._run_voice_task(
+                "preview",
+                {
+                    "profile_id": request.profile_id,
+                    "text": request.text or None,
+                    "speed": request.speed,
+                    "output_path": str(
+                        PROJECT_ROOT / ".tmp" / f"voice-preview-{request.profile_id}.wav"
+                    ),
+                },
             )
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc
@@ -219,9 +253,110 @@ class VoiceService:
             raise AppExecutionError(str(exc)) from exc
 
         return VoicePreviewResult(
+            task_id=result["task_id"],
             profile_id=request.profile_id,
-            audio_path=audio_path,
+            audio_path=result["audio_path"],
         )
+
+    def _run_voice_task(self, operation: str, payload: dict) -> dict:
+        if operation == "preview":
+            payload = {
+                **payload,
+                "output_path": str(
+                    PROJECT_ROOT / ".tmp" / f"voice-preview-{uuid.uuid4().hex}.wav"
+                ),
+            }
+        _, task = self._task_service.create_task_spec(
+            task_type=f"voice.{operation}",
+            task_source="voice-lab",
+            session_id="",
+            execution_profile={"operation": operation, **payload},
+        )
+        result = self._dispatcher.run(task.task_id)
+        if not isinstance(result, dict):
+            raise AppExecutionError(f"voice task returned no result: {task.task_id}")
+        result["task_id"] = task.task_id
+        return result
+
+    def _execute_voice_task(self, task_spec, context):
+        profile = dict(task_spec.execution_profile)
+        operation = str(profile.get("operation") or task_spec.task_type.split(".")[-1])
+        if context.cancellation_requested:
+            raise RuntimeError("cancelled by user")
+        context.update_progress(
+            0.0,
+            message=f"running voice {operation}",
+            stage=operation,
+        )
+
+        if operation == "design":
+            result = self._runtime_router.design_voice(profile)
+            self._restore_profile(result)
+            self._register_voice_artifacts(task_spec.task_id, result)
+            return {
+                **result,
+                "primary_output": result.get("ref_audio_path", ""),
+                "artifact_set_id": task_spec.task_id,
+            }
+        if operation == "clone":
+            result = self._runtime_router.clone_voice(profile)
+            self._restore_profile(result)
+            self._register_voice_artifacts(task_spec.task_id, result)
+            return {
+                **result,
+                "primary_output": result.get("prompt_cache_path", ""),
+                "artifact_set_id": task_spec.task_id,
+            }
+        if operation == "preview":
+            audio_path = self._runtime_router.preview_voice(profile)
+            self._artifact_service.register_artifact(
+                task_id=task_spec.task_id,
+                artifact_type="audio.voice_preview",
+                path=str(audio_path),
+                label="Voice Preview",
+                preview_kind="audio",
+                stage="preview",
+                is_primary=True,
+            )
+            return {
+                "profile_id": profile.get("profile_id", ""),
+                "audio_path": str(audio_path),
+                "primary_output": str(audio_path),
+                "artifact_set_id": task_spec.task_id,
+            }
+        raise AppValidationError(f"unsupported voice task operation: {operation}")
+
+    @staticmethod
+    def _restore_profile(result: dict) -> None:
+        from src.core.tts.voice_profile import VoiceProfile, get_voice_manager
+
+        profile = VoiceProfile(
+            id=str(result["profile_id"]),
+            name=str(result["name"]),
+            category=str(result["category"]),
+            engine=str(result.get("engine", "qwen3_clone")),
+            description=str(result.get("description", "")),
+            design_instruct=str(result.get("design_instruct", "")),
+            ref_audio=str(result.get("ref_audio_path", "")),
+            prompt_cache=str(result.get("prompt_cache_path", "")),
+            generated=True,
+        )
+        get_voice_manager().add_profile(profile)
+
+    def _register_voice_artifacts(self, task_id: str, result: dict) -> None:
+        for artifact_type, path, label in (
+            ("audio.voice_reference", result.get("ref_audio_path"), "Voice Reference"),
+            ("voice.prompt_cache", result.get("prompt_cache_path"), "Voice Prompt Cache"),
+        ):
+            if path:
+                self._artifact_service.register_artifact(
+                    task_id=task_id,
+                    artifact_type=artifact_type,
+                    path=str(path),
+                    label=label,
+                    stage="voice",
+                    is_primary=artifact_type.startswith("audio."),
+                )
 
     # --- Internal helpers ---
 

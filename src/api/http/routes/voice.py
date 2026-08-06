@@ -91,6 +91,7 @@ def design_voice(
         profile_id=result.profile_id,
         name=result.name,
         category=result.category,
+        task_id=result.task_id,
         ref_audio_path=result.ref_audio_path,
         prompt_cache_path=result.prompt_cache_path,
     )
@@ -110,6 +111,7 @@ def clone_voice(
         profile_id=result.profile_id,
         name=result.name,
         category=result.category,
+        task_id=result.task_id,
         ref_audio_path=result.ref_audio_path,
         prompt_cache_path=result.prompt_cache_path,
     )
@@ -159,5 +161,6 @@ def preview_voice(
     ))
     return VoicePreviewResponse(
         profile_id=result.profile_id,
+        task_id=result.task_id,
         audio_path=result.audio_path,
     )

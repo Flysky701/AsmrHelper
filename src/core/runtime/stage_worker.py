@@ -45,7 +45,54 @@ def _execute(request: dict[str, Any]) -> dict[str, Any]:
                 "warnings": list(document.warnings),
             }
         }
+    elif operation == "voice.design":
+        from src.core.tts.voice_designer import VoiceDesigner
+
+        designer = VoiceDesigner(output_dir=payload.get("output_dir"))
+        profile = designer.design_and_generate(
+            description=str(payload.get("description") or ""),
+            name=str(payload.get("name") or ""),
+            ref_text=str(payload.get("ref_text") or "你好，今天辛苦了，让我来帮助你放松一下吧。"),
+        )
+        return _serialize_voice_profile(profile)
+    elif operation == "voice.clone":
+        from src.core.tts.voice_designer import VoiceDesigner
+
+        designer = VoiceDesigner(output_dir=payload.get("output_dir"))
+        profile = designer.clone_from_audio(
+            audio_path=str(payload.get("audio_path") or ""),
+            name=str(payload.get("name") or ""),
+            ref_text=str(payload.get("ref_text") or "你好，今天辛苦了，让我来帮助你放松一下吧。"),
+        )
+        return _serialize_voice_profile(profile)
+    elif operation == "voice.preview":
+        from src.core.tts.voice_designer import get_voice_designer
+        from src.core.tts.voice_profile import get_voice_manager
+
+        profile = get_voice_manager().get_by_id(str(payload.get("profile_id") or ""))
+        if profile is None:
+            raise ValueError(f"voice profile not found: {payload.get('profile_id')}")
+        output_path = get_voice_designer().preview_profile(
+            profile=profile,
+            text=str(payload.get("text") or ""),
+            output_path=str(payload.get("output_path")) if payload.get("output_path") else None,
+            speed=float(payload.get("speed", 1.0)),
+        )
+        return {"output_path": str(output_path)}
     raise ValueError(f"unsupported runtime worker operation: {operation}")
+
+
+def _serialize_voice_profile(profile: Any) -> dict[str, Any]:
+    return {
+        "profile_id": profile.id,
+        "name": profile.name,
+        "category": profile.category,
+        "engine": profile.engine,
+        "description": profile.description,
+        "design_instruct": profile.design_instruct,
+        "ref_audio_path": profile.get_ref_audio_path(),
+        "prompt_cache_path": profile.get_prompt_cache_path(),
+    }
 
 
 def main() -> int:

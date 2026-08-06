@@ -43,6 +43,7 @@ class VoiceDesignResult:
     profile_id: str
     name: str
     category: str
+    task_id: str = ""
     ref_audio_path: str = ""
     prompt_cache_path: str = ""
 
@@ -59,6 +60,7 @@ class VoiceCloneResult:
     profile_id: str
     name: str
     category: str
+    task_id: str = ""
     ref_audio_path: str = ""
     prompt_cache_path: str = ""
 
@@ -101,4 +103,5 @@ class VoicePreviewRequest:
 @dataclass(slots=True)
 class VoicePreviewResult:
     profile_id: str
+    task_id: str = ""
     audio_path: str = ""

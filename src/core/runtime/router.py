@@ -63,6 +63,16 @@ class RuntimeRouter:
         )
         return str(result["output_path"])
 
+    def design_voice(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._run_worker("voice.design", payload, "qwen_tts")
+
+    def clone_voice(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._run_worker("voice.clone", payload, "qwen_tts")
+
+    def preview_voice(self, payload: dict[str, Any]) -> str:
+        result = self._run_worker("voice.preview", payload, "qwen_tts")
+        return str(result["output_path"])
+
     def _run_worker(
         self,
         operation: str,

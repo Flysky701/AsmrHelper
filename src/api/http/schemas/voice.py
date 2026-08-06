@@ -38,6 +38,7 @@ class VoiceDesignResponse(BaseModel):
     profile_id: str
     name: str
     category: str
+    task_id: str = ""
     ref_audio_path: str = ""
     prompt_cache_path: str = ""
 
@@ -52,6 +53,7 @@ class VoiceCloneResponse(BaseModel):
     profile_id: str
     name: str
     category: str
+    task_id: str = ""
     ref_audio_path: str = ""
     prompt_cache_path: str = ""
 
@@ -88,4 +90,5 @@ class VoicePreviewRequest(BaseModel):
 
 class VoicePreviewResponse(BaseModel):
     profile_id: str
+    task_id: str = ""
     audio_path: str = ""
