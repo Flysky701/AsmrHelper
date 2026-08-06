@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import time
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,9 @@ import pytest
 from src.app.dto.script_subtitle import ScriptSubtitleRequest
 from src.app.errors import AppExecutionError, AppValidationError
 from src.app.services.script_subtitle_service import ScriptSubtitleService
+from src.app.services.artifact_service import ArtifactService
+from src.app.services.task_service import TaskService
+from src.core.tasks import TaskDispatcher
 
 script_subtitle_service_module = importlib.import_module(
     "src.app.services.script_subtitle_service"
@@ -130,6 +134,41 @@ def test_run_text_only_returns_line_count(monkeypatch, tmp_path):
     assert result.line_count == 2
     assert result.text.startswith("line one")
     assert pipeline.calls[0][0] == "text_only"
+
+
+def test_task_submission_generates_output_and_registers_artifact(monkeypatch, tmp_path):
+    script_path = tmp_path / "script.txt"
+    script_path.write_text("hello", encoding="utf-8")
+    pipeline = _DummyPipeline()
+    _patch_pipeline(monkeypatch, pipeline)
+    task_service = TaskService()
+    dispatcher = TaskDispatcher(task_service.registry, task_service=task_service)
+    artifact_service = ArtifactService()
+    service = ScriptSubtitleService(
+        task_service=task_service,
+        dispatcher=dispatcher,
+        artifact_service=artifact_service,
+    )
+
+    accepted = service.create_task(
+        ScriptSubtitleRequest(
+            script_path=str(script_path),
+            use_llm_clean=False,
+        )
+    )
+
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        task = task_service.get_task(accepted.task_id)
+        if task.state == "completed":
+            break
+        time.sleep(0.01)
+    assert task.state == "completed"
+    assert task.stage == "script_to_subtitle"
+    artifacts = artifact_service.get_task_artifacts(task.task_id)
+    assert len(artifacts.entries) == 1
+    assert artifacts.entries[0].path == str(tmp_path / "script_cleaned.txt")
+    assert artifacts.entries[0].artifact_type == "subtitle.txt"
 
 
 @pytest.mark.parametrize(

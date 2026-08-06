@@ -231,7 +231,7 @@ text_utils.py
 
 VoiceLab 随后按真实契约完成对齐：设计档案使用 `custom` 分类，设计/克隆完成后立即加载详情；片段分析提交 `subtitle_path/audio_language` 并显示后端 `score/recommended_indices/warnings`；预设音色不再提供无效删除按钮，GPU 状态也不再硬编码为“可用”。桌面生产构建通过。
 
-主 `.venv` 与 Qwen TTS、Qwen ASR、FunASR 三个隔离运行时已统一迁移到项目内 UV Python 3.12.13，不再继承 AetherSwap Conda 或用户目录 UV Python。主环境与三个隔离环境的依赖一致性检查均通过；重建后 Qwen3-ASR 0.6B、Qwen3 CustomVoice 和默认正式 Pipeline 均完成真实推理。FunASR 只确认运行时可导入，模型资产缺失，仍应显示为未安装。当前自动化基线为 `245 passed`，桌面生产构建、环境检查、`compileall` 与 Ruff `F821/F601` 均通过；旧环境以 `.runtimes/*-backup-*` 保留，尚未删除。
+主 `.venv` 与 Qwen TTS、Qwen ASR、FunASR 三个隔离运行时已统一迁移到项目内 UV Python 3.12.13，不再继承 AetherSwap Conda 或用户目录 UV Python。主环境与三个隔离环境的依赖一致性检查均通过；重建后 Qwen3-ASR 0.6B、Qwen3 CustomVoice 和默认正式 Pipeline 均完成真实推理。FunASR 只确认运行时可导入，模型资产缺失，仍应显示为未安装。当前自动化基线为 `249 passed`，桌面生产构建、89 路由环境检查、`compileall` 与 Ruff `F821/F601` 均通过；旧环境以 `.runtimes/*-backup-*` 保留，尚未删除。
 
 TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是新增任务并展示 `retry_of_task_id`；移除了后端不支持、且会被下次同步撤销的“清理已完成/从列表移除”；模型安装、Tool 和 Voice 等非 Pipeline 任务不再套用七阶段 Pipeline 时间线；失败任务直接显示后端错误码、阶段和详情，历史任务参数从 `/tasks/{id}/spec` 补读。本地浏览器模式已逐页复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings，未发现控制台错误；这不包含 Tauri 原生文件对话框与正式窗口验收。
 

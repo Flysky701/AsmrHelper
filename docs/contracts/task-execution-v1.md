@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | `pipeline` | `PipelineTaskOrchestrator` → `PipelineService` | 每个 Artifact 的 `task_id`；完成任务的 `artifact_set_id` 为任务 ID |
 | `tool.separate/convert/split/translate_subtitle/volume_preview` | `ToolRegistry` → `AudioToolService` | 每个 Artifact 的 `task_id` |
+| `subtitle.script_to_vtt` | `ScriptSubtitleService` → `core.subtitles` | 自动生成的 TXT/VTT/SRT/LRC 只归属创建它的 Task |
 | `model_install` | `ModelService` → `ModelInstaller` | 状态与 RuntimeEvent；安装文件不伪装成音频 Artifact |
 | `voice.design/clone/preview` | `VoiceService` → `RuntimeRouter` → `qwen_tts` Worker | 参考音频、prompt cache 或 preview WAV 的 `task_id` |
 
@@ -20,6 +21,8 @@
 通用 `POST /api/v1/tasks` 和 `POST /api/v1/tasks/batch` 是“创建并提交”入口，不是只创建 TaskSpec 的存根接口；成功创建的每一项会立即交给 Dispatcher。领域入口仍须先完成各自的输入、readiness 和资源校验。
 
 Tool 领域入口 `POST /api/v1/tool-runs/tasks` 同样是“创建并提交”：响应返回 Task 快照，执行在后台继续。`POST /api/v1/tool-runs` 保留为已有 Task 的兼容执行入口，桌面端不需要先创建再同步调用它。
+
+字幕工坊的长耗时台本处理使用 `POST /api/v1/subtitles/script-to-vtt/tasks`。未显式指定输出时，后端根据台本路径生成 `_cleaned.txt` 或 `_aligned.<fmt>`；进度阶段、取消、错误和 Artifact 归属均由 Task V1 管理。字幕翻译页面直接复用 `tool.translate_subtitle`，不再通过同步字幕接口伪装为后台任务。
 
 ## 2. 状态契约
 

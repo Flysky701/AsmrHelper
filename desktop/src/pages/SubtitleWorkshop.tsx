@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { subtitlesApi } from '@/api/subtitles'
+import { toolsApi } from '@/api/tools'
 import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
+import { useNavStore } from '@/stores/navStore'
+import { useTaskStore } from '@/stores/taskStore'
+import type { TaskStatus } from '@/stores/taskStore'
 import type {
   SubtitleSegmentModel,
   ScriptToVttRequest,
-  ScriptToVttResponse,
-  SubtitleTranslationResponse,
 } from '@/api/types'
 
 // ── Tab types ────────────────────────────────────────────
@@ -597,7 +599,6 @@ export default function SubtitleWorkshop() {
   const [translateSrcLang, setTranslateSrcLang] = useState('ja')
   const [translateTgtLang, setTranslateTgtLang] = useState('zh')
   const [translateBilingual, setTranslateBilingual] = useState(true)
-  const [translateResult, setTranslateResult] = useState<SubtitleTranslationResponse | null>(null)
 
   // Script-to-VTT state
   const [scriptMode, setScriptMode] = useState<ScriptMode>('text_only')
@@ -610,7 +611,6 @@ export default function SubtitleWorkshop() {
   const [asrLanguage, setAsrLanguage] = useState('ja')
   const [trackIndex, setTrackIndex] = useState<string>('')
   const [verticalMode, setVerticalMode] = useState('auto')
-  const [scriptResult, setScriptResult] = useState<ScriptToVttResponse | null>(null)
 
   // Common loading
   const [loading, setLoading] = useState('')
@@ -619,6 +619,9 @@ export default function SubtitleWorkshop() {
 
   // Audio player
   const audioPlayer = useAudioPlayerStore()
+  const setPage = useNavStore((state) => state.setPage)
+  const addTask = useTaskStore((state) => state.addTask)
+  const updateTask = useTaskStore((state) => state.updateTask)
 
   // ── Handlers ───────────────────────────────────────────
 
@@ -739,18 +742,42 @@ export default function SubtitleWorkshop() {
     if (!translatePath) return
     setLoading('translate')
     setError('')
-    setTranslateResult(null)
+    const profile = {
+      output_path: translateOutput || undefined,
+      provider: translateProvider,
+      source_lang: translateSrcLang,
+      target_lang: translateTgtLang,
+      bilingual: translateBilingual,
+    }
+    const localTaskId = addTask({
+      jobType: 'translate-subtitle',
+      sourceName: translatePath.split(/[/\\]/).pop() || translatePath,
+      sourcePath: translatePath,
+      params: { task_type: 'tool.translate_subtitle', ...profile },
+    })
+    updateTask(localTaskId, { message: '正在创建字幕翻译任务' })
     try {
-      const res = await subtitlesApi.translate({
+      const remote = await toolsApi.create({
+        task_type: 'tool.translate_subtitle',
         input_path: translatePath,
-        output_path: translateOutput || undefined,
-        provider: translateProvider,
-        source_lang: translateSrcLang,
-        target_lang: translateTgtLang,
+        execution_profile: profile,
       })
-      setTranslateResult(res)
-      setMessage('翻译任务已提交')
+      updateTask(localTaskId, {
+        serverTaskId: remote.task_id,
+        status: remote.state as TaskStatus,
+        stage: remote.stage ?? undefined,
+        progress: Math.round(remote.progress * 100),
+        message: remote.message || '后端已接管字幕翻译任务',
+        detail: remote.detail,
+      })
+      setMessage('翻译任务已提交，可在任务中心查看进度和结果')
+      setPage('task-center')
     } catch (err) {
+      updateTask(localTaskId, {
+        status: 'failed',
+        message: '字幕翻译任务创建失败',
+        errorMessage: String(err),
+      })
       setError(`翻译失败: ${err}`)
     } finally {
       setLoading('')
@@ -760,9 +787,16 @@ export default function SubtitleWorkshop() {
   // ── Script-to-VTT handler ──────────────────────────────
   const handleScriptToVtt = async () => {
     if (!scriptPath) return
+    if (scriptMode === 'full' && !audioPath) {
+      setError('完整模式需要选择音频文件')
+      return
+    }
+    if (scriptMode === 'existing_vtt' && !vttPath) {
+      setError('已有字幕模式需要选择字幕文件')
+      return
+    }
     setLoading('script')
     setError('')
-    setScriptResult(null)
     try {
       const req: ScriptToVttRequest = {
         script_path: scriptPath,
@@ -779,9 +813,33 @@ export default function SubtitleWorkshop() {
         req.vtt_path = vttPath || undefined
       }
       req.vertical_mode = verticalMode
-      const res = await subtitlesApi.scriptToVtt(req)
-      setScriptResult(res)
-      setMessage(`台本转字幕完成: ${res.line_count} 行 (${res.mode})`)
+      const localTaskId = addTask({
+        jobType: 'script-to-vtt',
+        sourceName: scriptPath.split(/[/\\]/).pop() || scriptPath,
+        sourcePath: scriptPath,
+        params: { task_type: 'subtitle.script_to_vtt', mode: scriptMode, ...req },
+      })
+      updateTask(localTaskId, { message: '正在创建台本转字幕任务' })
+      try {
+        const remote = await subtitlesApi.createScriptTask(req)
+        updateTask(localTaskId, {
+          serverTaskId: remote.task_id,
+          status: remote.state as TaskStatus,
+          stage: remote.stage ?? undefined,
+          progress: Math.round(remote.progress * 100),
+          message: remote.message || '后端已接管台本转字幕任务',
+          detail: remote.detail,
+        })
+        setMessage('台本转字幕任务已提交，可在任务中心查看进度和结果')
+        setPage('task-center')
+      } catch (submitError) {
+        updateTask(localTaskId, {
+          status: 'failed',
+          message: '台本转字幕任务创建失败',
+          errorMessage: String(submitError),
+        })
+        throw submitError
+      }
     } catch (err) {
       setError(`台本转字幕失败: ${err}`)
     } finally {
@@ -1108,37 +1166,6 @@ export default function SubtitleWorkshop() {
                 </span>
               </div>
 
-              {/* Result preview */}
-              {translateResult && (
-                <div style={S.panel}>
-                  <div style={S.panelHeader}>
-                    <Icon.Check /> 翻译结果
-                  </div>
-                  <div style={S.panelBody}>
-                    <div style={S.resultGrid}>
-                      <div style={S.resultRow}><span style={S.resultLabel}>状态</span><span style={{ ...S.resultValue, color: 'var(--success)' }}>已完成</span></div>
-                      <div style={S.resultRow}><span style={S.resultLabel}>翻译条目</span><span style={S.resultValue}>{translateResult.total_segments} 条</span></div>
-                      <div style={S.resultRow}><span style={S.resultLabel}>使用服务</span><span style={S.resultValue}>{translateResult.provider}</span></div>
-                      <div style={S.resultRow}><span style={S.resultLabel}>输出文件</span><span style={S.resultValue}>{translateResult.output_path || '—'}</span></div>
-                      <div style={S.resultRow}><span style={S.resultLabel}>语言</span><span style={S.resultValue}>{translateResult.source_lang} → {translateResult.target_lang}</span></div>
-                    </div>
-                    <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                      {translateResult.output_path && (
-                        <button
-                          style={{ ...S.btn, ...S.btnSm }}
-                          onClick={() => {
-                            setFilePath(translateResult.output_path!)
-                            setFileName(translateResult.output_path!.split(/[/\\]/).pop() || '')
-                            switchTab('editor')
-                          }}
-                        >
-                          在编辑器中打开
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Right: help */}
@@ -1419,60 +1446,14 @@ export default function SubtitleWorkshop() {
 
             {/* Right: result + help */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* Result */}
-              {scriptResult ? (
-                <div style={S.panel}>
-                  <div style={S.panelHeader}>
-                    <Icon.Check /> 转换结果
-                  </div>
-                  <div style={S.panelBody}>
-                    <div style={S.resultGrid}>
-                      <div style={S.resultRow}><span style={S.resultLabel}>运行模式</span><span style={S.resultValue}>{scriptResult.mode}</span></div>
-                      <div style={S.resultRow}><span style={S.resultLabel}>状态</span><span style={{ ...S.resultValue, color: 'var(--success)' }}>已完成</span></div>
-                      <div style={S.resultRow}><span style={S.resultLabel}>输出行数</span><span style={S.resultValue}>{scriptResult.line_count} 行</span></div>
-                      <div style={S.resultRow}><span style={S.resultLabel}>输出格式</span><span style={S.resultValue}>{scriptFmt.toUpperCase()}</span></div>
-                      <div style={S.resultRow}><span style={S.resultLabel}>输出文件</span><span style={S.resultValue}>{scriptResult.output_path || '—'}</span></div>
-                    </div>
-                    {/* VTT preview */}
-                    {scriptResult.text && (
-                      <div style={{ marginTop: 12 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-                          输出预览
-                        </div>
-                        <div style={S.vttPreview}>
-                          {scriptResult.text.split('\n').slice(0, 12).map((line, i) => (
-                            <div key={i}>{line}</div>
-                          ))}
-                          {scriptResult.text.split('\n').length > 12 && <div>...</div>}
-                        </div>
-                      </div>
-                    )}
-                    <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                      {scriptResult.output_path && (
-                        <button
-                          style={{ ...S.btn, ...S.btnSm }}
-                          onClick={() => {
-                            setFilePath(scriptResult.output_path!)
-                            setFileName(scriptResult.output_path!.split(/[/\\]/).pop() || '')
-                            switchTab('editor')
-                          }}
-                        >
-                          在编辑器中打开
-                        </button>
-                      )}
-                    </div>
-                  </div>
+              <div style={S.panel}>
+                <div style={S.panelHeader}>
+                  <Icon.Check /> 转换结果
                 </div>
-              ) : (
-                <div style={S.panel}>
-                  <div style={S.panelHeader}>
-                    <Icon.Check /> 转换结果
-                  </div>
-                  <div style={{ ...S.panelBody, color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 24 }}>
-                    执行转换后结果将在此显示
-                  </div>
+                <div style={{ ...S.panelBody, color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 24 }}>
+                  提交后将在任务中心显示阶段、错误和输出文件
                 </div>
-              )}
+              </div>
 
               {/* Mode help */}
               <div style={S.panel}>

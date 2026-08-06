@@ -742,6 +742,31 @@ class TestModelRoutes:
 
 
 class TestSubtitleRoutes:
+    def test_create_script_to_vtt_task_submits_background_work(self, client):
+        mock_svc = MagicMock()
+        mock_svc.create_task.return_value = TaskStatus(
+            task_id="subtitle.script_to_vtt-1",
+            task_type="subtitle.script_to_vtt",
+            task_source="subtitle-workshop",
+            state="running",
+            stage="clean_script",
+            progress=0.1,
+            created_at="2026-08-07T00:00:00+00:00",
+        )
+        client.app.dependency_overrides[dependencies.script_subtitle_service] = _mock_dep(mock_svc)
+
+        response = client.post(
+            "/api/v1/subtitles/script-to-vtt/tasks",
+            json={"script_path": "script.txt", "fmt": "vtt"},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["task_id"] == "subtitle.script_to_vtt-1"
+        assert response.json()["state"] == "running"
+        request = mock_svc.create_task.call_args.args[0]
+        assert request.script_path == "script.txt"
+        assert request.fmt == "vtt"
+
     def test_load_subtitle_missing_file(self, client):
         resp = client.post(
             "/api/v1/subtitles/load",

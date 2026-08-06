@@ -437,7 +437,7 @@ export default function TaskCenter() {
     if (task.historical) {
       addLog({
         level: 'warn',
-        content: '历史任务仅用于查看；请从 Workbench 重新提交输入文件',
+        content: '历史任务仅用于查看；请从对应功能页面重新提交输入文件',
         taskId,
       })
       return

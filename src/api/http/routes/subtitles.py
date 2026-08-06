@@ -28,6 +28,7 @@ from src.api.http.schemas.subtitles import (
     SubtitleTranslateRequest,
     SubtitleTranslateResponse,
 )
+from src.api.http.schemas.tasks import TaskStatusResponse
 from src.app.dto import SubtitleDocument, SubtitleSegment
 from src.app.dto.script_subtitle import ScriptSubtitleRequest
 from src.app.services import ArtifactService, ScriptSubtitleService, SubtitleService
@@ -236,6 +237,27 @@ def script_to_vtt(
         line_count=result.line_count,
         task_id=body.task_id,
     )
+
+
+@router.post("/script-to-vtt/tasks", response_model=TaskStatusResponse, status_code=201)
+def create_script_to_vtt_task(
+    body: ScriptToVttRequest,
+    svc: ScriptSubtitleService = Depends(script_subtitle_service),
+):
+    request = ScriptSubtitleRequest(
+        script_path=body.script_path,
+        output_path=body.output_path,
+        audio_path=body.audio_path,
+        vtt_path=body.vtt_path,
+        fmt=body.fmt,
+        use_llm_clean=body.use_llm_clean,
+        asr_model_size=body.asr_model_size,
+        asr_language=body.asr_language,
+        track_index=body.track_index,
+        vertical_mode=body.vertical_mode,
+        debug_dir=body.debug_dir,
+    )
+    return TaskStatusResponse.from_task_status(svc.create_task(request))
 
 
 @router.post("/script-to-subtitle", response_model=ScriptToSubtitleResponse)

@@ -51,7 +51,7 @@ Tauri / React
 | Runtime isolation | `main/qwen_tts/qwen_asr/fun_asr` 环境 ID；ASR/TTS 可路由短生命周期 Worker | Qwen3-TTS、Qwen3-ASR 0.6B 直接 API 与双 Worker Pipeline 真实验收 | Worker 异常会失败并清理，不会自动重启 |
 | Settings | 设置读取、有效值、校验、脱敏写入和 Provider 连通性测试 | 已实现、自动测试 | 旧 `api` 设置形状仍有兼容解析 |
 | Capability | ASR/TTS/LLM/Separator 的模型、默认值和参数 schema 可查询 | 已实现、Workbench 已消费 | 描述符表示支持范围，不表示当前环境已安装 |
-| Subtitle | load/parse/normalize/translate/bilingualize/export/script-to-vtt/script-to-subtitle | 已实现、真实分支与单元测试覆盖 | 翻译仍依赖已配置 LLM |
+| Subtitle | load/parse/normalize/export 等短操作；字幕翻译与台本转字幕后台任务 | 台本纯文本任务已通过真实 HTTP、自动输出和 Artifact 验收；字幕翻译 Tool 已真实验收 | 完整台本对齐仍依赖可执行 ASR 与已配置 LLM |
 | Tool task | 分离、格式转换、切分、字幕翻译、音量预览均以“创建即提交”的后台任务执行并登记产物 | 五种工具已连续真实 HTTP 验收；桌面工具页已接线并通过生产构建 | 音量预览只返回分析结果，不登记文件 Artifact；Tauri 原生文件选择尚待可见窗口验收 |
 | Voice profile | profile 列表、详情、删除、设计、克隆、分析、预览可用；Design/Clone/Preview 进入 `qwen_tts` Worker | Design、Clone、Preview 与 Analyze 均已通过正式 API 真实验收，Task/Artifact 归属正确 | 属于 Qwen3-TTS 专属扩展能力，不承诺其他 TTS Provider 具备等价功能 |
 
@@ -144,6 +144,7 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - VoiceLab 的 profile 浏览、Design、Clone、Preview 可以保留；这些是 Qwen3-TTS 专属扩展，不应显示为所有 TTS 引擎的通用能力。
 - VoiceLab 已按后端契约提交 `subtitle_path/audio_language`，并消费 `score/recommended_indices/warnings`；设计档案的 `custom` 分类、创建后详情和内置预设不可删除边界也已对齐。
 - AudioTools 已消费后端工具目录和任务创建接口；工具目录读取失败或未声明某项能力时，页面会禁用提交，不把客户端常量当成可用事实。
+- SubtitleWorkshop 的字幕翻译已复用 `tool.translate_subtitle`；台本转字幕使用 `subtitle.script_to_vtt` 后台任务，提交后统一到 TaskCenter 查看阶段、错误与产物。完整模式缺少音频、已有字幕模式缺少字幕时会在客户端先拦截。
 - Workbench 的多文件操作是“逐文件创建独立 Pipeline Task”，不是 BatchRun 实体；每项失败不阻塞后续提交，状态与产物仍按各自 task_id 隔离。
 - 桌面端仍保留 `pipelineApi.batch` 封装，但现有页面没有消费，不能据此认为存在 batch 级状态、取消或恢复能力。
 
@@ -160,7 +161,7 @@ Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内�
 
 Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。本轮没有引入 root task、executor version、资源标签、BatchRun 实体或分布式队列。
 
-自动化基线为 `247 passed`，新增用例覆盖 Tool 创建即后台提交和自定义输出目录策略。桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
+自动化基线为 `249 passed`，覆盖 Tool 创建即后台提交、自定义输出目录，以及台本任务自动输出和 Artifact 归属。当前环境自检注册 89 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
 
 2026-08-07 使用固定非敏感日语测试句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` 正式 Pipeline。任务 `pipeline-1` 在 `export` 阶段完成，登记混音、双语字幕、TTS WAV 和 ASR 文本四类 Artifact；ASR 文本与测试句一致，字幕包含有效中文翻译，TTS 产物为 24 kHz、6.48 秒 WAV，执行后无 Qwen Worker 残留。该验收不包含用户素材外发。
 

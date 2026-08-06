@@ -276,6 +276,10 @@ def get_task_dispatcher():
                     lambda spec, context: _lazy_tool_executor(spec, context),
                 )
                 _dispatcher.register_executor(
+                    "subtitle.script_to_vtt",
+                    lambda spec, context: _lazy_script_subtitle_executor(spec, context),
+                )
+                _dispatcher.register_executor(
                     "model_install",
                     lambda spec, context: _lazy_model_executor(spec, context),
                 )
@@ -310,6 +314,12 @@ def _lazy_model_executor(task_spec, context):
     from .model_service import get_model_service
 
     return get_model_service()._execute_model_install(task_spec, context)
+
+
+def _lazy_script_subtitle_executor(task_spec, context):
+    from .script_subtitle_service import get_script_subtitle_service
+
+    return get_script_subtitle_service()._execute_task(task_spec, context)
 
 
 def _lazy_voice_executor(task_spec, context):

@@ -113,6 +113,7 @@ function jobTypeFromServer(taskType?: string): JobType {
     'tool.split': 'split',
     'tool.translate_subtitle': 'translate-subtitle',
     'tool.volume_preview': 'volume-preview',
+    'subtitle.script_to_vtt': 'script-to-vtt',
     model_install: 'model-install',
     'voice.design': 'voice-design',
     'voice.clone': 'voice-clone',

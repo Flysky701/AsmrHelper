@@ -4,10 +4,8 @@ import type {
   SubtitleLoadResponse,
   SubtitleExportRequest,
   SubtitleExportResponse,
-  SubtitleTranslationRequest,
-  SubtitleTranslationResponse,
   ScriptToVttRequest,
-  ScriptToVttResponse,
+  TaskStatusResponse,
 } from './types'
 
 export const subtitlesApi = {
@@ -17,9 +15,6 @@ export const subtitlesApi = {
   export: (body: SubtitleExportRequest) =>
     api.post<SubtitleExportResponse>('/subtitles/export', body),
 
-  translate: (body: SubtitleTranslationRequest) =>
-    api.post<SubtitleTranslationResponse>('/subtitles/translate', body),
-
-  scriptToVtt: (body: ScriptToVttRequest) =>
-    api.post<ScriptToVttResponse>('/subtitles/script-to-vtt', body),
+  createScriptTask: (body: ScriptToVttRequest) =>
+    api.post<TaskStatusResponse>('/subtitles/script-to-vtt/tasks', body),
 }
