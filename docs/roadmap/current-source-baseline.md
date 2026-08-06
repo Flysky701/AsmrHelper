@@ -243,6 +243,8 @@ TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是
 
 桌面 API 表面也按实际页面消费继续收束：删除未使用的 ASR、翻译和 TTS 合成直连封装及对应 TypeScript 类型；后端同名同步接口保留为 Provider 诊断面。Workbench 的用户长任务仍只走 Pipeline，字幕翻译走 Tool，音色生成走 Voice Task。
 
+最新源码已再次完成 Tauri release 构建并以 installed 模式启动。正式 `ASMR Helper` 窗口进程响应正常，后端健康、能力、任务历史、预设、音色档案与 Edge 音色请求均成功，启动日志无错误；Computer Use 初始化仍被 Codex 宿主目录权限拒绝，所以该结论不包含原生文件选择和窗口按钮点击。
+
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
 说明：
