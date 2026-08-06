@@ -22,6 +22,8 @@
 
 Tool 领域入口 `POST /api/v1/tool-runs/tasks` 同样是“创建并提交”：响应返回 Task 快照，执行在后台继续。`POST /api/v1/tool-runs` 保留为已有 Task 的兼容执行入口，桌面端不需要先创建再同步调用它。
 
+模型安装的默认 `POST /api/v1/models/{model_id}/install` 返回标准 TaskStatus `201`，资源页提交后进入 TaskCenter，由统一查询、取消和重试契约管理。显式 `sync=true` 只作为诊断兼容入口，仍会阻塞请求且不属于桌面产品主路径。
+
 字幕工坊的长耗时台本处理使用 `POST /api/v1/subtitles/script-to-vtt/tasks`。未显式指定输出时，后端根据台本路径生成 `_cleaned.txt` 或 `_aligned.<fmt>`；进度阶段、取消、错误和 Artifact 归属均由 Task V1 管理。字幕翻译页面直接复用 `tool.translate_subtitle`，不再通过同步字幕接口伪装为后台任务。
 
 Voice Design、Clone 与 Preview 的正式 HTTP 入口也返回 TaskStatus `201`，不等待 Qwen Worker 完成。桌面端提交后进入 TaskCenter；生成的参考音频、prompt cache 和试听 WAV 通过统一 TaskResult 获取。片段分析仍是克隆表单的同步结构化查询，不伪装成可取消后台任务。

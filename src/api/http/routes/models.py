@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from src.api.http.dependencies import model_service
+from src.api.http.schemas.tasks import TaskStatusResponse
 from src.api.http.schemas.models import (
-    ModelInstallAsyncResponse,
     ModelInstallRequest,
     ModelOperationResponse,
     ModelStatusResponse,
@@ -101,9 +101,13 @@ def get_model_status(
     )
 
 
-@router.post("/{model_id}/install")
+@router.post(
+    "/{model_id}/install",
+    response_model=ModelOperationResponse | TaskStatusResponse,
+)
 def install_model(
     model_id: str,
+    response: Response,
     body: ModelInstallRequest | None = None,
     sync: bool = Query(False, description="Synchronous install (blocking). Default is async."),
     svc: ModelService = Depends(model_service),
@@ -133,7 +137,7 @@ def install_model(
             detail=result.detail,
         )
 
-    task_id = svc.install_model_async(
+    task = svc.install_model_async(
         model_id,
         mirror=mirror,
         force=force,
@@ -142,7 +146,8 @@ def install_model(
         install_recommended_assets=install_recommended_assets,
         allow_fallback_variant=allow_fallback_variant,
     )
-    return ModelInstallAsyncResponse(task_id=task_id, status="pending")
+    response.status_code = 201
+    return TaskStatusResponse.from_task_status(task)
 
 
 @router.post("/{model_id}/verify", response_model=list[ModelVerificationResponse])

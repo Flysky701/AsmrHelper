@@ -120,7 +120,7 @@ desktop/
 - Workbench 直接提交嵌套 `input/output/execution_profile`，每个阶段使用统一 `StageProfile`。
 - `TaskCenter` 已消费后端显式阶段，启动时载入历史任务，并按需查询统一 TaskResult；主产物与预览能力均由 Artifact 契约声明。
 - 当前会话任务支持状态轮询、协作取消和新任务重试；重启后的历史任务只用于查看。
-- `EnginesResources` 已接入模型安装状态、异步安装和进度轮询。
+- `EnginesResources` 已接入模型安装状态；默认异步安装返回统一 TaskStatus 并转交 TaskCenter 管理进度、取消、错误和重试。
 - 模型状态已区分权重/包安装状态与当前进程可执行性；桌面端会显示明确的依赖、系统工具或 GPU 缺失原因。
 - 桌面端已经不是空壳，也不是未接后端阶段。
 
@@ -234,6 +234,8 @@ VoiceLab 随后按真实契约完成对齐：Design/Clone/Preview 创建后台 T
 主 `.venv` 与 Qwen TTS、Qwen ASR、FunASR 三个隔离运行时已统一迁移到项目内 UV Python 3.12.13，不再继承 AetherSwap Conda 或用户目录 UV Python。主环境与三个隔离环境的依赖一致性检查均通过；重建后 Qwen3-ASR 0.6B、Qwen3 CustomVoice 和默认正式 Pipeline 均完成真实推理。FunASR 只确认运行时可导入，模型资产缺失，仍应显示为未安装。当前自动化基线为 `253 passed`，桌面生产构建、89 路由环境检查、`compileall` 与 Ruff `F821/F601` 均通过；旧环境以 `.runtimes/*-backup-*` 保留，尚未删除。
 
 TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是新增任务并展示 `retry_of_task_id`；移除了后端不支持、且会被下次同步撤销的“清理已完成/从列表移除”；模型安装、Tool 和 Voice 等非 Pipeline 任务不再套用七阶段 Pipeline 时间线；失败任务直接显示后端错误码、阶段和详情，历史任务参数从 `/tasks/{id}/spec` 补读。本地浏览器模式已逐页复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings，未发现控制台错误；这不包含 Tauri 原生文件对话框与正式窗口验收。
+
+模型安装接口随后完成最后一处任务响应收口：默认异步 `POST /models/{id}/install` 返回标准 TaskStatus `201`，资源页创建本地任务映射后跳转 TaskCenter；原资源页独立轮询已删除。显式 `sync=true` 只保留给诊断或兼容调用，不是桌面主路径。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 

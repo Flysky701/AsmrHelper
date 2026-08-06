@@ -273,14 +273,14 @@ class TestModelService:
         core_service.install.return_value = False
         service = ModelService(core_service=core_service, task_service=task_service)
 
-        task_id = service.install_model_async("optional-model")
+        accepted = service.install_model_async("optional-model")
 
         deadline = time.monotonic() + 1
         while time.monotonic() < deadline:
-            if task_service.get_task(task_id).state == "failed":
+            if task_service.get_task(accepted.task_id).state == "failed":
                 break
             time.sleep(0.01)
-        task = task_service.get_task(task_id)
+        task = task_service.get_task(accepted.task_id)
         assert task.state == "failed"
         assert task.stage == "install"
         assert task.error["code"] == "TASK_EXECUTION_FAILED"

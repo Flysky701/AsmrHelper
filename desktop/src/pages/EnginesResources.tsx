@@ -1,8 +1,10 @@
 import { useEffect, useState, useMemo } from 'react'
 import { modelsApi } from '@/api/models'
-import { tasksApi } from '@/api/tasks'
 import { resourcesApi } from '@/api/resources'
 import type { ModelSummaryResponse, ModelStatusResponse, ResourceStatusResponse } from '@/api/types'
+import { useNavStore } from '@/stores/navStore'
+import { useTaskStore } from '@/stores/taskStore'
+import type { TaskStatus } from '@/stores/taskStore'
 
 type CategoryTab = 'llm' | 'asr' | 'tts' | 'other'
 
@@ -34,6 +36,9 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
 }
 
 export default function EnginesResources() {
+  const setPage = useNavStore((state) => state.setPage)
+  const addTask = useTaskStore((state) => state.addTask)
+  const updateTask = useTaskStore((state) => state.updateTask)
   const [resources, setResources] = useState<ResourceStatusResponse[]>([])
   const [models, setModels] = useState<ModelSummaryResponse[]>([])
   const [modelStatuses, setModelStatuses] = useState<ModelStatusResponse[]>([])
@@ -70,6 +75,17 @@ export default function EnginesResources() {
   const handleInstall = async (model: ModelSummaryResponse) => {
     const modelId = model.model_id
     const packageOnly = model.install_strategy === 'package'
+    const localTaskId = addTask({
+      jobType: 'model-install',
+      sourceName: model.display_name,
+      sourcePath: modelId,
+      params: {
+        model_id: modelId,
+        install_mode: model.default_install_mode || 'single',
+        install_dependencies: true,
+      },
+    })
+    updateTask(localTaskId, { message: '正在创建模型安装任务' })
     setInstalling(prev => ({
       ...prev,
       [modelId]: { active: true, message: packageOnly ? '准备安装运行依赖...' : '准备下载...' },
@@ -79,42 +95,22 @@ export default function EnginesResources() {
         install_mode: model.default_install_mode || 'single',
         install_dependencies: true,
       })
-      if (res.task_id) {
-        const pollInterval = setInterval(async () => {
-          try {
-            const taskRes = await tasksApi.get(res.task_id)
-            if (taskRes.state === 'completed') {
-              clearInterval(pollInterval)
-              setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
-              loadData()
-            } else if (taskRes.state === 'failed' || taskRes.state === 'cancelled' || taskRes.state === 'skipped') {
-              clearInterval(pollInterval)
-              const message = taskRes.message || '安装未完成'
-              setInstalling(prev => ({ ...prev, [modelId]: { active: false, message } }))
-              setError(`模型 ${modelId}：${message}`)
-              loadData(true)
-            } else {
-              setInstalling(prev => ({
-                ...prev,
-                [modelId]: {
-                  active: true,
-                  message: taskRes.message || '下载中...',
-                  progress: taskRes.progress,
-                },
-              }))
-            }
-          } catch (pollError) {
-            clearInterval(pollInterval)
-            setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
-            setError(`读取模型 ${modelId} 安装进度失败：${pollError instanceof Error ? pollError.message : String(pollError)}`)
-            loadData(true)
-          }
-        }, 2000)
-      } else {
-        setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
-        loadData()
-      }
+      updateTask(localTaskId, {
+        serverTaskId: res.task_id,
+        status: res.state as TaskStatus,
+        stage: res.stage ?? undefined,
+        progress: Math.round(res.progress * 100),
+        message: res.message || '后端已接管模型安装任务',
+        detail: res.detail,
+      })
+      setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
+      setPage('task-center')
     } catch (installError) {
+      updateTask(localTaskId, {
+        status: 'failed',
+        message: '模型安装任务创建失败',
+        errorMessage: installError instanceof Error ? installError.message : String(installError),
+      })
       setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
       setError(`安装模型 ${modelId} 失败：${installError instanceof Error ? installError.message : String(installError)}`)
       loadData(true)

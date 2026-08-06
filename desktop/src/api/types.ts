@@ -285,11 +285,6 @@ export interface ModelInstallRequest {
   allow_fallback_variant?: boolean
 }
 
-export interface ModelInstallAsyncResponse {
-  task_id: string
-  status: string
-}
-
 export interface ModelVerificationResponse {
   model_id: string
   success: boolean

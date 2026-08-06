@@ -239,10 +239,10 @@ def test_model_install_uses_dispatcher_and_reports_install_stage():
             return True
 
     models = ModelService(core_service=Models(), task_service=service)
-    task_id = models.install_model_async("model-a")
-    _wait_for(service, task_id, "completed")
+    accepted = models.install_model_async("model-a")
+    _wait_for(service, accepted.task_id, "completed")
 
-    task = service.get_task(task_id)
+    task = service.get_task(accepted.task_id)
     assert task.stage == "install"
     assert task.progress == 1.0
     assert task.error is None
@@ -268,15 +268,15 @@ def test_model_install_honors_cancellation_at_progress_boundary():
             return True
 
     models = ModelService(core_service=Models(), task_service=service)
-    task_id = models.install_model_async("model-a")
+    accepted = models.install_model_async("model-a")
     assert installer_started.wait(timeout=1)
 
-    requested = models._dispatcher.request_cancel(task_id)
+    requested = models._dispatcher.request_cancel(accepted.task_id)
     assert requested.state == "running"
     release_installer.set()
-    _wait_for(service, task_id, "cancelled")
+    _wait_for(service, accepted.task_id, "cancelled")
 
-    assert service.get_task(task_id).finished_at is not None
+    assert service.get_task(accepted.task_id).finished_at is not None
 
 
 def test_voice_preview_uses_runtime_router_and_registers_task_artifact(tmp_path):

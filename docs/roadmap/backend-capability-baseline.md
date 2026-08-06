@@ -47,7 +47,7 @@ Tauri / React
 | Artifact | 按 task_id 登记主产物、字幕、中间音频和预览类型 | 已实现、批量归属验收通过 | 内部 PipelineResult 仍保留少量路径型字段 |
 | Readiness | 校验输入解码、Provider/Model、Python 依赖、系统工具、GPU 和凭据 | 已实现，Pipeline 创建及 prepare 双重检查 | 只检查任务实际选择的阶段；不会自动安装资源 |
 | Model catalog | 模型列表、状态、安装、验证、删除和卸载接口存在 | 已实现、自动测试 | “installed”和“executable”是不同状态 |
-| Model install | 异步安装任务、串行大模型下载、真实错误、超时和中断重试 | 已实现；中断保留 partial 文件验收通过 | 恢复依赖 Hugging Face 对同一目标目录的续传能力 |
+| Model install | 异步安装任务、串行大模型下载、真实错误、超时和中断重试；默认接口返回统一 TaskStatus | 已实现；中断保留 partial 文件验收通过 | 恢复依赖 Hugging Face 对同一目标目录的续传能力；`sync=true` 仅为诊断兼容入口 |
 | Runtime isolation | `main/qwen_tts/qwen_asr/fun_asr` 环境 ID；ASR/TTS 可路由短生命周期 Worker | Qwen3-TTS、Qwen3-ASR 0.6B 直接 API 与双 Worker Pipeline 真实验收 | Worker 异常会失败并清理，不会自动重启 |
 | Settings | 设置读取、有效值、校验、脱敏写入和 Provider 连通性测试 | 已实现、自动测试 | 旧 `api` 设置形状仍有兼容解析 |
 | Capability | ASR/TTS/LLM/Separator 的模型、默认值和参数 schema 可查询 | 已实现、Workbench 已消费 | 描述符表示支持范围，不表示当前环境已安装 |
@@ -139,7 +139,7 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - Workbench 暂不能宣称：可管理批次、批量取消、批量恢复或跨重启续跑。
 - TaskCenter 可以展示终态历史和活动任务；历史任务不能原地重试，只能重新提交。
 - TaskCenter 已按 Task V1 修正重试语义：本会话失败任务重试时创建新任务并保留 `retry_of_task_id`，旧任务不再被新 ID 覆盖；页面不再提供后端不存在的“清理/移出任务”操作。非 Pipeline 任务显示自身后端阶段，失败详情直接消费结构化错误，历史参数通过 TaskSpec 补读。
-- EnginesResources 可以展示模型和异步安装；必须同时展示 `installed` 与 `executable`，不能只看文件是否存在。
+- EnginesResources 可以展示模型与 `installed/executable` 事实；异步安装提交后进入 TaskCenter，统一展示进度、取消、错误和重试，不再由资源页维护另一套任务轮询状态。
 - SubtitleWorkshop 已有后端支撑，可在契约范围内整理，不需要重新设计后端。
 - VoiceLab 的 profile 浏览、Design、Clone、Preview 可以保留；这些是 Qwen3-TTS 专属扩展，不应显示为所有 TTS 引擎的通用能力。三项生成操作均为创建即提交的后台 Task，结果和试听产物统一从 TaskCenter 获取。
 - VoiceLab 的片段分析按后端契约提交 `subtitle_path/audio_language`，并消费 `score/recommended_indices/warnings`；它是克隆表单的同步结构化查询。设计档案的 `custom` 分类和内置预设不可删除边界已对齐。

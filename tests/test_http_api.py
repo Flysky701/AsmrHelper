@@ -689,17 +689,26 @@ class TestModelRoutes:
 
     def test_install_model_async(self, client):
         mock_svc = MagicMock()
-        mock_svc.install_model_async.return_value = "model_install-1"
+        mock_svc.install_model_async.return_value = TaskStatus(
+            task_id="model_install-1",
+            task_type="model_install",
+            task_source="api",
+            state="running",
+            stage="install",
+            progress=0.1,
+            created_at="2026-08-07T00:00:00+00:00",
+        )
         client.app.dependency_overrides[dependencies.model_service] = _mock_dep(mock_svc)
 
         resp = client.post(
             "/api/v1/models/whisper-base/install",
             json={"install_mode": "single"},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 201
         data = resp.json()
         assert data["task_id"] == "model_install-1"
-        assert data["status"] == "pending"
+        assert data["state"] == "running"
+        assert data["task_type"] == "model_install"
         mock_svc.install_model_async.assert_called_once()
 
     def test_verify_model(self, client):

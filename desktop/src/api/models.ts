@@ -4,7 +4,7 @@ import type {
   ModelStatusResponse,
   ModelOperationResponse,
   ModelInstallRequest,
-  ModelInstallAsyncResponse,
+  TaskStatusResponse,
   ModelVerificationResponse,
   RuntimeEventResponse,
 } from './types'
@@ -22,7 +22,7 @@ export const modelsApi = {
     api.post<ModelOperationResponse>(`/models/${modelId}/install?sync=true`, body),
 
   installAsync: (modelId: string, body?: ModelInstallRequest) =>
-    api.post<ModelInstallAsyncResponse>(`/models/${modelId}/install`, body),
+    api.post<TaskStatusResponse>(`/models/${modelId}/install`, body),
 
   verify: (modelId: string) =>
     api.post<ModelVerificationResponse[]>(`/models/${modelId}/verify`),

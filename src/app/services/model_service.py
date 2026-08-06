@@ -150,8 +150,8 @@ class ModelService:
         install_dependencies: bool = True,
         install_recommended_assets: bool = False,
         allow_fallback_variant: bool = False,
-    ) -> str:
-        """Start async model installation, returns task_id for SSE subscription."""
+    ):
+        """Submit model installation and return the authoritative task snapshot."""
         self._get_model_entry(model_id)
         task_svc = self._get_task_service()
         _spec, task = task_svc.create_task_spec(
@@ -173,8 +173,7 @@ class ModelService:
 
         if self._dispatcher is None:
             raise AppExecutionError("model installer dispatcher is not configured")
-        self._dispatcher.submit(task_id)
-        return task_id
+        return self._dispatcher.submit(task_id)
 
     def _execute_model_install(self, task_spec, context):
         profile = dict(task_spec.execution_profile)
