@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -942,6 +943,89 @@ class TestResourceRoutes:
 
 
 class TestTaskRoutes:
+    def test_create_task_submits_to_dispatcher(self, client):
+        from src.api.http import dependencies
+        from src.app.services.task_service import TaskService
+        from src.core.tasks import ExecutorRegistry, TaskDispatcher
+
+        registry = ExecutorRegistry()
+        registry.register("contract.echo", lambda spec: {"detail": spec.task_id})
+        task_svc = TaskService(executor_registry=registry)
+        dispatcher = TaskDispatcher(task_svc.registry, task_service=task_svc)
+        client.app.dependency_overrides[dependencies.task_service] = _mock_dep(task_svc)
+        client.app.dependency_overrides[dependencies.task_dispatcher] = _mock_dep(dispatcher)
+
+        resp = client.post(
+            "/api/v1/tasks",
+            json={
+                "task_type": "contract.echo",
+                "task_source": "http-test",
+                "session_id": "session-1",
+            },
+        )
+
+        assert resp.status_code == 200
+        task_id = resp.json()["task"]["task_id"]
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            if task_svc.get_task(task_id).state == "completed":
+                break
+            time.sleep(0.01)
+        assert task_svc.get_task(task_id).state == "completed"
+
+    def test_create_task_rejects_declared_type_without_callable(self, client):
+        from src.api.http import dependencies
+        from src.app.services.task_service import TaskService
+        from src.core.tasks import ExecutorRegistry, TaskDispatcher
+
+        registry = ExecutorRegistry()
+        registry.register("declared.only")
+        task_svc = TaskService(executor_registry=registry)
+        dispatcher = TaskDispatcher(task_svc.registry, task_service=task_svc)
+        client.app.dependency_overrides[dependencies.task_service] = _mock_dep(task_svc)
+        client.app.dependency_overrides[dependencies.task_dispatcher] = _mock_dep(dispatcher)
+
+        resp = client.post(
+            "/api/v1/tasks",
+            json={
+                "task_type": "declared.only",
+                "task_source": "http-test",
+                "session_id": "session-1",
+            },
+        )
+
+        assert resp.status_code == 400
+        assert "no executable handler registered" in resp.json()["error"]["message"]
+        assert task_svc.list_tasks() == []
+
+    def test_batch_task_submission_validates_all_handlers_before_creation(self, client):
+        from src.api.http import dependencies
+        from src.app.services.task_service import TaskService
+        from src.core.tasks import ExecutorRegistry, TaskDispatcher
+
+        executed = []
+        registry = ExecutorRegistry()
+        registry.register("contract.echo", lambda spec: executed.append(spec.task_id) or {})
+        registry.register("declared.only")
+        task_svc = TaskService(executor_registry=registry)
+        dispatcher = TaskDispatcher(task_svc.registry, task_service=task_svc)
+        client.app.dependency_overrides[dependencies.task_service] = _mock_dep(task_svc)
+        client.app.dependency_overrides[dependencies.task_dispatcher] = _mock_dep(dispatcher)
+
+        resp = client.post(
+            "/api/v1/tasks/batch",
+            json={
+                "items": [
+                    {"task_type": "contract.echo", "session_id": "session-1"},
+                    {"task_type": "declared.only", "session_id": "session-1"},
+                ]
+            },
+        )
+
+        assert resp.status_code == 400
+        assert task_svc.list_tasks() == []
+        assert executed == []
+
     def test_list_tasks(self, client):
         mock_svc = MagicMock()
         mock_svc.list_tasks.return_value = [

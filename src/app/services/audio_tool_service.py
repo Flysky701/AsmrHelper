@@ -60,17 +60,36 @@ class AudioToolService:
         self._subtitle_service = subtitle_service or get_subtitle_service()
         self._separator_runtime = separator_runtime or SeparatorEngineRuntime()
 
-    def run_tool_task(self, task_id: str) -> dict[str, Any]:
+    def run_tool_task(
+        self,
+        task_id: str,
+        *,
+        manage_lifecycle: bool = True,
+        cancel_event=None,
+    ) -> dict[str, Any]:
         task_spec = self._task_service.get_task_spec(task_id)
         if not task_spec.task_type.startswith("tool."):
             raise AppValidationError(f"task is not a tool task: {task_id}")
-        return self.run_tool_task_spec(task_spec)
+        return self.run_tool_task_spec(
+            task_spec,
+            manage_lifecycle=manage_lifecycle,
+            cancel_event=cancel_event,
+        )
 
-    def run_tool_task_spec(self, task_spec) -> dict[str, Any]:
+    def run_tool_task_spec(
+        self,
+        task_spec,
+        *,
+        manage_lifecycle: bool = True,
+        cancel_event=None,
+    ) -> dict[str, Any]:
+        if cancel_event is not None and cancel_event.is_set():
+            raise AppExecutionError("cancelled by user")
         session = self._session_service.get_session(task_spec.session_id)
         input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
         tool_name = task_spec.task_type.removeprefix("tool.")
-        self._task_service.start_task(task_spec.task_id, message=f"running {tool_name}")
+        if manage_lifecycle:
+            self._task_service.start_task(task_spec.task_id, message=f"running {tool_name}")
 
         try:
             if tool_name == "separate":
@@ -203,23 +222,32 @@ class AudioToolService:
                 }
             else:
                 raise AppValidationError(f"unsupported tool task type: {task_spec.task_type}")
+            if cancel_event is not None and cancel_event.is_set():
+                raise AppExecutionError("cancelled by user")
         except Exception as exc:
-            self._task_service.fail_task(
-                task_spec.task_id,
-                message=f"{tool_name} failed",
-                detail=str(exc),
-            )
+            if manage_lifecycle:
+                self._task_service.fail_task(
+                    task_spec.task_id,
+                    message=f"{tool_name} failed",
+                    detail=str(exc),
+                )
             raise
 
-        task = self._task_service.complete_task(
-            task_spec.task_id,
-            message=f"{tool_name} completed",
-            detail=detail,
+        task = (
+            self._task_service.complete_task(
+                task_spec.task_id,
+                message=f"{tool_name} completed",
+                detail=detail,
+            )
+            if manage_lifecycle
+            else self._task_service.get_task(task_spec.task_id)
         )
         return {
             "task": task,
             "tool_name": tool_name,
             "summary": summary,
+            "primary_output": detail,
+            "artifact_set_id": task_spec.task_id if detail else None,
         }
 
     def create_tool_task_spec(

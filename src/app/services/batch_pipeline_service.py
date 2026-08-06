@@ -16,6 +16,10 @@ from .input_catalog_service import InputCatalogService, get_input_catalog_servic
 from .pipeline_service import PipelineService, get_pipeline_service
 from .session_service import SessionService, get_session_service
 from .task_service import TaskService, get_task_service
+from .pipeline_task_orchestrator import (
+    PipelineTaskOrchestrator,
+    get_pipeline_task_orchestrator,
+)
 
 
 ProgressCallback = Callable[[int, int, BatchItemResult], None]
@@ -30,11 +34,17 @@ class BatchPipelineService:
         task_service: TaskService | None = None,
         session_service: SessionService | None = None,
         input_catalog_service: InputCatalogService | None = None,
+        pipeline_task_orchestrator: PipelineTaskOrchestrator | None = None,
     ) -> None:
         self._pipeline_service = pipeline_service or get_pipeline_service()
         self._task_service = task_service or get_task_service()
         self._session_service = session_service or get_session_service()
         self._input_catalog_service = input_catalog_service or get_input_catalog_service()
+        self._pipeline_task_orchestrator = pipeline_task_orchestrator or (
+            get_pipeline_task_orchestrator()
+            if pipeline_service is None
+            else None
+        )
 
     def discover_audio_files(self, directory: str) -> list[Path]:
         if not directory:
@@ -216,9 +226,13 @@ class BatchPipelineService:
                     duration=time.time() - started_at,
                 )
 
-            pipeline_result = self._pipeline_service.run_pipeline_task(
-                task_id,
-                cancel_event=cancel_event,
+            pipeline_result = (
+                self._pipeline_task_orchestrator.run_task(task_id)
+                if self._pipeline_task_orchestrator is not None
+                else self._pipeline_service.run_pipeline_task(
+                    task_id,
+                    cancel_event=cancel_event,
+                )
             )
             output = pipeline_result.mix_path or pipeline_result.artifacts.primary_output
             if not output:

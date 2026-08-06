@@ -20,6 +20,7 @@ from src.app.services import (
     get_settings_service,
     get_subtitle_service,
     get_task_service,
+    get_task_dispatcher,
     get_tool_registry,
     get_tts_engine_service,
     get_voice_service,
@@ -56,7 +57,14 @@ def subtitle_service():
 
 
 def task_service():
+    # Initialize the shared dispatcher and its lazy executor bindings before
+    # exposing generic task creation to the HTTP layer.
+    get_task_dispatcher()
     return get_task_service()
+
+
+def task_dispatcher():
+    return get_task_dispatcher()
 
 
 def resource_service():

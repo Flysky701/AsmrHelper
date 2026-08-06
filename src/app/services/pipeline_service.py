@@ -92,9 +92,16 @@ class PipelineService:
         if request.target_lang not in SUPPORTED_LANGUAGE_CODES:
             raise AppValidationError(f"unsupported target_lang: {request.target_lang}")
 
-        task_spec = self.create_pipeline_task_spec(request)
-        return self.run_pipeline_task_spec(
-            task_spec,
+        _task, task_spec = self.create_pipeline_task(request)
+        from .pipeline_task_orchestrator import PipelineTaskOrchestrator
+
+        orchestrator = PipelineTaskOrchestrator(
+            pipeline_service=self,
+            task_service=self._task_service,
+            artifact_service=self._artifact_service,
+        )
+        return orchestrator.run_task(
+            task_spec.task_id,
             progress_callback=progress_callback,
             cancel_event=cancel_event,
         )
@@ -105,6 +112,7 @@ class PipelineService:
         *,
         progress_callback=None,
         cancel_event=None,
+        manage_lifecycle: bool = True,
     ) -> PipelineResult:
         task_spec = self._task_service.get_task_spec(task_id)
         if task_spec.task_type != "pipeline":
@@ -113,6 +121,7 @@ class PipelineService:
             task_spec,
             progress_callback=progress_callback,
             cancel_event=cancel_event,
+            manage_lifecycle=manage_lifecycle,
         )
 
     def run_pipeline_task_spec(
@@ -121,16 +130,18 @@ class PipelineService:
         *,
         progress_callback=None,
         cancel_event=None,
+        manage_lifecycle: bool = True,
     ) -> PipelineResult:
         session = self._session_service.get_session(task_spec.session_id)
         input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
         current_stage = "prepare"
         failure_error: dict[str, object] | None = None
-        self._task_service.start_task(
-            task_spec.task_id,
-            message="running pipeline",
-            stage=current_stage,
-        )
+        if manage_lifecycle:
+            self._task_service.start_task(
+                task_spec.task_id,
+                message="running pipeline",
+                stage=current_stage,
+            )
 
         try:
             self._assert_task_ready(
@@ -205,19 +216,27 @@ class PipelineService:
                     current_stage,
                     failed_detail,
                 )
-                raise AppExecutionError(str(failure_error["message"]))
+                if not manage_lifecycle:
+                    self._task_service.update_progress(
+                        task_spec.task_id,
+                        progress=self._task_service.get_task(task_spec.task_id).progress,
+                        stage=current_stage,
+                    )
+                error = AppExecutionError(str(failure_error["message"]))
+                error.task_error = failure_error
+                raise error
         except Exception as exc:
             is_cancelled = (
                 (cancel_event is not None and cancel_event.is_set())
                 or "用户取消" in str(exc)
                 or "cancel" in str(exc).lower()
             )
-            if is_cancelled:
+            if is_cancelled and manage_lifecycle:
                 self._task_service.cancel_task(
                     task_spec.task_id,
                     message="cancelled by user",
                 )
-            else:
+            elif manage_lifecycle:
                 task_error = failure_error or _build_pipeline_task_error(
                     current_stage,
                     str(exc),
@@ -255,12 +274,16 @@ class PipelineService:
             mix_path=mix_path,
             exported_subtitle=exported_subtitle,
         )
-        completed_task = self._task_service.complete_task(
-            task_spec.task_id,
-            message="pipeline completed",
-            detail=primary_output or "",
-            stage="export",
-            artifact_set_id=task_spec.task_id,
+        completed_task = (
+            self._task_service.complete_task(
+                task_spec.task_id,
+                message="pipeline completed",
+                detail=primary_output or "",
+                stage="export",
+                artifact_set_id=task_spec.task_id,
+            )
+            if manage_lifecycle
+            else self._task_service.get_task(task_spec.task_id)
         )
 
         return PipelineResult(

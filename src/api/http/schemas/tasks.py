@@ -32,6 +32,7 @@ class TaskStatusResponse(BaseModel):
     finished_at: str | None = None
     error: dict[str, Any] | None = None
     artifact_set_id: str | None = None
+    retry_of_task_id: str | None = None
     review_state: ReviewState = ""
     review_note: str = ""
 
@@ -55,6 +56,7 @@ class TaskStatusResponse(BaseModel):
             finished_at=task.finished_at,
             error=task.error,
             artifact_set_id=task.artifact_set_id,
+            retry_of_task_id=task.retry_of_task_id,
             review_state=task.review_state,
             review_note=task.review_note,
         )
@@ -115,6 +117,7 @@ class TaskSpecResponse(BaseModel):
     execution_profile: dict[str, Any] = Field(default_factory=dict)
     priority: int = 0
     dedupe_key: str = ""
+    retry_of_task_id: str | None = None
     created_at: str = ""
 
     @classmethod
@@ -129,6 +132,7 @@ class TaskSpecResponse(BaseModel):
             execution_profile=dict(task.execution_profile),
             priority=task.priority,
             dedupe_key=task.dedupe_key,
+            retry_of_task_id=task.retry_of_task_id,
             created_at=task.created_at,
         )
 

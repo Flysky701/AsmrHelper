@@ -8,9 +8,11 @@ from typing import Any
 from src.core.orchestration import ToolTaskCatalog
 
 from ..dto import TaskStatus
+from ..errors import AppExecutionError
 from .artifact_service import ArtifactService, get_artifact_service
 from .audio_tool_service import AudioToolService, get_audio_tool_service
-from .task_service import TaskService, get_task_service
+from .task_service import TaskService, get_task_dispatcher, get_task_service
+from src.core.tasks import TaskDispatcher
 
 
 class ToolRegistry:
@@ -22,11 +24,25 @@ class ToolRegistry:
         task_service: TaskService | None = None,
         artifact_service: ArtifactService | None = None,
         catalog: ToolTaskCatalog | None = None,
+        dispatcher: TaskDispatcher | None = None,
     ) -> None:
         self._audio_tool_service = audio_tool_service or get_audio_tool_service()
         self._task_service = task_service or get_task_service()
         self._artifact_service = artifact_service or get_artifact_service()
         self._catalog = catalog or ToolTaskCatalog()
+        self._dispatcher = dispatcher or (
+            get_task_dispatcher()
+            if task_service is None
+            else TaskDispatcher(
+                self._task_service.registry,
+                task_service=self._task_service,
+            )
+        )
+        for tool in self._catalog.list_tools():
+            self._dispatcher.register_executor(
+                tool["task_type"],
+                self._execute_tool,
+            )
 
     def list_tools(self) -> list[dict[str, Any]]:
         return self._catalog.list_tools()
@@ -53,7 +69,23 @@ class ToolRegistry:
         return self._task_service.get_task(spec.task_id)
 
     def run_task(self, task_id: str) -> dict[str, Any]:
-        return self._audio_tool_service.run_tool_task(task_id)
+        result = self._dispatcher.run(task_id)
+        if isinstance(result, dict):
+            return result
+        raise AppExecutionError(f"tool task returned no result: {task_id}")
+
+    def _execute_tool(self, task_spec, context):
+        tool_name = task_spec.task_type.removeprefix("tool.")
+        context.update_progress(
+            self._task_service.get_task(task_spec.task_id).progress,
+            message=f"running {tool_name}",
+            stage=tool_name,
+        )
+        return self._audio_tool_service.run_tool_task_spec(
+            task_spec,
+            manage_lifecycle=False,
+            cancel_event=context.cancel_event,
+        )
 
     def get_task(self, task_id: str) -> TaskStatus:
         return self._task_service.get_task(task_id)

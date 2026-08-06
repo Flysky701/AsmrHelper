@@ -1,149 +1,312 @@
-"""Task dispatcher — routes pending tasks to registered executors.
+"""Lightweight in-process task dispatcher.
 
-This module provides the dispatch mechanism that connects the task queue
-(TaskRegistry) to actual execution logic. Each task_type is mapped to
-an executor callable that performs the work.
+The dispatcher is the single execution boundary for long-running Task V1
+work.  It owns start-once semantics, cooperative cancellation, final status
+transitions, and executor lookup; domain services remain responsible for the
+actual pipeline/model/tool work and artifact registration.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+import inspect
 import logging
 import threading
 from typing import Any, Callable
 
+from .executors import ExecutorRegistry, TaskExecutionContext
 from .models import TaskSpec, TaskStatus
 from .service import TaskRegistry
 
 logger = logging.getLogger(__name__)
 
-# Executor signature: (task_spec: TaskSpec) -> dict[str, Any]
-TaskExecutor = Callable[[TaskSpec], dict[str, Any]]
+
+@dataclass(slots=True)
+class _ExecutionRecord:
+    cancel_event: threading.Event
+    thread: threading.Thread | None = None
+    result: Any = None
+    error: BaseException | None = None
 
 
 class TaskDispatcher:
-    """Dispatch pending tasks to registered executors by task_type.
+    """Dispatch registered tasks synchronously or on one background thread."""
 
-    This is a lightweight in-process dispatcher. It does NOT implement
-    persistent queues or distributed execution — those are out of scope
-    for the current architecture.
-
-    Usage:
-        dispatcher = TaskDispatcher(registry)
-        dispatcher.register_executor("pipeline", pipeline_executor_fn)
-        dispatcher.register_executor("tool.separate", separation_executor_fn)
-        dispatcher.dispatch_next()  # picks highest-priority pending task
-    """
-
-    def __init__(self, registry: TaskRegistry) -> None:
+    def __init__(
+        self,
+        registry: TaskRegistry,
+        *,
+        task_service: Any | None = None,
+        executor_registry: ExecutorRegistry | None = None,
+    ) -> None:
         self._registry = registry
-        self._executors: dict[str, TaskExecutor] = {}
-        self._prefix_executors: dict[str, TaskExecutor] = {}
-        self._lock = threading.Lock()
+        self._task_service = task_service
+        self._executor_registry = executor_registry or registry.executor_registry
+        self._executors = self._executor_registry
+        self._lock = threading.RLock()
+        self._records: dict[str, _ExecutionRecord] = {}
 
-    def register_executor(self, task_type: str, executor: TaskExecutor) -> None:
-        """Register an executor for a specific task_type.
+    @property
+    def executor_registry(self) -> ExecutorRegistry:
+        return self._executor_registry
 
-        Args:
-            task_type: Exact task type (e.g., "pipeline") or prefix pattern
-                       ending with "." (e.g., "tool." matches "tool.separate", "tool.convert")
-            executor: Callable that accepts a TaskSpec and returns a result dict
-        """
-        with self._lock:
-            if task_type.endswith("."):
-                self._prefix_executors[task_type] = executor
-            else:
-                self._executors[task_type] = executor
+    def register_executor(self, task_type: str, executor: Callable[..., Any]) -> None:
+        """Register or replace the concrete handler for a task type."""
+        self._executor_registry.register(task_type, executor)
 
-    def resolve_executor(self, task_type: str) -> TaskExecutor | None:
-        """Find the executor for a given task_type."""
-        # Exact match first
-        executor = self._executors.get(task_type)
-        if executor:
-            return executor
-        # Prefix match
-        for prefix, exec_fn in self._prefix_executors.items():
-            if task_type.startswith(prefix):
-                return exec_fn
-        return None
+    def resolve_executor(self, task_type: str) -> Callable[..., Any] | None:
+        return self._executor_registry.resolve(task_type)
 
     def can_dispatch(self) -> bool:
-        """Check if there are pending tasks and capacity to run them."""
-        return self._registry.can_start() and bool(self._get_next_pending())
+        return self._lifecycle().can_start() and bool(self._get_next_pending())
 
     def dispatch_next(self) -> TaskStatus | None:
-        """Pick the highest-priority pending task and execute it.
-
-        Returns:
-            The final TaskStatus after execution, or None if nothing to dispatch.
-        """
-        if not self._registry.can_start():
-            logger.debug("dispatch_next: at max concurrency, skipping")
+        if not self._lifecycle().can_start():
             return None
-
         task_spec = self._get_next_pending()
         if task_spec is None:
             return None
-
-        executor = self.resolve_executor(task_spec.task_type)
-        if executor is None:
-            logger.warning("no executor registered for task_type=%s", task_spec.task_type)
-            return self._registry.fail_task(
-                task_spec.task_id,
-                message=f"no executor for task_type: {task_spec.task_type}",
-            )
-
-        return self._execute(task_spec, executor)
+        self._begin(task_spec.task_id)
+        self._execute(task_spec)
+        return self._lifecycle().get_task(task_spec.task_id)
 
     def dispatch_all_pending(self) -> list[TaskStatus]:
-        """Dispatch all pending tasks that have capacity.
-
-        Returns:
-            List of final TaskStatus for each dispatched task.
-        """
         results: list[TaskStatus] = []
-        while self._registry.can_start():
+        while self._lifecycle().can_start():
             status = self.dispatch_next()
             if status is None:
                 break
             results.append(status)
         return results
 
+    def submit(self, task_id: str) -> TaskStatus:
+        """Start one pending task in the background and return its snapshot."""
+        task = self._lifecycle().get_task(task_id)
+        if task.state == "running":
+            return task
+        if task.state != "pending":
+            raise ValueError(f"task cannot be submitted from state: {task.state}")
+        if not self._lifecycle().can_start():
+            return task
+
+        task_spec = self._lifecycle().get_task_spec(task_id)
+        self._start_background(task_spec)
+        return self._lifecycle().get_task(task_id)
+
+    def run(self, task_id: str, *, cancel_event: threading.Event | None = None) -> Any:
+        """Run a task now, or wait for its already submitted execution."""
+        task = self._lifecycle().get_task(task_id)
+        if task.state == "pending":
+            task_spec = self._lifecycle().get_task_spec(task_id)
+            self._begin(task_id)
+            if cancel_event is not None:
+                self._records[task_id].cancel_event = cancel_event
+            self._execute(task_spec)
+        elif task.state == "running":
+            if cancel_event is not None and cancel_event.is_set():
+                self.request_cancel(task_id)
+            record = self._records.get(task_id)
+            if record is None or record.thread is None:
+                raise ValueError(f"task is already running without a dispatcher worker: {task_id}")
+            if record.thread is not threading.current_thread():
+                record.thread.join()
+        elif task.state not in self._registry.TERMINAL_STATES:
+            raise ValueError(f"task cannot be run from state: {task.state}")
+
+        record = self._records.get(task_id)
+        if record is not None and record.error is not None:
+            raise record.error
+        if record is not None:
+            return record.result
+        return self._lifecycle().get_task(task_id)
+
+    def request_cancel(self, task_id: str) -> TaskStatus:
+        """Request cancellation; final ``cancelled`` waits for executor exit."""
+        task = self._lifecycle().get_task(task_id)
+        if task.state == "pending":
+            return self._lifecycle().cancel_task(task_id)
+        if task.state != "running":
+            raise ValueError(f"cannot cancel task in state: {task.state}")
+
+        with self._lock:
+            record = self._records.get(task_id)
+            if record is None:
+                raise ValueError(f"task is running outside the dispatcher: {task_id}")
+            record.cancel_event.set()
+        return self._lifecycle().update_progress(
+            task_id,
+            task.progress,
+            message="cancellation requested",
+            stage=task.stage,
+        )
+
+    def cancel_event(self, task_id: str) -> threading.Event | None:
+        with self._lock:
+            record = self._records.get(task_id)
+            return record.cancel_event if record else None
+
+    def _begin(self, task_id: str) -> _ExecutionRecord:
+        with self._lock:
+            if task_id in self._records:
+                raise ValueError(f"task has already been started: {task_id}")
+            self._lifecycle().start_task(task_id, message="task accepted by executor registry")
+            record = _ExecutionRecord(cancel_event=threading.Event())
+            self._records[task_id] = record
+            return record
+
+    def _execute(self, task_spec: TaskSpec) -> None:
+        task_id = task_spec.task_id
+        record = self._records[task_id]
+        executor = self.resolve_executor(task_spec.task_type)
+        if executor is None:
+            exc = RuntimeError(f"no executor registered for task_type: {task_spec.task_type}")
+            record.error = exc
+            self._finalize_failure(task_id, exc)
+            return
+
+        context = TaskExecutionContext(
+            task_id=task_id,
+            cancel_event=record.cancel_event,
+            update_progress_callback=lambda progress, message="", **kwargs: self._lifecycle().update_progress(
+                task_id,
+                progress,
+                message=message,
+                **kwargs,
+            ),
+            set_stage_callback=lambda stage: self._lifecycle().update_progress(
+                task_id,
+                self._lifecycle().get_task(task_id).progress,
+                stage=stage,
+            ),
+        )
+        try:
+            record.result = self._invoke_executor(executor, task_spec, context)
+            current = self._lifecycle().get_task(task_id)
+            if current.state in self._registry.TERMINAL_STATES:
+                return
+            if record.cancel_event.is_set():
+                self._lifecycle().cancel_task(task_id, message="cancelled by user")
+            else:
+                detail, artifact_set_id = self._result_metadata(record.result, task_id)
+                self._lifecycle().complete_task(
+                    task_id,
+                    message="completed",
+                    detail=detail,
+                    stage=current.stage,
+                    artifact_set_id=artifact_set_id,
+                )
+        except BaseException as exc:  # worker errors must always close the task
+            record.error = exc
+            current = self._lifecycle().get_task(task_id)
+            if current.state in self._registry.TERMINAL_STATES:
+                return
+            if record.cancel_event.is_set() or "cancel" in str(exc).lower() or "取消" in str(exc):
+                self._lifecycle().cancel_task(task_id, message="cancelled by user")
+            else:
+                self._finalize_failure(task_id, exc, stage=current.stage)
+        finally:
+            with self._lock:
+                if record.thread is None and threading.current_thread() is not threading.main_thread():
+                    record.thread = threading.current_thread()
+            self._drain_pending()
+
+    def _start_background(self, task_spec: TaskSpec) -> None:
+        record = self._begin(task_spec.task_id)
+        thread = threading.Thread(
+            target=self._execute,
+            args=(task_spec,),
+            name=f"task-{task_spec.task_id}",
+            daemon=True,
+        )
+        record.thread = thread
+        thread.start()
+
+    def _drain_pending(self) -> None:
+        """Start queued work whenever a running slot is released."""
+        while self._lifecycle().can_start():
+            task_spec = self._get_next_pending()
+            if task_spec is None:
+                return
+            try:
+                self._start_background(task_spec)
+            except ValueError:
+                # A concurrent caller may have started or cancelled the task;
+                # re-scan the queue rather than leaving another task blocked.
+                continue
+
+    @staticmethod
+    def _invoke_executor(
+        executor: Callable[..., Any],
+        task_spec: TaskSpec,
+        context: TaskExecutionContext,
+    ) -> Any:
+        try:
+            parameters = inspect.signature(executor).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        if len(parameters) >= 2:
+            return executor(task_spec, context)
+        return executor(task_spec)
+
+    def _finalize_failure(
+        self,
+        task_id: str,
+        exc: BaseException,
+        *,
+        stage: str | None = None,
+    ) -> None:
+        structured_error = getattr(exc, "task_error", None)
+        if isinstance(structured_error, dict):
+            resolved_stage = str(
+                structured_error.get("stage")
+                or stage
+                or self._lifecycle().get_task(task_id).stage
+                or "prepare"
+            )
+            self._lifecycle().fail_task(
+                task_id,
+                message=str(structured_error.get("message") or str(exc)),
+                detail=str(structured_error.get("detail") or str(exc)),
+                stage=resolved_stage,
+                error=dict(structured_error),
+            )
+            return
+        detail = str(getattr(exc, "detail", "") or str(exc))
+        resolved_stage = stage or self._lifecycle().get_task(task_id).stage or "prepare"
+        self._lifecycle().fail_task(
+            task_id,
+            message="execution failed",
+            detail=detail,
+            stage=resolved_stage,
+            error={
+                "code": "TASK_EXECUTION_FAILED",
+                "stage": resolved_stage,
+                "message": detail,
+                "retryable": True,
+                "detail": detail,
+            },
+        )
+
+    @staticmethod
+    def _result_metadata(result: Any, task_id: str) -> tuple[str, str | None]:
+        if isinstance(result, dict):
+            detail = str(result.get("primary_output") or result.get("detail") or "")
+            artifact_set_id = result.get("artifact_set_id")
+            return detail, str(artifact_set_id) if artifact_set_id else None
+        detail = str(getattr(result, "mix_path", "") or getattr(result, "primary_output", "") or "")
+        return detail, task_id if getattr(result, "artifacts", None) else None
+
     def _get_next_pending(self) -> TaskSpec | None:
-        """Get the highest-priority pending task."""
-        pending = self._registry.list_tasks(state="pending")
+        pending = self._lifecycle().list_tasks(state="pending")
         if not pending:
             return None
-
-        # Sort by priority (higher first), then by task_id (FIFO for same priority)
-        pending.sort(key=lambda t: (-self._get_priority(t.task_id), t.task_id))
-        return self._registry.get_task_spec(pending[0].task_id)
-
-    def _get_priority(self, task_id: str) -> int:
-        """Get priority for a task."""
-        try:
-            spec = self._registry.get_task_spec(task_id)
-            return spec.priority
-        except ValueError:
-            return 0
-
-    def _execute(self, task_spec: TaskSpec, executor: TaskExecutor) -> TaskStatus:
-        """Execute a task and handle lifecycle transitions."""
-        self._registry.start_task(task_spec.task_id, message="dispatched")
-
-        try:
-            result = executor(task_spec)
-            detail = ""
-            if isinstance(result, dict):
-                detail = result.get("primary_output", "") or result.get("detail", "")
-            return self._registry.complete_task(
-                task_spec.task_id,
-                message="completed",
-                detail=str(detail),
+        pending.sort(
+            key=lambda task: (
+                -self._lifecycle().get_task_spec(task.task_id).priority,
+                task.task_id,
             )
-        except Exception as exc:
-            logger.exception("task %s failed: %s", task_spec.task_id, exc)
-            return self._registry.fail_task(
-                task_spec.task_id,
-                message="execution failed",
-                detail=str(exc),
-            )
+        )
+        return self._lifecycle().get_task_spec(pending[0].task_id)
+
+    def _lifecycle(self) -> Any:
+        return self._task_service or self._registry

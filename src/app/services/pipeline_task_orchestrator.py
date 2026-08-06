@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import threading
-import logging
 
 from ..dto import PipelineRequest, PipelineResult, TaskStatus
-from ..errors import AppValidationError
+from ..errors import AppExecutionError, AppValidationError
+from src.core.tasks import TaskDispatcher
 from .artifact_service import ArtifactService, get_artifact_service
 from .pipeline_service import PipelineService, get_pipeline_service
-from .task_service import TaskService, get_task_service
-
-
-logger = logging.getLogger(__name__)
+from .task_service import TaskService, get_task_dispatcher, get_task_service
 
 
 class PipelineTaskOrchestrator:
@@ -23,24 +20,38 @@ class PipelineTaskOrchestrator:
         pipeline_service: PipelineService | None = None,
         task_service: TaskService | None = None,
         artifact_service: ArtifactService | None = None,
+        dispatcher=None,
     ) -> None:
         self._pipeline_service = pipeline_service or get_pipeline_service()
         self._task_service = task_service or get_task_service()
         self._artifact_service = artifact_service or get_artifact_service()
-        self._launch_lock = threading.Lock()
-        self._launching_task_ids: set[str] = set()
-        self._cancel_events: dict[str, threading.Event] = {}
+        self._dispatcher = dispatcher or (
+            get_task_dispatcher()
+            if task_service is None
+            else TaskDispatcher(
+                self._task_service.registry,
+                task_service=self._task_service,
+            )
+        )
+        self._dispatcher.register_executor("pipeline", self._execute_pipeline)
+        self._progress_callbacks: dict[str, object] = {}
+        self._progress_lock = threading.Lock()
 
     def create_task_spec(self, request: PipelineRequest, *, task_source: str = "manual-pipeline-run"):
         return self._pipeline_service.create_pipeline_task_spec(request, task_source=task_source)
 
-    def run_task(self, task_id: str) -> PipelineResult:
-        with self._launch_lock:
-            cancel_event = self._cancel_events.get(task_id)
-        return self._pipeline_service.run_pipeline_task(
-            task_id,
-            cancel_event=cancel_event,
-        )
+    def run_task(self, task_id: str, *, progress_callback=None, cancel_event=None) -> PipelineResult:
+        with self._progress_lock:
+            if progress_callback is not None:
+                self._progress_callbacks[task_id] = progress_callback
+        try:
+            result = self._dispatcher.run(task_id, cancel_event=cancel_event)
+        finally:
+            with self._progress_lock:
+                self._progress_callbacks.pop(task_id, None)
+        if isinstance(result, PipelineResult):
+            return result
+        raise AppExecutionError(f"pipeline task returned no result: {task_id}")
 
     def submit_task(
         self,
@@ -54,53 +65,23 @@ class PipelineTaskOrchestrator:
             task_source=task_source,
         )
         self.start_task(task.task_id)
+        # Preserve the existing accepted-response snapshot: callers receive
+        # the queued Task V1 record while the dispatcher owns the transition.
         return task
 
     def start_task(self, task_id: str) -> TaskStatus:
         """Launch one pending task in a background thread and return immediately."""
-        with self._launch_lock:
-            task = self._task_service.get_task(task_id)
-            if task.state == "pending":
-                if task_id not in self._launching_task_ids:
-                    self._launching_task_ids.add(task_id)
-                    self._cancel_events[task_id] = threading.Event()
-                    self._task_service.start_task(
-                        task_id,
-                        message="pipeline accepted by backend",
-                        stage="prepare",
-                    )
-                    threading.Thread(
-                        target=self._run_task_in_background,
-                        args=(task_id,),
-                        name=f"pipeline-{task_id}",
-                        daemon=True,
-                    ).start()
-            elif task.state not in {"running"}:
-                raise AppValidationError(
-                    f"pipeline task cannot be started from state: {task.state}"
-                )
-            return task
+        try:
+            return self._dispatcher.submit(task_id)
+        except ValueError as exc:
+            raise AppValidationError(str(exc)) from exc
 
     def request_cancel(self, task_id: str) -> TaskStatus:
         """Request cooperative cancellation without claiming it already stopped."""
-        task = self._task_service.get_task(task_id)
-        if task.state == "pending":
-            return self._task_service.cancel_task(task_id)
-        if task.state != "running":
-            raise AppValidationError(f"cannot cancel task in state: {task.state}")
-
-        with self._launch_lock:
-            cancel_event = self._cancel_events.get(task_id)
-            if cancel_event is None:
-                cancel_event = threading.Event()
-                self._cancel_events[task_id] = cancel_event
-            cancel_event.set()
-        return self._task_service.update_progress(
-            task_id,
-            progress=task.progress,
-            message="cancellation requested",
-            stage=task.stage,
-        )
+        try:
+            return self._dispatcher.request_cancel(task_id)
+        except ValueError as exc:
+            raise AppValidationError(str(exc)) from exc
 
     def retry_task(self, task_id: str) -> TaskStatus:
         """Create a new task from a failed/cancelled pipeline task and launch it."""
@@ -111,30 +92,26 @@ class PipelineTaskOrchestrator:
             raise AppValidationError(
                 "historical tasks cannot be retried after restart; submit a new pipeline run"
             )
-        previous_spec = self._task_service.get_task_spec(task_id)
-        _, retried = self._task_service.create_task_spec(
-            task_type=previous_spec.task_type,
-            task_source=f"retry:{task_id}",
-            session_id=previous_spec.session_id,
-            input_asset_id=previous_spec.input_asset_id,
-            companion_asset_ids=previous_spec.companion_asset_ids,
-            execution_profile=previous_spec.execution_profile,
-            priority=previous_spec.priority,
-            dedupe_key="",
-        )
+        retried = self._task_service.retry_task(task_id)
         self.start_task(retried.task_id)
-        return retried
+        return self._task_service.get_task(retried.task_id)
 
-    def _run_task_in_background(self, task_id: str) -> None:
-        try:
-            self.run_task(task_id)
-        except Exception:
-            # PipelineService has already persisted the task failure and its detail.
-            logger.exception("Background pipeline task %s failed", task_id)
-        finally:
-            with self._launch_lock:
-                self._launching_task_ids.discard(task_id)
-                self._cancel_events.pop(task_id, None)
+    def _execute_pipeline(self, task_spec, context):
+        """Adapter keeping PipelineService's domain logic behind TaskDispatcher."""
+        method = getattr(self._pipeline_service, "run_pipeline_task_spec", None)
+        if method is not None:
+            with self._progress_lock:
+                progress_callback = self._progress_callbacks.get(task_spec.task_id)
+            return method(
+                task_spec,
+                progress_callback=progress_callback,
+                cancel_event=context.cancel_event,
+                manage_lifecycle=False,
+            )
+        return self._pipeline_service.run_pipeline_task(
+            task_spec.task_id,
+            cancel_event=context.cancel_event,
+        )
 
     def get_task(self, task_id: str) -> TaskStatus:
         return self._task_service.get_task(task_id)

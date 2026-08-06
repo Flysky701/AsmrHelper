@@ -45,6 +45,7 @@ __all__ = [
     "get_script_subtitle_service",
     "get_subtitle_service",
     "get_task_service",
+    "get_task_dispatcher",
     "get_voice_service",
 ]
 
@@ -89,6 +90,7 @@ _EXPORTS = {
     "get_script_subtitle_service": ("src.app.services", "get_script_subtitle_service"),
     "get_subtitle_service": ("src.app.services", "get_subtitle_service"),
     "get_task_service": ("src.app.services", "get_task_service"),
+    "get_task_dispatcher": ("src.app.services", "get_task_dispatcher"),
     "get_voice_service": ("src.app.services", "get_voice_service"),
 }
 

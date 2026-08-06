@@ -17,6 +17,7 @@ class TaskSpec:
     execution_profile: dict[str, Any] = field(default_factory=dict)
     priority: int = 0
     dedupe_key: str = ""
+    retry_of_task_id: str | None = None
     created_at: str = ""
 
 
@@ -39,6 +40,7 @@ class TaskStatus:
     finished_at: str | None = None
     error: dict[str, Any] | None = None
     artifact_set_id: str | None = None
+    retry_of_task_id: str | None = None
     review_state: str = ""
     review_note: str = ""
 

@@ -6,6 +6,7 @@ import logging
 import threading
 
 from src.core.resources import get_model_service as get_core_model_service
+from src.core.tasks import TaskDispatcher
 
 from ..dto import (
     ModelOperationResult,
@@ -15,6 +16,7 @@ from ..dto import (
     ModelVerificationResult,
 )
 from ..errors import AppExecutionError, AppValidationError
+from .task_service import TaskService, get_task_dispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +24,22 @@ logger = logging.getLogger(__name__)
 class ModelService:
     """Stable application-facing facade for model operations."""
 
-    def __init__(self, core_service=None, task_service=None):
+    def __init__(self, core_service=None, task_service=None, dispatcher=None):
         self.core_service = core_service or get_core_model_service()
         self._task_service = task_service
+        self._dispatcher = dispatcher
+        if self._dispatcher is None and task_service is None:
+            self._dispatcher = get_task_dispatcher()
+        elif self._dispatcher is None and isinstance(task_service, TaskService):
+            self._dispatcher = TaskDispatcher(
+                task_service.registry,
+                task_service=task_service,
+            )
+        if self._dispatcher is not None:
+            self._dispatcher.register_executor(
+                "model_install",
+                self._execute_model_install,
+            )
 
     def list_models(self, kind: str | None = None, category: str | None = None) -> list[ModelSummary]:
         entries = self.core_service.list_models(kind=kind, category=category)
@@ -146,39 +161,57 @@ class ModelService:
             execution_profile={
                 "operation": "install",
                 "model_id": model_id,
+                "mirror": mirror,
+                "force": force,
+                "install_mode": install_mode,
+                "install_dependencies": install_dependencies,
+                "install_recommended_assets": install_recommended_assets,
+                "allow_fallback_variant": allow_fallback_variant,
             },
         )
         task_id = task.task_id
 
-        def _run():
-            try:
-                task_svc.start_task(task_id, "waiting for model installer")
-                installed = self.core_service.install(
-                    model_id,
-                    mirror=mirror,
-                    force=force,
-                    install_mode=install_mode,
-                    install_dependencies=install_dependencies,
-                    install_recommended_assets=install_recommended_assets,
-                    allow_fallback_variant=allow_fallback_variant,
-                    on_progress=lambda frac, msg: task_svc.update_progress(task_id, frac, msg),
-                )
-                if not installed:
-                    raise RuntimeError(
-                        f"model installation failed or runtime dependencies conflict: {model_id}"
-                    )
-                task_svc.complete_task(task_id, "installed")
-            except Exception as exc:
-                logger.error("async install failed for %s: %s", model_id, exc)
-                task_svc.fail_task(
-                    task_id,
-                    str(exc),
-                    detail=str(getattr(exc, "detail", "") or ""),
-                )
-
-        thread = threading.Thread(target=_run, name=f"install-{model_id}", daemon=True)
-        thread.start()
+        if self._dispatcher is None:
+            raise AppExecutionError("model installer dispatcher is not configured")
+        self._dispatcher.submit(task_id)
         return task_id
+
+    def _execute_model_install(self, task_spec, context):
+        profile = dict(task_spec.execution_profile)
+        model_id = str(profile.get("model_id") or "")
+        if context.cancellation_requested:
+            raise AppExecutionError("cancelled by user")
+
+        def _on_progress(frac, message):
+            if context.cancellation_requested:
+                raise AppExecutionError("cancelled by user")
+            context.update_progress(
+                float(frac),
+                str(message),
+                stage="install",
+            )
+
+        context.update_progress(
+            0.0,
+            message="waiting for model installer",
+            stage="install",
+        )
+        self._get_model_entry(model_id)
+        installed = self.core_service.install(
+            model_id,
+            mirror=profile.get("mirror"),
+            force=bool(profile.get("force", False)),
+            install_mode=profile.get("install_mode", "single"),
+            install_dependencies=bool(profile.get("install_dependencies", True)),
+            install_recommended_assets=bool(profile.get("install_recommended_assets", False)),
+            allow_fallback_variant=bool(profile.get("allow_fallback_variant", False)),
+            on_progress=_on_progress,
+        )
+        if not installed:
+            raise AppExecutionError(
+                f"model installation failed or runtime dependencies conflict: {model_id}"
+            )
+        return {"detail": f"installed {model_id}"}
 
     def verify_models(self, model_id: str | None = None) -> list[ModelVerificationResult]:
         if model_id:

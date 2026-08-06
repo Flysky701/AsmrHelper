@@ -7,6 +7,7 @@ with their current interfaces.
 from __future__ import annotations
 
 import threading
+import time
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -264,14 +265,9 @@ class TestModelService:
 
     def test_async_install_fails_task_when_core_install_returns_false(self):
         from src.app.services.model_service import ModelService
+        from src.app.services.task_service import TaskService
 
-        finished = threading.Event()
-        task_service = MagicMock()
-        task_service.create_task_spec.return_value = (
-            SimpleNamespace(task_id="model-install-1"),
-            SimpleNamespace(task_id="model-install-1"),
-        )
-        task_service.fail_task.side_effect = lambda task_id, message, **kwargs: finished.set()
+        task_service = TaskService()
         core_service = MagicMock()
         core_service.get_model.return_value = SimpleNamespace(kind="local")
         core_service.install.return_value = False
@@ -279,10 +275,15 @@ class TestModelService:
 
         task_id = service.install_model_async("optional-model")
 
-        assert task_id == "model-install-1"
-        assert finished.wait(timeout=1)
-        task_service.complete_task.assert_not_called()
-        task_service.fail_task.assert_called_once()
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            if task_service.get_task(task_id).state == "failed":
+                break
+            time.sleep(0.01)
+        task = task_service.get_task(task_id)
+        assert task.state == "failed"
+        assert task.stage == "install"
+        assert task.error["code"] == "TASK_EXECUTION_FAILED"
 
 
 class TestTaskService:
@@ -397,7 +398,7 @@ class TestTaskService:
 
         service = TaskService()
         spec, _ = service.create_task_spec(
-            task_type="tool", task_source="test", session_id="s1",
+            task_type="tool.separate", task_source="test", session_id="s1",
         )
         service.start_task(spec.task_id)
         failed = service.fail_task(spec.task_id, message="error", detail="OOM")

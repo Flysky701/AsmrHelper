@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from src.api.http.dependencies import (
     artifact_service,
     pipeline_task_orchestrator,
+    task_dispatcher,
     task_service,
 )
 from src.api.http.schemas.tasks import (
@@ -29,7 +30,9 @@ from src.api.http.schemas.tasks import (
     TaskSpecResponse,
     TaskStatusResponse,
 )
+from src.app.errors import AppValidationError
 from src.app.services import ArtifactService, PipelineTaskOrchestrator, TaskService
+from src.core.tasks import TaskDispatcher
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 queue_router = APIRouter(tags=["tasks"])
@@ -40,12 +43,13 @@ def cancel_task(
     task_id: str,
     svc: TaskService = Depends(task_service),
     pipeline_svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator),
+    dispatcher: TaskDispatcher = Depends(task_dispatcher),
 ):
     current = svc.get_task(task_id)
     task = (
         pipeline_svc.request_cancel(task_id)
         if current.task_type == "pipeline"
-        else svc.cancel_task(task_id)
+        else dispatcher.request_cancel(task_id)
     )
     return TaskStatusResponse.from_task_status(task)
 
@@ -55,12 +59,13 @@ def retry_task(
     task_id: str,
     svc: TaskService = Depends(task_service),
     pipeline_svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator),
+    dispatcher: TaskDispatcher = Depends(task_dispatcher),
 ):
     current = svc.get_task(task_id)
     task = (
         pipeline_svc.retry_task(task_id)
         if current.task_type == "pipeline"
-        else svc.retry_task(task_id)
+        else dispatcher.submit(svc.retry_task(task_id).task_id)
     )
     return TaskStatusResponse.from_task_status(task)
 
@@ -109,7 +114,12 @@ def post_review_note(
 def create_task(
     body: TaskCreateRequest,
     svc: TaskService = Depends(task_service),
+    dispatcher: TaskDispatcher = Depends(task_dispatcher),
 ):
+    if dispatcher.resolve_executor(body.task_type) is None:
+        raise AppValidationError(
+            f"no executable handler registered for task_type: {body.task_type}"
+        )
     spec, task = svc.create_task_spec(
         task_type=body.task_type,
         task_source=body.task_source,
@@ -120,8 +130,9 @@ def create_task(
         priority=body.priority,
         dedupe_key=body.dedupe_key,
     )
+    submitted = dispatcher.submit(task.task_id)
     return TaskCreateResponse(
-        task=TaskStatusResponse.from_task_status(task),
+        task=TaskStatusResponse.from_task_status(submitted),
         spec=TaskSpecResponse.from_task_spec(spec),
     )
 
@@ -130,7 +141,20 @@ def create_task(
 def create_tasks_batch(
     body: TaskBatchCreateRequest,
     svc: TaskService = Depends(task_service),
+    dispatcher: TaskDispatcher = Depends(task_dispatcher),
 ):
+    missing_handlers = sorted(
+        {
+            item.task_type
+            for item in body.items
+            if dispatcher.resolve_executor(item.task_type) is None
+        }
+    )
+    if missing_handlers:
+        raise AppValidationError(
+            "no executable handler registered for task_type: "
+            + ", ".join(missing_handlers)
+        )
     items = []
     for item in body.items:
         spec, task = svc.create_task_spec(
@@ -143,9 +167,10 @@ def create_tasks_batch(
             priority=item.priority,
             dedupe_key=item.dedupe_key,
         )
+        submitted = dispatcher.submit(task.task_id)
         items.append(
             TaskCreateResponse(
-                task=TaskStatusResponse.from_task_status(task),
+                task=TaskStatusResponse.from_task_status(submitted),
                 spec=TaskSpecResponse.from_task_spec(spec),
             )
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from .executors import ExecutorRegistry, build_default_executor_registry
 from .models import RuntimeEvent, TaskSpec, TaskStatus
 
 
@@ -13,13 +14,22 @@ class TaskRegistry:
     TERMINAL_STATES = frozenset({"completed", "failed", "cancelled", "skipped"})
     VALID_REVIEW_STATES = frozenset({"", "accepted", "needs_review", "needs_rework"})
 
-    def __init__(self, max_concurrent: int = 4) -> None:
+    def __init__(
+        self,
+        max_concurrent: int = 4,
+        executor_registry: ExecutorRegistry | None = None,
+    ) -> None:
         self._tasks: dict[str, TaskStatus] = {}
         self._task_specs: dict[str, TaskSpec] = {}
         self._events: dict[str, list[RuntimeEvent]] = {}
         self._event_sequences: dict[str, int] = {}
         self._counters: dict[str, int] = {}
         self._max_concurrent = max_concurrent
+        self._executor_registry = executor_registry or build_default_executor_registry()
+
+    @property
+    def executor_registry(self) -> ExecutorRegistry:
+        return self._executor_registry
 
     def create_task_spec(
         self,
@@ -32,7 +42,10 @@ class TaskRegistry:
         execution_profile: dict | None = None,
         priority: int = 0,
         dedupe_key: str = "",
+        retry_of_task_id: str | None = None,
     ) -> tuple[TaskSpec, TaskStatus]:
+        if not self._executor_registry.is_registered(task_type):
+            raise ValueError(f"no executor registered for task_type: {task_type}")
         next_id = self._counters.get(task_type, 0) + 1
         self._counters[task_type] = next_id
         task_id = f"{task_type}-{next_id}"
@@ -46,6 +59,7 @@ class TaskRegistry:
             execution_profile=dict(execution_profile or {}),
             priority=priority,
             dedupe_key=dedupe_key,
+            retry_of_task_id=retry_of_task_id,
             created_at=datetime.now(UTC).isoformat(),
         )
         task_status = TaskStatus(
@@ -58,6 +72,7 @@ class TaskRegistry:
             created_at=task_spec.created_at,
             queued_at=task_spec.created_at,
             updated_at=task_spec.created_at,
+            retry_of_task_id=retry_of_task_id,
         )
         self._task_specs[task_id] = task_spec
         self._tasks[task_id] = task_status
@@ -126,6 +141,13 @@ class TaskRegistry:
         *,
         stage: str | None = "prepare",
     ) -> TaskStatus:
+        current = self.get_task(task_id)
+        if current.state == "running":
+            # Starting is idempotent at the status boundary; TaskDispatcher
+            # still guarantees that the executor callable runs only once.
+            return current
+        if current.state != "pending":
+            raise ValueError(f"task can only be started once from pending: {current.state}")
         return self.update_task(task_id, state="running", message=message, stage=stage)
 
     def update_progress(
@@ -205,20 +227,21 @@ class TaskRegistry:
         current = self.get_task(task_id)
         if current.state not in {"failed", "cancelled"}:
             raise ValueError(f"cannot retry task in state: {current.state}")
-        return self.update_task(
-            task_id,
-            state="pending",
-            progress=0.0,
-            message=message,
-            detail="",
-            stage=None,
-            reset_runtime=True,
-            review_state="",
-            review_note="",
-            queued_at=self._now(),
-            started_at=None,
-            finished_at=None,
+        previous_spec = self.get_task_spec(task_id)
+        _, retried = self.create_task_spec(
+            task_type=previous_spec.task_type,
+            task_source=f"retry:{task_id}",
+            session_id=previous_spec.session_id,
+            input_asset_id=previous_spec.input_asset_id,
+            companion_asset_ids=previous_spec.companion_asset_ids,
+            execution_profile=previous_spec.execution_profile,
+            priority=previous_spec.priority,
+            dedupe_key="",
+            retry_of_task_id=task_id,
         )
+        if message:
+            return self.update_task(retried.task_id, message=message)
+        return retried
 
     def set_review_state(self, task_id: str, review_state: str) -> TaskStatus:
         if review_state not in self.VALID_REVIEW_STATES:
@@ -306,6 +329,25 @@ class TaskRegistry:
         if progress is not None and not 0.0 <= progress <= 1.0:
             raise ValueError("task progress must be between 0.0 and 1.0")
 
+        lifecycle_values = (
+            state,
+            progress,
+            stage,
+            message,
+            detail,
+            error,
+            artifact_set_id,
+            queued_at,
+            started_at,
+            finished_at,
+            clear_error,
+            reset_runtime,
+        )
+        if current.state in self.TERMINAL_STATES and any(
+            value is not None and value is not False for value in lifecycle_values
+        ):
+            raise ValueError("terminal task is immutable")
+
         next_state = state if state is not None else current.state
         now = self._now()
         terminal = next_state in self.TERMINAL_STATES
@@ -346,6 +388,7 @@ class TaskRegistry:
                 if reset_runtime
                 else artifact_set_id if artifact_set_id is not None else current.artifact_set_id
             ),
+            retry_of_task_id=current.retry_of_task_id,
             review_state=review_state if review_state is not None else current.review_state,
             review_note=review_note if review_note is not None else current.review_note,
         )
@@ -456,6 +499,7 @@ class TaskRegistry:
             finished_at=task.finished_at,
             error=dict(task.error) if task.error is not None else None,
             artifact_set_id=task.artifact_set_id,
+            retry_of_task_id=task.retry_of_task_id,
             review_state=task.review_state,
             review_note=task.review_note,
         )
@@ -472,6 +516,7 @@ class TaskRegistry:
             execution_profile=dict(task_spec.execution_profile),
             priority=task_spec.priority,
             dedupe_key=task_spec.dedupe_key,
+            retry_of_task_id=task_spec.retry_of_task_id,
             created_at=task_spec.created_at,
         )
 

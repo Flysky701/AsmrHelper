@@ -16,6 +16,12 @@ from src.core.tasks import TaskSpec, TaskStatus
 TERMINAL_STATES = ("completed", "failed", "cancelled", "skipped")
 
 
+def _with_task_v1_defaults(payload: dict) -> dict:
+    """Read pre-retry Task V1 records without changing the stored history."""
+    payload.setdefault("retry_of_task_id", None)
+    return payload
+
+
 def _default_state_db_path() -> Path:
     override = os.environ.get("ASMR_HELPER_STATE_DB", "").strip()
     if override:
@@ -127,12 +133,11 @@ class SqliteStateStore:
             ).fetchall()
         return [
             (
-                TaskSpec(**json.loads(row["spec_json"])),
-                TaskStatus(**json.loads(row["status_json"])),
+                TaskSpec(**_with_task_v1_defaults(json.loads(row["spec_json"]))),
+                TaskStatus(**_with_task_v1_defaults(json.loads(row["status_json"]))),
             )
             for row in rows
         ]
-
     def save_artifact(self, record: ArtifactRecord) -> None:
         with self._lock, self._connect() as connection:
             connection.execute(

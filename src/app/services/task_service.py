@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from src.core.tasks import RuntimeEvent, TaskRegistry, TaskSpec, TaskStatus
+from src.core.tasks import ExecutorRegistry, RuntimeEvent, TaskRegistry, TaskSpec, TaskStatus
 from ..errors import AppValidationError
 from ..persistence import SqliteStateStore, get_state_store
 
@@ -15,8 +15,12 @@ class TaskService:
         self,
         max_concurrent: int = 4,
         state_store: SqliteStateStore | None = None,
+        executor_registry: ExecutorRegistry | None = None,
     ) -> None:
-        self._registry = TaskRegistry(max_concurrent=max_concurrent)
+        self._registry = TaskRegistry(
+            max_concurrent=max_concurrent,
+            executor_registry=executor_registry,
+        )
         self._lock = threading.Lock()
         self._state_store = state_store
         self._restored_task_ids: set[str] = set()
@@ -37,6 +41,7 @@ class TaskService:
         execution_profile: dict | None = None,
         priority: int = 0,
         dedupe_key: str = "",
+        retry_of_task_id: str | None = None,
     ) -> tuple[TaskSpec, TaskStatus]:
         with self._lock:
             try:
@@ -49,6 +54,7 @@ class TaskService:
                     execution_profile=execution_profile,
                     priority=priority,
                     dedupe_key=dedupe_key,
+                    retry_of_task_id=retry_of_task_id,
                 )
                 if self._state_store is not None:
                     self._state_store.save_task(*result)
@@ -141,7 +147,24 @@ class TaskService:
         return self._guard(lambda: self._registry.cancel_task(task_id, message=message))
 
     def retry_task(self, task_id: str, message: str = "queued for retry") -> TaskStatus:
-        return self._guard(lambda: self._registry.retry_task(task_id, message=message))
+        with self._lock:
+            if task_id in self._restored_task_ids:
+                raise AppValidationError(
+                    "historical tasks cannot be retried after restart; submit a new task"
+                )
+            try:
+                result = self._registry.retry_task(task_id, message=message)
+                if self._state_store is not None:
+                    task_spec = self._registry.get_task_spec(result.task_id)
+                    self._state_store.save_task(task_spec, result)
+                return result
+            except ValueError as exc:
+                raise AppValidationError(str(exc)) from exc
+
+    @property
+    def registry(self) -> TaskRegistry:
+        """Expose the core registry to the one shared TaskDispatcher."""
+        return self._registry
 
     def set_review_state(self, task_id: str, review_state: str) -> TaskStatus:
         return self._guard(lambda: self._registry.set_review_state(task_id, review_state))
@@ -198,6 +221,9 @@ class TaskService:
 
 _service: TaskService | None = None
 _lock = threading.Lock()
+_dispatcher = None
+_dispatcher_service = None
+_dispatcher_lock = threading.Lock()
 
 
 def get_task_service() -> TaskService:
@@ -207,3 +233,86 @@ def get_task_service() -> TaskService:
             if _service is None:
                 _service = TaskService(state_store=get_state_store())
     return _service
+
+
+def get_task_dispatcher():
+    """Return the one application dispatcher for the process."""
+    global _dispatcher, _dispatcher_service
+    service = get_task_service()
+    if _dispatcher is None or _dispatcher_service is not service:
+        with _dispatcher_lock:
+            if _dispatcher is None or _dispatcher_service is not service:
+                from src.core.tasks import TaskDispatcher
+
+                _dispatcher = TaskDispatcher(
+                    service.registry,
+                    task_service=service,
+                )
+                _dispatcher_service = service
+                # Wire lazy adapters immediately so a generic task submission
+                # cannot create a valid-looking task with no executable path.
+                _dispatcher.register_executor(
+                    "pipeline",
+                    lambda spec, context: _lazy_pipeline_executor(spec, context),
+                )
+                _dispatcher.register_executor(
+                    "tool.separate",
+                    lambda spec, context: _lazy_tool_executor(spec, context),
+                )
+                _dispatcher.register_executor(
+                    "tool.convert",
+                    lambda spec, context: _lazy_tool_executor(spec, context),
+                )
+                _dispatcher.register_executor(
+                    "tool.split",
+                    lambda spec, context: _lazy_tool_executor(spec, context),
+                )
+                _dispatcher.register_executor(
+                    "tool.translate_subtitle",
+                    lambda spec, context: _lazy_tool_executor(spec, context),
+                )
+                _dispatcher.register_executor(
+                    "tool.volume_preview",
+                    lambda spec, context: _lazy_tool_executor(spec, context),
+                )
+                _dispatcher.register_executor(
+                    "model_install",
+                    lambda spec, context: _lazy_model_executor(spec, context),
+                )
+                _dispatcher.register_executor(
+                    "voice.design",
+                    lambda spec, context: _lazy_voice_executor(spec, context),
+                )
+                _dispatcher.register_executor(
+                    "voice.clone",
+                    lambda spec, context: _lazy_voice_executor(spec, context),
+                )
+                _dispatcher.register_executor(
+                    "voice.preview",
+                    lambda spec, context: _lazy_voice_executor(spec, context),
+                )
+    return _dispatcher
+
+
+def _lazy_pipeline_executor(task_spec, context):
+    from .pipeline_task_orchestrator import get_pipeline_task_orchestrator
+
+    return get_pipeline_task_orchestrator()._execute_pipeline(task_spec, context)
+
+
+def _lazy_tool_executor(task_spec, context):
+    from .tool_registry import get_tool_registry
+
+    return get_tool_registry()._execute_tool(task_spec, context)
+
+
+def _lazy_model_executor(task_spec, context):
+    from .model_service import get_model_service
+
+    return get_model_service()._execute_model_install(task_spec, context)
+
+
+def _lazy_voice_executor(task_spec, context):
+    from .voice_service import get_voice_service
+
+    return get_voice_service()._execute_voice_task(task_spec, context)
