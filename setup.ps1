@@ -248,9 +248,8 @@ function Invoke-DependencyInstall {
     if ($Models -or $Full) {
         $syncArgs += @("--extra", "audio")
     }
-    if ($Full -and $Engines.Count -eq 0) {
-        $syncArgs += @("--extra", "qwen3")
-    }
+    # Qwen/ASR providers use isolated .runtimes environments. Never install
+    # mutually conflicting provider extras into the main .venv here.
 
     & uv @syncArgs
 

@@ -47,6 +47,7 @@ venv.bak/
 # =====================
 .pytest_cache/
 .tmp/
+.test-tmp/
 .coverage
 htmlcov/
 tests/reports/
@@ -73,6 +74,7 @@ models/
 # Debug Output
 # =====================
 debug/
+logs/
 
 # =====================
 # Cache

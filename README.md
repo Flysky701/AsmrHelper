@@ -43,7 +43,7 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 # 安装本地音频引擎和默认模型（含 Faster-Whisper / Demucs）
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models
 
-# 完整安装（含 Qwen3-TTS 依赖，需要 NVIDIA GPU）
+# 完整主环境（API + 本地音频链路；隔离 Provider 不装入主环境）
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Full
 
 # 环境完全重建
@@ -60,7 +60,10 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -CleanReinstall
 # 下载 Whisper base 模型 (约 74MB，推荐)
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models
 
-# 下载全部模型 (Whisper + Qwen3-TTS，约 25GB+)
+# 安装 Qwen3-TTS 模型及独立 qwen_tts 运行环境
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Engines qwen3
+
+# 下载旧版完整模型集合 (Whisper + Qwen3-TTS，约 25GB+，通常不建议)
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Full
 
 # 使用国内镜像加速
@@ -89,8 +92,14 @@ $env:DEEPSEEK_API_KEY = "your-deepseek-api-key"
 ### 4. 运行
 
 ```powershell
-# 启动桌面端
+# 双击/正常启动：优先使用已构建的 release，无 release 时进入开发模式
 .\GUIRun.bat
+
+# 强制使用当前前端源码
+.\GUIRun.bat --dev
+
+# 重新构建 release 后启动
+.\GUIRun.bat --release
 
 # 仅启动 HTTP API
 .\run.bat api
@@ -101,6 +110,8 @@ $env:DEEPSEEK_API_KEY = "your-deepseek-api-key"
 # 批量处理
 .\.venv\Scripts\python.exe scripts\batch_process.py --input-dir "D:/ASMR"
 ```
+
+桌面启动器会隐藏启动后端并在 APP 退出时清理本次创建的后端进程。后端启动、请求和异常日志保存在 `logs/backend.log`，启动失败时窗口会显示日志尾部，不再只留下闪退现象。开发模式需要 Node.js 与 Rust；已有 release 的普通启动不要求这两套构建工具。
 
 ## 项目结构
 

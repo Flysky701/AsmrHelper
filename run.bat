@@ -15,6 +15,8 @@ if "%~1"=="" goto desktop
 echo Usage:
 echo   run.bat            Start the desktop application
 echo   run.bat desktop    Start the desktop application
+echo   GUIRun.bat --dev   Start from current frontend source
+echo   GUIRun.bat --release Build and start a release application
 echo   run.bat api        Start only the HTTP API on port 8000
 echo   run.bat test       Verify the Python startup environment
 exit /b 1
