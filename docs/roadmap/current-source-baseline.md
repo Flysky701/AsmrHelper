@@ -225,7 +225,7 @@ text_utils.py
 
 2026-08-04 已完成 [后端能力事实清单](backend-capability-baseline.md)：按“已实现、环境可执行、真实验收、已接线、受限”区分当前能力，并明确批量、历史任务、运行环境、VoiceLab、兼容层和 GUI 可依赖边界。后续 GUI 整理以该清单和当前源码为准，不再从路由存在或设计稿推断能力已完成。
 
-2026-08-07 启动链路已补齐隐藏后端、持久日志、真实 PID 清理和 installed/dev/release 三种模式。Qwen3-ASR 0.6B 已通过直接 HTTP API；随后使用固定非敏感合成句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` Pipeline，得到混音、双语字幕、TTS WAV 和 ASR 文本四类有效 Artifact，且无 Worker 残留。验收中发现并修复 Edge TTS 的 MP3 同路径转码错误。全量自动化更新为 `243 passed`，桌面生产构建、`compileall` 和 Ruff `F821/F601` 通过；GUI 可见交互仍需 Computer Use 恢复后单独验收。最新逐项边界以 [后端能力事实清单](backend-capability-baseline.md) 为准。
+2026-08-07 启动链路已补齐隐藏后端、持久日志、真实 PID 清理和 installed/dev/release 三种模式。Qwen3-ASR 0.6B 已通过直接 HTTP API；随后使用固定非敏感合成句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` Pipeline，得到混音、双语字幕、TTS WAV 和 ASR 文本四类有效 Artifact，且无 Worker 残留。验收中发现并修复 Edge TTS 的 MP3 同路径转码错误。后续全量自动化已更新为 `254 passed`，桌面生产构建、`compileall` 和 Ruff `F821/F601/F401` 通过；最新 GUI 与正式窗口证据见下文和[最终验收矩阵](final-acceptance-2026-08-07.md)。最新逐项边界以[后端能力事实清单](backend-capability-baseline.md)为准。
 
 同日 Voice Design、Clone、Preview 和 Analyze 完成正式 API 真实验收：设计与克隆档案可用，参考音频、prompt cache 和试听 WAV 均有效且按任务登记 Artifact，测试档案经正式接口删除；片段分析返回有效候选与警告。分析链路已从旧 ASR 识别器迁到统一 ASR Runtime，修复 `faster-whisper-base` 资源 ID 被底层误当模型尺寸的问题。
 
@@ -233,7 +233,7 @@ VoiceLab 随后按真实契约完成对齐：Design/Clone/Preview 创建后台 T
 
 主 `.venv` 与 Qwen TTS、Qwen ASR、FunASR 三个隔离运行时已统一迁移到项目内 UV Python 3.12.13，不再继承 AetherSwap Conda 或用户目录 UV Python。主环境与三个隔离运行时的依赖一致性检查均通过；重建后 Qwen3-ASR 0.6B、Qwen3 CustomVoice 和默认正式 Pipeline 均完成真实推理。FunASR 只确认运行时可导入，模型资产缺失，仍应显示为未安装。当前自动化基线为 `254 passed`，桌面生产构建、86 路由环境检查、`compileall` 与 Ruff `F821/F601/F401` 均通过；旧环境以 `.runtimes/*-backup-*` 保留，尚未删除。
 
-TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是新增任务并展示 `retry_of_task_id`；移除了后端不支持、且会被下次同步撤销的“清理已完成/从列表移除”；模型安装、Tool 和 Voice 等非 Pipeline 任务不再套用七阶段 Pipeline 时间线；失败任务直接显示后端错误码、阶段和详情，历史任务参数从 `/tasks/{id}/spec` 补读。本地浏览器模式已逐页复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings，未发现控制台错误；这不包含 Tauri 原生文件对话框与正式窗口验收。
+TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是新增任务并展示 `retry_of_task_id`；移除了后端不支持、且会被下次同步撤销的“清理已完成/从列表移除”；模型安装、Tool 和 Voice 等非 Pipeline 任务不再套用七阶段 Pipeline 时间线；失败任务直接显示后端错误码、阶段和详情，历史任务参数从 `/tasks/{id}/spec` 补读。本地浏览器模式已逐页复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings，未发现控制台错误；随后又在当前正式 Tauri release 中完成 7 个页面点击、原生对话框接管和真实 Artifact 播放验收。
 
 模型安装接口随后完成最后一处任务响应收口：默认异步 `POST /models/{id}/install` 返回标准 TaskStatus `201`，资源页创建本地任务映射后跳转 TaskCenter；原资源页独立轮询已删除。显式 `sync=true` 只保留给诊断或兼容调用，不是桌面主路径。
 
@@ -245,7 +245,9 @@ TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是
 
 同样无人消费的 `pipelineApi.batch` 与 TypeScript 批量响应类型已删除。后端同步聚合仍用于服务层批量验收，但桌面只展示“多个输入对应多个独立 Task”的真实产品边界，不再留下 BatchRun 已接入的代码暗示。
 
-最新源码已再次完成 Tauri release 构建并以 installed 模式启动。正式 `ASMR Helper` 窗口进程响应正常，后端健康、能力、任务历史、预设、音色档案与 Edge 音色请求均成功，启动日志无错误；Computer Use 初始化仍被 Codex 宿主目录权限拒绝，所以该结论不包含原生文件选择和窗口按钮点击。
+最新源码已再次完成 Tauri release 构建并以 installed 模式启动。正式 `ASMR Helper` 窗口进程响应正常，后端健康、能力、任务历史、预设、音色档案与 Edge 音色请求均成功，启动日志无错误。Computer Use 初始化被 Codex 宿主目录权限拒绝后，使用一次性 WebView2 CDP 连接当前真实 Tauri 窗口，逐页点击工作台、任务中心、音频工具、字幕工坊、音色实验室、引擎与资源和设置；页面内容、按钮、27 条任务历史、17 个模型及真实凭据状态均正确。工作台“添加音频”会使页面失焦并进入原生模态等待，当前 release 的对话框调用已确认。
+
+TaskCenter 随后选择仍有真实文件的历史任务 `pipeline-2`，成功读取主音频 Artifact 并显示 8 秒时长；点击播放器后进度由 `0:00` 前进到 `0:02`，播放按钮同步切换为暂停。由此确认当前 release 的结果查询、Artifact 文件服务和音频播放器链路。
 
 正式窗口生命周期随后修复：主窗口 `CloseRequested` 不再依赖 Tauri 默认退出时序，而是显式结束 AppHandle。新 release 连续 3 次“启动—标准关闭—APP 退出—后端端口释放”均通过，解决了间歇性无窗口残留进程问题。
 
@@ -260,12 +262,12 @@ TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是
 
 当前后端执行架构、隔离运行时、主要 GUI 页面和正式 Release 已进入收尾验收阶段。旧 GUI、旧 Pipeline 包、失效字幕/PDF/音色生成脚本和重复构建入口已经移除；当前不再以 Phase 2 旧切片描述进度。
 
-## 6. 当前最高优先级缺口
+## 6. 后续维护事项
 
-1. 在正式 Tauri 窗口完成文件/目录选择、字幕任务、Voice 后台任务、任务取消与 Artifact 播放的可见交互确认。
-2. 保持 Workbench 多文件等于多个独立 Task；除非产品明确需要批次级查询/取消，否则不引入 BatchRun。
-3. 用户确认当前环境与模型后，删除 `.runtimes/*-backup-*`；可选模型权重按实际保留需求另行确认，不以“存在但未验收”冒充产品完成。
-4. 未配置或未安装的 OpenAI、Fun-ASR、Kokoro、VoxCPM2 继续显示真实不可用原因；只有实际选择后才安装并验收。
+1. 保持 Workbench 多文件等于多个独立 Task；除非产品明确需要批次级查询/取消，否则不引入 BatchRun。
+2. `.runtimes/*-backup-*` 不参与当前环境，需用户明确确认后再删除；可选模型权重按实际保留需求另行处理。
+3. 未配置或未安装的 OpenAI、Fun-ASR、Kokoro、VoxCPM2 继续显示真实不可用原因；只有实际选择后才安装并验收。
+4. 后续修改 Tauri 对话框、任务状态、Voice 提交或 Artifact 播放时，应重跑对应的正式窗口交互验收。
 
 ## 7. DOCS 维护规则
 

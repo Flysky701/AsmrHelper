@@ -37,9 +37,12 @@ Fun-ASR（缺模型资产）、Kokoro（缺 `espeak-ng`）、VoxCPM2（未安装
 - Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、AudioTools、EnginesResources 和 Settings 已按后端事实接线；未实现的 BatchRun 和未验收 Provider 不在 GUI 中伪装为可用。
 - Tauri 原生对话框插件、`dialog:default` 权限和音频资产协议已配置；历史 release 已实机打开原生音频选择框，当前实现未改变该调用链。
 - 最新 release 已真实启动并请求 capabilities、tasks、presets、voice profiles、Edge voices、模型状态和设置；窗口与后端均响应正常。
+- 通过一次性本地 WebView2 CDP 对当前真实 Tauri 窗口逐页点击 7 个页面；任务历史、工具、字幕、Voice、设置以及 readiness 完成后的 17 个模型状态均正确呈现。
+- 点击工作台“添加音频”后页面失焦、主窗口进入模态等待，确认当前 release 的原生文件选择框接管；历史实机已确认“音频”过滤器，插件权限和调用链未改变。
+- TaskCenter 选择 `pipeline-2` 后读取到仍真实存在的主音频 Artifact；播放器显示 8 秒时长，点击后进度由 `0:00` 前进到 `0:02` 且按钮切换为暂停，结果查询、文件服务和播放链路通过。
 - 主窗口关闭残留缺陷已修复；新 release 连续 3 次完成标准关闭、APP 退出和后端端口释放。
 
-当前 Codex Computer Use 在宿主目录初始化时被 `EPERM` 阻断，因此无法自动重放最新窗口内部点击。该限制不影响已经完成的浏览器页面验收、历史原生对话框实机证据、正式 release 启动与三轮窗口生命周期验收，但后续 UI 改动仍应重新进行人工可见检查。
+Codex Computer Use 在宿主目录初始化时被 `EPERM` 阻断，本轮使用 WebView2 CDP 完成了最新 Tauri 窗口内部页面点击，并用窗口焦点/模态状态确认原生对话框接管。由于自动化会话无法枚举交互桌面中的系统对话框内部文本，过滤器名称仍引用历史实机证据；后续若修改对话框插件、权限或过滤器配置，应重新进行人工可见检查。
 
 ## 4. 最终自动化基线
 

@@ -52,7 +52,7 @@ Tauri / React
 | Settings | 设置读取、有效值、校验、脱敏写入和 Provider 连通性测试 | 已实现、自动测试 | 旧 `api` 设置形状仍有兼容解析 |
 | Capability | ASR/TTS/LLM/Separator 的模型、默认值和参数 schema 可查询 | 已实现、Workbench 已消费 | 描述符表示支持范围，不表示当前环境已安装 |
 | Subtitle | load/parse/normalize/export 等短操作；字幕翻译与台本转字幕后台任务 | 台本纯文本任务已通过真实 HTTP、自动输出和 Artifact 验收；字幕翻译 Tool 已真实验收 | 完整台本对齐仍依赖可执行 ASR 与已配置 LLM |
-| Tool task | 分离、格式转换、切分、字幕翻译、音量预览均以“创建即提交”的后台任务执行并登记产物 | 五种工具已连续真实 HTTP 验收；桌面工具页已接线并通过生产构建 | 音量预览只返回分析结果，不登记文件 Artifact；Tauri 原生文件选择尚待可见窗口验收 |
+| Tool task | 分离、格式转换、切分、字幕翻译、音量预览均以“创建即提交”的后台任务执行并登记产物 | 五种工具已连续真实 HTTP 验收；桌面工具页已接线，当前 Tauri 页面与原生文件选择调用已确认 | 音量预览只返回分析结果，不登记文件 Artifact |
 | Voice profile | profile 列表、详情、删除、设计、克隆、分析、预览可用；Design/Clone/Preview 进入 `qwen_tts` Worker | Design、Clone、Preview 与 Analyze 均已通过正式 API 真实验收，Task/Artifact 归属正确 | 属于 Qwen3-TTS 专属扩展能力，不承诺其他 TTS Provider 具备等价功能 |
 
 ## 4. Provider 与模型事实
@@ -148,12 +148,12 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - Workbench 的多文件操作是“逐文件创建独立 Pipeline Task”，不是 BatchRun 实体；每项失败不阻塞后续提交，状态与产物仍按各自 task_id 隔离。
 - 桌面端已删除无人消费的 `pipelineApi.batch` 封装；当前只呈现 Workbench 的逐文件独立 Task，不暗示存在 batch 级状态、取消或恢复能力。
 
-## 8. 后端下一步
+## 8. 后续维护边界
 
-1. 使用 Computer Use 复核正式 APP 的原生文件/目录选择、工具提交、任务时间线和结果预览；当前组件权限故障解除前不把构建或网页模式等同于 Tauri 验收。
-2. 保持 Workbench 当前“多个独立 Task”的轻量批量边界；只有产品明确需要批次级查询、取消或恢复时才设计 BatchRun。
-3. 制定模型保留清单后，再删除多余 Whisper/Qwen 权重；真实验收完成前不删除本轮环境备份。
-4. 完成全量回归与原生窗口验收后，再决定是否移除兼容执行入口和本轮环境备份。
+1. 保持 Workbench 当前“多个独立 Task”的轻量批量边界；只有产品明确需要批次级查询、取消或恢复时才设计 BatchRun。
+2. 未安装或未配置的可选 Provider 继续展示真实原因；只有用户决定启用后才下载、安装并执行专项验收。
+3. `.runtimes/*-backup-*` 不参与当前运行，未经用户确认不删除；多余 Whisper/Qwen 权重也应在确认保留清单后处理。
+4. 后续修改 Tauri 对话框、任务状态或播放器时，重新执行正式窗口交互验收；不要用构建成功代替产品验收。
 
 ## Task Execution V1 收口进度（2026-08-04）
 
@@ -180,10 +180,11 @@ Voice 正式路由随后改为后台提交。使用内置 A1 与固定非敏感�
 - `GUIRun.bat` 默认优先启动已有 release；没有 release 时才进入开发模式。`--installed` 不要求 Node/Rust，`--dev` 和 `--release` 才检查构建工具。
 - 后端由隐藏进程启动，日志持久写入 `logs/backend.log`；启动失败会显示日志尾部，不再只表现为窗口闪退。
 - 后端通过 PID 文件发布实际 Uvicorn 进程号。已实测启动器返回 PID、日志 PID 和活动进程一致，结束后进程被清理。
-- 正式 `tauri build` 已生成 `desktop/src-tauri/target/release/asmr-helper.exe`；随后通过 `GUIRun.bat --release` 启动，桌面进程保持响应，并实际请求 capabilities、tasks、presets、voice profiles 和 Edge voices。窗口内容与原生文件选择仍需可见交互确认。
-- 当前自动化环境不能加载 Computer Use 的 `@oai/sky` 组件，因此本轮只确认进程、健康检查和构建事实；窗口可见性与页面交互不能据此标记为已验收。
-- 已通过本地浏览器模式复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings 的真实渲染与后端交互；模型状态、失败阶段/错误、Voice 预设边界和凭据不回显均符合当前事实。该结果覆盖 React 页面，不替代 Tauri 原生文件选择与正式桌面窗口验收。
-- 2026-08-07 基于最新源码重新完成 Tauri release 构建并用 `GUIRun.bat --installed` 启动；`asmr-helper` 窗口标题正确、进程响应正常，后端健康检查及启动后的 capabilities、tasks、presets、voice profiles、Edge voices 请求均成功且日志无错误。Computer Use 仍在初始化阶段被 Codex 宿主目录 `EPERM` 阻断，因此原生文件/目录对话框和按钮点击仍需人工可见确认，不能记为自动验收通过。
+- 正式 `tauri build` 已生成 `desktop/src-tauri/target/release/asmr-helper.exe`；随后通过 `GUIRun.bat --release` 启动，桌面进程保持响应，并实际请求 capabilities、tasks、presets、voice profiles 和 Edge voices。
+- Computer Use 的 `@oai/sky` 组件受宿主目录 `EPERM` 阻断；这项工具故障没有被算作 APP 通过证据，当前窗口交互改由真实 Tauri WebView2 调试连接验收。
+- 已通过本地浏览器模式复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings 的真实渲染与后端交互；模型状态、失败阶段/错误、Voice 预设边界和凭据不回显均符合当前事实。
+- 2026-08-07 基于最新源码重新完成 Tauri release 构建并用 `GUIRun.bat --installed` 启动；`asmr-helper` 窗口标题正确、进程响应正常，后端健康检查及启动后的 capabilities、tasks、presets、voice profiles、Edge voices 请求均成功且日志无错误。Computer Use 初始化被宿主目录 `EPERM` 阻断后，改用一次性本地 WebView2 CDP 连接真实 Tauri 窗口：工作台、任务中心、音频工具、字幕工坊、音色实验室、引擎与资源和设置 7 个页面均完成实际点击与内容读取；引擎页完成 readiness 后显示 17 个模型及真实凭据状态。点击“添加音频”后页面失焦且主窗口进入模态等待，确认原生文件选择框接管；历史 release 已实机确认“音频”过滤器，相关插件、权限和调用链未改变。
+- 同一正式窗口在 TaskCenter 选择仍存在主产物的 `pipeline-2`，成功加载主音频 Artifact；播放器识别时长 8 秒，点击播放后进度由 `0:00` 前进到 `0:02` 且控制按钮切换为暂停，确认任务结果查询、Artifact 文件服务和桌面播放器链路可用。
 - 正式窗口关闭曾间歇出现“窗口消失但 APP 与后端仍存活”；Tauri 主窗口现显式处理 `CloseRequested` 并退出 AppHandle。修复后的 release 连续 3 次完成启动、标准关闭、APP 进程结束和 8000 端口释放，启动脚本后端清理闭环已验收。
 
 ## 10. Tool 任务与桌面入口验收（2026-08-07）
@@ -191,4 +192,4 @@ Voice 正式路由随后改为后台提交。使用内置 A1 与固定非敏感�
 - `POST /api/v1/tool-runs/tasks` 已收口为创建即提交，桌面端只需一次请求即可获得后台 Task，不再依赖第二次同步执行调用。
 - 使用非敏感合成音频/字幕连续提交分离、格式转换、字幕切分、字幕翻译和音量预览五项任务，全部到达 `completed`；前四项 Artifact 分别归属各自 task_id，音量预览按设计只返回分析结果。
 - 分离工具此前忽略自定义输出目录，现已按 `custom-dir` session policy 生成到指定目录并真实复测通过。
-- 桌面新增 AudioTools 页面，工具目录是可用性事实源；每次操作创建独立 Task，提交后转到 TaskCenter 查看阶段、错误和产物。生产构建已通过；由于 Computer Use 组件仍报 `EPERM`，原生文件选择与 Tauri 窗口点击仍保持未验收。
+- 桌面新增 AudioTools 页面，工具目录是可用性事实源；每次操作创建独立 Task，提交后转到 TaskCenter 查看阶段、错误和产物。生产构建与当前 Tauri 页面点击均已通过，原生文件选择调用已确认进入系统模态对话框。
