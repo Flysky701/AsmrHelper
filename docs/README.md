@@ -53,3 +53,4 @@ ASR、TTS、LLM 等能力统一按 Provider 类别扩展，不再分别维护重
 - [历史排查日志](archived/logs/)
 
 归档内容只用于追溯，不再作为当前开发入口。
+- [Task Execution V1](contracts/task-execution-v1.md): shared executor registry, Task V1 lifecycle, cancellation, retry linkage, and artifact ownership.

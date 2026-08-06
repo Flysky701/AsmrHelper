@@ -117,3 +117,10 @@ HTTP 状态码为 `202`。业务任务执行失败不通过创建请求长时间
 - 任务完成后，结果接口能返回一个明确的主产物。
 - 前端无需读取后端日志即可区分排队、执行、失败、完成和取消。
 - Provider 私有参数不会泄漏为跨层必填字段。
+## 9. Task V1 execution boundary
+
+The mainline and other long-running capabilities execute through the existing `TaskDispatcher`. `ExecutorRegistry` is the submission allow-list and concrete handler binding: unknown task types are rejected, and a missing callable becomes an explicit failure at dispatch.
+
+Terminal states `completed`, `failed`, `cancelled`, and `skipped` do not accept lifecycle updates. Cancellation is a request; the dispatcher writes final `cancelled` only after the executor exits. Retry creates a new task with `retry_of_task_id`, and every artifact remains owned by the task that produced it.
+
+See [Task Execution V1](task-execution-v1.md).

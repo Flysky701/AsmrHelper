@@ -53,7 +53,7 @@ Tauri / React
 | Capability | ASR/TTS/LLM/Separator 的模型、默认值和参数 schema 可查询 | 已实现、Workbench 已消费 | 描述符表示支持范围，不表示当前环境已安装 |
 | Subtitle | load/parse/normalize/translate/bilingualize/export/script-to-vtt/script-to-subtitle | 已实现、真实分支与单元测试覆盖 | 翻译仍依赖已配置 LLM |
 | Tool task | 分离、格式转换、切分、字幕翻译、音量预览可创建任务并登记产物 | 已实现、自动测试 | 桌面页面目前没有实际消费 `toolsApi` |
-| Voice profile | profile 列表、详情、删除、设计、克隆、分析、预览路由存在 | profile 读取可用；其余未完成隔离链路验收 | Design/Clone/Preview 仍直接依赖旧 Qwen 管理器，不能视为稳定能力 |
+| Voice profile | profile 列表、详情、删除、设计、克隆、分析、预览路由存在；Design/Clone/Preview 已接入 `qwen_tts` Worker | profile 读取可用；Worker 适配与产物归属有自动测试，真实模型执行仍待验收 | 隔离执行已接线，但在真实 Design/Clone/Preview 全部通过前仍属于实验性能力 |
 
 ## 4. Provider 与模型事实
 
@@ -140,7 +140,7 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - TaskCenter 可以展示终态历史和活动任务；历史任务不能原地重试，只能重新提交。
 - EnginesResources 可以展示模型和异步安装；必须同时展示 `installed` 与 `executable`，不能只看文件是否存在。
 - SubtitleWorkshop 已有后端支撑，可在契约范围内整理，不需要重新设计后端。
-- VoiceLab 的 profile 浏览可以保留；Design、Clone、Preview 在迁移到隔离 Worker并完成真实验收前应标记实验性或禁用。
+- VoiceLab 的 profile 浏览可以保留；Design、Clone、Preview 已迁移到隔离 Worker，但在完成真实模型验收前仍应标记实验性。
 - VoiceLab 当前把 `ref_text` 发送给 `/voice/analyze-segments`，而后端契约需要 `subtitle_path/audio_language`；该字段目前不会产生页面设想的效果。
 - 桌面端虽然定义了 `pipelineApi.batch` 和 `toolsApi`，现有页面没有实际消费，不能据此认为 GUI 功能已完成。
 
@@ -149,6 +149,14 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 1. 在正式 APP 进程复核 Qwen3-TTS 模型状态展示，解决“真实可用但探测可能显示不可执行”的环境差异。
 2. 选择是否验收 Qwen3-ASR 0.6B；若选择，执行真实短音频推理和 `Qwen3-ASR → DeepSeek → Qwen3-TTS` Pipeline，并确认两个 Worker 顺序退出。
 3. 在批量 GUI 设计前决定：保持同步批处理工具，还是新增 batch task 聚合、状态查询和取消契约。
-4. 将 Voice Design/Clone/Preview 迁移到 `qwen_tts` Worker；迁移前不把这些路由视为稳定产品能力。
+4. 对已迁移到 `qwen_tts` Worker 的 Voice Design/Clone/Preview 执行真实模型验收；验收前不把这些路由视为稳定产品能力。
 5. 制定模型保留清单后，再删除多余 Whisper/Qwen 权重；制定环境重建方案后，再清理主环境重复依赖。
 6. 完成上述事实收束后，再按页面逐一整理 GUI，不新增后端未支持的状态和操作。
+
+## Task Execution V1 收口进度（2026-08-04）
+
+Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内共享的 `TaskDispatcher` 与 `ExecutorRegistry`。通用 Task HTTP 创建接口会立即提交执行；未知任务类型在创建边界拒绝，已声明但没有 callable 的类型在执行边界明确失败，不会永久停留在 `pending`。
+
+Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。本轮没有引入 root task、executor version、资源标签、BatchRun 实体或分布式队列。
+
+自动化基线为 `239 passed`，覆盖 Task V1、Executor Registry、通用 HTTP 提交、Pipeline 连续执行/失败隔离/取消重提、Worker 交换文件清理，以及 Tool、模型安装、Voice Preview 的 Dispatcher 适配。Voice Qwen 真实模型执行仍与路由和单元测试覆盖分开报告，不能仅凭自动测试标记为真实验收。
