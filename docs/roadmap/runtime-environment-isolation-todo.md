@@ -1,6 +1,6 @@
 # 运行环境隔离进度
 
-> 状态：第一阶段已实施；`qwen_tts` 已落地，`qwen_asr` 仅完成环境 ID 声明，尚未创建环境或验收。
+> 状态：隔离运行时主路径已实施；`qwen_tts`、`qwen_asr` 和 `fun_asr` 环境已按项目内 Python 重建，前两者已真实验收，Fun-ASR 缺模型资产。
 
 ## 原则
 
@@ -12,27 +12,29 @@
 
 ## TODO
 
-- [ ] 逐个核对本地 Provider 的 Python、Torch/CUDA、系统工具和模型资产要求；Qwen3-TTS / Qwen3-ASR 冲突已确认，其余按实际选择继续。
-- [x] 将 `runtime_profile` 收敛为可执行环境 ID，首批定义 `main`、`qwen_asr`、`qwen_tts`。
+- [x] 核对当前已选择本地 Provider 的 Python、Torch/CUDA、系统工具和模型资产要求；未安装 Provider 保持按需处理。
+- [x] 将 `runtime_profile` 收敛为可执行环境 ID，定义 `main`、`qwen_asr`、`qwen_tts`、`fun_asr`。
 - [x] 实现 `RuntimeProfileResolver`，统一解析 `.runtimes/<id>` 和 Python 解释器，不保存机器绝对路径。
 - [x] 模型安装仅在用户选择安装时创建目标隔离环境；模型资产继续共用 `models/`。
 - [x] 依赖安装和模型状态检查面向目标解释器，并缓存短期探测结果。
 - [x] TTS Runtime Router 按 `qwen3 -> qwen_tts` 路由；默认 Provider 仍在主进程执行。
 - [x] 实现短生命周期 TTS Worker，通过 JSON StageProfile 和文件路径交换请求、产物及结构化错误。
-- [ ] 先验收 `Qwen3-ASR -> 翻译 -> Qwen3-TTS`，确认两个冲突环境可在同一任务中顺序执行并释放显存。
-- [ ] 只有真实解析或加载证明冲突时，才为 FunASR、Kokoro、VoxCPM2 增加新的环境档。
+- [x] 验收 `Qwen3-ASR -> 翻译 -> Qwen3-TTS`，确认两个隔离环境可在同一任务中顺序执行并退出 Worker。
+- [x] FunASR 使用已声明隔离环境；环境可导入但模型资产缺失，因此保持不可执行事实。
+- [ ] 只有真实解析或加载证明冲突时，才为 Kokoro、VoxCPM2 增加新的环境档。
 - [ ] 最后补充客户端环境状态展示；客户端不负责推断依赖关系，也不自动安装。
 
 ## 当前边界
 
-- 不预创建未选择的隔离环境；当前只存在 `qwen_tts`。
-- 不安装 Qwen3-ASR 依赖或模型。
+- 不预创建未选择的隔离环境；当前存在 `qwen_tts`、`qwen_asr`、`fun_asr`。
+- Qwen3-ASR 0.6B 已验收；1.7B 不因权重存在而视为已验收。
 - 不引入常驻模型服务、容器或多节点调度。
 - `qwen_tts` Worker 每次阶段执行后退出并释放显存，不建设常驻推理服务。
 
-## 已验证基线（2026-08-01）
+## 已验证基线（2026-08-07）
 
-- 主 `.venv` 保持 Torch CPU 与 `transformers 4.57.6`；Qwen3-TTS 环境使用 Torch `2.10.0+cu126`、`transformers 4.57.3` 和 NumPy `2.4.6`。
+- 主 `.venv` 以及三个隔离运行时均使用项目内 UV Python 3.12.13，不依赖系统或其他项目解释器；四个环境均通过依赖一致性检查。
 - RTX 4070 Ti SUPER 的 CUDA 探测和真实张量运算通过。
 - Qwen3 CustomVoice 通过服务层和正式 `/api/v1/tts/synthesize` 三次生成有效 24 kHz WAV；Worker 退出后无残留 Qwen Python 进程。
-- 用户已完成 `pipeline-8` 单文件真实任务验收，任务在 `export` 阶段正常完成。
+- Qwen3-ASR 0.6B 通过直接推理与正式双 Worker Pipeline；Fun-ASR 只确认运行时可导入，因缺模型资产仍不可执行。
+- 默认 `Demucs -> Faster-Whisper Base -> DeepSeek -> Edge TTS -> FFmpeg` 与 `Qwen3-ASR -> DeepSeek -> Qwen3 CustomVoice` 两条单文件 Pipeline 均在 `export` 阶段完成。

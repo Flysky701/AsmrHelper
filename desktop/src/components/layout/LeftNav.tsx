@@ -25,6 +25,14 @@ const NAV_ICONS: Record<PageId, ReactNode> = {
       <path d="M9 3v12M5 7v4M13 6v6" />
     </svg>
   ),
+  'audio-tools': (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M4 5h10M6 9h6M8 13h2" />
+      <circle cx="5" cy="5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="13" cy="9" r="1" fill="currentColor" stroke="none" />
+      <circle cx="7" cy="13" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  ),
   engines: (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
       <rect x="4" y="4" width="10" height="10" rx="2" />
@@ -39,7 +47,7 @@ const NAV_ICONS: Record<PageId, ReactNode> = {
   ),
 }
 
-const TOP_PAGES: PageId[] = ['workbench', 'task-center', 'subtitle-workshop', 'voice-lab']
+const TOP_PAGES: PageId[] = ['workbench', 'task-center', 'audio-tools', 'subtitle-workshop', 'voice-lab']
 const BOTTOM_PAGES: PageId[] = ['engines', 'settings']
 
 export default function LeftNav() {

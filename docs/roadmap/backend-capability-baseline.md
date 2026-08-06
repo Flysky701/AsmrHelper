@@ -52,7 +52,7 @@ Tauri / React
 | Settings | 设置读取、有效值、校验、脱敏写入和 Provider 连通性测试 | 已实现、自动测试 | 旧 `api` 设置形状仍有兼容解析 |
 | Capability | ASR/TTS/LLM/Separator 的模型、默认值和参数 schema 可查询 | 已实现、Workbench 已消费 | 描述符表示支持范围，不表示当前环境已安装 |
 | Subtitle | load/parse/normalize/translate/bilingualize/export/script-to-vtt/script-to-subtitle | 已实现、真实分支与单元测试覆盖 | 翻译仍依赖已配置 LLM |
-| Tool task | 分离、格式转换、切分、字幕翻译、音量预览可创建任务并登记产物 | 已实现、自动测试 | 桌面页面目前没有实际消费 `toolsApi` |
+| Tool task | 分离、格式转换、切分、字幕翻译、音量预览均以“创建即提交”的后台任务执行并登记产物 | 五种工具已连续真实 HTTP 验收；桌面工具页已接线并通过生产构建 | 音量预览只返回分析结果，不登记文件 Artifact；Tauri 原生文件选择尚待可见窗口验收 |
 | Voice profile | profile 列表、详情、删除、设计、克隆、分析、预览可用；Design/Clone/Preview 进入 `qwen_tts` Worker | Design、Clone、Preview 与 Analyze 均已通过正式 API 真实验收，Task/Artifact 归属正确 | 属于 Qwen3-TTS 专属扩展能力，不承诺其他 TTS Provider 具备等价功能 |
 
 ## 4. Provider 与模型事实
@@ -143,15 +143,16 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - SubtitleWorkshop 已有后端支撑，可在契约范围内整理，不需要重新设计后端。
 - VoiceLab 的 profile 浏览、Design、Clone、Preview 可以保留；这些是 Qwen3-TTS 专属扩展，不应显示为所有 TTS 引擎的通用能力。
 - VoiceLab 已按后端契约提交 `subtitle_path/audio_language`，并消费 `score/recommended_indices/warnings`；设计档案的 `custom` 分类、创建后详情和内置预设不可删除边界也已对齐。
-- 桌面端虽然定义了 `pipelineApi.batch` 和 `toolsApi`，现有页面没有实际消费，不能据此认为 GUI 功能已完成。
+- AudioTools 已消费后端工具目录和任务创建接口；工具目录读取失败或未声明某项能力时，页面会禁用提交，不把客户端常量当成可用事实。
+- Workbench 的多文件操作是“逐文件创建独立 Pipeline Task”，不是 BatchRun 实体；每项失败不阻塞后续提交，状态与产物仍按各自 task_id 隔离。
+- 桌面端仍保留 `pipelineApi.batch` 封装，但现有页面没有消费，不能据此认为存在 batch 级状态、取消或恢复能力。
 
 ## 8. 后端下一步
 
-1. 继续按页面核对 GUI 与后端事实，优先处理仍只定义 API client、但没有真实页面入口的批量与 Tool 能力。
-2. 在批量 GUI 设计前决定：保持同步批处理工具，还是新增 batch task 聚合、状态查询和取消契约。
-3. 使用 Computer Use 复核正式 APP 中的模型状态、任务时间线和结果预览；当前组件权限故障解除前不把进程级检查等同于 GUI 验收。
-4. 制定模型保留清单后，再删除多余 Whisper/Qwen 权重；真实验收完成前不删除本轮环境备份。
-5. 完成上述事实收束后，再按页面逐一整理 GUI，不新增后端未支持的状态和操作。
+1. 使用 Computer Use 复核正式 APP 的原生文件/目录选择、工具提交、任务时间线和结果预览；当前组件权限故障解除前不把构建或网页模式等同于 Tauri 验收。
+2. 保持 Workbench 当前“多个独立 Task”的轻量批量边界；只有产品明确需要批次级查询、取消或恢复时才设计 BatchRun。
+3. 制定模型保留清单后，再删除多余 Whisper/Qwen 权重；真实验收完成前不删除本轮环境备份。
+4. 完成全量回归与原生窗口验收后，再决定是否移除兼容执行入口和本轮环境备份。
 
 ## Task Execution V1 收口进度（2026-08-04）
 
@@ -159,7 +160,7 @@ Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内�
 
 Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。本轮没有引入 root task、executor version、资源标签、BatchRun 实体或分布式队列。
 
-自动化基线为 `245 passed`，覆盖 Task V1、Executor Registry、通用 HTTP 提交、Pipeline 连续执行/失败隔离/取消重提、Worker 交换文件清理，以及 Tool、模型安装、Voice、启动日志、真实 PID 管理、Edge MP3 输出和项目内 UV 状态目录约束。桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
+自动化基线为 `247 passed`，新增用例覆盖 Tool 创建即后台提交和自定义输出目录策略。桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
 
 2026-08-07 使用固定非敏感日语测试句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` 正式 Pipeline。任务 `pipeline-1` 在 `export` 阶段完成，登记混音、双语字幕、TTS WAV 和 ASR 文本四类 Artifact；ASR 文本与测试句一致，字幕包含有效中文翻译，TTS 产物为 24 kHz、6.48 秒 WAV，执行后无 Qwen Worker 残留。该验收不包含用户素材外发。
 
@@ -176,3 +177,10 @@ Voice 扩展验收使用非敏感合成音频完成：Clone 生成可用档案�
 - 后端通过 PID 文件发布实际 Uvicorn 进程号。已实测启动器返回 PID、日志 PID 和活动进程一致，结束后进程被清理。
 - 当前自动化环境不能加载 Computer Use 的 `@oai/sky` 组件，因此本轮只确认进程、健康检查和构建事实；窗口可见性与页面交互不能据此标记为已验收。
 - 已通过本地浏览器模式复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings 的真实渲染与后端交互；模型状态、失败阶段/错误、Voice 预设边界和凭据不回显均符合当前事实。该结果覆盖 React 页面，不替代 Tauri 原生文件选择与正式桌面窗口验收。
+
+## 10. Tool 任务与桌面入口验收（2026-08-07）
+
+- `POST /api/v1/tool-runs/tasks` 已收口为创建即提交，桌面端只需一次请求即可获得后台 Task，不再依赖第二次同步执行调用。
+- 使用非敏感合成音频/字幕连续提交分离、格式转换、字幕切分、字幕翻译和音量预览五项任务，全部到达 `completed`；前四项 Artifact 分别归属各自 task_id，音量预览按设计只返回分析结果。
+- 分离工具此前忽略自定义输出目录，现已按 `custom-dir` session policy 生成到指定目录并真实复测通过。
+- 桌面新增 AudioTools 页面，工具目录是可用性事实源；每次操作创建独立 Task，提交后转到 TaskCenter 查看阶段、错误和产物。生产构建已通过；由于 Computer Use 组件仍报 `EPERM`，原生文件选择与 Tauri 窗口点击仍保持未验收。

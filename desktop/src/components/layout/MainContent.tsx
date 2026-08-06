@@ -8,11 +8,13 @@ import VoiceLab from '@/pages/voice-lab/VoiceLab'
 import TaskCenter from '@/pages/TaskCenter'
 import EnginesResources from '@/pages/EnginesResources'
 import Settings from '@/pages/Settings'
+import AudioTools from '@/pages/AudioTools'
 
 const PAGES: Record<PageId, ComponentType> = {
   workbench: Workbench,
   'subtitle-workshop': SubtitleWorkshop,
   'voice-lab': VoiceLab,
+  'audio-tools': AudioTools,
   'task-center': TaskCenter,
   engines: EnginesResources,
   settings: Settings,

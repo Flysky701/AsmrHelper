@@ -1,6 +1,6 @@
 # Task Execution V1
 
-更新时间：2026-08-04
+更新时间：2026-08-07
 
 本文收口 AsmrHelper 的长耗时任务执行边界。它复用现有 `TaskRegistry`、`TaskDispatcher`、`PipelineTaskOrchestrator` 和 `RuntimeRouter`，不引入新的持久队列、BatchRun 聚合实体或分布式调度平台。
 
@@ -18,6 +18,8 @@
 `ExecutorRegistry` 在提交时拒绝未知任务类型。已声明但尚未绑定 callable 的类型也不能被 Dispatcher 执行：它会在执行边界明确失败，不会永久停留在 `pending`。
 
 通用 `POST /api/v1/tasks` 和 `POST /api/v1/tasks/batch` 是“创建并提交”入口，不是只创建 TaskSpec 的存根接口；成功创建的每一项会立即交给 Dispatcher。领域入口仍须先完成各自的输入、readiness 和资源校验。
+
+Tool 领域入口 `POST /api/v1/tool-runs/tasks` 同样是“创建并提交”：响应返回 Task 快照，执行在后台继续。`POST /api/v1/tool-runs` 保留为已有 Task 的兼容执行入口，桌面端不需要先创建再同步调用它。
 
 ## 2. 状态契约
 
