@@ -9,7 +9,7 @@ ScriptToSubtitlePipeline — 台本转字幕完整流水线
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from src.core.subtitles.generator import SubtitleGenerator
 from src.core.subtitles.script_tool import ScriptToSubtitleTool

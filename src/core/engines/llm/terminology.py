@@ -13,8 +13,6 @@ LLM ASMR 术语库 - 三层字典系统
 """
 
 import json
-import re
-from pathlib import Path
 from typing import Dict, Optional, List
 
 from src.config import PROJECT_ROOT  # 统一使用项目根目录

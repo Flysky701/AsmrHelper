@@ -1,6 +1,5 @@
 import re
-from typing import List, Dict, Optional, Tuple
-from pathlib import Path
+from typing import List, Dict, Tuple
 
 class ScriptProcessor:
     """台本预处理管线系统，处理TXT和PDF转字幕前的预处理"""

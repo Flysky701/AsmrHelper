@@ -161,7 +161,7 @@ Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内�
 
 Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。本轮没有引入 root task、executor version、资源标签、BatchRun 实体或分布式队列。
 
-自动化基线为 `253 passed`，覆盖 Tool/字幕/Voice 创建即后台提交、自定义输出目录、台本自动输出和 Artifact 归属。删除 3 条重复同步执行入口后，当前环境自检注册 86 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
+自动化基线为 `254 passed`，覆盖 Tool/字幕/Voice 创建即后台提交、自定义输出目录、台本自动输出、Artifact 归属和失效执行入口守卫。删除 3 条重复同步执行入口后，当前环境自检注册 86 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601/F401` 同步通过。
 
 2026-08-07 使用固定非敏感日语测试句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` 正式 Pipeline。任务 `pipeline-1` 在 `export` 阶段完成，登记混音、双语字幕、TTS WAV 和 ASR 文本四类 Artifact；ASR 文本与测试句一致，字幕包含有效中文翻译，TTS 产物为 24 kHz、6.48 秒 WAV，执行后无 Qwen Worker 残留。该验收不包含用户素材外发。
 

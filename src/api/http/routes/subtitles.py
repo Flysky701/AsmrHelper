@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends
 
 from src.api.http.dependencies import artifact_service, script_subtitle_service, subtitle_service
 from src.api.http.schemas.subtitles import (
-    BilingualSubtitleSegmentModel,
     ScriptToSubtitleRequest,
     ScriptToSubtitleResponse,
     ScriptToVttRequest,

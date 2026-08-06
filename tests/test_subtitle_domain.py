@@ -5,7 +5,6 @@ Verifies that migrated modules work correctly from their new canonical locations
 
 from __future__ import annotations
 
-import pytest
 
 
 class TestSubtitleCleaner:

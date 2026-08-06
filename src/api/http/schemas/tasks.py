@@ -7,7 +7,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from src.app.dto import RuntimeEvent, TaskSpec, TaskStatus
-from .artifacts import ArtifactResponse, TaskPreviewResponse, TaskResultResponse
+from .artifacts import (
+    ArtifactResponse,
+    TaskPreviewResponse as TaskPreviewResponse,
+    TaskResultResponse,
+)
 
 
 TaskState = Literal["pending", "running", "completed", "failed", "cancelled", "skipped"]

@@ -491,7 +491,6 @@ class AudioToolService:
 
         try:
             from src.core.subtitles import (
-                load_subtitle_with_timestamps,
                 load_and_clean_subtitle,
             )
             from src.core.engines.llm import LlmOperationRuntime

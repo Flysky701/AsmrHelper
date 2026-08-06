@@ -10,7 +10,6 @@ from src.core.subtitles import SubtitleDomainService
 from ..dto import (
     SubtitleAsset,
     SubtitleDocument,
-    SubtitleSegment,
     SubtitleTranslationResult,
 )
 from ..errors import AppExecutionError, AppValidationError

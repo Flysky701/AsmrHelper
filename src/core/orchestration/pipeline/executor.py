@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable
 
-from .models import PipelineExecutionPlan, StageKind
+from .models import PipelineExecutionPlan
 
 
 class PipelineExecutor:

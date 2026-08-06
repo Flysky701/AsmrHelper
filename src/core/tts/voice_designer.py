@@ -7,7 +7,6 @@
 3. 支持进度回调和试音
 """
 
-import os
 import torch
 import numpy as np
 import soundfile as sf

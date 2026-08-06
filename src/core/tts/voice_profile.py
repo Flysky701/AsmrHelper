@@ -8,11 +8,10 @@ Qwen3-TTS 音色配置管理模块
 """
 
 import json
-import os
 import threading
 from pathlib import Path
-from typing import Optional, List, Dict, Any
-from dataclasses import dataclass, field, asdict
+from typing import Optional, List, Dict
+from dataclasses import dataclass, asdict
 
 from src.config import PROJECT_ROOT  # 统一使用项目根目录
 

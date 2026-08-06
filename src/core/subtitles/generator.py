@@ -10,7 +10,7 @@
 """
 
 import re
-from typing import List, Optional, Tuple, Dict
+from typing import List, Tuple, Dict
 from pathlib import Path
 
 

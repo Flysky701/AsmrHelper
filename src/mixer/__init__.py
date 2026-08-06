@@ -13,7 +13,6 @@ import soundfile as sf
 import numpy as np
 
 from ..utils import get_ffmpeg, ensure_dir
-from ..core.tts import _clean_text_for_tts, _apply_fade
 
 
 class Mixer:

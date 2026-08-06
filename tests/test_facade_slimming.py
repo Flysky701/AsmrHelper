@@ -9,8 +9,6 @@ Verifies:
 
 from __future__ import annotations
 
-import importlib
-import sys
 import warnings
 from unittest.mock import MagicMock, patch
 

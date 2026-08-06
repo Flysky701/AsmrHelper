@@ -2,7 +2,6 @@
 工具函数模块
 """
 
-import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -16,8 +15,8 @@ def get_ffmpeg() -> str:
 
 def get_audio_info(audio_path: str) -> dict:
     """获取音频信息"""
-    import soundfile as sf
     import numpy as np
+    import soundfile as sf
 
     data, sr = sf.read(audio_path)
     return {
@@ -136,7 +135,6 @@ def cut_audio_by_subtitle(
         List[dict]: [{path, start, end, text, index}, ...] 切分后的音频片段信息
     """
     import soundfile as sf
-    import numpy as np
 
     # 确保输出目录存在
     output_path = Path(output_dir)
@@ -190,4 +188,4 @@ def cut_audio_by_subtitle(
 
 
 # 导出格式化工具
-from src.utils.formatters import format_timestamp
+from src.utils.formatters import format_timestamp as format_timestamp

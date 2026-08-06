@@ -10,7 +10,6 @@ Requires:    PyTorch >= 2.5.0, CUDA >= 12.0, ~8GB VRAM
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from typing import Any
 

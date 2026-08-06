@@ -11,10 +11,9 @@ LLM 翻译缓存层 - 按 MD5(原文) → 译文映射
 import json
 import hashlib
 import threading
-import time
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from src.config import PROJECT_ROOT  # 统一使用项目根目录
