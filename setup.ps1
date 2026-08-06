@@ -70,55 +70,6 @@ function Test-Command([string]$Command) {
     return $null -ne (Get-Command $Command -ErrorAction SilentlyContinue)
 }
 
-$PyMirrors = @(
-    @{ Name = "tsinghua"; URL = "https://pypi.tuna.tsinghua.edu.cn/simple" },
-    @{ Name = "aliyun"; URL = "https://mirrors.aliyun.com/pypi/simple" }
-)
-
-function Get-MirrorLatency([string]$Url, [int]$TimeoutMs = 5000) {
-    try {
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $req = [System.Net.HttpWebRequest]::Create($Url)
-        $req.Timeout = $TimeoutMs
-        $req.Method = "HEAD"
-        $resp = $req.GetResponse()
-        $resp.Close()
-        $sw.Stop()
-        return [int]$sw.ElapsedMilliseconds
-    } catch {
-        return $null
-    }
-}
-
-function Select-BestMirror {
-    Write-Host "  正在测速选择最快源..." -ForegroundColor White
-
-    $candidates = @(
-        @{ Name = "pypi.org (官方)"; URL = "https://pypi.org" }
-    ) + $PyMirrors
-
-    $results = @()
-    foreach ($candidate in $candidates) {
-        $latency = Get-MirrorLatency -Url $candidate.URL
-        if ($null -ne $latency) {
-            $results += @{
-                Name = $candidate.Name
-                URL = $candidate.URL
-                Latency = $latency
-            }
-        }
-    }
-
-    if ($results.Count -eq 0) {
-        Write-Warn "所有源均不可达，将回退到官方源。"
-        return @{ Name = "pypi.org (官方)"; URL = "https://pypi.org"; Latency = 9999 }
-    }
-
-    $best = $results | Sort-Object Latency | Select-Object -First 1
-    Write-OK ("已选择: {0} ({1} ms)" -f $best.Name, $best.Latency)
-    return $best
-}
-
 function Ensure-Uv {
     if (Test-Command "uv") {
         Write-OK "已检测到 uv"
@@ -205,8 +156,7 @@ function Ensure-Directories {
         "models\whisper",
         "models\qwen3tts",
         "models\voice_profiles",
-        "output",
-        ".workbuddy\memory"
+        "output"
     )
 
     foreach ($dir in $dirs) {
@@ -312,10 +262,7 @@ function Invoke-ModelInstall {
     }
 
     if ($Mirror) {
-        $bestMirror = Select-BestMirror
-        if ($bestMirror.URL -match "tsinghua|aliyun") {
-            $args += @("--mirror", "https://hf-mirror.com")
-        }
+        $args += @("--mirror", "https://hf-mirror.com")
     }
 
     & $venvPython @args
