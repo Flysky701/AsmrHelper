@@ -245,6 +245,8 @@ TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是
 
 最新源码已再次完成 Tauri release 构建并以 installed 模式启动。正式 `ASMR Helper` 窗口进程响应正常，后端健康、能力、任务历史、预设、音色档案与 Edge 音色请求均成功，启动日志无错误；Computer Use 初始化仍被 Codex 宿主目录权限拒绝，所以该结论不包含原生文件选择和窗口按钮点击。
 
+正式窗口生命周期随后修复：主窗口 `CloseRequested` 不再依赖 Tauri 默认退出时序，而是显式结束 AppHandle。新 release 连续 3 次“启动—标准关闭—APP 退出—后端端口释放”均通过，解决了间歇性无窗口残留进程问题。
+
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
 说明：

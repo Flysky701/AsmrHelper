@@ -184,6 +184,7 @@ Voice 正式路由随后改为后台提交。使用内置 A1 与固定非敏感�
 - 当前自动化环境不能加载 Computer Use 的 `@oai/sky` 组件，因此本轮只确认进程、健康检查和构建事实；窗口可见性与页面交互不能据此标记为已验收。
 - 已通过本地浏览器模式复核 Workbench、TaskCenter、SubtitleWorkshop、VoiceLab、EnginesResources 和 Settings 的真实渲染与后端交互；模型状态、失败阶段/错误、Voice 预设边界和凭据不回显均符合当前事实。该结果覆盖 React 页面，不替代 Tauri 原生文件选择与正式桌面窗口验收。
 - 2026-08-07 基于最新源码重新完成 Tauri release 构建并用 `GUIRun.bat --installed` 启动；`asmr-helper` 窗口标题正确、进程响应正常，后端健康检查及启动后的 capabilities、tasks、presets、voice profiles、Edge voices 请求均成功且日志无错误。Computer Use 仍在初始化阶段被 Codex 宿主目录 `EPERM` 阻断，因此原生文件/目录对话框和按钮点击仍需人工可见确认，不能记为自动验收通过。
+- 正式窗口关闭曾间歇出现“窗口消失但 APP 与后端仍存活”；Tauri 主窗口现显式处理 `CloseRequested` 并退出 AppHandle。修复后的 release 连续 3 次完成启动、标准关闭、APP 进程结束和 8000 端口释放，启动脚本后端清理闭环已验收。
 
 ## 10. Tool 任务与桌面入口验收（2026-08-07）
 
