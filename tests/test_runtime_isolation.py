@@ -27,6 +27,17 @@ def test_runtime_profiles_resolve_project_relative_interpreters(tmp_path):
     assert fun_asr.project_extra == "funasr"
 
 
+def test_runtime_subprocess_environment_keeps_uv_state_inside_project(tmp_path, monkeypatch):
+    monkeypatch.delenv("UV_CACHE_DIR", raising=False)
+    monkeypatch.delenv("UV_PYTHON_INSTALL_DIR", raising=False)
+    resolver = RuntimeProfileResolver(project_root=tmp_path)
+
+    env = resolver.subprocess_env()
+
+    assert env["UV_CACHE_DIR"] == str(tmp_path / ".uv-cache")
+    assert env["UV_PYTHON_INSTALL_DIR"] == str(tmp_path / ".runtimes" / "python")
+
+
 def test_isolated_model_status_reports_missing_runtime(tmp_path):
     install_dir = tmp_path / "models" / "qwen"
     install_dir.mkdir(parents=True)

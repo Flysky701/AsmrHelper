@@ -37,6 +37,16 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# Keep UV's mutable state project-scoped. This avoids inheriting another
+# project's Conda interpreter and also makes caches/runtimes easy to inspect
+# and remove without touching global Python installations.
+if (-not $env:UV_CACHE_DIR) {
+    $env:UV_CACHE_DIR = Join-Path $ProjectRoot ".uv-cache"
+}
+if (-not $env:UV_PYTHON_INSTALL_DIR) {
+    $env:UV_PYTHON_INSTALL_DIR = Join-Path $ProjectRoot ".runtimes\python"
+}
+
 function Write-Step([string]$Message) {
     Write-Host ""
     Write-Host "==================================================" -ForegroundColor Cyan
@@ -152,17 +162,8 @@ function Get-PythonSelector {
         return $PythonPath
     }
 
-    if ($env:CONDA_PREFIX) {
-        $condaPython = Join-Path $env:CONDA_PREFIX "python.exe"
-        if (Test-Path $condaPython) {
-            return $condaPython
-        }
-    }
-
-    if ($Offline) {
-        throw "离线安装需要可用的本机 Python 3.11/3.12。请使用 -PythonPath 指定 python.exe，或先激活对应 Conda 环境。"
-    }
-
+    # Do not inherit CONDA_PREFIX implicitly. A shell activated for another
+    # project previously made .venv depend on that unrelated environment.
     return $PythonVersion
 }
 
@@ -237,8 +238,11 @@ function Invoke-DependencyInstall {
 
     $pythonSelector = Get-PythonSelector
     $syncArgs = @("sync", "--locked", "--python", $pythonSelector)
+    if (-not $PythonPath) {
+        $syncArgs += "--managed-python"
+    }
     if ($Offline) {
-        $syncArgs += "--offline"
+        $syncArgs += @("--offline", "--no-python-downloads")
     }
 
     # DevOnly 表示额外安装测试/格式化工具；API 启动仍需要完整运行依赖。

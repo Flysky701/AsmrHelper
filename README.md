@@ -50,6 +50,8 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Full
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -CleanReinstall
 ```
 
+默认安装使用项目内由 UV 管理的 Python 3.12，位置为 `.runtimes/python`，不会继承当前终端中其他项目的 Conda 环境。只有明确需要复用已有 Python 3.11/3.12 时才传入 `-PythonPath`；Python 3.13/3.14 不在当前依赖支持范围内。离线重建要求项目内 UV Python 和 `.uv-cache` 已经准备完成。
+
 > 安装脚本会自动并发测速 pypi.org 官方源和国内镜像（清华、阿里），选择延迟最低的源进行安装，哪个快用哪个。如果首选源失败，会自动按延迟顺序回退。
 
 ### 2. 下载 AI 模型

@@ -220,6 +220,7 @@ class RuntimeProfileResolver:
     def subprocess_env(self) -> dict[str, str]:
         env = os.environ.copy()
         env.setdefault("UV_CACHE_DIR", str(self.project_root / ".uv-cache"))
+        env.setdefault("UV_PYTHON_INSTALL_DIR", str(self.project_root / ".runtimes" / "python"))
         env.setdefault("PYTHONUTF8", "1")
         env.setdefault("PYTHONIOENCODING", "utf-8")
         return env
