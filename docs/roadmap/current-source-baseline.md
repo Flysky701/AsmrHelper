@@ -227,7 +227,11 @@ text_utils.py
 
 2026-08-07 启动链路已补齐隐藏后端、持久日志、真实 PID 清理和 installed/dev/release 三种模式。Qwen3-ASR 0.6B 已通过直接 HTTP API；随后使用固定非敏感合成句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` Pipeline，得到混音、双语字幕、TTS WAV 和 ASR 文本四类有效 Artifact，且无 Worker 残留。验收中发现并修复 Edge TTS 的 MP3 同路径转码错误。全量自动化更新为 `243 passed`，桌面生产构建、`compileall` 和 Ruff `F821/F601` 通过；GUI 可见交互仍需 Computer Use 恢复后单独验收。最新逐项边界以 [后端能力事实清单](backend-capability-baseline.md) 为准。
 
-同日 Voice Design、Clone、Preview 和 Analyze 完成正式 API 真实验收：设计与克隆档案可用，参考音频、prompt cache 和试听 WAV 均有效且按任务登记 Artifact，测试档案经正式接口删除；片段分析返回有效候选与警告。分析链路已从旧 ASR 识别器迁到统一 ASR Runtime，修复 `faster-whisper-base` 资源 ID 被底层误当模型尺寸的问题。自动化基线更新为 `244 passed`。
+同日 Voice Design、Clone、Preview 和 Analyze 完成正式 API 真实验收：设计与克隆档案可用，参考音频、prompt cache 和试听 WAV 均有效且按任务登记 Artifact，测试档案经正式接口删除；片段分析返回有效候选与警告。分析链路已从旧 ASR 识别器迁到统一 ASR Runtime，修复 `faster-whisper-base` 资源 ID 被底层误当模型尺寸的问题。
+
+VoiceLab 随后按真实契约完成对齐：设计档案使用 `custom` 分类，设计/克隆完成后立即加载详情；片段分析提交 `subtitle_path/audio_language` 并显示后端 `score/recommended_indices/warnings`；预设音色不再提供无效删除按钮，GPU 状态也不再硬编码为“可用”。桌面生产构建通过。
+
+主 `.venv` 与 Qwen TTS、Qwen ASR、FunASR 三个隔离运行时已统一迁移到项目内 UV Python 3.12.13，不再继承 AetherSwap Conda 或用户目录 UV Python。主环境与三个隔离环境的依赖一致性检查均通过；重建后 Qwen3-ASR 0.6B、Qwen3 CustomVoice 和默认正式 Pipeline 均完成真实推理。FunASR 只确认运行时可导入，模型资产缺失，仍应显示为未安装。当前自动化基线为 `245 passed`，桌面生产构建、环境检查、`compileall` 与 Ruff `F821/F601` 均通过；旧环境以 `.runtimes/*-backup-*` 保留，尚未删除。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 

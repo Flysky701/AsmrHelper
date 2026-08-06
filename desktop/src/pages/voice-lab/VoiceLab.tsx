@@ -233,6 +233,8 @@ export default function VoiceLab() {
   const [cloneName, setCloneName] = useState('')
   const [cloneRefText, setCloneRefText] = useState('')
   const [cloneAudioPath, setCloneAudioPath] = useState('')
+  const [cloneSubtitlePath, setCloneSubtitlePath] = useState('')
+  const [cloneAudioLanguage, setCloneAudioLanguage] = useState('ja')
 
   // Preview state
   const [previewText, setPreviewText] = useState('哥哥，今天给你做个特别的按摩哦，先从肩膀开始，放松一下吧。')
@@ -244,6 +246,8 @@ export default function VoiceLab() {
 
   // Segment analysis
   const [segments, setSegments] = useState<SegmentInfo[]>([])
+  const [recommendedIndices, setRecommendedIndices] = useState<number[]>([])
+  const [analysisWarnings, setAnalysisWarnings] = useState<string[]>([])
   const [analyzing, setAnalyzing] = useState(false)
 
   // Design result
@@ -274,6 +278,8 @@ export default function VoiceLab() {
     setPreviewAudio(null)
     setDesignResult(null)
     setSegments([])
+    setRecommendedIndices([])
+    setAnalysisWarnings([])
 
     if (category === 'preset') {
       try {
@@ -285,7 +291,7 @@ export default function VoiceLab() {
         setActionError(`读取音色详情失败：${errorMessage(error)}`)
         setPanel('empty')
       }
-    } else if (category === 'design') {
+    } else if (category === 'custom') {
       try {
         const d = await voiceApi.getProfile(id)
         setDetail(d)
@@ -331,6 +337,7 @@ export default function VoiceLab() {
       const res = await voiceApi.design({ name: designName, description: designDesc, ref_text: designRefText || undefined })
       setDesignResult({ ref_audio_path: res.ref_audio_path, prompt_cache_path: res.prompt_cache_path })
       await loadProfiles()
+      setDetail(await voiceApi.getProfile(res.profile_id))
       setSelectedId(res.profile_id)
       setPanel('design-detail')
     } catch (error) {
@@ -343,16 +350,25 @@ export default function VoiceLab() {
   const handleAnalyze = useCallback(async () => {
     if (!cloneAudioPath) return
     setActionError('')
+    setSegments([])
+    setRecommendedIndices([])
+    setAnalysisWarnings([])
     setAnalyzing(true)
     try {
-      const res = await voiceApi.analyzeSegments({ audio_path: cloneAudioPath, ref_text: cloneRefText || undefined })
+      const res = await voiceApi.analyzeSegments({
+        audio_path: cloneAudioPath,
+        subtitle_path: cloneSubtitlePath || undefined,
+        audio_language: cloneAudioLanguage,
+      })
       setSegments(res.segments)
+      setRecommendedIndices(res.recommended_indices)
+      setAnalysisWarnings(res.warnings)
     } catch (error) {
       setActionError(`音频分析失败：${errorMessage(error)}`)
     } finally {
       setAnalyzing(false)
     }
-  }, [cloneAudioPath, cloneRefText])
+  }, [cloneAudioLanguage, cloneAudioPath, cloneSubtitlePath])
 
   const handleClone = useCallback(async () => {
     if (!cloneAudioPath || !cloneName) return
@@ -361,6 +377,7 @@ export default function VoiceLab() {
     try {
       const res = await voiceApi.clone({ audio_path: cloneAudioPath, name: cloneName, ref_text: cloneRefText || undefined })
       await loadProfiles()
+      setDetail(await voiceApi.getProfile(res.profile_id))
       setSelectedId(res.profile_id)
       setPanel('clone-detail')
     } catch (error) {
@@ -396,38 +413,45 @@ export default function VoiceLab() {
     }
   }, [selectFiles])
 
+  const handleSelectCloneSubtitle = useCallback(async () => {
+    const files = await selectFiles({
+      multiple: false,
+      filters: [FILE_FILTERS.subtitle],
+      browserPrompt: '请输入参考字幕文件的完整路径：',
+    })
+    if (files.length > 0) {
+      setCloneSubtitlePath(files[0]!)
+      setActionError('')
+    }
+  }, [selectFiles])
+
   const showCreate = (type: 'design' | 'clone') => {
     setSelectedId(null)
     setDetail(null)
     setDesignResult(null)
     setSegments([])
+    setRecommendedIndices([])
+    setAnalysisWarnings([])
     if (type === 'design') {
       setDesignName(''); setDesignDesc(''); setDesignRefText('')
       setPanel('design-create')
     } else {
-      setCloneName(''); setCloneRefText(''); setCloneAudioPath('')
+      setCloneName(''); setCloneRefText(''); setCloneAudioPath(''); setCloneSubtitlePath(''); setCloneAudioLanguage('ja')
       setPanel('clone-create')
     }
   }
 
   // ── Build groups ───────────────────────────────────
-  const groups: ProfileGroup[] = []
-  const engineMap = new Map<string, VoiceProfileSummaryResponse[]>()
-  for (const p of profiles) {
-    const list = engineMap.get(p.engine) || []
-    list.push(p)
-    engineMap.set(p.engine, list)
-  }
-  for (const [engine, list] of engineMap) {
-    const meta = ENGINE_GROUPS[engine] || { label: engine, badge: '?' }
-    groups.push({ engine, label: meta.label, badge: meta.badge, profiles: list })
-  }
-  // Ensure all known engines appear even if empty
-  for (const [engine, meta] of Object.entries(ENGINE_GROUPS)) {
-    if (!engineMap.has(engine)) {
-      groups.push({ engine, label: meta.label, badge: meta.badge, profiles: [] })
-    }
-  }
+  const groups: ProfileGroup[] = Object.entries(ENGINE_GROUPS).map(([engine, meta]) => ({
+    engine,
+    label: meta.label,
+    badge: meta.badge,
+    profiles: profiles.filter(profile => {
+      if (engine === 'qwen3_custom') return profile.category === 'preset'
+      if (engine === 'qwen3_design') return profile.category === 'custom'
+      return profile.category === 'clone'
+    }),
+  }))
 
   const filteredGroups = filter === 'all'
     ? groups
@@ -441,9 +465,9 @@ export default function VoiceLab() {
   const totalCount = profiles.length
   const counts: Record<FilterKind, number> = {
     all: totalCount,
-    preset: profiles.filter(p => p.engine === 'qwen3_custom').length,
-    design: profiles.filter(p => p.engine === 'qwen3_design').length,
-    clone: profiles.filter(p => p.engine === 'qwen3_clone').length,
+    preset: profiles.filter(p => p.category === 'preset').length,
+    design: profiles.filter(p => p.category === 'custom').length,
+    clone: profiles.filter(p => p.category === 'clone').length,
   }
 
   // ── Render helpers ─────────────────────────────────
@@ -512,7 +536,13 @@ export default function VoiceLab() {
                   >
                     保存修改（暂不可用）
                   </button>
-                  <button style={S.btnDanger} onClick={handleDelete}>删除音色</button>
+                  <button
+                    style={{ ...S.btnDanger, cursor: 'not-allowed', opacity: 0.5 }}
+                    disabled
+                    title="内置预设音色不能删除"
+                  >
+                    内置预设不可删除
+                  </button>
                 </div>
               </div>
             </div>
@@ -629,6 +659,21 @@ export default function VoiceLab() {
                     <div style={{ fontSize: 11, marginTop: 4 }}>建议 5-30 秒清晰人声，无背景音</div>
                   </div>
                 </div>
+                <div style={S.formField}>
+                  <label style={S.formLabel}>参考字幕 (可选)</label>
+                  <button style={S.btnSm} type="button" onClick={handleSelectCloneSubtitle}>
+                    {cloneSubtitlePath ? '更换字幕' : '选择字幕'}
+                  </button>
+                  <span style={S.hint}>{cloneSubtitlePath || '未提供时使用 ASR 识别音频文本'}</span>
+                </div>
+                <div style={S.formField}>
+                  <label style={S.formLabel}>音频语言</label>
+                  <select style={S.input} value={cloneAudioLanguage} onChange={event => setCloneAudioLanguage(event.target.value)}>
+                    <option value="ja">日语</option>
+                    <option value="zh">中文</option>
+                    <option value="en">英语</option>
+                  </select>
+                </div>
               </div>
 
               {/* Segment analysis */}
@@ -648,21 +693,30 @@ export default function VoiceLab() {
                       </tr>
                     </thead>
                     <tbody>
-                      {segments.map((seg, i) => (
-                        <tr key={i} style={i === 0 ? { background: 'oklch(97% 0.01 145)' } : undefined}>
-                          <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{i}</td>
+                      {segments.map((seg) => (
+                        <tr key={seg.index} style={recommendedIndices.includes(seg.index) ? { background: 'oklch(97% 0.01 145)' } : undefined}>
+                          <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{seg.index}</td>
                           <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{seg.start.toFixed(1)} – {seg.end.toFixed(1)}s</td>
                           <td style={S.segTd}>{seg.text}</td>
                           <td style={S.segTd}>
-                            <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 11, color: seg.quality_score >= 80 ? 'var(--success)' : 'var(--warning)' }}>
-                              {seg.quality_score}
+                            <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 11, color: seg.score >= 80 ? 'var(--success)' : 'var(--warning)' }}>
+                              {seg.score}
                             </span>
                           </td>
-                          <td style={S.segTd}>{i === 0 ? <span style={S.tag('ready')}>推荐</span> : null}</td>
+                          <td style={S.segTd}>
+                            {recommendedIndices.includes(seg.index)
+                              ? <span style={S.tag('ready')}>推荐</span>
+                              : (seg.label || '—')}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                  {analysisWarnings.length > 0 && (
+                    <div style={{ ...S.hint, marginTop: 8 }}>
+                      {analysisWarnings.join('；')}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -753,7 +807,7 @@ export default function VoiceLab() {
             {actionError}
           </span>
         )}
-        <span style={S.gpuPill}>CUDA 可用</span>
+        <span style={S.gpuPill}>Qwen3 扩展</span>
         <div style={S.spacer} />
         <button style={S.btn} onClick={() => showCreate('design')}>
           <PlusIcon /> 新建音色

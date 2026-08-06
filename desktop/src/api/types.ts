@@ -387,6 +387,7 @@ export interface VoiceDesignResponse {
   profile_id: string
   name: string
   category: string
+  task_id: string
   ref_audio_path: string
   prompt_cache_path: string
 }
@@ -401,25 +402,34 @@ export interface VoiceCloneResponse {
   profile_id: string
   name: string
   category: string
+  task_id: string
   ref_audio_path: string
   prompt_cache_path: string
 }
 
 export interface SegmentAnalyzeRequest {
   audio_path: string
-  ref_text?: string
+  subtitle_path?: string
+  audio_language?: string
 }
 
 export interface SegmentInfo {
+  index: number
   start: number
   end: number
   text: string
-  quality_score: number
+  duration: number
+  score: number
+  label: string
+  details: Record<string, unknown>
 }
 
 export interface SegmentAnalyzeResponse {
+  audio_path: string
+  mode: string
   segments: SegmentInfo[]
-  recommended_index: number
+  recommended_indices: number[]
+  warnings: string[]
 }
 
 export interface VoicePreviewRequest {
@@ -429,6 +439,7 @@ export interface VoicePreviewRequest {
 
 export interface VoicePreviewResponse {
   profile_id: string
+  task_id: string
   audio_path: string
 }
 

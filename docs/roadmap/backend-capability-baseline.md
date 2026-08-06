@@ -72,7 +72,7 @@ Tauri / React
 | TTS | `kokoro` | `kokoro-82m` | Python 包存在，缺 `espeak-ng` | 待验收 |
 | TTS | `voxcpm2` | `voxcpm2` | 模型和 Python 包均缺失 | 待验收 |
 
-受当前受限执行环境影响，`qwen_tts` 的 UV Python trampoline 探测会返回权限错误；正常用户进程中的正式 API 和 `pipeline-8` 已完成真实验收。因此该探测不能推翻已有真实验收，但模型状态页仍需在正式 APP 进程中复核显示是否正确。
+2026-08-07 已将 `.venv`、`qwen_tts`、`qwen_asr` 和 `fun_asr` 全部迁移到项目内 UV Python 3.12.13。三个隔离环境的依赖一致性检查与模块导入均通过；Qwen3-ASR 0.6B 和 Qwen3 CustomVoice 分别完成重建后的真实推理，模型状态返回 `installed + executable`。旧环境仅移动为 `.runtimes/*-backup-*` 备份，尚未删除。
 
 ### 4.2 默认产品组合
 
@@ -90,14 +90,14 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 
 ## 5. 本机环境与资产现状
 
-2026-08-04 只读扫描结果：
+2026-08-07 环境重建后的核对结果：
 
 | 路径 | 大小 | 判断 |
 | --- | ---: | --- |
-| `.venv` | 1.61 GB | 主 API/基础音频环境，但仍能导入 Qwen、Kokoro、Gradio，尚未达到最小环境目标 |
-| `.runtimes/qwen_tts` | 约 4.55 GB | 已验收的 Qwen3-TTS CUDA 隔离环境 |
-| `.runtimes/qwen_asr` | 约 1.22 GB | 已创建，当前为 CPU Torch；0.6B 直接 ASR 已真实验收 |
-| `.runtimes/fun_asr` | 约 1.08 GB | 已创建，当前为 CPU Torch，缺模型资产 |
+| `.venv` | 约 1.02 GB | FastAPI、Edge TTS、基础音频链路和开发测试；Qwen/FunASR 已移出主环境 |
+| `.runtimes/qwen_tts` | 约 4.55 GB | 项目内 Python 3.12.13；Qwen3-TTS CUDA 依赖与真实合成已验收 |
+| `.runtimes/qwen_asr` | 约 1.22 GB | 项目内 Python 3.12.13、CPU Torch；0.6B 直接 ASR 已真实验收 |
+| `.runtimes/fun_asr` | 约 1.08 GB | 项目内 Python 3.12.13、CPU Torch；运行时可导入但缺模型资产 |
 | `models/whisper` | 约 5.08 GB | 五个尺寸同时存在，默认只需要 Base |
 | `models/qwen3tts` | 约 12.65 GB | CustomVoice/Base/VoiceDesign 同时存在，只有 CustomVoice 已验收 |
 | `models/qwen3asr` | 约 6.13 GB | 0.6B/1.7B 同时存在；0.6B 已直接推理验收，1.7B 未验收 |
@@ -141,17 +141,16 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - EnginesResources 可以展示模型和异步安装；必须同时展示 `installed` 与 `executable`，不能只看文件是否存在。
 - SubtitleWorkshop 已有后端支撑，可在契约范围内整理，不需要重新设计后端。
 - VoiceLab 的 profile 浏览、Design、Clone、Preview 可以保留；这些是 Qwen3-TTS 专属扩展，不应显示为所有 TTS 引擎的通用能力。
-- VoiceLab 当前把 `ref_text` 发送给 `/voice/analyze-segments`，而后端契约需要 `subtitle_path/audio_language`；该字段目前不会产生页面设想的效果。
+- VoiceLab 已按后端契约提交 `subtitle_path/audio_language`，并消费 `score/recommended_indices/warnings`；设计档案的 `custom` 分类、创建后详情和内置预设不可删除边界也已对齐。
 - 桌面端虽然定义了 `pipelineApi.batch` 和 `toolsApi`，现有页面没有实际消费，不能据此认为 GUI 功能已完成。
 
 ## 8. 后端下一步
 
-1. 在正式 APP 进程复核 Qwen3-TTS 模型状态展示，解决“真实可用但探测可能显示不可执行”的环境差异。
-2. 修正 VoiceLab 的片段分析请求映射：页面应提交后端已有的 `subtitle_path/audio_language`，不再把 `ref_text` 当作分析参数。
-3. 在批量 GUI 设计前决定：保持同步批处理工具，还是新增 batch task 聚合、状态查询和取消契约。
-4. 使用 Computer Use 复核正式 APP 中的模型状态、任务时间线和结果预览；当前组件权限故障解除前不把进程级检查等同于 GUI 验收。
-5. 制定模型保留清单后，再删除多余 Whisper/Qwen 权重；制定环境重建方案后，再清理主环境重复依赖。
-6. 完成上述事实收束后，再按页面逐一整理 GUI，不新增后端未支持的状态和操作。
+1. 继续按页面核对 GUI 与后端事实，优先处理仍只定义 API client、但没有真实页面入口的批量与 Tool 能力。
+2. 在批量 GUI 设计前决定：保持同步批处理工具，还是新增 batch task 聚合、状态查询和取消契约。
+3. 使用 Computer Use 复核正式 APP 中的模型状态、任务时间线和结果预览；当前组件权限故障解除前不把进程级检查等同于 GUI 验收。
+4. 制定模型保留清单后，再删除多余 Whisper/Qwen 权重；真实验收完成前不删除本轮环境备份。
+5. 完成上述事实收束后，再按页面逐一整理 GUI，不新增后端未支持的状态和操作。
 
 ## Task Execution V1 收口进度（2026-08-04）
 
@@ -159,13 +158,15 @@ Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内�
 
 Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。本轮没有引入 root task、executor version、资源标签、BatchRun 实体或分布式队列。
 
-自动化基线为 `244 passed`，覆盖 Task V1、Executor Registry、通用 HTTP 提交、Pipeline 连续执行/失败隔离/取消重提、Worker 交换文件清理，以及 Tool、模型安装、Voice、启动日志、真实 PID 管理和 Edge MP3 输出。桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
+自动化基线为 `245 passed`，覆盖 Task V1、Executor Registry、通用 HTTP 提交、Pipeline 连续执行/失败隔离/取消重提、Worker 交换文件清理，以及 Tool、模型安装、Voice、启动日志、真实 PID 管理、Edge MP3 输出和项目内 UV 状态目录约束。桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601` 同步通过。
 
 2026-08-07 使用固定非敏感日语测试句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` 正式 Pipeline。任务 `pipeline-1` 在 `export` 阶段完成，登记混音、双语字幕、TTS WAV 和 ASR 文本四类 Artifact；ASR 文本与测试句一致，字幕包含有效中文翻译，TTS 产物为 24 kHz、6.48 秒 WAV，执行后无 Qwen Worker 残留。该验收不包含用户素材外发。
 
 验收准备同时发现并修复 Edge TTS 的 MP3 输出冲突：以前 `.mp3` 会被 FFmpeg 同时作为输入和输出；现在 MP3 直接保留 Edge 原始结果，WAV 才进入转码，其他扩展名在网络请求前明确拒绝。
 
 Voice 扩展验收使用非敏感合成音频完成：Clone 生成可用档案与 prompt cache，Preview 生成 24 kHz、4 秒 WAV；VoiceDesign 生成 24 kHz、2.56 秒参考音频与 prompt cache；两类任务均登记独立 Artifact，测试档案随后通过正式删除接口清理。Analyze 使用实际音频和字幕返回有效片段、推荐索引与语言不匹配警告。验收中修复其残留旧 ASR 调用：现在统一通过 ASR Runtime 解析资源模型 ID。
+
+环境重建后再次执行默认正式 Pipeline：非敏感合成样本按 `Demucs → Faster-Whisper Base → DeepSeek → Edge TTS → FFmpeg` 完成 `pipeline-1`，终态为 `export/completed`，登记混音、双语字幕、分离人声、TTS 和转写文本 5 个 Artifact。分离人声与 TTS 均为 6.48 秒，字幕包含有效日文原文与中文译文；启动助手同时通过独立端口健康检查、真实 PID、持久日志和退出后端口释放验收。
 
 ## 9. 启动与日志事实（2026-08-07）
 
