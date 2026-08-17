@@ -29,6 +29,14 @@ class _ExecutionRecord:
     error: BaseException | None = None
 
 
+class _WorkerLaunchFailure(Exception):
+    """Identify a worker construction/start failure after lifecycle start succeeded."""
+
+    def __init__(self, cause: BaseException) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+
+
 class TaskDispatcher:
     """Dispatch registered tasks synchronously or on one background thread."""
 
@@ -66,7 +74,9 @@ class TaskDispatcher:
         task_spec = self._get_next_pending()
         if task_spec is None:
             return None
-        self._begin(task_spec.task_id)
+        record = self._begin(task_spec.task_id, require_capacity=True)
+        if record is None:
+            return None
         self._execute(task_spec)
         return self._lifecycle().get_task(task_spec.task_id)
 
@@ -86,11 +96,16 @@ class TaskDispatcher:
             return task
         if task.state != "pending":
             raise ValueError(f"task cannot be submitted from state: {task.state}")
-        if not self._lifecycle().can_start():
-            return task
 
         task_spec = self._lifecycle().get_task_spec(task_id)
-        self._start_background(task_spec)
+        try:
+            self._start_background(task_spec)
+        except _WorkerLaunchFailure as exc:
+            # No worker exists to release the newly freed slot, so continue the
+            # queue here. Lifecycle/persistence failures intentionally do not
+            # drain: a broken state store must not fail every pending task.
+            self._drain_pending()
+            raise exc.cause
         return self._lifecycle().get_task(task_id)
 
     def run(self, task_id: str, *, cancel_event: threading.Event | None = None) -> Any:
@@ -98,9 +113,11 @@ class TaskDispatcher:
         task = self._lifecycle().get_task(task_id)
         if task.state == "pending":
             task_spec = self._lifecycle().get_task_spec(task_id)
-            self._begin(task_id)
+            record = self._begin(task_id, require_capacity=True)
+            if record is None:
+                raise ValueError("task cannot run while execution capacity is exhausted")
             if cancel_event is not None:
-                self._records[task_id].cancel_event = cancel_event
+                record.cancel_event = cancel_event
             self._execute(task_spec)
         elif task.state == "running":
             if cancel_event is not None and cancel_event.is_set():
@@ -145,11 +162,37 @@ class TaskDispatcher:
             record = self._records.get(task_id)
             return record.cancel_event if record else None
 
-    def _begin(self, task_id: str) -> _ExecutionRecord:
+    def _begin(
+        self,
+        task_id: str,
+        *,
+        require_capacity: bool = False,
+    ) -> _ExecutionRecord | None:
         with self._lock:
             if task_id in self._records:
                 raise ValueError(f"task has already been started: {task_id}")
-            self._lifecycle().start_task(task_id, message="task accepted by executor registry")
+            lifecycle = self._lifecycle()
+            if require_capacity:
+                start_if_capacity = getattr(lifecycle, "start_task_if_capacity", None)
+                if start_if_capacity is not None:
+                    started = start_if_capacity(
+                        task_id,
+                        message="task accepted by executor registry",
+                    )
+                    if started is None:
+                        return None
+                else:
+                    if not lifecycle.can_start():
+                        return None
+                    lifecycle.start_task(
+                        task_id,
+                        message="task accepted by executor registry",
+                    )
+            else:
+                lifecycle.start_task(
+                    task_id,
+                    message="task accepted by executor registry",
+                )
             record = _ExecutionRecord(cancel_event=threading.Event())
             self._records[task_id] = record
             return record
@@ -210,16 +253,32 @@ class TaskDispatcher:
                     record.thread = threading.current_thread()
             self._drain_pending()
 
-    def _start_background(self, task_spec: TaskSpec) -> None:
-        record = self._begin(task_spec.task_id)
-        thread = threading.Thread(
-            target=self._execute,
-            args=(task_spec,),
-            name=f"task-{task_spec.task_id}",
-            daemon=True,
-        )
-        record.thread = thread
-        thread.start()
+    def _start_background(self, task_spec: TaskSpec) -> bool:
+        with self._lock:
+            current = self._lifecycle().get_task(task_spec.task_id)
+            if current.state == "running":
+                return False
+            if current.state != "pending":
+                raise ValueError(f"task cannot be submitted from state: {current.state}")
+
+            record = self._begin(task_spec.task_id, require_capacity=True)
+            if record is None:
+                return False
+            try:
+                thread = threading.Thread(
+                    target=self._execute,
+                    args=(task_spec,),
+                    name=f"task-{task_spec.task_id}",
+                    daemon=True,
+                )
+                record.thread = thread
+                thread.start()
+            except BaseException as exc:
+                record.thread = None
+                record.error = exc
+                self._finalize_failure(task_spec.task_id, exc, stage="prepare")
+                raise _WorkerLaunchFailure(exc) from exc
+            return True
 
     def _drain_pending(self) -> None:
         """Start queued work whenever a running slot is released."""
@@ -228,18 +287,28 @@ class TaskDispatcher:
             if task_spec is None:
                 return
             try:
-                self._start_background(task_spec)
+                started = self._start_background(task_spec)
+                if not started:
+                    if self._lifecycle().get_task(task_spec.task_id).state == "pending":
+                        return
+                    continue
+            except _WorkerLaunchFailure:
+                # The failed task is terminal and its slot is free; keep
+                # scanning so one broken thread launch does not block the queue.
+                continue
             except Exception:
                 # A concurrent caller may have started/cancelled the task, or
                 # TaskService may have quarantined it after persistence failed.
-                # Only re-scan when it is no longer pending; otherwise stop to
-                # avoid spinning forever on an unexpected start failure.
+                # Re-scan only for a concurrent terminal transition. A failed
+                # lifecycle start can mean the state store is unavailable, in
+                # which case draining would quarantine the entire queue.
                 try:
-                    if self._lifecycle().get_task(task_spec.task_id).state == "pending":
-                        return
+                    state = self._lifecycle().get_task(task_spec.task_id).state
                 except ValueError:
-                    pass
-                continue
+                    return
+                if state in {"cancelled", "skipped", "completed"}:
+                    continue
+                return
 
     @staticmethod
     def _invoke_executor(
