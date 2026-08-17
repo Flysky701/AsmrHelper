@@ -24,6 +24,7 @@ class Config:
 
     _instance = None
     _lock = threading.Lock()
+    _state_lock = threading.RLock()
     _config: Dict[str, Any] = {}
 
     def __new__(cls):
@@ -121,14 +122,23 @@ class Config:
         self._config = self.build_effective_config()
 
     def save(self, config_data: Dict[str, Any] | None = None):
-        """保存配置到文件。"""
+        """原子保存配置；失败必须向调用方报告。"""
         data = config_data if config_data is not None else self._config
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temp_file = CONFIG_FILE.with_name(
+            f".{CONFIG_FILE.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        )
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_file, CONFIG_FILE)
             print(f"[Config] 保存配置文件: {CONFIG_FILE}")
         except Exception as e:
+            temp_file.unlink(missing_ok=True)
             print(f"[Config] 保存配置失败: {e}")
+            raise OSError(f"保存配置失败: {e}") from e
 
     def get_file_config(self) -> Dict[str, Any]:
         """返回磁盘配置视图（不含环境变量覆盖）。"""
@@ -140,10 +150,11 @@ class Config:
 
     def persist_updates(self, updates: Dict[str, Any]):
         """将部分配置合并到磁盘配置并重新加载。"""
-        file_config = self.get_file_config()
-        self._merge_config(file_config, updates)
-        self.save(config_data=file_config)
-        self.reload()
+        with self._state_lock:
+            file_config = self.get_file_config()
+            self._merge_config(file_config, updates)
+            self.save(config_data=file_config)
+            self.reload()
 
     def get(self, key: str, default: Any = None) -> Any:
         """获取配置值，支持点号路径，如 'api.deepseek_api_key'"""
@@ -208,15 +219,15 @@ class Config:
             errors.append(f"tts.engine 必须是 'edge'、'qwen3' 或 'kokoro'，当前: {tts_engine}")
 
         speed = self._get_from_mapping(target, "tts.speed", 1.0)
-        if not isinstance(speed, (int, float)) or speed < 0.1 or speed > 3.0:
+        if not self._is_number(speed) or speed < 0.1 or speed > 3.0:
             errors.append(f"tts.speed 必须在 0.1-3.0 之间，当前: {speed}")
 
         # 验证音量配置
         orig_vol = self._get_from_mapping(target, "processing.original_volume", 0.85)
         tts_vol = self._get_from_mapping(target, "processing.tts_volume", 0.5)
-        if not (0 <= orig_vol <= 1.5):
+        if not self._is_number(orig_vol) or not (0 <= orig_vol <= 1.5):
             errors.append(f"processing.original_volume 必须在 0-1.5 之间，当前: {orig_vol}")
-        if not (0 <= tts_vol <= 2.0):
+        if not self._is_number(tts_vol) or not (0 <= tts_vol <= 2.0):
             errors.append(f"processing.tts_volume 必须在 0-2.0 之间，当前: {tts_vol}")
 
         # 验证模型配置
@@ -225,6 +236,10 @@ class Config:
             errors.append(f"processing.vocal_model 不支持: {vocal_model}")
 
         return (len(errors) == 0, errors)
+
+    @staticmethod
+    def _is_number(value: Any) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
 
     def _get_from_mapping(self, mapping: Dict[str, Any], key: str, default: Any = None) -> Any:
         """从指定映射获取点路径配置。"""

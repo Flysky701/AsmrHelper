@@ -135,6 +135,76 @@ class TestSettingsService:
         assert result.error_code == "PROVIDER_CONNECTION_FAILED"
         assert "authentication failed" in result.message
 
+    def test_update_settings_reports_persistence_failure(self):
+        from src.app.errors import AppExecutionError
+        from src.app.services.settings_service import SettingsService
+
+        class FailingConfig(_FakeConfig):
+            def persist_updates(self, updates):
+                raise PermissionError("configuration is read-only")
+
+        service = SettingsService(config_manager=FailingConfig())
+
+        with pytest.raises(AppExecutionError, match="configuration is read-only"):
+            service.update_settings({"tts": {"speed": 1.25}})
+
+
+def test_config_save_is_atomic_and_propagates_replace_failure(tmp_path, monkeypatch):
+    import src.config as config_module
+
+    manager = object.__new__(config_module.Config)
+    manager._config = {"api": {"provider": "deepseek"}}
+    target = tmp_path / "config.json"
+    monkeypatch.setattr(config_module, "CONFIG_FILE", target)
+
+    def fail_replace(_source, _target):
+        raise PermissionError("replace denied")
+
+    monkeypatch.setattr(config_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="保存配置失败"):
+        manager.save()
+
+    assert not target.exists()
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_config_partial_updates_are_serialized(tmp_path, monkeypatch):
+    import src.config as config_module
+
+    manager = object.__new__(config_module.Config)
+    manager._config = manager._default_config()
+    target = tmp_path / "config.json"
+    monkeypatch.setattr(config_module, "CONFIG_FILE", target)
+    manager.save(config_data={})
+    original_save = manager.save
+
+    def slow_save(config_data=None):
+        time.sleep(0.03)
+        original_save(config_data=config_data)
+
+    monkeypatch.setattr(manager, "save", slow_save)
+    gate = threading.Barrier(3)
+
+    def update(payload):
+        gate.wait()
+        manager.persist_updates(payload)
+
+    first = threading.Thread(target=update, args=({"tts": {"speed": 1.25}},))
+    second = threading.Thread(
+        target=update,
+        args=({"processing": {"original_volume": 0.6}},),
+    )
+    first.start()
+    second.start()
+    gate.wait()
+    first.join(timeout=2)
+    second.join(timeout=2)
+
+    persisted = manager.get_file_config()
+    assert persisted["tts"]["speed"] == 1.25
+    assert persisted["processing"]["original_volume"] == 0.6
+
 
 class TestArtifactResultContract:
     def test_result_has_one_authoritative_primary_artifact(self):
@@ -288,6 +358,74 @@ class TestModelService:
 
 class TestTaskService:
     """Test TaskService lifecycle and concurrency."""
+
+    class _FailingStateStore:
+        def __init__(self, *, fail_state: str):
+            self.fail_state = fail_state
+
+        def purge_unfinished(self):
+            return None
+
+        def load_terminal_tasks(self):
+            return []
+
+        def save_task(self, task_spec, task_status):
+            if task_status.state == self.fail_state:
+                raise OSError("disk full")
+
+    def test_create_persistence_failure_discards_uncommitted_task(self):
+        from src.app.errors import AppExecutionError
+        from src.app.services.task_service import TaskService
+
+        service = TaskService(state_store=self._FailingStateStore(fail_state="pending"))
+
+        with pytest.raises(AppExecutionError, match="failed to persist task creation"):
+            service.create_task_spec(
+                task_type="pipeline",
+                task_source="test",
+                session_id="session-1",
+            )
+
+        assert service.list_tasks() == []
+
+    def test_state_persistence_failure_quarantines_task_as_failed(self):
+        from src.app.errors import AppExecutionError
+        from src.app.services.task_service import TaskService
+
+        service = TaskService(state_store=self._FailingStateStore(fail_state="running"))
+        spec, _ = service.create_task_spec(
+            task_type="pipeline",
+            task_source="test",
+            session_id="session-1",
+        )
+        with pytest.raises(AppExecutionError, match="failed to persist task state"):
+            service.start_task(spec.task_id)
+
+        task = service.get_task(spec.task_id)
+        assert task.state == "failed"
+        assert task.error is not None
+        assert task.error["code"] == "TASK_STATE_PERSISTENCE_FAILED"
+        assert service.list_tasks(state="pending") == []
+
+    def test_running_persistence_failure_releases_concurrency_slot(self):
+        from src.app.errors import AppExecutionError
+        from src.app.services.task_service import TaskService
+
+        store = self._FailingStateStore(fail_state="never")
+        service = TaskService(max_concurrent=1, state_store=store)
+        spec, _ = service.create_task_spec(
+            task_type="pipeline",
+            task_source="test",
+            session_id="session-1",
+        )
+        service.start_task(spec.task_id)
+        store.fail_state = "running"
+
+        with pytest.raises(AppExecutionError, match="failed to persist task state"):
+            service.update_progress(spec.task_id, 0.5)
+
+        assert service.get_task(spec.task_id).state == "failed"
+        assert service.running_count() == 0
 
     def test_create_task_spec_and_lifecycle(self):
         from src.app.services.task_service import TaskService

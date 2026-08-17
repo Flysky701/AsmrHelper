@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from src.core.tasks import ExecutorRegistry, RuntimeEvent, TaskRegistry, TaskSpec, TaskStatus
-from ..errors import AppValidationError
+from ..errors import AppExecutionError, AppValidationError
 from ..persistence import SqliteStateStore, get_state_store
 
 
@@ -56,11 +56,17 @@ class TaskService:
                     dedupe_key=dedupe_key,
                     retry_of_task_id=retry_of_task_id,
                 )
-                if self._state_store is not None:
-                    self._state_store.save_task(*result)
-                return result
             except ValueError as exc:
                 raise AppValidationError(str(exc)) from exc
+            if self._state_store is not None:
+                try:
+                    self._state_store.save_task(*result)
+                except Exception as exc:
+                    self._registry.discard_task(result[0].task_id)
+                    raise AppExecutionError(
+                        f"failed to persist task creation: {result[0].task_id}"
+                    ) from exc
+            return result
 
     def get_task(self, task_id: str) -> TaskStatus:
         with self._lock:
@@ -80,6 +86,7 @@ class TaskService:
         self, task_id: str, message: str = "", *, stage: str | None = "prepare"
     ) -> TaskStatus:
         return self._guard(
+            task_id,
             lambda: self._registry.start_task(task_id, message=message, stage=stage)
         )
 
@@ -93,6 +100,7 @@ class TaskService:
         detail: str | None = None,
     ) -> TaskStatus:
         return self._guard(
+            task_id,
             lambda: self._registry.update_progress(
                 task_id,
                 progress,
@@ -112,6 +120,7 @@ class TaskService:
         artifact_set_id: str | None = None,
     ) -> TaskStatus:
         return self._guard(
+            task_id,
             lambda: self._registry.complete_task(
                 task_id,
                 message=message,
@@ -131,6 +140,7 @@ class TaskService:
         error: dict[str, object] | None = None,
     ) -> TaskStatus:
         return self._guard(
+            task_id,
             lambda: self._registry.fail_task(
                 task_id,
                 message=message,
@@ -141,10 +151,16 @@ class TaskService:
         )
 
     def skip_task(self, task_id: str, message: str = "", detail: str = "") -> TaskStatus:
-        return self._guard(lambda: self._registry.skip_task(task_id, message=message, detail=detail))
+        return self._guard(
+            task_id,
+            lambda: self._registry.skip_task(task_id, message=message, detail=detail),
+        )
 
     def cancel_task(self, task_id: str, message: str = "cancelled by user") -> TaskStatus:
-        return self._guard(lambda: self._registry.cancel_task(task_id, message=message))
+        return self._guard(
+            task_id,
+            lambda: self._registry.cancel_task(task_id, message=message),
+        )
 
     def retry_task(self, task_id: str, message: str = "queued for retry") -> TaskStatus:
         with self._lock:
@@ -154,12 +170,18 @@ class TaskService:
                 )
             try:
                 result = self._registry.retry_task(task_id, message=message)
-                if self._state_store is not None:
-                    task_spec = self._registry.get_task_spec(result.task_id)
-                    self._state_store.save_task(task_spec, result)
-                return result
             except ValueError as exc:
                 raise AppValidationError(str(exc)) from exc
+            if self._state_store is not None:
+                try:
+                    task_spec = self._registry.get_task_spec(result.task_id)
+                    self._state_store.save_task(task_spec, result)
+                except Exception as exc:
+                    self._registry.discard_task(result.task_id)
+                    raise AppExecutionError(
+                        f"failed to persist task retry: {result.task_id}"
+                    ) from exc
+            return result
 
     @property
     def registry(self) -> TaskRegistry:
@@ -167,10 +189,16 @@ class TaskService:
         return self._registry
 
     def set_review_state(self, task_id: str, review_state: str) -> TaskStatus:
-        return self._guard(lambda: self._registry.set_review_state(task_id, review_state))
+        return self._guard(
+            task_id,
+            lambda: self._registry.set_review_state(task_id, review_state),
+        )
 
     def set_review_note(self, task_id: str, review_note: str) -> TaskStatus:
-        return self._guard(lambda: self._registry.set_review_note(task_id, review_note))
+        return self._guard(
+            task_id,
+            lambda: self._registry.set_review_note(task_id, review_note),
+        )
 
     def running_count(self) -> int:
         with self._lock:
@@ -188,16 +216,38 @@ class TaskService:
         with self._lock:
             return self._registry.get_queue_snapshot()
 
-    def _guard(self, fn):
+    def _guard(self, task_id: str, fn):
         with self._lock:
             try:
+                snapshot = self._registry.snapshot_task_state(task_id)
                 result = fn()
-                if self._state_store is not None:
-                    task_spec = self._registry.get_task_spec(result.task_id)
-                    self._state_store.save_task(task_spec, result)
-                return result
             except ValueError as exc:
                 raise AppValidationError(str(exc)) from exc
+            if self._state_store is not None:
+                try:
+                    task_spec = self._registry.get_task_spec(result.task_id)
+                    self._state_store.save_task(task_spec, result)
+                except Exception as exc:
+                    self._registry.restore_task_state(*snapshot)
+                    restored = self._registry.get_task(result.task_id)
+                    if restored.state not in self._registry.TERMINAL_STATES:
+                        self._registry.fail_task(
+                            result.task_id,
+                            message="task state persistence failed",
+                            detail=str(exc),
+                            stage=restored.stage,
+                            error={
+                                "code": "TASK_STATE_PERSISTENCE_FAILED",
+                                "stage": restored.stage or "prepare",
+                                "message": "task state could not be persisted",
+                                "retryable": True,
+                                "detail": str(exc),
+                            },
+                        )
+                    raise AppExecutionError(
+                        f"failed to persist task state: {result.task_id}"
+                    ) from exc
+            return result
 
     def list_events(
         self,

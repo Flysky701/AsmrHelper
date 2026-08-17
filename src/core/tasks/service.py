@@ -95,6 +95,35 @@ class TaskRegistry:
             raise ValueError(f"unknown task id: {task_id}") from exc
         return self.clone_spec(task_spec)
 
+    def snapshot_task_state(
+        self,
+        task_id: str,
+    ) -> tuple[TaskStatus, list[RuntimeEvent], int]:
+        """Capture mutable task state so an outer persistence transaction can roll back."""
+        task = self.get_task(task_id)
+        events = [self.clone_event(event) for event in self._events.get(task_id, [])]
+        return task, events, self._event_sequences.get(task_id, 0)
+
+    def restore_task_state(
+        self,
+        task: TaskStatus,
+        events: list[RuntimeEvent],
+        event_sequence: int,
+    ) -> None:
+        """Restore a snapshot after persistence failed."""
+        if task.task_id not in self._task_specs:
+            raise ValueError(f"unknown task id: {task.task_id}")
+        self._tasks[task.task_id] = self.clone_task(task)
+        self._events[task.task_id] = [self.clone_event(event) for event in events]
+        self._event_sequences[task.task_id] = event_sequence
+
+    def discard_task(self, task_id: str) -> None:
+        """Remove an uncommitted task after its initial persistence failed."""
+        self._task_specs.pop(task_id, None)
+        self._tasks.pop(task_id, None)
+        self._events.pop(task_id, None)
+        self._event_sequences.pop(task_id, None)
+
     def list_events(
         self,
         task_id: str,

@@ -200,7 +200,7 @@ class TaskDispatcher:
             current = self._lifecycle().get_task(task_id)
             if current.state in self._registry.TERMINAL_STATES:
                 return
-            if record.cancel_event.is_set() or "cancel" in str(exc).lower() or "取消" in str(exc):
+            if record.cancel_event.is_set():
                 self._lifecycle().cancel_task(task_id, message="cancelled by user")
             else:
                 self._finalize_failure(task_id, exc, stage=current.stage)
@@ -229,9 +229,16 @@ class TaskDispatcher:
                 return
             try:
                 self._start_background(task_spec)
-            except ValueError:
-                # A concurrent caller may have started or cancelled the task;
-                # re-scan the queue rather than leaving another task blocked.
+            except Exception:
+                # A concurrent caller may have started/cancelled the task, or
+                # TaskService may have quarantined it after persistence failed.
+                # Only re-scan when it is no longer pending; otherwise stop to
+                # avoid spinning forever on an unexpected start failure.
+                try:
+                    if self._lifecycle().get_task(task_spec.task_id).state == "pending":
+                        return
+                except ValueError:
+                    pass
                 continue
 
     @staticmethod

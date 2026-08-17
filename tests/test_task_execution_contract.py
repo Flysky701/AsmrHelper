@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from src.app.errors import AppValidationError
+from src.app.errors import AppExecutionError, AppValidationError
 from src.app.persistence import SqliteStateStore
 from src.app.services.task_service import TaskService
 from src.core.tasks import ExecutorRegistry, TaskDispatcher
@@ -115,6 +115,58 @@ def test_one_failed_task_does_not_block_the_next_task():
     assert service.get_task(first.task_id).state == "failed"
     assert service.get_task(second.task_id).state == "completed"
     assert executed == [first.task_id, second.task_id]
+
+
+def test_start_persistence_failure_cannot_be_drained_as_ghost_work():
+    class SelectiveFailStore:
+        def __init__(self):
+            self.fail_running = True
+
+        def purge_unfinished(self):
+            return None
+
+        def load_terminal_tasks(self):
+            return []
+
+        def save_task(self, _spec, status):
+            if self.fail_running and status.state == "running":
+                raise OSError("disk full")
+
+    store = SelectiveFailStore()
+    service = TaskService(state_store=store)
+    dispatcher = TaskDispatcher(service.registry, task_service=service)
+    executed: list[str] = []
+    dispatcher.register_executor("pipeline", lambda spec: executed.append(spec.task_id))
+    failed_start, _ = _create(service)
+
+    with pytest.raises(AppExecutionError, match="failed to persist task state"):
+        dispatcher.submit(failed_start.task_id)
+
+    assert service.get_task(failed_start.task_id).state == "failed"
+    store.fail_running = False
+    healthy, _ = _create(service)
+    dispatcher.dispatch_all_pending()
+
+    assert executed == [healthy.task_id]
+    assert service.get_task(healthy.task_id).state == "completed"
+
+
+def test_provider_error_containing_cancel_is_not_user_cancellation():
+    service = TaskService()
+    dispatcher = TaskDispatcher(service.registry, task_service=service)
+
+    def execute(_spec):
+        raise RuntimeError("provider request cancelled upstream")
+
+    dispatcher.register_executor("pipeline", execute)
+    spec, _ = _create(service)
+
+    dispatcher.dispatch_all_pending()
+
+    status = service.get_task(spec.task_id)
+    assert status.state == "failed"
+    assert status.error["code"] == "TASK_EXECUTION_FAILED"
+    assert "cancelled upstream" in status.error["detail"]
 
 
 def test_background_queue_drains_after_a_slot_is_released():
