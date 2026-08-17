@@ -209,9 +209,9 @@ export default function EnginesResources() {
   const tabGroups = getTabModels(activeTab)
 
   return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%', overflow: 'hidden' }}>
+    <div className="engines-page" style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%', overflow: 'hidden' }}>
       {/* Action bar */}
-      <div style={{
+      <div className="engines-action-bar" style={{
         background: 'var(--surface)', borderBottom: '1px solid var(--border)',
         padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '12px',
       }}>
@@ -230,9 +230,9 @@ export default function EnginesResources() {
       </div>
 
       {/* Content */}
-      <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div className="engines-content" style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
         {error && (
-          <div style={{
+          <div className="engines-message" style={{
             padding: '10px 14px',
             color: 'var(--danger)',
             background: 'rgba(239,68,68,0.06)',
@@ -252,9 +252,9 @@ export default function EnginesResources() {
           }}>
             运行时状态
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+          <div className="engines-runtime-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
             {resources.map(res => (
-              <div key={res.name} style={{
+              <div className="engines-runtime-card" key={res.name} style={{
                 background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
@@ -283,7 +283,7 @@ export default function EnginesResources() {
           </div>
 
           {/* Category tabs */}
-          <div style={{
+          <div className="engines-category-tabs" style={{
             display: 'flex', gap: '2px', background: 'var(--bg)', border: '1px solid var(--border)',
             borderRadius: '8px', padding: '3px', marginBottom: '16px',
           }}>
@@ -326,6 +326,7 @@ export default function EnginesResources() {
                 }}>
                   {/* Group header */}
                   <div
+                    className="engines-group-header"
                     onClick={() => toggleCollapse(groupKey)}
                     style={{
                       padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px',
@@ -395,12 +396,12 @@ export default function EnginesResources() {
                               ? '重新安装'
                               : '安装'
                         return (
-                          <div key={model.model_id} style={{
+                          <div className="engines-model-row" key={model.model_id} style={{
                             display: 'grid', gridTemplateColumns: '1fr auto auto',
                             padding: '10px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center',
                             fontSize: '13px', gap: '12px',
                           }}>
-                            <div>
+                            <div className="engines-model-info">
                               <div style={{ fontWeight: 500 }}>{model.display_name}</div>
                               <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
                                 {model.backend || model.family_id || model.kind}
@@ -411,7 +412,7 @@ export default function EnginesResources() {
                                 </div>
                               ) : null}
                             </div>
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <div className="engines-model-status" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                               <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
                                 <span style={{
                                   width: '6px', height: '6px', borderRadius: '50%', background: resolvedStatusInfo.dot,
@@ -428,7 +429,7 @@ export default function EnginesResources() {
                                 </span>
                               )}
                             </div>
-                            <div style={{ display: 'flex', gap: '4px' }}>
+                            <div className="engines-model-actions" style={{ display: 'flex', gap: '4px' }}>
                               {isInstalling || statusLoading || !status ? (
                                 <button disabled style={{
                                   fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
@@ -499,6 +500,79 @@ export default function EnginesResources() {
       <style>{`
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         @keyframes progress-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+
+        .engines-page,
+        .engines-content,
+        .engines-runtime-grid,
+        .engines-runtime-card,
+        .engines-model-row,
+        .engines-model-info {
+          min-width: 0;
+        }
+
+        .engines-message,
+        .engines-runtime-card,
+        .engines-model-info,
+        .engines-group-header {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        @media (max-width: 760px) {
+          .engines-action-bar {
+            flex-wrap: wrap;
+            padding: 12px 16px !important;
+          }
+
+          .engines-content {
+            padding: 16px !important;
+            gap: 20px !important;
+          }
+
+          .engines-runtime-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+
+          .engines-category-tabs {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .engines-model-row {
+            grid-template-columns: minmax(0, 1fr) auto !important;
+            align-items: center !important;
+          }
+
+          .engines-model-info {
+            grid-column: 1 / -1;
+          }
+
+          .engines-model-status {
+            flex-wrap: wrap;
+          }
+
+          .engines-model-actions {
+            justify-content: flex-end;
+          }
+
+          .engines-group-header {
+            flex-wrap: wrap;
+          }
+        }
+
+        @media (max-width: 420px) {
+          .engines-category-tabs {
+            grid-template-columns: minmax(0, 1fr);
+          }
+
+          .engines-model-row {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+
+          .engines-model-actions {
+            justify-content: flex-start;
+          }
+        }
       `}</style>
     </div>
   )

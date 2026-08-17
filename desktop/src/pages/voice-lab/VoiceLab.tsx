@@ -514,9 +514,9 @@ export default function VoiceLab() {
   )
 
   const renderDetailField = (label: string, value: string, opts?: { mono?: boolean; muted?: boolean; full?: boolean }) => (
-    <div style={opts?.full ? { gridColumn: '1 / -1' } : undefined}>
+    <div className="voice-lab-detail-field" style={opts?.full ? { gridColumn: '1 / -1' } : undefined}>
       <div style={S.label}>{label}</div>
-      <div style={opts?.mono ? S.valueMono : opts?.muted ? S.valueMuted : S.value}>{value}</div>
+      <div className="voice-lab-detail-value" style={opts?.mono ? S.valueMono : opts?.muted ? S.valueMuted : S.value}>{value}</div>
     </div>
   )
 
@@ -529,13 +529,13 @@ export default function VoiceLab() {
           <>
             {/* Detail */}
             <div style={S.panel}>
-              <div style={S.panelHeader}>
+              <div className="voice-lab-panel-header" style={S.panelHeader}>
                 音色详情
                 <span style={S.panelSubtitle}>— Qwen3 CustomVoice 预设</span>
                 <div style={{ marginLeft: 'auto' }}><span style={S.tag('preset')}>预设</span></div>
               </div>
               <div style={S.panelBody}>
-                <div style={S.detailGrid}>
+                <div className="voice-lab-detail-grid" style={S.detailGrid}>
                   {renderDetailField('名称', detail.name)}
                   {renderDetailField('ID', detail.id, { mono: true })}
                   {renderDetailField('引擎', detail.engine)}
@@ -549,9 +549,9 @@ export default function VoiceLab() {
 
             {/* Instruct editing */}
             <div style={S.panel}>
-              <div style={S.panelHeader}>语气控制 (Instruct)</div>
+              <div className="voice-lab-panel-header" style={S.panelHeader}>语气控制 (Instruct)</div>
               <div style={S.panelBody}>
-                <div style={S.formGrid}>
+                <div className="voice-lab-form-grid" style={S.formGrid}>
                   <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
                     <label style={S.formLabel}>Instruct 指令</label>
                     <input
@@ -564,7 +564,7 @@ export default function VoiceLab() {
                     <span style={S.hint}>控制 CustomVoice 的语气和情感表达。留空则使用默认语气。</span>
                   </div>
                 </div>
-                <div style={S.actionsRow}>
+                <div className="voice-lab-actions-row" style={S.actionsRow}>
                   <button
                     style={{ ...S.btnSm, cursor: 'not-allowed', opacity: 0.5 }}
                     disabled
@@ -591,13 +591,13 @@ export default function VoiceLab() {
       case 'design-create':
         return (
           <div style={S.panel}>
-            <div style={S.panelHeader}>
+            <div className="voice-lab-panel-header" style={S.panelHeader}>
               音色设计
               <span style={S.panelSubtitle}>— 自然语言描述生成新音色</span>
               <div style={{ marginLeft: 'auto' }}><span style={S.tag('design')}>VoiceDesign</span></div>
             </div>
             <div style={S.panelBody}>
-              <div style={S.formGrid}>
+              <div className="voice-lab-form-grid" style={S.formGrid}>
                 <div style={S.formField}>
                   <label style={S.formLabel}>配置名称 *</label>
                   <input style={S.input} type="text" value={designName} onChange={e => setDesignName(e.target.value)} placeholder="给这个音色起个名字" />
@@ -617,7 +617,7 @@ export default function VoiceLab() {
                   <span style={S.hint}>VoiceDesign 模型会根据描述生成对应音色的参考音频和 prompt cache。</span>
                 </div>
               </div>
-              <div style={S.actionsRow}>
+              <div className="voice-lab-actions-row" style={S.actionsRow}>
                 <button style={S.btnPrimarySm} onClick={handleDesign} disabled={designing}>
                   {designing ? '生成中...' : '生成音色'}
                 </button>
@@ -631,13 +631,13 @@ export default function VoiceLab() {
         return (
           <>
             <div style={S.panel}>
-              <div style={S.panelHeader}>
+              <div className="voice-lab-panel-header" style={S.panelHeader}>
                 设计音色详情
                 <span style={S.panelSubtitle}>— VoiceDesign 生成</span>
                 <div style={{ marginLeft: 'auto' }}><span style={S.tag('design')}>VoiceDesign</span></div>
               </div>
               <div style={S.panelBody}>
-                <div style={S.detailGrid}>
+                <div className="voice-lab-detail-grid" style={S.detailGrid}>
                   {renderDetailField('名称', detail.name)}
                   {renderDetailField('ID', detail.id, { mono: true })}
                   {renderDetailField('状态', detail.available ? '已生成' : '待生成')}
@@ -645,7 +645,7 @@ export default function VoiceLab() {
                   {renderDetailField('音色描述', detail.design_instruct || detail.description || '—', { muted: true, full: true })}
                   {renderDetailField('参考音频', detail.ref_audio || '—', { mono: true, full: true })}
                 </div>
-                <div style={S.actionsRow}>
+                <div className="voice-lab-actions-row" style={S.actionsRow}>
                   <button style={S.btnSm} onClick={() => showCreate('design')}>重新生成</button>
                   <button style={S.btnDanger} onClick={handleDelete}>删除音色</button>
                 </div>
@@ -658,13 +658,13 @@ export default function VoiceLab() {
       case 'clone-create':
         return (
           <div style={S.panel}>
-            <div style={S.panelHeader}>
+            <div className="voice-lab-panel-header" style={S.panelHeader}>
               音色克隆
               <span style={S.panelSubtitle}>— 从参考音频提取音色特征</span>
               <div style={{ marginLeft: 'auto' }}><span style={S.tag('clone')}>Clone</span></div>
             </div>
             <div style={S.panelBody}>
-              <div style={S.formGrid}>
+              <div className="voice-lab-form-grid" style={S.formGrid}>
                 <div style={S.formField}>
                   <label style={S.formLabel}>配置名称 *</label>
                   <input style={S.input} type="text" value={cloneName} onChange={e => setCloneName(e.target.value)} placeholder="克隆音色名称" />
@@ -676,6 +676,7 @@ export default function VoiceLab() {
                 <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
                   <label style={S.formLabel}>参考音频 *</label>
                   <div
+                    className="voice-lab-upload-zone"
                     style={S.uploadZone}
                     onClick={handleSelectCloneAudio}
                   >
@@ -707,36 +708,38 @@ export default function VoiceLab() {
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
                     片段分析结果
                   </div>
-                  <table style={S.segmentTable}>
-                    <thead>
-                      <tr>
-                        <th style={S.segTh}>#</th>
-                        <th style={S.segTh}>时间</th>
-                        <th style={S.segTh}>文本</th>
-                        <th style={S.segTh}>评分</th>
-                        <th style={S.segTh}>标签</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {segments.map((seg) => (
-                        <tr key={seg.index} style={recommendedIndices.includes(seg.index) ? { background: 'oklch(97% 0.01 145)' } : undefined}>
-                          <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{seg.index}</td>
-                          <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{seg.start.toFixed(1)} – {seg.end.toFixed(1)}s</td>
-                          <td style={S.segTd}>{seg.text}</td>
-                          <td style={S.segTd}>
-                            <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 11, color: seg.score >= 80 ? 'var(--success)' : 'var(--warning)' }}>
-                              {seg.score}
-                            </span>
-                          </td>
-                          <td style={S.segTd}>
-                            {recommendedIndices.includes(seg.index)
-                              ? <span style={S.tag('ready')}>推荐</span>
-                              : (seg.label || '—')}
-                          </td>
+                  <div className="voice-lab-table-scroll">
+                    <table style={S.segmentTable}>
+                      <thead>
+                        <tr>
+                          <th style={S.segTh}>#</th>
+                          <th style={S.segTh}>时间</th>
+                          <th style={S.segTh}>文本</th>
+                          <th style={S.segTh}>评分</th>
+                          <th style={S.segTh}>标签</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {segments.map((seg) => (
+                          <tr key={seg.index} style={recommendedIndices.includes(seg.index) ? { background: 'oklch(97% 0.01 145)' } : undefined}>
+                            <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{seg.index}</td>
+                            <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{seg.start.toFixed(1)} – {seg.end.toFixed(1)}s</td>
+                            <td style={S.segTd}>{seg.text}</td>
+                            <td style={S.segTd}>
+                              <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 11, color: seg.score >= 80 ? 'var(--success)' : 'var(--warning)' }}>
+                                {seg.score}
+                              </span>
+                            </td>
+                            <td style={S.segTd}>
+                              {recommendedIndices.includes(seg.index)
+                                ? <span style={S.tag('ready')}>推荐</span>
+                                : (seg.label || '—')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                   {analysisWarnings.length > 0 && (
                     <div style={{ ...S.hint, marginTop: 8 }}>
                       {analysisWarnings.join('；')}
@@ -745,7 +748,7 @@ export default function VoiceLab() {
                 </div>
               )}
 
-              <div style={S.actionsRow}>
+              <div className="voice-lab-actions-row" style={S.actionsRow}>
                 <button style={S.btnSm} onClick={handleAnalyze} disabled={analyzing || !cloneAudioPath}>
                   {analyzing ? '分析中...' : '分析片段'}
                 </button>
@@ -762,13 +765,13 @@ export default function VoiceLab() {
         return (
           <>
             <div style={S.panel}>
-              <div style={S.panelHeader}>
+              <div className="voice-lab-panel-header" style={S.panelHeader}>
                 克隆音色详情
                 <span style={S.panelSubtitle}>— 从参考音频提取</span>
                 <div style={{ marginLeft: 'auto' }}><span style={S.tag('clone')}>Clone</span></div>
               </div>
               <div style={S.panelBody}>
-                <div style={S.detailGrid}>
+                <div className="voice-lab-detail-grid" style={S.detailGrid}>
                   {renderDetailField('名称', detail.name)}
                   {renderDetailField('ID', detail.id, { mono: true })}
                   {renderDetailField('状态', detail.available ? '已缓存' : '未缓存')}
@@ -776,7 +779,7 @@ export default function VoiceLab() {
                   {renderDetailField('参考音频', detail.ref_audio || '—', { mono: true, full: true })}
                   {renderDetailField('描述', detail.description || '—', { muted: true, full: true })}
                 </div>
-                <div style={S.actionsRow}>
+                <div className="voice-lab-actions-row" style={S.actionsRow}>
                   <button style={S.btnDanger} onClick={handleDelete}>删除音色</button>
                 </div>
               </div>
@@ -800,8 +803,8 @@ export default function VoiceLab() {
 
   const renderPreviewPanel = () => (
     <div style={S.panel}>
-      <div style={S.panelHeader}>试听</div>
-      <div style={S.previewBar}>
+      <div className="voice-lab-panel-header" style={S.panelHeader}>试听</div>
+      <div className="voice-lab-preview-bar" style={S.previewBar}>
         <input
           style={{ ...S.input, flex: 1, background: 'var(--bg)' }}
           type="text"
@@ -821,33 +824,33 @@ export default function VoiceLab() {
 
   // ── Main render ────────────────────────────────────
   return (
-    <div style={S.page}>
+    <div className="voice-lab-page" style={S.page}>
       {/* Action bar */}
-      <div style={S.actionBar}>
+      <div className="voice-lab-action-bar" style={S.actionBar}>
         <span style={S.title}>音色实验室</span>
         {actionError && (
-          <span style={{ color: 'var(--danger)', fontSize: 12 }} title={actionError}>
+          <span className="voice-lab-action-error" style={{ color: 'var(--danger)', fontSize: 12 }} title={actionError}>
             {actionError}
           </span>
         )}
         <span style={S.gpuPill}>Qwen3 扩展</span>
-        <div style={S.spacer} />
+        <div className="voice-lab-action-spacer" style={S.spacer} />
         <button style={S.btn} onClick={() => showCreate('design')}>
           <PlusIcon /> 新建音色
         </button>
       </div>
 
       {/* Content: list + work panel */}
-      <div style={S.content}>
+      <div className="voice-lab-content" style={S.content}>
         {/* Profile list */}
-        <div style={S.list}>
+        <div className="voice-lab-list" style={S.list}>
           <div style={S.listHeader}>
             <span>音色列表</span>
             <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>{totalCount} 个</span>
           </div>
 
           {/* Filter tabs */}
-          <div style={S.filterBar}>
+          <div className="voice-lab-filter-bar" style={S.filterBar}>
             {renderFilterTab('all', '全部')}
             {renderFilterTab('preset', '预设')}
             {renderFilterTab('design', '设计')}
@@ -855,52 +858,182 @@ export default function VoiceLab() {
           </div>
 
           {/* Model groups */}
-          {filteredGroups.map(group => {
-            const isCollapsed = collapsed[group.engine] || false
-            return (
-              <div key={group.engine} style={{ borderBottom: '1px solid var(--border)' }}>
-                <div
-                  style={S.groupHeader}
-                  onClick={() => setCollapsed(c => ({ ...c, [group.engine]: !c[group.engine] }))}
-                >
-                  <span style={{ ...S.chevron(isCollapsed), display: 'inline-flex', alignItems: 'center' }}>
-                    <ChevronIcon />
-                  </span>
-                  <span style={S.badge}>{group.badge}</span>
-                  {group.label}
-                  <span style={S.badgeCount}>{group.profiles.length}</span>
-                </div>
-                {!isCollapsed && (
-                  <div>
-                    {group.profiles.length === 0 ? (
-                      <div style={S.groupEmpty}>
-                        {group.engine === 'qwen3_custom' ? '暂无预设音色' : `暂无${group.label}，点击「新建音色」创建`}
-                      </div>
-                    ) : (
-                      group.profiles.map(p => (
-                        <div
-                          key={p.id}
-                          style={S.profileItem(selectedId === p.id)}
-                          onClick={() => handleSelect(p.id, p.category)}
-                        >
-                          <span style={S.availDot(p.available)} />
-                          <span style={S.itemName}>{p.name}</span>
-                          <span style={S.itemSpeaker}>{p.category}</span>
-                        </div>
-                      ))
-                    )}
+          <div className="voice-lab-groups">
+            {filteredGroups.map(group => {
+              const isCollapsed = collapsed[group.engine] || false
+              return (
+                <div key={group.engine} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <div
+                    style={S.groupHeader}
+                    onClick={() => setCollapsed(c => ({ ...c, [group.engine]: !c[group.engine] }))}
+                  >
+                    <span style={{ ...S.chevron(isCollapsed), display: 'inline-flex', alignItems: 'center' }}>
+                      <ChevronIcon />
+                    </span>
+                    <span style={S.badge}>{group.badge}</span>
+                    {group.label}
+                    <span style={S.badgeCount}>{group.profiles.length}</span>
                   </div>
-                )}
-              </div>
-            )
-          })}
+                  {!isCollapsed && (
+                    <div>
+                      {group.profiles.length === 0 ? (
+                        <div style={S.groupEmpty}>
+                          {group.engine === 'qwen3_custom' ? '暂无预设音色' : `暂无${group.label}，点击「新建音色」创建`}
+                        </div>
+                      ) : (
+                        group.profiles.map(p => (
+                          <div
+                            key={p.id}
+                            style={S.profileItem(selectedId === p.id)}
+                            onClick={() => handleSelect(p.id, p.category)}
+                          >
+                            <span style={S.availDot(p.available)} />
+                            <span style={S.itemName}>{p.name}</span>
+                            <span style={S.itemSpeaker}>{p.category}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
 
         {/* Work panel */}
-        <div style={S.workPanel}>
+        <div className="voice-lab-work-panel" style={S.workPanel}>
           {renderPanel()}
         </div>
       </div>
+
+      <style>{`
+        .voice-lab-page,
+        .voice-lab-content,
+        .voice-lab-work-panel,
+        .voice-lab-detail-grid,
+        .voice-lab-detail-field,
+        .voice-lab-form-grid,
+        .voice-lab-form-grid > * {
+          min-width: 0;
+        }
+
+        .voice-lab-action-error,
+        .voice-lab-detail-value,
+        .voice-lab-upload-zone,
+        .voice-lab-work-panel {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        .voice-lab-table-scroll {
+          max-width: 100%;
+          overflow-x: auto;
+        }
+
+        .voice-lab-table-scroll > table {
+          min-width: 620px;
+        }
+
+        @media (max-width: 1100px) {
+          .voice-lab-content {
+            grid-template-columns: minmax(0, 1fr) !important;
+            grid-template-rows: auto minmax(0, 1fr);
+            min-height: 0;
+          }
+
+          .voice-lab-list {
+            max-height: 260px;
+            overflow: hidden !important;
+            border-right: 0 !important;
+            border-bottom: 1px solid var(--border);
+          }
+
+          .voice-lab-groups {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+          }
+
+          .voice-lab-groups > div {
+            flex: 0 0 240px;
+            border-right: 1px solid var(--border);
+          }
+        }
+
+        @media (max-width: 760px) {
+          .voice-lab-action-bar {
+            align-items: flex-start !important;
+            flex-wrap: wrap;
+            padding: 12px 16px !important;
+          }
+
+          .voice-lab-action-error {
+            flex: 1 0 100%;
+            order: 3;
+          }
+
+          .voice-lab-action-spacer {
+            display: none;
+          }
+
+          .voice-lab-action-bar > button {
+            margin-left: auto;
+          }
+
+          .voice-lab-list {
+            max-height: 220px;
+          }
+
+          .voice-lab-filter-bar {
+            overflow-x: auto;
+          }
+
+          .voice-lab-filter-bar > button {
+            flex: 0 0 auto;
+          }
+
+          .voice-lab-work-panel {
+            padding: 16px !important;
+          }
+
+          .voice-lab-panel-header {
+            align-items: flex-start !important;
+            flex-wrap: wrap;
+          }
+
+          .voice-lab-detail-grid,
+          .voice-lab-form-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+
+          .voice-lab-form-grid > *,
+          .voice-lab-detail-field {
+            grid-column: 1 !important;
+          }
+
+          .voice-lab-actions-row {
+            align-items: stretch !important;
+            flex-wrap: wrap;
+          }
+
+          .voice-lab-actions-row > button {
+            flex: 1 1 auto;
+            justify-content: center;
+          }
+
+          .voice-lab-preview-bar {
+            align-items: stretch !important;
+            flex-direction: column;
+          }
+
+          .voice-lab-preview-bar > button {
+            justify-content: center;
+            width: 100%;
+          }
+        }
+      `}</style>
     </div>
   )
 }

@@ -195,7 +195,7 @@ export default function AudioTools() {
   }
 
   return (
-    <div style={{ height: '100%', overflow: 'auto', padding: 24 }}>
+    <div className="audio-tools-page" style={{ height: '100%', overflow: 'auto', padding: 24 }}>
       <header style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           Task-driven Tools
@@ -207,12 +207,12 @@ export default function AudioTools() {
       </header>
 
       {error ? (
-        <div style={{ marginBottom: 16, padding: '10px 14px', color: 'var(--error)', background: 'var(--error-soft)', borderRadius: 'var(--radius-sm)' }}>
+        <div className="audio-tools-message" style={{ marginBottom: 16, padding: '10px 14px', color: 'var(--error)', background: 'var(--error-soft)', borderRadius: 'var(--radius-sm)' }}>
           {error}
         </div>
       ) : null}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 360px) minmax(0, 1fr)', gap: 20 }}>
+      <div className="audio-tools-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 360px) minmax(0, 1fr)', gap: 20 }}>
         <section style={{ ...surface, padding: 16, alignSelf: 'start' }}>
           <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>选择工具</div>
           <div style={{ display: 'grid', gap: 8 }}>
@@ -250,7 +250,7 @@ export default function AudioTools() {
         </section>
 
         <section style={{ ...surface, padding: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+          <div className="audio-tools-panel-header" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>{selected.label}</div>
               <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>{selected.id}</div>
@@ -260,12 +260,12 @@ export default function AudioTools() {
             </button>
           </div>
 
-          <div style={{ marginTop: 18, padding: '12px 14px', background: 'var(--panel-muted)', borderRadius: 'var(--radius-sm)', wordBreak: 'break-all' }}>
+          <div className="audio-tools-path" style={{ marginTop: 18, padding: '12px 14px', background: 'var(--panel-muted)', borderRadius: 'var(--radius-sm)', wordBreak: 'break-all' }}>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>输入文件</div>
             <div style={{ marginTop: 5, fontSize: 13 }}>{inputPath || '尚未选择'}</div>
           </div>
 
-          <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
+          <div className="audio-tools-form-grid" style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
             {selectedTool === 'tool.convert' ? (
               <>
                 <label>目标格式<select style={inputStyle} value={format} onChange={(event) => setFormat(event.target.value)}><option value="wav">WAV</option><option value="mp3">MP3</option><option value="flac">FLAC</option><option value="ogg">OGG</option></select></label>
@@ -277,7 +277,7 @@ export default function AudioTools() {
 
             {selectedTool === 'tool.split' ? (
               <>
-                <label>字幕文件<button type="button" style={inputStyle} onClick={chooseCompanion}>{companionPath ? fileName(companionPath) : '选择字幕'}</button></label>
+                <label>字幕文件<button className="audio-tools-path-button" type="button" style={inputStyle} onClick={chooseCompanion}>{companionPath ? fileName(companionPath) : '选择字幕'}</button></label>
                 <label>前后留白（秒）<input style={inputStyle} type="number" min={0} max={2} step={0.05} value={padding} onChange={(event) => setPadding(Number(event.target.value))} /></label>
               </>
             ) : null}
@@ -292,15 +292,15 @@ export default function AudioTools() {
 
             {selectedTool === 'tool.volume_preview' ? (
               <>
-                <label>TTS 音频（可选）<button type="button" style={inputStyle} onClick={chooseTts}>{ttsPath ? fileName(ttsPath) : '选择 TTS 音频'}</button></label>
-                <span />
+                <label>TTS 音频（可选）<button className="audio-tools-path-button" type="button" style={inputStyle} onClick={chooseTts}>{ttsPath ? fileName(ttsPath) : '选择 TTS 音频'}</button></label>
+                <span className="audio-tools-grid-spacer" />
                 <label>原声音量<input style={inputStyle} type="number" min={0} max={2} step={0.05} value={originalVolume} onChange={(event) => setOriginalVolume(Number(event.target.value))} /></label>
                 <label>TTS 音量比例<input style={inputStyle} type="number" min={0} max={2} step={0.05} value={ttsRatio} onChange={(event) => setTtsRatio(Number(event.target.value))} /></label>
               </>
             ) : null}
 
             {selectedTool === 'tool.separate' || selectedTool === 'tool.split' || selectedTool === 'tool.convert' ? (
-              <label style={{ gridColumn: '1 / -1' }}>输出目录（可选）<button type="button" style={inputStyle} onClick={chooseOutputDir}>{outputDir || '使用工作区默认目录'}</button></label>
+              <label style={{ gridColumn: '1 / -1' }}>输出目录（可选）<button className="audio-tools-path-button" type="button" style={inputStyle} onClick={chooseOutputDir}>{outputDir || '使用工作区默认目录'}</button></label>
             ) : null}
           </div>
 
@@ -326,6 +326,62 @@ export default function AudioTools() {
           </div>
         </section>
       </div>
+
+      <style>{`
+        .audio-tools-page,
+        .audio-tools-layout,
+        .audio-tools-layout > *,
+        .audio-tools-form-grid > * {
+          min-width: 0;
+        }
+
+        .audio-tools-message,
+        .audio-tools-path,
+        .audio-tools-path-button {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        .audio-tools-path-button {
+          height: auto;
+          text-align: left;
+          white-space: normal;
+        }
+
+        @media (max-width: 1100px) {
+          .audio-tools-layout {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+        }
+
+        @media (max-width: 760px) {
+          .audio-tools-page {
+            padding: 16px !important;
+          }
+
+          .audio-tools-panel-header {
+            align-items: stretch !important;
+            flex-direction: column;
+          }
+
+          .audio-tools-panel-header > button {
+            width: 100% !important;
+            justify-content: center;
+          }
+
+          .audio-tools-form-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+
+          .audio-tools-form-grid > * {
+            grid-column: 1 !important;
+          }
+
+          .audio-tools-grid-spacer {
+            display: none;
+          }
+        }
+      `}</style>
     </div>
   )
 }

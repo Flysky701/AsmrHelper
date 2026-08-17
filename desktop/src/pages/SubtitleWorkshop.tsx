@@ -918,10 +918,10 @@ export default function SubtitleWorkshop() {
 
   // ── Render ─────────────────────────────────────────────
   return (
-    <div style={S.container}>
+    <div className="subtitle-workshop" style={S.container}>
       {/* Status message */}
       {(message || error) && (
-        <div style={{
+        <div className="subtitle-status-message" style={{
           padding: '6px 24px',
           fontSize: 12,
           color: error ? 'var(--danger)' : 'var(--success)',
@@ -934,7 +934,7 @@ export default function SubtitleWorkshop() {
       )}
 
       {/* Sub Navigation */}
-      <nav style={S.subNav}>
+      <nav className="subtitle-sub-nav" style={S.subNav}>
         <div style={S.subNavItem(activeTab === 'editor')} onClick={() => switchTab('editor')}>
           字幕编辑
         </div>
@@ -947,10 +947,10 @@ export default function SubtitleWorkshop() {
       </nav>
 
       {/* ── Workspace 1: Editor ─────────────────────────── */}
-      <div style={S.editorWorkspace(activeTab === 'editor')}>
+      <div className="subtitle-editor-workspace" style={S.editorWorkspace(activeTab === 'editor')}>
         {/* Toolbar */}
-        <div style={S.toolbar}>
-          <h2 style={S.toolbarTitle}>字幕编辑</h2>
+        <div className="subtitle-toolbar" style={S.toolbar}>
+          <h2 className="subtitle-toolbar-title" style={S.toolbarTitle}>字幕编辑</h2>
           <button style={S.btn} onClick={handleLoadSubtitle} disabled={!!loading}>
             <Icon.Download /> 加载字幕
           </button>
@@ -958,12 +958,12 @@ export default function SubtitleWorkshop() {
             <Icon.Audio /> {editorAudioPath ? '更换音频' : '选择音频'}
           </button>
           {fileName && (
-            <span style={S.fileBadge}>
+            <span className="subtitle-file-badge" style={S.fileBadge}>
               <span style={S.fileDot} />
               {fileName} &middot; {segments.length} 条
             </span>
           )}
-          <div style={S.toolbarSpacer} />
+          <div className="subtitle-toolbar-spacer" style={S.toolbarSpacer} />
           {segments.length > 0 && (
             <>
               <button style={{ ...S.btn, ...S.btnSm }} onClick={handleNormalize}>
@@ -986,9 +986,9 @@ export default function SubtitleWorkshop() {
         </div>
 
         {/* Editor content */}
-        <div style={S.editorContent}>
+        <div className="subtitle-editor-content" style={S.editorContent}>
           {/* Table */}
-          <div style={S.editorTable}>
+          <div className="subtitle-editor-table" style={S.editorTable}>
             {segments.length === 0 ? (
               <div style={S.editorEmpty}>
                 <svg width="48" height="48" fill="none" stroke="currentColor" strokeWidth="1" viewBox="0 0 48 48" style={{ opacity: 0.3 }}>
@@ -1002,15 +1002,16 @@ export default function SubtitleWorkshop() {
               </div>
             ) : (
               <>
-                <div style={S.tableHeader}>
+                <div className="subtitle-table-header" style={S.tableHeader}>
                   <span>#</span>
                   <span>时间轴</span>
                   <span>原文</span>
                   <span>译文</span>
-                  <span>操作</span>
+                  <span className="subtitle-table-actions-header">操作</span>
                 </div>
                 {segments.map((seg, i) => (
                   <div
+                    className="subtitle-segment-row"
                     key={i}
                     style={S.segmentRow(activeIdx === i, modifiedIdx.has(i))}
                     onClick={() => setActiveIdx(i)}
@@ -1040,7 +1041,7 @@ export default function SubtitleWorkshop() {
                     >
                       {translations[i] || ''}
                     </div>
-                    <div style={S.segActions}>
+                    <div className="subtitle-segment-actions" style={S.segActions}>
                       <button style={S.segActionBtn} title="播放此段" onClick={() => handlePlaySegment(seg)}>
                         <Icon.Play />
                       </button>
@@ -1055,7 +1056,7 @@ export default function SubtitleWorkshop() {
           </div>
 
           {/* Sidebar */}
-          <div style={S.editorSidebar}>
+          <div className="subtitle-editor-sidebar" style={S.editorSidebar}>
             <div>
               <div style={S.sidebarSectionTitle}>文件信息</div>
               <div style={S.infoRow}><span style={S.infoLabel}>文件</span><span style={S.infoValue}>{fileName || '—'}</span></div>
@@ -1120,8 +1121,8 @@ export default function SubtitleWorkshop() {
 
       {/* ── Workspace 2: Translate ──────────────────────── */}
       <div style={S.workspace(activeTab === 'translate')}>
-        <div style={S.scrollWorkspace}>
-          <div style={S.twoColLayout}>
+        <div className="subtitle-scroll-workspace" style={S.scrollWorkspace}>
+          <div className="subtitle-two-col-layout" style={S.twoColLayout}>
             {/* Left: config */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {/* File selection */}
@@ -1133,7 +1134,7 @@ export default function SubtitleWorkshop() {
                   <div style={S.formGrid}>
                     <div style={S.formField}>
                       <label style={S.formLabel}>字幕文件路径</label>
-                      <div style={S.fileInput}>
+                      <div className="subtitle-file-input" style={S.fileInput}>
                         <input
                           style={{ ...S.formInput, flex: 1 }}
                           value={translatePath}
@@ -1187,7 +1188,7 @@ export default function SubtitleWorkshop() {
                         <option value="openai">OpenAI</option>
                       </select>
                     </div>
-                    <div style={S.twoColForm}>
+                    <div className="subtitle-two-col-form" style={S.twoColForm}>
                       <div style={S.formField}>
                         <label style={S.formLabel}>源语言</label>
                         <select style={S.formInput} value={translateSrcLang} onChange={(e) => setTranslateSrcLang(e.target.value)}>
@@ -1218,7 +1219,7 @@ export default function SubtitleWorkshop() {
               </div>
 
               {/* Execute */}
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div className="subtitle-execute-row" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                 <button
                   style={{ ...S.btn, ...S.btnPrimary, padding: '10px 24px' }}
                   onClick={handleTranslate}
@@ -1264,13 +1265,13 @@ export default function SubtitleWorkshop() {
 
       {/* ── Workspace 3: Script to Subtitle ─────────────── */}
       <div style={S.workspace(activeTab === 'script')}>
-        <div style={S.scrollWorkspace}>
+        <div className="subtitle-scroll-workspace" style={S.scrollWorkspace}>
           {/* Mode selector */}
           <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 600, marginBottom: 12 }}>
               台本转字幕
             </h2>
-            <div style={S.modeSelector}>
+            <div className="subtitle-mode-selector" style={S.modeSelector}>
               <div
                 style={S.modeCard(scriptMode === 'text_only')}
                 onClick={() => setScriptMode('text_only')}
@@ -1304,7 +1305,7 @@ export default function SubtitleWorkshop() {
             </div>
           </div>
 
-          <div style={S.twoColLayout}>
+          <div className="subtitle-two-col-layout" style={S.twoColLayout}>
             {/* Left: params */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {/* Script file */}
@@ -1316,7 +1317,7 @@ export default function SubtitleWorkshop() {
                   <div style={S.formGrid}>
                     <div style={S.formField}>
                       <label style={S.formLabel}>台本文件路径 *</label>
-                      <div style={S.fileInput}>
+                      <div className="subtitle-file-input" style={S.fileInput}>
                         <input
                           style={{ ...S.formInput, flex: 1 }}
                           value={scriptPath}
@@ -1353,7 +1354,7 @@ export default function SubtitleWorkshop() {
                     <div style={S.formGrid}>
                       <div style={S.formField}>
                         <label style={S.formLabel}>音频文件路径</label>
-                        <div style={S.fileInput}>
+                        <div className="subtitle-file-input" style={S.fileInput}>
                           <input
                             style={{ ...S.formInput, flex: 1 }}
                             value={scriptAudioPath}
@@ -1404,7 +1405,7 @@ export default function SubtitleWorkshop() {
                     <div style={S.formGrid}>
                       <div style={S.formField}>
                         <label style={S.formLabel}>VTT 文件路径</label>
-                        <div style={S.fileInput}>
+                        <div className="subtitle-file-input" style={S.fileInput}>
                           <input
                             style={{ ...S.formInput, flex: 1 }}
                             value={vttPath}
@@ -1441,7 +1442,7 @@ export default function SubtitleWorkshop() {
                 </div>
                 <div style={S.panelBody}>
                   <div style={S.formGrid}>
-                    <div style={S.twoColForm}>
+                    <div className="subtitle-two-col-form" style={S.twoColForm}>
                       <div style={S.formField}>
                         <label style={S.formLabel}>输出格式</label>
                         <select style={S.formInput} value={scriptFmt} onChange={(e) => setScriptFmt(e.target.value)}>
@@ -1462,7 +1463,7 @@ export default function SubtitleWorkshop() {
                         </div>
                       )}
                     </div>
-                    <div style={S.twoColForm}>
+                    <div className="subtitle-two-col-form" style={S.twoColForm}>
                       {scriptMode === 'full' && (
                         <div style={S.formField}>
                           <label style={S.formLabel}>音频语言</label>
@@ -1495,7 +1496,7 @@ export default function SubtitleWorkshop() {
               </div>
 
               {/* Execute */}
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div className="subtitle-execute-row" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                 <button
                   style={{ ...S.btn, ...S.btnPrimary, padding: '10px 24px' }}
                   onClick={handleScriptToVtt}
@@ -1541,6 +1542,132 @@ export default function SubtitleWorkshop() {
           </div>
         </div>
       </div>
+
+      <style>{`
+        .subtitle-workshop,
+        .subtitle-editor-workspace,
+        .subtitle-editor-content,
+        .subtitle-editor-table,
+        .subtitle-two-col-layout,
+        .subtitle-two-col-layout > *,
+        .subtitle-file-input,
+        .subtitle-file-input > input,
+        .subtitle-two-col-form > * {
+          min-width: 0;
+        }
+
+        .subtitle-status-message,
+        .subtitle-file-badge,
+        .subtitle-editor-sidebar,
+        .subtitle-file-input > input {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        @media (max-width: 1100px) {
+          .subtitle-two-col-layout {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+
+          .subtitle-editor-content {
+            grid-template-columns: minmax(0, 1fr) !important;
+            grid-template-rows: minmax(0, 1fr) auto;
+            min-height: 0;
+          }
+
+          .subtitle-editor-sidebar {
+            max-height: 180px;
+            border-top: 1px solid var(--border);
+            border-left: 0 !important;
+            flex-direction: row !important;
+            flex-wrap: wrap;
+          }
+
+          .subtitle-editor-sidebar > div {
+            flex: 1 1 180px;
+            min-width: 0;
+          }
+        }
+
+        @media (max-width: 760px) {
+          .subtitle-sub-nav {
+            overflow-x: auto;
+            padding: 0 8px !important;
+          }
+
+          .subtitle-toolbar {
+            align-content: flex-start;
+            flex-wrap: wrap;
+            padding: 10px 16px !important;
+          }
+
+          .subtitle-toolbar-title {
+            flex: 1 0 100%;
+            margin-right: 0 !important;
+          }
+
+          .subtitle-toolbar-spacer {
+            display: none;
+          }
+
+          .subtitle-file-badge {
+            flex: 1 1 100%;
+            white-space: normal;
+          }
+
+          .subtitle-editor-table {
+            overflow: auto !important;
+            padding: 12px 16px !important;
+          }
+
+          .subtitle-table-header,
+          .subtitle-segment-row {
+            min-width: 700px;
+          }
+
+          .subtitle-table-actions-header,
+          .subtitle-segment-actions {
+            position: sticky;
+            right: 0;
+            z-index: 2;
+            background: var(--bg);
+            border-left: 1px solid var(--border);
+            padding-left: 8px;
+          }
+
+          .subtitle-segment-actions {
+            min-height: 28px;
+          }
+
+          .subtitle-editor-sidebar {
+            max-height: 220px;
+            flex-direction: column !important;
+            flex-wrap: nowrap;
+          }
+
+          .subtitle-scroll-workspace {
+            padding: 16px !important;
+            gap: 16px !important;
+          }
+
+          .subtitle-mode-selector,
+          .subtitle-two-col-form {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+
+          .subtitle-file-input,
+          .subtitle-execute-row {
+            align-items: stretch !important;
+            flex-direction: column;
+          }
+
+          .subtitle-file-input > button,
+          .subtitle-execute-row > button {
+            justify-content: center;
+            width: 100%;
+          }
+        }
+      `}</style>
     </div>
   )
 }

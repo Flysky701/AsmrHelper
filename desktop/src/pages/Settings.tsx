@@ -165,16 +165,16 @@ export default function Settings() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%', overflow: 'hidden' }}>
+    <div className="settings-page" style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%', overflow: 'hidden' }}>
       {/* Action bar */}
-      <div style={{
+      <div className="settings-action-bar" style={{
         background: 'var(--surface)', borderBottom: '1px solid var(--border)',
         padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '12px',
       }}>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '15px', fontWeight: 600, letterSpacing: '-0.02em', marginRight: '16px' }}>
           设置
         </h1>
-        <div style={{ flex: 1 }} />
+        <div className="settings-action-spacer" style={{ flex: 1 }} />
         <button onClick={handleValidate} style={{
           fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
           borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
@@ -192,10 +192,10 @@ export default function Settings() {
       </div>
 
       {/* Content: nav + panel */}
-      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', overflow: 'hidden' }}>
+      <div className="settings-layout" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', overflow: 'hidden' }}>
 
         {/* Settings nav */}
-        <nav style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)', padding: '16px 0' }}>
+        <nav className="settings-nav" style={{ background: 'var(--surface)', borderRight: '1px solid var(--border)', padding: '16px 0' }}>
           {TABS.map(tab => (
             <div
               key={tab.id}
@@ -213,11 +213,11 @@ export default function Settings() {
         </nav>
 
         {/* Settings panel */}
-        <div style={{ padding: '28px 32px', overflowY: 'auto', maxWidth: '680px' }}>
+        <div className="settings-panel" style={{ padding: '28px 32px', overflowY: 'auto', maxWidth: '680px' }}>
 
           {/* Status message */}
           {message && (
-            <div style={{
+            <div className="settings-message" style={{
               display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px',
               borderRadius: '6px', fontSize: '12px', marginBottom: '16px',
               background: message.includes('失败') ? 'oklch(95% 0.03 25)' : 'oklch(95% 0.03 145)',
@@ -233,7 +233,7 @@ export default function Settings() {
 
           {/* Validation bar */}
           {validation && (
-            <div style={{
+            <div className="settings-message" style={{
               display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px',
               borderRadius: '6px', fontSize: '12px', marginBottom: '16px',
               background: validation.valid ? 'oklch(95% 0.03 145)' : 'oklch(95% 0.03 25)',
@@ -277,7 +277,7 @@ export default function Settings() {
 
                 {/* DeepSeek API Key */}
                 <div style={{ marginBottom: '16px' }}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                     <div style={{ flex: 1 }}>
                       <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>DeepSeek API Key</label>
                       <input
@@ -321,7 +321,7 @@ export default function Settings() {
 
                 {/* OpenAI API Key */}
                 <div style={{ marginBottom: '16px' }}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                     <div style={{ flex: 1 }}>
                       <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>OpenAI API Key</label>
                       <input
@@ -365,7 +365,7 @@ export default function Settings() {
 
                 {/* Test result */}
                 {testResult && (
-                  <div style={{
+                  <div className="settings-message" style={{
                     display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px',
                     borderRadius: '6px', fontSize: '12px', marginTop: '8px',
                     background: testResult.success ? 'oklch(95% 0.03 145)' : 'oklch(95% 0.03 25)',
@@ -398,9 +398,9 @@ export default function Settings() {
                     <div key={preset.id} style={{
                       border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--surface)', overflow: 'hidden',
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', gap: '12px' }}>
+                      <div className="settings-preset-row" style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', gap: '12px' }}>
                         <span style={{ fontSize: '14px', fontWeight: 600, flex: 1 }}>{preset.label}</span>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div className="settings-preset-actions" style={{ display: 'flex', gap: '6px' }}>
                           <button disabled title="当前内置预设为只读" style={{
                             fontFamily: 'var(--font-body)', fontSize: '12px', padding: '5px 10px',
                             borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
@@ -459,7 +459,7 @@ export default function Settings() {
                 ].map(field => (
                   <div key={field.key} style={{ marginBottom: '16px' }}>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>{field.label}</label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div className="settings-path-row" style={{ display: 'flex', gap: '8px' }}>
                       <input
                         type="text"
                         value={draft[field.key]}
@@ -492,6 +492,102 @@ export default function Settings() {
           )}
         </div>
       </div>
+
+      <style>{`
+        .settings-page,
+        .settings-layout,
+        .settings-panel,
+        .settings-provider-row > div,
+        .settings-path-row > input {
+          min-width: 0;
+        }
+
+        .settings-message,
+        .settings-path-row,
+        .settings-panel input {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        .settings-message > span:first-child {
+          flex: 0 0 auto;
+        }
+
+        @media (max-width: 1100px) {
+          .settings-layout {
+            grid-template-columns: minmax(0, 1fr) !important;
+            grid-template-rows: auto minmax(0, 1fr);
+          }
+
+          .settings-nav {
+            display: flex;
+            overflow-x: auto;
+            padding: 0 12px !important;
+            border-right: 0 !important;
+            border-bottom: 1px solid var(--border);
+          }
+
+          .settings-nav > div {
+            flex: 0 0 auto;
+            padding: 11px 16px !important;
+          }
+
+          .settings-panel {
+            width: 100%;
+            max-width: none !important;
+          }
+        }
+
+        @media (max-width: 760px) {
+          .settings-action-bar {
+            flex-wrap: wrap;
+            padding: 12px 16px !important;
+          }
+
+          .settings-action-bar > h1 {
+            flex: 1 0 100%;
+            margin-right: 0 !important;
+          }
+
+          .settings-action-spacer {
+            display: none;
+          }
+
+          .settings-action-bar > button {
+            flex: 1 1 0;
+            justify-content: center;
+          }
+
+          .settings-panel {
+            padding: 20px 16px !important;
+          }
+
+          .settings-provider-row,
+          .settings-path-row {
+            align-items: stretch !important;
+            flex-direction: column;
+          }
+
+          .settings-provider-row > button,
+          .settings-path-row > button {
+            width: 100%;
+          }
+
+          .settings-preset-row {
+            align-items: flex-start !important;
+            flex-direction: column;
+          }
+
+          .settings-preset-actions {
+            width: 100%;
+            flex-wrap: wrap;
+          }
+
+          .settings-preset-actions > button {
+            flex: 1 1 auto;
+          }
+        }
+      `}</style>
     </div>
   )
 }
