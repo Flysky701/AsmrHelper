@@ -162,9 +162,21 @@ export interface ModelSummaryResponse {
   supported_os?: string[]
 }
 
+export type ModelRuntimeStatus =
+  | 'missing'
+  | 'not_installed'
+  | 'invalid'
+  | 'installed'
+  | 'ready'
+  | 'loaded'
+  | 'configured'
+  | 'unconfigured'
+  | 'installing'
+  | 'unknown'
+
 export interface ModelStatusResponse {
   model_id: string
-  status: string
+  status: ModelRuntimeStatus
   detail: string
   executable: boolean
   issues: Array<{

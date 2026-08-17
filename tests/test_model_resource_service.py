@@ -76,6 +76,59 @@ def test_install_family_all_expands_family_members_and_required_assets(tmp_path)
     assert installed_ids == ["family-base", "shared-tokenizer", "family-large"]
 
 
+def test_status_failure_is_isolated_to_one_model(tmp_path):
+    catalog_path = tmp_path / "models.yaml"
+    catalog_path.write_text(
+        dedent(
+            """
+            models:
+              - id: fragile-model
+                kind: local
+                category: tts
+                provider: fragile
+                display_name: Fragile Model
+                description: test
+                install_root: models
+                install_path: fragile
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    service = ModelService(catalog_path=catalog_path)
+
+    def fail_probe(_entry):
+        raise TimeoutError("probe timed out")
+
+    service.status_resolver.resolve = fail_probe
+
+    statuses = service.get_all_statuses()
+
+    assert len(statuses) == 1
+    assert statuses[0].model_id == "fragile-model"
+    assert statuses[0].status == ModelState.UNKNOWN
+    assert statuses[0].executable is False
+    assert statuses[0].issues[0].code == "STATUS_PROBE_FAILED"
+
+
+def test_cloud_credential_is_configured_but_not_claimed_executable(monkeypatch):
+    entry = ModelEntry(
+        id="cloud-model",
+        kind="cloud",
+        category="llm",
+        provider="cloud",
+        display_name="Cloud Model",
+        description="test",
+        api_key_config="api.cloud_api_key",
+    )
+    monkeypatch.setattr("src.core.resources.model_status.config.get", lambda *_args: "invalid-key")
+
+    status = ModelStatusResolver().resolve(entry)
+
+    assert status.status == ModelState.CONFIGURED
+    assert status.executable is False
+    assert status.issues[0].code == "PROVIDER_UNVERIFIED"
+
+
 def test_install_stops_before_model_download_when_runtime_dependencies_fail(tmp_path):
     catalog_path = tmp_path / "models.yaml"
     catalog_path.write_text(

@@ -19,6 +19,7 @@ class ModelState:
     INSTALLED = "installed"
     CONFIGURED = "configured"
     UNCONFIGURED = "unconfigured"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -76,11 +77,17 @@ class ModelStatusResolver:
         if entry.kind == "cloud":
             api_key = config.get(entry.api_key_config or "", "")
             if api_key:
+                issue = ModelStatusIssue(
+                    "PROVIDER_UNVERIFIED",
+                    entry.api_key_config or "credential",
+                    "Credential is configured, but provider availability has not been verified",
+                )
                 return ModelStatus(
                     entry.id,
                     ModelState.CONFIGURED,
-                    "Credential configured",
-                    executable=True,
+                    issue.message,
+                    executable=False,
+                    issues=(issue,),
                 )
             issue = ModelStatusIssue(
                 "CREDENTIAL_MISSING",
@@ -236,19 +243,20 @@ class ModelStatusResolver:
                     )
                 )
 
-        has_gpu = (
-            self._runtime_resolver.has_cuda(runtime.id)
-            if runtime.isolated and runtime.python_executable.is_file()
-            else self._gpu_checker()
-        )
-        if entry.requires_gpu and not runtime_missing and not has_gpu:
-            issues.append(
-                ModelStatusIssue(
-                    "GPU_UNAVAILABLE",
-                    entry.min_cuda or "CUDA GPU",
-                    "A compatible CUDA GPU is required but unavailable",
-                )
+        if entry.requires_gpu and not runtime_missing:
+            has_gpu = (
+                self._runtime_resolver.has_cuda(runtime.id)
+                if runtime.isolated and runtime.python_executable.is_file()
+                else self._gpu_checker()
             )
+            if not has_gpu:
+                issues.append(
+                    ModelStatusIssue(
+                        "GPU_UNAVAILABLE",
+                        entry.min_cuda or "CUDA GPU",
+                        "A compatible CUDA GPU is required but unavailable",
+                    )
+                )
         return issues
 
     @staticmethod

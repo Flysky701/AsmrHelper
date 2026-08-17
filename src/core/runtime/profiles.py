@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -12,6 +13,13 @@ from pathlib import Path
 from typing import Iterable
 
 from src.config import PROJECT_ROOT
+
+
+logger = logging.getLogger(__name__)
+
+
+class RuntimeProbeError(RuntimeError):
+    """Raised when runtime availability could not be determined reliably."""
 
 
 @dataclass(frozen=True)
@@ -26,6 +34,8 @@ class RuntimeProfile:
 
 class RuntimeProfileResolver:
     """Resolve named Python environments without persisting machine paths."""
+
+    _PROBE_CACHE_TTL_SECONDS = 300.0
 
     _PROFILE_EXTRAS = {
         "qwen_tts": "qwen3",
@@ -48,6 +58,7 @@ class RuntimeProfileResolver:
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = (project_root or PROJECT_ROOT).resolve()
         self._probe_cache: dict[tuple[str, str], tuple[float, bool]] = {}
+        self._probe_errors: dict[tuple[str, str], tuple[float, str]] = {}
         self._probe_lock = threading.Lock()
 
     def resolve(self, profile_id: str | None) -> RuntimeProfile:
@@ -145,18 +156,25 @@ class RuntimeProfileResolver:
             "result = {name: bool(importlib.import_module(name)) for name in modules}\n"
             "print('__ASMR_RUNTIME_PROBE__' + json.dumps(result))\n"
         )
-        result = subprocess.run(
-            [str(profile.python_executable), "-c", script],
-            cwd=str(self.project_root),
-            env=self.subprocess_env(),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                [str(profile.python_executable), "-c", script],
+                cwd=str(self.project_root),
+                env=self.subprocess_env(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            detail = f"runtime module probe failed: {exc}"
+            logger.warning("%s profile=%s modules=%s", detail, profile.id, ",".join(unique_modules))
+            self._set_cached_probe_error(cache_key, detail)
+            raise RuntimeProbeError(detail) from exc
         if result.returncode != 0:
+            self._set_cached_probe(cache_key, False)
             return False
         try:
             line = next(
@@ -167,7 +185,9 @@ class RuntimeProfileResolver:
             self._set_cached_probe(cache_key, available)
             return available
         except (json.JSONDecodeError, AttributeError, StopIteration):
-            return False
+            detail = "runtime module probe returned an invalid response"
+            self._set_cached_probe_error(cache_key, detail)
+            raise RuntimeProbeError(detail)
 
     def has_cuda(self, profile_id: str | None) -> bool:
         profile = self.resolve(profile_id)
@@ -177,21 +197,27 @@ class RuntimeProfileResolver:
         cached = self._get_cached_probe(cache_key)
         if cached is not None:
             return cached
-        result = subprocess.run(
-            [
-                str(profile.python_executable),
-                "-c",
-                "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)",
-            ],
-            cwd=str(self.project_root),
-            env=self.subprocess_env(),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    str(profile.python_executable),
+                    "-c",
+                    "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)",
+                ],
+                cwd=str(self.project_root),
+                env=self.subprocess_env(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            detail = f"runtime CUDA probe failed: {exc}"
+            logger.warning("%s profile=%s", detail, profile.id)
+            self._set_cached_probe_error(cache_key, detail)
+            raise RuntimeProbeError(detail) from exc
         available = result.returncode == 0
         self._set_cached_probe(cache_key, available)
         return available
@@ -201,21 +227,35 @@ class RuntimeProfileResolver:
         with self._probe_lock:
             if normalized is None:
                 self._probe_cache.clear()
+                self._probe_errors.clear()
             else:
                 self._probe_cache = {
                     key: value for key, value in self._probe_cache.items() if key[0] != normalized
+                }
+                self._probe_errors = {
+                    key: value for key, value in self._probe_errors.items() if key[0] != normalized
                 }
 
     def _get_cached_probe(self, key: tuple[str, str]) -> bool | None:
         with self._probe_lock:
             cached = self._probe_cache.get(key)
-        if cached is None or time.monotonic() - cached[0] > 60.0:
+            cached_error = self._probe_errors.get(key)
+        now = time.monotonic()
+        if cached_error is not None and now - cached_error[0] <= self._PROBE_CACHE_TTL_SECONDS:
+            raise RuntimeProbeError(cached_error[1])
+        if cached is None or now - cached[0] > self._PROBE_CACHE_TTL_SECONDS:
             return None
         return cached[1]
 
     def _set_cached_probe(self, key: tuple[str, str], value: bool) -> None:
         with self._probe_lock:
             self._probe_cache[key] = (time.monotonic(), value)
+            self._probe_errors.pop(key, None)
+
+    def _set_cached_probe_error(self, key: tuple[str, str], detail: str) -> None:
+        with self._probe_lock:
+            self._probe_errors[key] = (time.monotonic(), detail)
+            self._probe_cache.pop(key, None)
 
     def subprocess_env(self) -> dict[str, str]:
         env = os.environ.copy()

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from src.core.engines.tts.service import TtsEngineRuntime
 from src.core.resources.model_catalog import ModelEntry
 from src.core.resources.model_status import ModelStatusResolver
-from src.core.runtime.profiles import RuntimeProfileResolver
+from src.core.runtime.profiles import RuntimeProbeError, RuntimeProfileResolver
 from src.core.runtime.router import RuntimeRouter
 
 
@@ -36,6 +39,23 @@ def test_runtime_subprocess_environment_keeps_uv_state_inside_project(tmp_path, 
 
     assert env["UV_CACHE_DIR"] == str(tmp_path / ".uv-cache")
     assert env["UV_PYTHON_INSTALL_DIR"] == str(tmp_path / ".runtimes" / "python")
+
+
+def test_runtime_module_probe_timeout_is_reported_as_probe_failure(tmp_path, monkeypatch):
+    resolver = RuntimeProfileResolver(project_root=tmp_path)
+    python_executable = resolver.resolve("qwen_tts").python_executable
+    python_executable.parent.mkdir(parents=True)
+    python_executable.write_bytes(b"python")
+
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs.get("timeout", 30))
+
+    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", timeout)
+
+    with pytest.raises(RuntimeProbeError, match="probe failed"):
+        resolver.check_modules("qwen_tts", ["qwen_tts"])
+    with pytest.raises(RuntimeProbeError, match="probe failed"):
+        resolver.has_cuda("qwen_tts")
 
 
 def test_isolated_model_status_reports_missing_runtime(tmp_path):

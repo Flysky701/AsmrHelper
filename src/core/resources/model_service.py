@@ -11,7 +11,7 @@ from src.core.runtime import RuntimeProfileResolver, get_runtime_profile_resolve
 
 from .model_catalog import DEFAULT_CATALOG_PATH, ModelCatalog, ModelEntry
 from .model_installer import ModelInstaller
-from .model_status import ModelStatus, ModelStatusResolver
+from .model_status import ModelState, ModelStatus, ModelStatusIssue, ModelStatusResolver
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,27 @@ class ModelService:
         return self.status_resolver.resolve(self.get_model(model_id))
 
     def get_all_statuses(self, kind: str | None = None, category: str | None = None) -> List[ModelStatus]:
-        return [self.status_resolver.resolve(entry) for entry in self.list_models(kind=kind, category=category)]
+        statuses: list[ModelStatus] = []
+        for entry in self.list_models(kind=kind, category=category):
+            try:
+                statuses.append(self.status_resolver.resolve(entry))
+            except Exception as exc:
+                logger.warning("model status probe failed model_id=%s: %s", entry.id, exc)
+                issue = ModelStatusIssue(
+                    "STATUS_PROBE_FAILED",
+                    entry.runtime_profile or entry.provider or entry.engine or entry.id,
+                    f"Runtime status could not be checked: {exc}",
+                )
+                statuses.append(
+                    ModelStatus(
+                        model_id=entry.id,
+                        status=ModelState.UNKNOWN,
+                        detail=issue.message,
+                        executable=False,
+                        issues=(issue,),
+                    )
+                )
+        return statuses
 
     def verify(self, model_id: Optional[str] = None) -> Dict[str, bool]:
         entries = [self.get_model(model_id)] if model_id else [entry for entry in self.list_models() if entry.kind == "local"]

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { modelsApi } from '@/api/models'
 import { resourcesApi } from '@/api/resources'
 import type { ModelSummaryResponse, ModelStatusResponse, ResourceStatusResponse } from '@/api/types'
@@ -33,6 +33,9 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   invalid: { dot: 'oklch(65% 0.14 85)', label: '不完整' },
   runtime_unavailable: { dot: 'oklch(65% 0.14 85)', label: '不可执行' },
   installing: { dot: 'oklch(65% 0.14 85)', label: '安装中' },
+  checking: { dot: 'oklch(65% 0.10 225)', label: '检测中' },
+  unverified: { dot: 'oklch(65% 0.10 225)', label: '已配置，待验证' },
+  unknown: { dot: 'oklch(62% 0.02 240)', label: '状态未知' },
 }
 
 export default function EnginesResources() {
@@ -43,32 +46,48 @@ export default function EnginesResources() {
   const [models, setModels] = useState<ModelSummaryResponse[]>([])
   const [modelStatuses, setModelStatuses] = useState<ModelStatusResponse[]>([])
   const [loading, setLoading] = useState(true)
+  const [statusLoading, setStatusLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<CategoryTab>('llm')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [installing, setInstalling] = useState<Record<string, { active: boolean; message?: string; progress?: number }>>({})
   const [error, setError] = useState('')
+  const loadRequestId = useRef(0)
 
   useEffect(() => { loadData() }, [])
 
   const loadData = async (preserveError = false) => {
+    const requestId = ++loadRequestId.current
     setLoading(true)
+    setStatusLoading(true)
     if (!preserveError) setError('')
     try {
-      const [resData, modelData, statusData] = await Promise.all([
+      const [resData, modelData] = await Promise.all([
         resourcesApi.getStatus(),
         modelsApi.list(),
-        modelsApi.statuses(),
       ])
+      if (requestId !== loadRequestId.current) return
       setResources(resData.resources)
       setModels(modelData)
-      setModelStatuses(statusData)
     } catch (loadError) {
-      setResources([])
-      setModels([])
-      setModelStatuses([])
-      setError(`读取引擎与资源状态失败：${loadError instanceof Error ? loadError.message : String(loadError)}`)
+      if (requestId !== loadRequestId.current) return
+      setError(`读取引擎与资源基础信息失败：${loadError instanceof Error ? loadError.message : String(loadError)}`)
+      setStatusLoading(false)
+      return
     } finally {
-      setLoading(false)
+      if (requestId === loadRequestId.current) setLoading(false)
+    }
+
+    try {
+      const statuses = await modelsApi.statuses()
+      if (requestId !== loadRequestId.current) return
+      setModelStatuses(statuses)
+    } catch (statusError) {
+      if (requestId !== loadRequestId.current) return
+      setError(
+        `基础信息已加载，但运行状态检测失败：${statusError instanceof Error ? statusError.message : String(statusError)}`,
+      )
+    } finally {
+      if (requestId === loadRequestId.current) setStatusLoading(false)
     }
   }
 
@@ -136,7 +155,8 @@ export default function EnginesResources() {
   const grouped = useMemo(() => {
     const byCategory: Record<string, ModelSummaryResponse[]> = {}
     for (const m of models) {
-      const cat = m.category || 'other'
+      const rawCategory = m.category || 'other'
+      const cat = rawCategory in CATEGORY_LABELS ? rawCategory : 'other'
       if (!byCategory[cat]) byCategory[cat] = []
       byCategory[cat].push(m)
     }
@@ -198,10 +218,12 @@ export default function EnginesResources() {
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '15px', fontWeight: 600, letterSpacing: '-0.02em', marginRight: '16px' }}>
           引擎与资源
         </h1>
-        <button onClick={() => void loadData()} style={{
+        <button onClick={() => void loadData()} disabled={loading || statusLoading} style={{
           fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
           borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-          color: 'var(--fg)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px',
+          color: 'var(--fg)', cursor: loading || statusLoading ? 'not-allowed' : 'pointer',
+          opacity: loading || statusLoading ? 0.6 : 1,
+          display: 'inline-flex', alignItems: 'center', gap: '6px',
         }}>
           刷新状态
         </button>
@@ -336,21 +358,35 @@ export default function EnginesResources() {
                         const status = getStatus(model.model_id)
                         const runtimeUnavailable =
                           status?.executable === false &&
-                          (status.status === 'installed' || status.status === 'configured')
+                          (status.status === 'installed' || status.status === 'configured') &&
+                          !status.issues.some(issue => issue.code === 'PROVIDER_UNVERIFIED')
+                        const providerUnverified = status?.issues.some(
+                          issue => issue.code === 'PROVIDER_UNVERIFIED',
+                        ) ?? false
+                        const probeFailed = status?.issues.some(
+                          issue => issue.code === 'STATUS_PROBE_FAILED',
+                        ) ?? false
                         const statusInfo = status
-                          ? STATUS_STYLES[runtimeUnavailable ? 'runtime_unavailable' : status.status] || STATUS_STYLES.not_installed
-                          : null
+                          ? STATUS_STYLES[
+                            providerUnverified
+                              ? 'unverified'
+                              : runtimeUnavailable
+                                ? 'runtime_unavailable'
+                                : status.status
+                          ] || STATUS_STYLES.unknown
+                          : STATUS_STYLES[statusLoading ? 'checking' : 'unknown']
+                        const resolvedStatusInfo = statusInfo ?? STATUS_STYLES.unknown!
                         const installState = installing[model.model_id]
                         const isInstalling = !!installState?.active || status?.status === 'installing'
                         const missingPythonDependency = status?.issues?.some(
                           issue => issue.code === 'PYTHON_DEPENDENCY_MISSING',
                         ) ?? false
                         const needsInstall =
-                          !status ||
+                          !!status && (
                           status.status === 'not_installed' ||
                           status.status === 'missing' ||
-                          status.status === 'invalid' ||
-                          missingPythonDependency
+                          (status.status === 'invalid' && !probeFailed) ||
+                          missingPythonDependency)
                         const installLabel = model.install_strategy === 'package'
                           ? '安装依赖'
                           : missingPythonDependency
@@ -376,15 +412,13 @@ export default function EnginesResources() {
                               ) : null}
                             </div>
                             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              {statusInfo && (
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
-                                  <span style={{
-                                    width: '6px', height: '6px', borderRadius: '50%', background: statusInfo.dot,
-                                    animation: isInstalling ? 'pulse 1.5s infinite' : 'none',
-                                  }} />
-                                  {statusInfo.label}
-                                </span>
-                              )}
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
+                                <span style={{
+                                  width: '6px', height: '6px', borderRadius: '50%', background: resolvedStatusInfo.dot,
+                                  animation: isInstalling || statusLoading ? 'pulse 1.5s infinite' : 'none',
+                                }} />
+                                {resolvedStatusInfo.label}
+                              </span>
                               {model.is_primary_variant && (
                                 <span style={{
                                   fontSize: '10px', padding: '1px 6px', borderRadius: '3px', fontWeight: 500,
@@ -395,13 +429,13 @@ export default function EnginesResources() {
                               )}
                             </div>
                             <div style={{ display: 'flex', gap: '4px' }}>
-                              {isInstalling ? (
+                              {isInstalling || statusLoading || !status ? (
                                 <button disabled style={{
                                   fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
                                   borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
                                   color: 'var(--muted)', cursor: 'not-allowed',
                                 }}>
-                                  安装中...
+                                  {isInstalling ? '安装中...' : statusLoading ? '检测中...' : '状态不可用'}
                                 </button>
                               ) : model.kind === 'cloud' ? (
                                 /* Cloud models: no install/unload, only show config status */
