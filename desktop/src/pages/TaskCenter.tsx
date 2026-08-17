@@ -37,6 +37,181 @@ const SURFACE_STYLE: CSSProperties = {
   boxShadow: 'var(--shadow-panel)',
 }
 
+const TASK_CENTER_LAYOUT_STYLES = `
+  .task-center-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .task-center-header {
+    padding: 22px 28px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .task-center-header-copy {
+    flex: 1 1 420px;
+    min-width: 0;
+  }
+
+  .task-center-toolbar {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+
+  .task-center-toolbar-button {
+    white-space: nowrap;
+  }
+
+  .task-center-stats {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+    gap: 12px;
+  }
+
+  .task-center-content {
+    display: grid;
+    grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+    gap: 20px;
+    flex: 1;
+    min-height: 0;
+    padding: 20px;
+  }
+
+  .task-center-list-panel {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .task-center-task-list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px;
+    display: grid;
+    gap: 12px;
+    align-content: start;
+    grid-auto-rows: max-content;
+  }
+
+  .task-center-list-panel > :not(.task-center-task-list) {
+    flex: 0 0 auto;
+  }
+
+  .task-center-task-card {
+    align-self: start;
+    min-height: 122px;
+  }
+
+  .task-center-task-summary {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.45;
+  }
+
+  .task-center-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  .task-center-detail > * {
+    flex: 0 0 auto;
+  }
+
+  .task-center-detail-pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+    gap: 16px;
+  }
+
+  .task-center-break-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  @media (max-width: 1100px) {
+    .task-center-page {
+      overflow: auto;
+    }
+
+    .task-center-content {
+      grid-template-columns: minmax(0, 1fr);
+      flex: none;
+      min-height: auto;
+      padding: 16px;
+    }
+
+    .task-center-list-panel {
+      min-height: 320px;
+      max-height: min(48vh, 520px);
+    }
+
+    .task-center-detail {
+      overflow: visible;
+      padding-right: 0;
+    }
+  }
+
+  @media (max-width: 680px) {
+    .task-center-header {
+      padding: 18px 16px 14px;
+      gap: 14px;
+    }
+
+    .task-center-header-copy {
+      flex-basis: 100%;
+    }
+
+    .task-center-toolbar {
+      width: 100%;
+      margin-left: 0;
+    }
+
+    .task-center-toolbar > button {
+      flex: 1 1 150px;
+    }
+
+    .task-center-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .task-center-stats > div {
+      padding: 11px 12px !important;
+    }
+
+    .task-center-content {
+      gap: 14px;
+      padding: 12px;
+    }
+
+    .task-center-list-panel {
+      min-height: 300px;
+      max-height: 420px;
+    }
+  }
+`
+
 type FilterValue = 'all' | TaskStatus
 
 const FILTER_TABS: { value: FilterValue; label: string }[] = [
@@ -111,6 +286,7 @@ function ToolbarButton({
 
   return (
     <button
+      className="task-center-toolbar-button"
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -486,19 +662,10 @@ export default function TaskCenter() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <header
-        style={{
-          padding: '22px 28px 18px',
-          borderBottom: '1px solid var(--border)',
-          background: 'var(--surface)',
-          display: 'flex',
-          gap: 18,
-          alignItems: 'flex-start',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div>
+    <div className="task-center-page">
+      <style>{TASK_CENTER_LAYOUT_STYLES}</style>
+      <header className="task-center-header">
+        <div className="task-center-header-copy">
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
             Task Cockpit
           </div>
@@ -510,7 +677,7 @@ export default function TaskCenter() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginLeft: 'auto' }}>
+        <div className="task-center-toolbar">
           <ToolbarButton variant="secondary" onClick={handleRetryFailedTasks} disabled={retryableFailedTasks.length === 0}>
             重试失败任务
           </ToolbarButton>
@@ -519,7 +686,7 @@ export default function TaskCenter() {
           </ToolbarButton>
         </div>
 
-        <div style={{ width: '100%', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+        <div className="task-center-stats">
           {[
             { label: '运行中', value: runningTasks.length, background: 'var(--accent-soft)', color: 'var(--accent)' },
             { label: '排队中', value: pendingTasks.length, background: 'var(--panel-muted)', color: 'var(--muted-strong)' },
@@ -534,17 +701,8 @@ export default function TaskCenter() {
         </div>
       </header>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(320px, 420px) minmax(0, 1fr)',
-          gap: 20,
-          flex: 1,
-          minHeight: 0,
-          padding: 20,
-        }}
-      >
-        <section style={{ ...SURFACE_STYLE, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="task-center-content">
+        <section className="task-center-list-panel" style={SURFACE_STYLE}>
           <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid var(--border)' }}>
             <div style={{ fontSize: 14, fontWeight: 700 }}>任务列表</div>
             <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
@@ -580,7 +738,7 @@ export default function TaskCenter() {
             })}
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 14, display: 'grid', gap: 12 }}>
+          <div className="task-center-task-list">
             {filteredTasks.length === 0 ? (
               <div style={{ display: 'grid', placeItems: 'center', minHeight: 240, color: 'var(--muted)' }}>
                 当前筛选条件下还没有任务。
@@ -599,8 +757,11 @@ export default function TaskCenter() {
                     <button
                       key={task.id}
                       type="button"
+                      className="task-center-task-card"
                       onClick={() => selectTask(task.id)}
                       style={{
+                        width: '100%',
+                        minWidth: 0,
                         textAlign: 'left',
                         padding: '14px 14px 12px',
                         borderRadius: 'var(--radius-card)',
@@ -634,7 +795,9 @@ export default function TaskCenter() {
                             }}
                           />
                         </div>
-                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{task.message || '等待阶段消息'}</div>
+                        <div className="task-center-task-summary task-center-break-anywhere" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          {task.message || '等待阶段消息'}
+                        </div>
                         {primaryOutput ? (
                           <div style={{ fontSize: 12, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             主要产物：{primaryOutput}
@@ -648,7 +811,7 @@ export default function TaskCenter() {
           </div>
         </section>
 
-        <section style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0, overflow: 'auto', paddingRight: 4 }}>
+        <section className="task-center-detail">
           {!selectedTask ? (
             <div style={{ ...SURFACE_STYLE, minHeight: 360, display: 'grid', placeItems: 'center', color: 'var(--muted)' }}>
               选择一个任务查看阶段、产物和日志。
@@ -657,7 +820,7 @@ export default function TaskCenter() {
             <>
               <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                  <div style={{ minWidth: 0 }}>
+                  <div style={{ minWidth: 0, flex: '1 1 260px' }}>
                     <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {selectedTask.sourceName}
                     </div>
@@ -703,7 +866,7 @@ export default function TaskCenter() {
                   </div>
                 ) : null}
 
-                <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 12 }}>
                   {[
                     { label: '当前阶段', value: stageLabel(selectedTask) },
                     { label: '任务 ID', value: selectedTask.serverTaskId || selectedTask.id },
@@ -721,12 +884,12 @@ export default function TaskCenter() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) minmax(260px, 1fr)', gap: 16 }}>
+              <div className="task-center-detail-pair">
                 <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700 }}>执行进度</div>
-                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>{selectedTask.message || '等待状态回传'}</div>
+                      <div className="task-center-break-anywhere" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>{selectedTask.message || '等待状态回传'}</div>
                     </div>
                     <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
                       {Math.max(0, Math.min(100, selectedTask.progress))}%
@@ -770,7 +933,7 @@ export default function TaskCenter() {
                       {artifacts.map((artifact) => (
                         <div key={artifact.artifactId} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <div>
+                            <div style={{ minWidth: 0, flex: '1 1 240px' }}>
                               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg)' }}>
                                 {artifact.primary ? '主产物' : artifact.label || artifact.type}
                               </div>
@@ -797,14 +960,14 @@ export default function TaskCenter() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) minmax(260px, 1fr)', gap: 16 }}>
+              <div className="task-center-detail-pair">
                 <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
                   <div style={{ fontSize: 14, fontWeight: 700 }}>参数快照</div>
                   <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
                     失败排查先看这里，而不是先翻日志。
                   </div>
 
-                  <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                  <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 12 }}>
                     {Object.entries(selectedTask.params).map(([key, value]) => (
                       <div key={key} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>{paramLabel(key)}</div>

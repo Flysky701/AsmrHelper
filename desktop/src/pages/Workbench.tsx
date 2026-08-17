@@ -68,6 +68,206 @@ const SURFACE_STYLE: CSSProperties = {
   boxShadow: 'var(--shadow-panel)',
 }
 
+const WORKBENCH_LAYOUT_STYLES = `
+  .workbench-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .workbench-header {
+    padding: 22px 28px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(0, 640px);
+    grid-template-areas:
+      "copy actions"
+      "copy stats";
+    column-gap: 24px;
+    row-gap: 12px;
+    align-items: flex-start;
+  }
+
+  .workbench-header-copy {
+    grid-area: copy;
+    min-width: 0;
+  }
+
+  .workbench-header-actions {
+    grid-area: actions;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  .workbench-header-preset {
+    flex: 0 1 240px;
+    min-width: 210px;
+  }
+
+  .workbench-stats {
+    grid-area: stats;
+    width: min(100%, 340px);
+    justify-self: end;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(88px, 1fr));
+    gap: 10px;
+  }
+
+  .workbench-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(280px, 360px);
+    gap: 20px;
+    flex: 1;
+    min-height: 0;
+    padding: 20px;
+  }
+
+  .workbench-main-column,
+  .workbench-side-column {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  .workbench-main-column {
+    gap: 18px;
+  }
+
+  .workbench-side-column {
+    gap: 16px;
+  }
+
+  .workbench-main-column > *,
+  .workbench-side-column > * {
+    flex: 0 0 auto;
+  }
+
+  .workbench-section-header {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  .workbench-section-heading {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+
+  .workbench-section-actions {
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .workbench-action-button {
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .workbench-break-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  @media (max-width: 1100px) {
+    .workbench-page {
+      overflow: auto;
+    }
+
+    .workbench-header {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "copy"
+        "actions"
+        "stats";
+    }
+
+    .workbench-header-actions {
+      justify-content: flex-start;
+    }
+
+    .workbench-stats {
+      width: 100%;
+      justify-self: stretch;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .workbench-content {
+      grid-template-columns: minmax(0, 1fr);
+      flex: none;
+      min-height: auto;
+      padding: 16px;
+    }
+
+    .workbench-main-column,
+    .workbench-side-column {
+      overflow: visible;
+      padding-right: 0;
+    }
+  }
+
+  @media (max-width: 680px) {
+    .workbench-header {
+      padding: 18px 16px 14px;
+      gap: 14px;
+    }
+
+    .workbench-header-copy {
+      flex-basis: 100%;
+      min-width: 0;
+    }
+
+    .workbench-header-actions {
+      width: 100%;
+    }
+
+    .workbench-header-actions > button {
+      flex: 1 1 140px;
+    }
+
+    .workbench-header-preset {
+      flex: 1 1 180px;
+      min-width: 0;
+    }
+
+    .workbench-stats {
+      gap: 8px;
+    }
+
+    .workbench-stats > div {
+      min-width: 0 !important;
+      padding: 9px 10px !important;
+    }
+
+    .workbench-content {
+      gap: 14px;
+      padding: 12px;
+    }
+
+    .workbench-section-header,
+    .workbench-section-body {
+      padding: 14px !important;
+    }
+
+    .workbench-section-actions {
+      flex: 1 1 100%;
+    }
+
+    .workbench-section-actions > button {
+      width: 100%;
+    }
+  }
+`
+
 const STAGE_NAMES = ['人声分离', 'ASR 识别', '字幕翻译', 'TTS 合成', '混音输出']
 
 type Option = { value: string; label: string }
@@ -174,6 +374,7 @@ function Section({
   return (
     <section style={{ ...SURFACE_STYLE, overflow: 'hidden' }}>
       <div
+        className="workbench-section-header"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -184,6 +385,7 @@ function Section({
       >
         {onToggle ? (
           <button
+            className="workbench-section-heading"
             type="button"
             onClick={onToggle}
             style={{
@@ -205,17 +407,16 @@ function Section({
             </div>
           </button>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="workbench-section-heading" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
               {caption ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>{caption}</div> : null}
             </div>
           </div>
         )}
-        <div style={{ flex: 1 }} />
-        {actions}
+        {actions ? <div className="workbench-section-actions">{actions}</div> : null}
       </div>
-      {open ? <div style={{ padding: 18 }}>{children}</div> : null}
+      {open ? <div className="workbench-section-body" style={{ padding: 18 }}>{children}</div> : null}
     </section>
   )
 }
@@ -252,6 +453,7 @@ function ActionButton({
 
   return (
     <button
+      className={`workbench-action-button workbench-action-button--${variant}`}
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -965,19 +1167,10 @@ export default function Workbench() {
   ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <header
-        style={{
-          padding: '22px 28px 18px',
-          borderBottom: '1px solid var(--border)',
-          background: 'var(--surface)',
-          display: 'flex',
-          gap: 20,
-          alignItems: 'flex-start',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ minWidth: 260 }}>
+    <div className="workbench-page">
+      <style>{WORKBENCH_LAYOUT_STYLES}</style>
+      <header className="workbench-header">
+        <div className="workbench-header-copy">
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
             Mainline Workspace
           </div>
@@ -989,12 +1182,12 @@ export default function Workbench() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="workbench-header-actions">
           <ActionButton variant="secondary" onClick={handleSelectFiles}>
             <UploadIcon />
             添加音频
           </ActionButton>
-          <div style={{ minWidth: 210 }}>
+          <div className="workbench-header-preset">
             <select
               value={preset}
               onChange={(event) => setPreset(event.target.value)}
@@ -1030,7 +1223,7 @@ export default function Workbench() {
           </ActionButton>
         </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div className="workbench-stats">
           {[
             { label: '运行中', value: runningCount, background: 'var(--accent-soft)', color: 'var(--accent)' },
             { label: '排队', value: pendingCount, background: 'var(--panel-muted)', color: 'var(--muted-strong)' },
@@ -1052,17 +1245,8 @@ export default function Workbench() {
         </div>
       </header>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1.45fr) minmax(280px, 360px)',
-          gap: 20,
-          flex: 1,
-          minHeight: 0,
-          padding: 20,
-        }}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minHeight: 0, overflow: 'auto', paddingRight: 4 }}>
+      <div className="workbench-content">
+        <div className="workbench-main-column">
           <Section
             title="文件队列"
             caption={selectedFiles.length === 0 ? '把音频拖进来，或点击“添加音频”' : `本次将处理 ${selectedFiles.length} 个音频文件`}
@@ -1154,7 +1338,7 @@ export default function Workbench() {
           </Section>
 
           <Section title="流水线预览" caption="让用户先看懂这次任务会经历什么">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 12 }}>
               {stageSummary.map((stage, index) => (
                 <div
                   key={stage.title}
@@ -1196,7 +1380,7 @@ export default function Workbench() {
           </Section>
 
           <Section title="常用参数" caption="只保留会影响主链路判断的配置" open={commonExpanded} onToggle={toggleCommon}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
               <SelectField
                 title="源语言"
                 value={params.sourceLang}
@@ -1225,7 +1409,7 @@ export default function Workbench() {
           </Section>
 
           <Section title="模型与引擎" caption="这些设置决定流水线每一阶段由谁来执行" open={modelExpanded} onToggle={toggleModel}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
               <SelectField
                 title="TTS 引擎"
                 value={params.ttsEngine}
@@ -1309,7 +1493,7 @@ export default function Workbench() {
           </Section>
 
           <Section title="高级参数" caption="保留，但不让它们占住主操作空间" open={advExpanded} onToggle={toggleAdv}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 18 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 18 }}>
               <RangeField
                 title="语速"
                 value={params.ttsSpeed}
@@ -1359,11 +1543,11 @@ export default function Workbench() {
           </Section>
         </div>
 
-        <aside style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0, overflow: 'auto', paddingRight: 4 }}>
+        <aside className="workbench-side-column">
           <Section title="执行前确认" caption="点击执行前，先确认这次任务会发生什么">
             <div style={{ display: 'grid', gap: 14 }}>
               {capabilityError ? (
-                <div style={{ padding: '12px 14px', border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)', fontSize: 12 }}>
+                <div className="workbench-break-anywhere" style={{ padding: '12px 14px', border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)', fontSize: 12 }}>
                   {capabilityError}
                 </div>
               ) : null}
@@ -1371,7 +1555,7 @@ export default function Workbench() {
                 <div style={{ padding: '12px 14px', border: '1px solid var(--warning)', borderRadius: 8, background: 'var(--warning-soft)', fontSize: 12 }}>
                   <div style={{ fontWeight: 700, color: 'var(--fg)' }}>当前配置暂不可执行</div>
                   {readinessIssues.map((issue, index) => (
-                    <div key={`${issue.stage}-${issue.code}-${index}`} style={{ marginTop: 6, color: 'var(--muted-strong)' }}>
+                    <div className="workbench-break-anywhere" key={`${issue.stage}-${issue.code}-${index}`} style={{ marginTop: 6, color: 'var(--muted-strong)' }}>
                       {issue.stage}：{issue.message}
                     </div>
                   ))}
@@ -1421,7 +1605,7 @@ export default function Workbench() {
                     }}
                   >
                     <span style={{ fontSize: 12, color: 'var(--muted)' }}>{item.label}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', textAlign: 'right' }}>{item.value}</span>
+                    <span className="workbench-break-anywhere" style={{ minWidth: 0, fontSize: 12, fontWeight: 600, color: 'var(--fg)', textAlign: 'right' }}>{item.value}</span>
                   </div>
                 ))}
               </div>
@@ -1467,6 +1651,8 @@ export default function Workbench() {
                     type="button"
                     onClick={() => setPage('task-center')}
                     style={{
+                      width: '100%',
+                      minWidth: 0,
                       textAlign: 'left',
                       padding: '12px 14px',
                       borderRadius: 'var(--radius-sm)',
@@ -1475,13 +1661,13 @@ export default function Workbench() {
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, minWidth: 0 }}>
+                      <span style={{ minWidth: 0, flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {task.sourceName}
                       </span>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{formatRelativeTime(task.createdAt)}</span>
+                      <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--muted)' }}>{formatRelativeTime(task.createdAt)}</span>
                     </div>
-                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
                       <span
                         style={{
                           padding: '3px 8px',
@@ -1494,7 +1680,7 @@ export default function Workbench() {
                       >
                         {STATUS_LABELS[task.status]}
                       </span>
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      <span className="workbench-break-anywhere" style={{ minWidth: 0, fontSize: 12, color: 'var(--muted)' }}>
                         {task.message || '等待更多状态信息'}
                       </span>
                     </div>
