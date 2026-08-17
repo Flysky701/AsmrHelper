@@ -280,10 +280,7 @@ class CapabilityDescriptorService:
                 "kind": "cloud",
                 "supported_models": llm_registry.list_models("deepseek"),
                 "default_model": llm_registry.default_model("deepseek"),
-                "common_option_schema": [
-                    _option("temperature", "number", required=False, default=0.2, description="Sampling temperature"),
-                    _option("max_tokens", "integer", required=False, description="Optional output token limit"),
-                ],
+                "common_option_schema": [],
                 "provider_option_schema": [],
                 "supports": {
                     "chat_completion": True,
@@ -299,10 +296,7 @@ class CapabilityDescriptorService:
                 "kind": "cloud",
                 "supported_models": llm_registry.list_models("openai"),
                 "default_model": llm_registry.default_model("openai"),
-                "common_option_schema": [
-                    _option("temperature", "number", required=False, default=0.2, description="Sampling temperature"),
-                    _option("max_tokens", "integer", required=False, description="Optional output token limit"),
-                ],
+                "common_option_schema": [],
                 "provider_option_schema": [],
                 "supports": {
                     "chat_completion": True,

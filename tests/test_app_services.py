@@ -295,6 +295,30 @@ class TestCapabilityOptionContract:
         assert descriptor["supported_models"] == registry.list_models("deepseek")
         assert Translator.MODELS is LLM_SUPPORTED_MODELS
 
+    @pytest.mark.parametrize("provider", ["deepseek", "openai"])
+    def test_llm_capability_does_not_advertise_ignored_generation_options(
+        self,
+        provider: str,
+    ):
+        from src.app.errors import AppValidationError
+        from src.app.services.capability_descriptor_service import (
+            CapabilityDescriptorService,
+        )
+
+        service = CapabilityDescriptorService()
+        descriptor = service.get_descriptor("llm", provider)
+
+        assert descriptor["common_option_schema"] == []
+        with pytest.raises(
+            AppValidationError,
+            match="unsupported options: max_tokens, temperature",
+        ):
+            service.validate_options(
+                category="llm",
+                provider=provider,
+                common_options={"temperature": 0.2, "max_tokens": 1024},
+            )
+
 
 class TestModelService:
     def test_list_models_normalizes_missing_install_strategy(self):
