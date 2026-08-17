@@ -37,13 +37,20 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
 
-    # CORS for local development
+    # Only the packaged Tauri origin and the fixed local dev origins may call
+    # this loopback API from a browser context.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+            "tauri://localhost",
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+        ],
         allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type"],
     )
 
     # Error handlers

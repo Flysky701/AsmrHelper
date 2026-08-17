@@ -50,6 +50,34 @@ class TestHealth:
         assert resp.json()["status"] == "ok"
 
 
+class TestCorsPolicy:
+    def test_packaged_tauri_origin_is_allowed(self, client):
+        response = client.options(
+            "/api/v1/settings",
+            headers={
+                "Origin": "http://tauri.localhost",
+                "Access-Control-Request-Method": "PUT",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == "http://tauri.localhost"
+
+    def test_untrusted_web_origin_is_not_allowed(self, client):
+        response = client.options(
+            "/api/v1/settings",
+            headers={
+                "Origin": "https://untrusted.example",
+                "Access-Control-Request-Method": "PUT",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "access-control-allow-origin" not in response.headers
+
+
 # ─── Pipeline ─────────────────────────────────────────────────────────
 
 

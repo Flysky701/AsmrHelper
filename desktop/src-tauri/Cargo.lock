@@ -57,6 +57,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-http",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
