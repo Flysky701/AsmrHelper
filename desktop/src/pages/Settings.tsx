@@ -2,15 +2,25 @@ import { useEffect, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import { pipelineApi } from '@/api/pipeline'
 import type { SettingsUpdate, SettingsView } from '@/api/settings'
+import type { PresetItem } from '@/api/types'
 import { useFileSelector } from '@/hooks/useFileSelector'
 
 type SettingsTab = 'api' | 'presets' | 'paths'
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'api', label: 'API 配置' },
-  { id: 'presets', label: '预设管理' },
+  { id: 'presets', label: '内置预设' },
   { id: 'paths', label: '路径配置' },
 ]
+
+const PRESET_STAGE_LABELS: Record<string, string> = {
+  separation: '人声分离',
+  asr: '语音识别',
+  translation: '翻译',
+  tts: '语音合成',
+  mix: '混音',
+  export: '导出结果',
+}
 
 export default function Settings() {
   const { selectFolder } = useFileSelector()
@@ -19,7 +29,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<SettingsTab>('api')
-  const [presets, setPresets] = useState<Array<{ id: string; label: string }>>([])
+  const [presets, setPresets] = useState<PresetItem[]>([])
 
   // API test state
   const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null)
@@ -175,20 +185,31 @@ export default function Settings() {
           设置
         </h1>
         <div className="settings-action-spacer" style={{ flex: 1 }} />
-        <button onClick={handleValidate} style={{
-          fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
-          borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-          color: 'var(--fg)', cursor: 'pointer',
-        }}>
-          验证配置
-        </button>
-        <button onClick={handleSave} disabled={saving} style={{
-          fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
-          borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
-          color: 'white', cursor: 'pointer', opacity: saving ? 0.6 : 1,
-        }}>
-          {saving ? '保存中...' : '保存'}
-        </button>
+        {activeTab === 'presets' ? (
+          <span style={{
+            fontSize: '12px', color: 'var(--muted)', padding: '6px 10px',
+            borderRadius: '999px', background: 'var(--panel-muted)',
+          }}>
+            内置流程 · 无需保存
+          </span>
+        ) : (
+          <>
+            <button onClick={handleValidate} style={{
+              fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
+              borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--fg)', cursor: 'pointer',
+            }}>
+              验证配置
+            </button>
+            <button onClick={handleSave} disabled={saving} style={{
+              fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
+              borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
+              color: 'white', cursor: 'pointer', opacity: saving ? 0.6 : 1,
+            }}>
+              {saving ? '保存中...' : '保存'}
+            </button>
+          </>
+        )}
       </div>
 
       {/* Content: nav + panel */}
@@ -382,60 +403,78 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Panel: 预设管理 */}
+          {/* Panel: 内置预设 */}
           {activeTab === 'presets' && (
             <div>
               <div style={{ marginBottom: '32px' }}>
                 <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '16px', fontWeight: 600, letterSpacing: '-0.02em', marginBottom: '4px' }}>
-                  管道预设
+                  内置管道预设
                 </h2>
                 <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '16px' }}>
-                  定义处理管道的阶段组合。预设在工作台中选择，决定任务执行哪些步骤。
+                  当前版本只展示已经接入执行链路的流程。请在工作台中选择预设并创建任务。
+                </div>
+
+                <div style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '16px',
+                  padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border)',
+                  background: 'var(--panel-muted)',
+                }}>
+                  <span aria-hidden="true" style={{
+                    width: '18px', height: '18px', borderRadius: '50%', flex: '0 0 auto',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--accent-soft)', color: 'var(--accent)', fontSize: '12px', fontWeight: 700,
+                  }}>
+                    i
+                  </span>
+                  <div style={{ fontSize: '12px', lineHeight: 1.6, color: 'var(--muted)' }}>
+                    <strong style={{ display: 'block', color: 'var(--fg)', fontWeight: 600 }}>只读说明</strong>
+                    这些流程由应用内置并统一维护，本页用于核对处理范围，不提供新建、编辑或删除操作。
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {presets.map(preset => (
                     <div key={preset.id} style={{
-                      border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--surface)', overflow: 'hidden',
+                      border: '1px solid var(--border)', borderRadius: '10px', background: 'var(--surface)',
+                      padding: '16px',
                     }}>
-                      <div className="settings-preset-row" style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                         <span style={{ fontSize: '14px', fontWeight: 600, flex: 1 }}>{preset.label}</span>
-                        <div className="settings-preset-actions" style={{ display: 'flex', gap: '6px' }}>
-                          <button disabled title="当前内置预设为只读" style={{
-                            fontFamily: 'var(--font-body)', fontSize: '12px', padding: '5px 10px',
-                            borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                            color: 'var(--muted)', cursor: 'not-allowed', opacity: 0.55,
-                          }}>
-                            编辑（只读）
-                          </button>
-                          <button disabled title="当前内置预设为只读" style={{
-                            fontFamily: 'var(--font-body)', fontSize: '12px', padding: '5px 10px',
-                            borderRadius: '6px', border: '1px solid oklch(85% 0.06 25)', background: 'var(--surface)',
-                            color: 'var(--muted)', cursor: 'not-allowed', opacity: 0.55,
-                          }}>
-                            删除（只读）
-                          </button>
-                        </div>
+                        <span style={{
+                          fontSize: '11px', color: 'var(--muted)', padding: '3px 8px',
+                          borderRadius: '999px', border: '1px solid var(--border)', whiteSpace: 'nowrap',
+                        }}>
+                          内置 · 只读
+                        </span>
+                      </div>
+                      <p style={{ margin: '0 0 14px', color: 'var(--muted)', fontSize: '12px', lineHeight: 1.65 }}>
+                        {preset.description}
+                      </p>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '7px' }}>实际执行阶段</div>
+                      <div className="settings-preset-stages" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        {preset.stages.map((stage, index) => (
+                          <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {index > 0 && <span aria-hidden="true" style={{ color: 'var(--border-strong)', fontSize: '12px' }}>→</span>}
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '5px',
+                              padding: '5px 8px', borderRadius: '6px', background: 'var(--accent-soft)',
+                              color: 'var(--accent)', fontSize: '12px', fontWeight: 500,
+                            }}>
+                              <span style={{ fontSize: '10px', opacity: 0.72 }}>{index + 1}</span>
+                              {PRESET_STAGE_LABELS[stage] ?? '其他处理'}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
 
                   {presets.length === 0 && (
                     <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '16px', textAlign: 'center' }}>
-                      暂无预设，请先创建
+                      未加载到内置预设，请检查后端配置。
                     </div>
                   )}
                 </div>
-
-                <button disabled title="当前版本仅支持内置只读预设" style={{
-                  marginTop: '16px', fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500,
-                  padding: '7px 14px', borderRadius: '6px', border: '1px solid var(--border)',
-                  background: 'var(--surface)', color: 'var(--muted)', cursor: 'not-allowed', opacity: 0.55,
-                  display: 'inline-flex', alignItems: 'center', gap: '6px',
-                }}>
-                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M7 2v10M2 7h10" /></svg>
-                  新建预设（暂不可用）
-                </button>
               </div>
             </div>
           )}
@@ -573,18 +612,8 @@ export default function Settings() {
             width: 100%;
           }
 
-          .settings-preset-row {
+          .settings-preset-stages {
             align-items: flex-start !important;
-            flex-direction: column;
-          }
-
-          .settings-preset-actions {
-            width: 100%;
-            flex-wrap: wrap;
-          }
-
-          .settings-preset-actions > button {
-            flex: 1 1 auto;
           }
         }
       `}</style>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, ReactNode } from 'react'
 
 import { pipelineApi } from '@/api/pipeline'
@@ -17,6 +17,11 @@ import type {
 } from '@/api/types'
 import { useFileSelector } from '@/hooks/useFileSelector'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
+import {
+  PIPELINE_STAGE_IDS,
+  PIPELINE_STAGE_LABELS,
+  normalizePresetStages,
+} from '@/domain/pipelinePreset'
 import { useLogStore } from '@/stores/logStore'
 import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
@@ -178,6 +183,18 @@ const WORKBENCH_LAYOUT_STYLES = `
     word-break: break-word;
   }
 
+  .workbench-pipeline-scroll {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .workbench-pipeline-track {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(126px, 1fr));
+    gap: 10px;
+    min-width: 790px;
+  }
+
   @media (max-width: 1100px) {
     .workbench-page {
       overflow: auto;
@@ -267,8 +284,6 @@ const WORKBENCH_LAYOUT_STYLES = `
     }
   }
 `
-
-const STAGE_NAMES = ['人声分离', 'ASR 识别', '字幕翻译', 'TTS 合成', '混音输出']
 
 type Option = { value: string; label: string }
 
@@ -479,7 +494,7 @@ function ActionButton({
 
 function FieldLabel({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div style={{ minHeight: 34, marginBottom: 8 }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)' }}>{title}</div>
       {hint ? <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{hint}</div> : null}
     </div>
@@ -616,25 +631,47 @@ function ToggleField({
   )
 }
 
-const CAPABILITY_OPTION_LABELS: Record<string, string> = {
-  disable_vad: '禁用 VAD',
-  beam_size: 'Beam Size',
-  temperature: 'Temperature',
-  max_tokens: '最大 Token 数',
-  emotion: '情绪提示',
-  device_map: '设备映射',
-  dtype: '计算精度',
-  batch_size: '批大小',
-  sentence_timestamp: '句级时间戳',
-  trust_remote_code: '允许远程代码',
-  max_inference_batch_size: '最大推理批大小',
-  max_new_tokens: '最大生成 Token 数',
-  return_time_stamps: '返回时间戳',
-  cfg_value: 'CFG 强度',
-  inference_timesteps: '推理步数',
-  load_denoiser: '加载降噪器',
-  sample_rate: '采样率',
-  lang_code: '语言代码',
+interface CapabilityOptionPresentation {
+  label: string
+  hint: string
+  placeholder?: string
+}
+
+const CAPABILITY_OPTION_PRESENTATIONS: Record<string, CapabilityOptionPresentation> = {
+  proxy: { label: '网络代理', hint: '可选；仅在当前网络需要代理时填写', placeholder: '留空时直接连接' },
+  vad_filter: { label: 'VAD 语音过滤', hint: '过滤静音和非语音片段；默认关闭' },
+  disable_vad: { label: '禁用 VAD', hint: '关闭语音活动检测' },
+  beam_size: { label: '解码搜索宽度', hint: '数值越大识别更稳但更慢；默认 5' },
+  initial_prompt: { label: '识别上下文提示', hint: '可选；用于补充人名或专有词', placeholder: '留空时不追加上下文提示' },
+  no_speech_threshold: { label: '无语音阈值', hint: '判断片段没有语音的概率阈值；默认 0.9' },
+  emotion: { label: '情绪提示', hint: '可选；描述希望合成语音表达的情绪', placeholder: '留空时使用声线默认表达' },
+  temperature: { label: '生成随机度', hint: '数值越高变化越丰富；留空时由引擎决定' },
+  device_map: { label: '运行设备', hint: '模型加载设备；通常保持默认值' },
+  device: { label: '运行设备', hint: '推理设备；auto 会自动选择' },
+  dtype: { label: '计算精度', hint: '模型计算精度；通常保持默认值' },
+  batch_size: { label: '批处理大小', hint: '单次处理数量；显存不足时请减小' },
+  sentence_timestamp: { label: '句级时间戳', hint: '为识别结果生成句子级时间信息' },
+  trust_remote_code: { label: '允许模型自定义代码', hint: '允许加载模型随附的运行代码' },
+  remote_code_path: { label: '本地模型代码路径', hint: '可选；仅用于指定本地 FunASR 模型代码', placeholder: '留空时使用模型默认实现' },
+  vad_model: { label: 'VAD 模型', hint: '可选；指定语音活动检测模型', placeholder: '留空时使用默认 VAD 模型' },
+  hub: { label: '模型来源', hint: 'hf 为 Hugging Face，ms 为 ModelScope' },
+  attn_implementation: { label: '注意力实现', hint: '可选；仅在已安装对应加速组件时指定', placeholder: '留空时由模型自动选择' },
+  max_inference_batch_size: { label: '最大推理批量', hint: '离线推理的批量上限；默认 1' },
+  max_new_tokens: { label: '最大生成长度', hint: '长音频解码可生成的最大 Token 数' },
+  forced_aligner: { label: '强制对齐模型', hint: '可选；用于生成更精细的时间戳', placeholder: '留空时不启用强制对齐' },
+  return_time_stamps: { label: '返回对齐时间戳', hint: '在引擎支持时返回对齐后的时间信息' },
+  context: { label: '识别上下文', hint: '可选；给识别模型补充文本上下文', placeholder: '留空时不追加上下文' },
+  model_dir: { label: '模型目录', hint: '可选；本地目录或模型仓库标识', placeholder: '留空时使用官方默认模型' },
+  cfg_value: { label: '引导强度', hint: '控制合成结果遵循提示的程度；默认 2' },
+  inference_timesteps: { label: '推理步数', hint: '步数越高质量越好但速度越慢；10 快速，20 高质量' },
+  load_denoiser: { label: '加载降噪器', hint: '提高输出纯净度，但会增加资源占用' },
+  reference_wav_path: { label: '参考音频路径', hint: '可选；用于复刻参考声线', placeholder: '留空时不使用参考音频' },
+  prompt_wav_path: { label: '提示音频路径', hint: '可选；用于高保真音色复刻', placeholder: '留空时不使用提示音频' },
+  prompt_text: { label: '提示音频文本', hint: '可选；填写提示音频对应的准确文本', placeholder: '留空时不提供提示文本' },
+  sample_rate: { label: '输出采样率', hint: '生成音频的采样率；Kokoro 默认 24000 Hz' },
+  lang_code: { label: '合成语言代码', hint: '可选；用于覆盖声线自动判断的语言', placeholder: '留空时根据声线自动推断' },
+  repo_id: { label: '模型仓库', hint: '可选；仅在使用自定义 Kokoro 模型时填写', placeholder: '留空时使用官方默认仓库' },
+  split_pattern: { label: '文本分段规则', hint: '用于拆分长文本的规则；默认按换行分段' },
 }
 
 function CapabilityOptionField({
@@ -650,8 +687,12 @@ function CapabilityOptionField({
 }) {
   if (option.secret || option.type === 'array' || option.type === 'object') return null
 
-  const title = `${context} · ${CAPABILITY_OPTION_LABELS[option.name] ?? option.name}`
-  const hint = option.description || undefined
+  const presentation = CAPABILITY_OPTION_PRESENTATIONS[option.name] ?? {
+    label: '扩展参数',
+    hint: '由当前引擎提供的可选配置',
+  }
+  const title = `${context} · ${presentation.label}`
+  const hint = presentation.hint
 
   if (option.type === 'boolean') {
     return (
@@ -686,6 +727,7 @@ function CapabilityOptionField({
           min={option.min ?? undefined}
           max={option.max ?? undefined}
           step={option.type === 'integer' ? 1 : 'any'}
+          placeholder={presentation.placeholder}
           onChange={(event) => {
             const raw = event.target.value
             onChange(raw === '' ? null : Number(raw))
@@ -711,6 +753,7 @@ function CapabilityOptionField({
       <input
         type="text"
         value={String(value ?? '')}
+        placeholder={presentation.placeholder}
         onChange={(event) => onChange(event.target.value)}
         style={{
           width: '100%',
@@ -764,18 +807,52 @@ export default function Workbench() {
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfileSummaryResponse[]>([])
   const [readinessIssues, setReadinessIssues] = useState<TaskReadinessIssueResponse[]>([])
   const [checkingReadiness, setCheckingReadiness] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [presetError, setPresetError] = useState('')
+  const submitLockRef = useRef(false)
+  const currentPreset = presets.find((item) => item.id === preset) ?? null
+  const activePresetStages = normalizePresetStages(currentPreset?.stages ?? [])
+  const stageFlags = {
+    separate: activePresetStages.has('separate') && params.useVocalSeparator,
+    asr: activePresetStages.has('asr'),
+    translate: activePresetStages.has('translate') && params.sourceLang !== params.targetLang,
+    tts: activePresetStages.has('tts'),
+    mix: activePresetStages.has('mix'),
+    export: activePresetStages.has('export'),
+  }
 
   useEffect(() => {
-    pipelineApi
-      .presets()
-      .then((response) => {
+    if (!stageFlags.tts) {
+      setTtsVoices([])
+      setTtsVoiceError('')
+      return
+    }
+    let cancelled = false
+    let retryTimer: number | undefined
+
+    const loadPresets = () => {
+      pipelineApi.presets().then((response) => {
+        if (cancelled) return
         useWorkbenchStore.getState().setPresets(response.presets)
-        if (response.presets.length > 0 && !preset) {
-          setPreset(response.presets[0]!.id)
+        const currentPresetId = useWorkbenchStore.getState().preset
+        const presetStillExists = response.presets.some((item) => item.id === currentPresetId)
+        if (!presetStillExists) {
+          setPreset(response.presets[0]?.id ?? '')
         }
+        setPresetError(response.presets.length > 0 ? '' : '没有可用的内置预设')
+      }).catch((error) => {
+        if (cancelled) return
+        setPresetError(`预设加载失败：${error instanceof Error ? error.message : String(error)}`)
+        retryTimer = window.setTimeout(loadPresets, 2000)
       })
-      .catch(() => undefined)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    }
+
+    loadPresets()
+    return () => {
+      cancelled = true
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
+  }, [setPreset])
 
   useEffect(() => {
     capabilitiesApi
@@ -820,14 +897,22 @@ export default function Workbench() {
     return () => {
       cancelled = true
     }
-  }, [params.ttsEngine, capabilities, updateParam])
+  }, [stageFlags.tts, params.ttsEngine, capabilities, updateParam])
 
   useEffect(() => {
+    if (!stageFlags.tts) {
+      setVoiceProfiles([])
+      return
+    }
     voiceApi
       .listProfiles()
       .then(setVoiceProfiles)
       .catch(() => setVoiceProfiles([]))
-  }, [])
+  }, [stageFlags.tts])
+
+  useEffect(() => {
+    setReadinessIssues([])
+  }, [preset, params, capabilityOptions, selectedFiles])
 
   const runningCount = tasks.filter((task) => task.status === 'running').length
   const pendingCount = tasks.filter((task) => task.status === 'pending').length
@@ -869,7 +954,11 @@ export default function Workbench() {
   }, [selectedFiles, setFiles])
 
   const handleExecute = async () => {
-    if (selectedFiles.length === 0) return
+    if (selectedFiles.length === 0 || !currentPreset || submitLockRef.current) return
+
+    submitLockRef.current = true
+    setSubmitting(true)
+    try {
 
     const asrDescriptor = capabilities.find(
       (item) => item.category === 'asr' && item.provider === params.asrProvider,
@@ -880,9 +969,15 @@ export default function Workbench() {
     const ttsDescriptor = capabilities.find(
       (item) => item.category === 'tts' && item.provider === params.ttsEngine,
     )
-    const asrProviderOptions = optionPayload(asrDescriptor, 'provider', capabilityOptions)
-    const llmCommonOptions = optionPayload(llmDescriptor, 'common', capabilityOptions)
-    const ttsProviderOptions = optionPayload(ttsDescriptor, 'provider', capabilityOptions)
+    const asrProviderOptions = stageFlags.asr
+      ? optionPayload(asrDescriptor, 'provider', capabilityOptions)
+      : {}
+    const llmCommonOptions = stageFlags.translate
+      ? optionPayload(llmDescriptor, 'common', capabilityOptions)
+      : {}
+    const ttsProviderOptions = stageFlags.tts
+      ? optionPayload(ttsDescriptor, 'provider', capabilityOptions)
+      : {}
     if (params.voiceProfileId) {
       ttsProviderOptions.voice_profile_id = params.voiceProfileId
     } else {
@@ -896,14 +991,14 @@ export default function Workbench() {
       skip_existing: params.skipExisting,
       stages: {
         separate: {
-          enabled: params.useVocalSeparator,
+          enabled: stageFlags.separate,
           provider: params.vocalProvider,
           model: params.vocalModel,
           options: { mode: 'vocals' },
           provider_options: {},
         },
         asr: {
-          enabled: true,
+          enabled: stageFlags.asr,
           provider: params.asrProvider,
           model: params.asrModel,
           options: {
@@ -914,7 +1009,7 @@ export default function Workbench() {
           provider_options: asrProviderOptions,
         },
         translate: {
-          enabled: params.sourceLang !== params.targetLang,
+          enabled: stageFlags.translate,
           provider: params.translateProvider,
           model: params.translateModel || llmDescriptor?.default_model || null,
           options: {
@@ -926,7 +1021,7 @@ export default function Workbench() {
           provider_options: {},
         },
         tts: {
-          enabled: true,
+          enabled: stageFlags.tts,
           provider: params.ttsEngine,
           model: ttsDescriptor?.default_model || null,
           options: {
@@ -937,7 +1032,7 @@ export default function Workbench() {
           provider_options: ttsProviderOptions,
         },
         mix: {
-          enabled: true,
+          enabled: stageFlags.mix,
           provider: 'ffmpeg',
           model: null,
           options: {
@@ -949,7 +1044,7 @@ export default function Workbench() {
           provider_options: {},
         },
         export: {
-          enabled: true,
+          enabled: stageFlags.export,
           provider: 'ffmpeg',
           model: null,
           options: {
@@ -1011,9 +1106,10 @@ export default function Workbench() {
         sourcePath: filePath,
         params: {
           input_path: filePath,
+          preset_id: currentPreset.id,
           source_lang: params.sourceLang,
           target_lang: params.targetLang,
-          use_vocal_separator: params.useVocalSeparator,
+          use_vocal_separator: stageFlags.separate,
           tts_engine: params.ttsEngine,
           tts_voice: params.ttsVoice,
           vocal_model: params.vocalModel,
@@ -1055,13 +1151,15 @@ export default function Workbench() {
     }
 
     setPage('task-center')
+    } finally {
+      submitLockRef.current = false
+      setSubmitting(false)
+    }
   }
 
   const presetOptions = presets.length > 0
     ? presets.map((item) => ({ value: item.id, label: item.label || item.id }))
     : [{ value: '', label: '加载预设中...' }]
-
-  const currentPreset = presets.find((item) => item.id === preset) ?? null
 
   const descriptorsFor = (category: string) =>
     capabilities.filter((item) => item.category === category)
@@ -1109,9 +1207,15 @@ export default function Workbench() {
     : fallbackTtsVoiceOptions
 
   const selectedDescriptors = [
-    capabilities.find((item) => item.category === 'asr' && item.provider === params.asrProvider),
-    capabilities.find((item) => item.category === 'llm' && item.provider === params.translateProvider),
-    capabilities.find((item) => item.category === 'tts' && item.provider === params.ttsEngine),
+    stageFlags.asr
+      ? capabilities.find((item) => item.category === 'asr' && item.provider === params.asrProvider)
+      : undefined,
+    stageFlags.translate
+      ? capabilities.find((item) => item.category === 'llm' && item.provider === params.translateProvider)
+      : undefined,
+    stageFlags.tts
+      ? capabilities.find((item) => item.category === 'tts' && item.provider === params.ttsEngine)
+      : undefined,
   ].filter((item): item is CapabilityDescriptorResponse => Boolean(item))
 
   const dynamicCapabilityOptions = selectedDescriptors.flatMap((descriptor) => {
@@ -1132,38 +1236,50 @@ export default function Workbench() {
     (profile) => profile.available && profile.engine.startsWith('qwen3'),
   )
 
-  const stageSummary = [
-    {
-      title: STAGE_NAMES[0],
-      enabled: params.useVocalSeparator,
-      detail: params.useVocalSeparator ? `模型：${params.vocalModel}` : '关闭后会直接进入 ASR',
-    },
-    {
-      title: STAGE_NAMES[1],
-      enabled: true,
-      detail: `模型：${params.asrModel}`,
-    },
-    {
-      title: STAGE_NAMES[2],
-      enabled: params.sourceLang !== params.targetLang,
-      detail: `${optionLabel(LANG_OPTIONS, params.sourceLang)} → ${optionLabel(LANG_OPTIONS, params.targetLang)} · ${params.translateProvider}/${params.translateModel}`,
-    },
-    {
-      title: STAGE_NAMES[3],
-      enabled: true,
-      detail: `${params.ttsEngine} · ${params.ttsVoice}`,
-    },
-    {
-      title: STAGE_NAMES[4],
-      enabled: true,
-      detail: `原声 ${Math.round(params.originalVolume * 100)}% · TTS ${Math.round(params.ttsVolumeRatio * 100)}%`,
-    },
-  ]
+  const stageDetails = {
+    separate: activePresetStages.has('separate')
+      ? (params.useVocalSeparator ? `模型：${params.vocalModel}` : '已由参数关闭')
+      : '当前预设不执行',
+    asr: stageFlags.asr ? `模型：${params.asrModel}` : '当前预设不执行',
+    translate: activePresetStages.has('translate')
+      ? (stageFlags.translate
+          ? `${optionLabel(LANG_OPTIONS, params.sourceLang)} → ${optionLabel(LANG_OPTIONS, params.targetLang)}`
+          : '源语言与目标语言相同，自动跳过')
+      : '当前预设不执行',
+    tts: stageFlags.tts ? `${params.ttsEngine} · ${params.ttsVoice}` : '当前预设不执行',
+    mix: stageFlags.mix
+      ? `原声 ${Math.round(params.originalVolume * 100)}% · 配音 ${Math.round(params.ttsVolumeRatio * 100)}%`
+      : '当前预设不执行',
+    export: stageFlags.export ? '导出 SRT 字幕与文本结果' : '当前预设不执行',
+  }
+  const stageSummary = PIPELINE_STAGE_IDS.map((id) => ({
+    id,
+    title: PIPELINE_STAGE_LABELS[id],
+    enabled: stageFlags[id],
+    detail: stageDetails[id],
+  }))
 
   const outputSummary = [
-    '混音成品音频',
-    '字幕/文本产物',
-    params.useVocalSeparator ? '分离人声中间产物' : '直接跳过人声分离',
+    ...(stageFlags.mix ? ['混音成品音频'] : []),
+    ...(stageFlags.export ? ['SRT 字幕与识别文本'] : []),
+    ...(stageFlags.tts ? ['语音合成中间音轨'] : []),
+    ...(stageFlags.separate ? ['分离人声中间产物'] : []),
+  ]
+  const confirmationSummary = [
+    { label: '输入文件', value: selectedFiles.length === 0 ? '尚未选择' : `${selectedFiles.length} 个音频` },
+    {
+      label: '执行阶段',
+      value: stageSummary.filter((stage) => stage.enabled).map((stage) => stage.title).join(' → ') || '没有可执行阶段',
+    },
+    ...(stageFlags.translate
+      ? [{ label: '目标语言', value: optionLabel(LANG_OPTIONS, params.targetLang) }]
+      : []),
+    ...(stageFlags.tts
+      ? [{ label: '语音合成', value: optionLabel(ttsEngineOptions, params.ttsEngine) }]
+      : []),
+    ...(stageFlags.translate
+      ? [{ label: '翻译提供方', value: optionLabel(translateProviderOptions, params.translateProvider) }]
+      : []),
   ]
 
   return (
@@ -1183,14 +1299,16 @@ export default function Workbench() {
         </div>
 
         <div className="workbench-header-actions">
-          <ActionButton variant="secondary" onClick={handleSelectFiles}>
+          <ActionButton variant="secondary" disabled={submitting} onClick={handleSelectFiles}>
             <UploadIcon />
-            添加音频
+            添加输入音频
           </ActionButton>
           <div className="workbench-header-preset">
             <select
               value={preset}
               onChange={(event) => setPreset(event.target.value)}
+              disabled={presets.length === 0 || submitting}
+              aria-label="处理预设"
               style={{
                 width: '100%',
                 minHeight: 38,
@@ -1210,16 +1328,16 @@ export default function Workbench() {
               ))}
             </select>
           </div>
-          <ActionButton variant="ghost" disabled={selectedFiles.length === 0} onClick={() => setFiles([])}>
+          <ActionButton variant="ghost" disabled={selectedFiles.length === 0 || submitting} onClick={() => setFiles([])}>
             清空列表
           </ActionButton>
           <ActionButton
             variant="primary"
-            disabled={selectedFiles.length === 0 || checkingReadiness || !!capabilityError}
+            disabled={selectedFiles.length === 0 || submitting || !!capabilityError || !currentPreset}
             onClick={handleExecute}
           >
             <PlayIcon />
-            {checkingReadiness ? '检查运行条件...' : '创建并执行'}
+            {checkingReadiness ? '检查运行条件...' : submitting ? '正在创建任务...' : '创建并执行'}
           </ActionButton>
         </div>
 
@@ -1246,7 +1364,7 @@ export default function Workbench() {
       </header>
 
       <div className="workbench-content">
-        <div className="workbench-main-column">
+        <div className="workbench-main-column" inert={submitting} aria-busy={submitting}>
           <Section
             title="文件队列"
             caption={selectedFiles.length === 0 ? '把音频拖进来，或点击“添加音频”' : `本次将处理 ${selectedFiles.length} 个音频文件`}
@@ -1337,16 +1455,19 @@ export default function Workbench() {
             </div>
           </Section>
 
-          <Section title="流水线预览" caption="让用户先看懂这次任务会经历什么">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 12 }}>
+          <Section title="流水线预览" caption="预览、运行条件检查和实际任务使用同一套阶段配置">
+            <div className="workbench-pipeline-scroll">
+              <div className="workbench-pipeline-track">
               {stageSummary.map((stage, index) => (
                 <div
-                  key={stage.title}
+                  key={stage.id}
                   style={{
-                    padding: '14px 14px 12px',
+                    minHeight: 126,
+                    padding: '13px 12px 12px',
                     borderRadius: 'var(--radius-sm)',
                     border: '1px solid var(--border)',
                     background: stage.enabled ? 'var(--surface)' : 'var(--panel-muted)',
+                    opacity: stage.enabled ? 1 : 0.72,
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1369,13 +1490,14 @@ export default function Workbench() {
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 700 }}>{stage.title}</div>
                       <div style={{ marginTop: 3, fontSize: 11, color: stage.enabled ? 'var(--muted)' : 'var(--warning)' }}>
-                        {stage.enabled ? '启用' : '已降级/跳过'}
+                        {stage.enabled ? '本次执行' : '本次跳过'}
                       </div>
                     </div>
                   </div>
                   <div style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)' }}>{stage.detail}</div>
                 </div>
               ))}
+              </div>
             </div>
           </Section>
 
@@ -1387,18 +1509,22 @@ export default function Workbench() {
                 options={LANG_OPTIONS}
                 onChange={(value) => updateParam('sourceLang', value)}
               />
-              <SelectField
-                title="目标语言"
-                value={params.targetLang}
-                options={LANG_OPTIONS}
-                onChange={(value) => updateParam('targetLang', value)}
-              />
-              <ToggleField
-                title="人声分离"
-                hint="开启后会先做 vocal separation"
-                checked={params.useVocalSeparator}
-                onChange={(value) => updateParam('useVocalSeparator', value)}
-              />
+              {activePresetStages.has('translate') || activePresetStages.has('tts') ? (
+                <SelectField
+                  title="目标语言"
+                  value={params.targetLang}
+                  options={LANG_OPTIONS}
+                  onChange={(value) => updateParam('targetLang', value)}
+                />
+              ) : null}
+              {activePresetStages.has('separate') ? (
+                <ToggleField
+                  title="人声分离"
+                  hint="关闭后直接使用原始音频进行识别"
+                  checked={params.useVocalSeparator}
+                  onChange={(value) => updateParam('useVocalSeparator', value)}
+                />
+              ) : null}
               <ToggleField
                 title="跳过已有输出"
                 hint="适合重复执行同一批文件"
@@ -1410,126 +1536,148 @@ export default function Workbench() {
 
           <Section title="模型与引擎" caption="这些设置决定流水线每一阶段由谁来执行" open={modelExpanded} onToggle={toggleModel}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
-              <SelectField
-                title="TTS 引擎"
-                value={params.ttsEngine}
-                options={ttsEngineOptions}
-                onChange={(value) => {
-                  updateParam('ttsEngine', value)
-                  updateParam('voiceProfileId', null)
-                }}
-              />
-              <SelectField
-                title="TTS 声线"
-                hint={ttsVoiceError || '由当前 TTS Provider 提供'}
-                value={params.ttsVoice}
-                options={ttsVoiceOptions}
-                onChange={(value) => updateParam('ttsVoice', value)}
-              />
-              {params.ttsEngine === 'qwen3' ? (
-                <SelectField
-                  title="音色档案"
-                  hint={availableVoiceProfiles.length > 0 ? '仅显示当前可用的 Qwen3 音色档案' : '当前没有可用的 Qwen3 音色档案'}
-                  value={params.voiceProfileId ?? ''}
-                  options={[
-                    { value: '', label: '不使用音色档案' },
-                    ...availableVoiceProfiles.map((profile) => ({
-                      value: profile.id,
-                      label: `${profile.name} · ${profile.category}`,
-                    })),
-                  ]}
-                  onChange={(value) => updateParam('voiceProfileId', value || null)}
-                />
+              {stageFlags.tts ? (
+                <>
+                  <SelectField
+                    title="TTS 引擎"
+                    value={params.ttsEngine}
+                    options={ttsEngineOptions}
+                    onChange={(value) => {
+                      updateParam('ttsEngine', value)
+                      updateParam('voiceProfileId', null)
+                    }}
+                  />
+                  <SelectField
+                    title="TTS 声线"
+                    hint={ttsVoiceError || '由当前语音合成引擎提供'}
+                    value={params.ttsVoice}
+                    options={ttsVoiceOptions}
+                    onChange={(value) => updateParam('ttsVoice', value)}
+                  />
+                  {params.ttsEngine === 'qwen3' ? (
+                    <SelectField
+                      title="音色档案"
+                      hint={availableVoiceProfiles.length > 0 ? '仅显示当前可用的 Qwen3 音色档案' : '当前没有可用的 Qwen3 音色档案'}
+                      value={params.voiceProfileId ?? ''}
+                      options={[
+                        { value: '', label: '不使用音色档案' },
+                        ...availableVoiceProfiles.map((profile) => ({
+                          value: profile.id,
+                          label: `${profile.name} · ${profile.category}`,
+                        })),
+                      ]}
+                      onChange={(value) => updateParam('voiceProfileId', value || null)}
+                    />
+                  ) : null}
+                </>
               ) : null}
-              <SelectField
-                title="ASR 引擎"
-                value={params.asrProvider}
-                options={asrProviderOptions}
-                onChange={(value) => {
-                  updateParam('asrProvider', value)
-                  const defaultModel = defaultModelFor('asr', value)
-                  if (defaultModel) updateParam('asrModel', defaultModel)
-                }}
-              />
-              <SelectField
-                title="ASR 模型"
-                value={params.asrModel}
-                options={asrModelOptions}
-                onChange={(value) => updateParam('asrModel', value)}
-              />
-              <SelectField
-                title="翻译提供方"
-                value={params.translateProvider}
-                options={translateProviderOptions}
-                onChange={(value) => {
-                  updateParam('translateProvider', value)
-                  const defaultModel = defaultModelFor('llm', value)
-                  if (defaultModel) updateParam('translateModel', defaultModel)
-                }}
-              />
-              <SelectField
-                title="翻译模型"
-                value={params.translateModel}
-                options={translateModelOptions}
-                onChange={(value) => updateParam('translateModel', value)}
-              />
-              <SelectField
-                title="分离引擎"
-                value={params.vocalProvider}
-                options={vocalProviderOptions}
-                onChange={(value) => {
-                  updateParam('vocalProvider', value)
-                  const defaultModel = defaultModelFor('separator', value)
-                  if (defaultModel) updateParam('vocalModel', defaultModel)
-                }}
-              />
-              <SelectField
-                title="分离模型"
-                value={params.vocalModel}
-                options={vocalModelOptions}
-                onChange={(value) => updateParam('vocalModel', value)}
-              />
+              {stageFlags.asr ? (
+                <>
+                  <SelectField
+                    title="ASR 引擎"
+                    value={params.asrProvider}
+                    options={asrProviderOptions}
+                    onChange={(value) => {
+                      updateParam('asrProvider', value)
+                      const defaultModel = defaultModelFor('asr', value)
+                      if (defaultModel) updateParam('asrModel', defaultModel)
+                    }}
+                  />
+                  <SelectField
+                    title="ASR 模型"
+                    value={params.asrModel}
+                    options={asrModelOptions}
+                    onChange={(value) => updateParam('asrModel', value)}
+                  />
+                </>
+              ) : null}
+              {stageFlags.translate ? (
+                <>
+                  <SelectField
+                    title="翻译提供方"
+                    value={params.translateProvider}
+                    options={translateProviderOptions}
+                    onChange={(value) => {
+                      updateParam('translateProvider', value)
+                      const defaultModel = defaultModelFor('llm', value)
+                      if (defaultModel) updateParam('translateModel', defaultModel)
+                    }}
+                  />
+                  <SelectField
+                    title="翻译模型"
+                    value={params.translateModel}
+                    options={translateModelOptions}
+                    onChange={(value) => updateParam('translateModel', value)}
+                  />
+                </>
+              ) : null}
+              {stageFlags.separate ? (
+                <>
+                  <SelectField
+                    title="分离引擎"
+                    value={params.vocalProvider}
+                    options={vocalProviderOptions}
+                    onChange={(value) => {
+                      updateParam('vocalProvider', value)
+                      const defaultModel = defaultModelFor('separator', value)
+                      if (defaultModel) updateParam('vocalModel', defaultModel)
+                    }}
+                  />
+                  <SelectField
+                    title="分离模型"
+                    value={params.vocalModel}
+                    options={vocalModelOptions}
+                    onChange={(value) => updateParam('vocalModel', value)}
+                  />
+                </>
+              ) : null}
             </div>
           </Section>
 
           <Section title="高级参数" caption="保留，但不让它们占住主操作空间" open={advExpanded} onToggle={toggleAdv}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 18 }}>
-              <RangeField
-                title="语速"
-                value={params.ttsSpeed}
-                min={0.6}
-                max={1.6}
-                step={0.05}
-                displayValue={`${params.ttsSpeed.toFixed(2)}x`}
-                onChange={(value) => updateParam('ttsSpeed', value)}
-              />
-              <RangeField
-                title="原声保留"
-                value={params.originalVolume}
-                min={0}
-                max={1}
-                step={0.05}
-                displayValue={`${Math.round(params.originalVolume * 100)}%`}
-                onChange={(value) => updateParam('originalVolume', value)}
-              />
-              <RangeField
-                title="TTS 音量占比"
-                value={params.ttsVolumeRatio}
-                min={0}
-                max={1}
-                step={0.05}
-                displayValue={`${Math.round(params.ttsVolumeRatio * 100)}%`}
-                onChange={(value) => updateParam('ttsVolumeRatio', value)}
-              />
-              <RangeField
-                title="TTS 延迟"
-                value={params.ttsDelay}
-                min={-2}
-                max={2}
-                step={0.05}
-                displayValue={`${params.ttsDelay.toFixed(2)}s`}
-                onChange={(value) => updateParam('ttsDelay', value)}
-              />
+              {stageFlags.tts ? (
+                <RangeField
+                  title="语速"
+                  value={params.ttsSpeed}
+                  min={0.6}
+                  max={1.6}
+                  step={0.05}
+                  displayValue={`${params.ttsSpeed.toFixed(2)}x`}
+                  onChange={(value) => updateParam('ttsSpeed', value)}
+                />
+              ) : null}
+              {stageFlags.mix ? (
+                <>
+                  <RangeField
+                    title="原声保留"
+                    value={params.originalVolume}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    displayValue={`${Math.round(params.originalVolume * 100)}%`}
+                    onChange={(value) => updateParam('originalVolume', value)}
+                  />
+                  <RangeField
+                    title="配音音量占比"
+                    value={params.ttsVolumeRatio}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    displayValue={`${Math.round(params.ttsVolumeRatio * 100)}%`}
+                    onChange={(value) => updateParam('ttsVolumeRatio', value)}
+                  />
+                  <RangeField
+                    title="配音延迟"
+                    value={params.ttsDelay}
+                    min={-2}
+                    max={2}
+                    step={0.05}
+                    displayValue={`${params.ttsDelay.toFixed(2)}s`}
+                    onChange={(value) => updateParam('ttsDelay', value)}
+                  />
+                </>
+              ) : null}
               {dynamicCapabilityOptions.map(({ descriptor, option, scope }) => (
                 <CapabilityOptionField
                   key={`${scope}/${option.name}`}
@@ -1546,6 +1694,11 @@ export default function Workbench() {
         <aside className="workbench-side-column">
           <Section title="执行前确认" caption="点击执行前，先确认这次任务会发生什么">
             <div style={{ display: 'grid', gap: 14 }}>
+              {presetError ? (
+                <div className="workbench-break-anywhere" style={{ padding: '12px 14px', border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)', fontSize: 12 }}>
+                  {presetError}
+                </div>
+              ) : null}
               {capabilityError ? (
                 <div className="workbench-break-anywhere" style={{ padding: '12px 14px', border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)', fontSize: 12 }}>
                   {capabilityError}
@@ -1583,17 +1736,12 @@ export default function Workbench() {
                   {currentPreset?.label || preset || '尚未选择'}
                 </div>
                 <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
-                  {currentPreset?.description || '如果预设尚未完善，也可以先按下方参数直接执行。'}
+                  {currentPreset?.description || '请先等待内置预设加载完成。'}
                 </div>
               </div>
 
               <div style={{ display: 'grid', gap: 10 }}>
-                {[
-                  { label: '输入文件', value: selectedFiles.length === 0 ? '尚未选择' : `${selectedFiles.length} 个音频` },
-                  { label: '目标语言', value: optionLabel(LANG_OPTIONS, params.targetLang) },
-                  { label: 'TTS 引擎', value: optionLabel(ttsEngineOptions, params.ttsEngine) },
-                  { label: '翻译提供方', value: optionLabel(translateProviderOptions, params.translateProvider) },
-                ].map((item) => (
+                {confirmationSummary.map((item) => (
                   <div
                     key={item.label}
                     style={{
@@ -1690,30 +1838,6 @@ export default function Workbench() {
             )}
           </Section>
 
-          <Section title="预设阶段说明" caption="如果预设提供了阶段描述，优先用它做评审">
-            {currentPreset?.stages?.length ? (
-              <div style={{ display: 'grid', gap: 10 }}>
-                {currentPreset.stages.map((stage) => (
-                  <div
-                    key={stage}
-                    style={{
-                      padding: '10px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'var(--panel-muted)',
-                      fontSize: 12,
-                      color: 'var(--fg)',
-                    }}
-                  >
-                    {stage}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                当前预设没有额外阶段说明，以上方“流水线预览”为准。
-              </div>
-            )}
-          </Section>
         </aside>
       </div>
     </div>
