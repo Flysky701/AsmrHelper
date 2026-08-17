@@ -1,5 +1,3 @@
-use tauri::Manager;
-
 #[cfg(windows)]
 mod single_instance {
     use std::iter;
@@ -63,10 +61,13 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .invoke_handler(tauri::generate_handler![greet])
         .on_window_event(|window, event| {
-            if window.label() == "main"
-                && matches!(event, tauri::WindowEvent::CloseRequested { .. })
-            {
-                window.app_handle().exit(0);
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // Fail closed if the frontend close listener is unavailable.
+                    // The confirmed path uses WebviewWindow::destroy(), which does
+                    // not emit another CloseRequested event.
+                    api.prevent_close();
+                }
             }
         })
         .run(tauri::generate_context!())

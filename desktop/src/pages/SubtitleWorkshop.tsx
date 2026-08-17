@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { subtitlesApi } from '@/api/subtitles'
 import { toolsApi } from '@/api/tools'
 import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
@@ -627,7 +627,7 @@ export default function SubtitleWorkshop() {
   const addTask = useTaskStore((state) => state.addTask)
   const updateTask = useTaskStore((state) => state.updateTask)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const guard = isDirty
       ? () => window.confirm('当前字幕有尚未导出的修改，确定要离开吗？')
       : null
@@ -1024,6 +1024,7 @@ export default function SubtitleWorkshop() {
                       style={S.segCell}
                       contentEditable
                       suppressContentEditableWarning
+                      onInput={() => setIsDirty(true)}
                       onBlur={(e) => handleSegmentEdit(i, 'text', e.currentTarget.textContent || '')}
                     >
                       {seg.text}
@@ -1037,6 +1038,7 @@ export default function SubtitleWorkshop() {
                       }}
                       contentEditable
                       suppressContentEditableWarning
+                      onInput={() => setIsDirty(true)}
                       onBlur={(e) => handleSegmentEdit(i, 'translated', e.currentTarget.textContent || '')}
                     >
                       {translations[i] || ''}
