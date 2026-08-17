@@ -172,9 +172,10 @@ def export_subtitle(
     doc = _document_to_app(body.resolved_document())
     output_path = svc.export_document(doc, output_path=body.output_path)
     if body.task_id:
+        artifact_format = Path(output_path).suffix.lstrip(".").lower() or "srt"
         artifact_svc.register_artifact(
             task_id=body.task_id,
-            artifact_type="subtitle.srt",
+            artifact_type=f"subtitle.{artifact_format}",
             path=output_path,
             label="Exported Subtitle",
             preview_kind="subtitle",

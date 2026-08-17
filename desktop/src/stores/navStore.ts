@@ -32,9 +32,17 @@ export const PAGE_ORDER: PageId[] = [
 interface NavStore {
   activePage: PageId
   setPage: (page: PageId) => void
+  navigationGuard: ((page: PageId) => boolean) | null
+  setNavigationGuard: (guard: ((page: PageId) => boolean) | null) => void
 }
 
-export const useNavStore = create<NavStore>((set) => ({
+export const useNavStore = create<NavStore>((set, get) => ({
   activePage: 'workbench',
-  setPage: (page) => set({ activePage: page }),
+  setPage: (page) => {
+    const state = get()
+    if (page !== state.activePage && state.navigationGuard && !state.navigationGuard(page)) return
+    set({ activePage: page })
+  },
+  navigationGuard: null,
+  setNavigationGuard: (navigationGuard) => set({ navigationGuard }),
 }))

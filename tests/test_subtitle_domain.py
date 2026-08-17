@@ -5,6 +5,7 @@ Verifies that migrated modules work correctly from their new canonical locations
 
 from __future__ import annotations
 
+import pytest
 
 
 class TestSubtitleCleaner:
@@ -173,6 +174,81 @@ class TestSubtitleLoader:
         assert entries[0]["start"] == 0.0
         assert entries[0]["end"] == 1.5
         assert entries[0]["text"] == "hello"
+
+
+class TestSubtitleWorkspaceFormats:
+    """The desktop-advertised subtitle formats must work end to end."""
+
+    def test_domain_loads_vtt_and_lrc_assets(self, tmp_path):
+        from src.core.subtitles.service import SubtitleDomainService
+
+        vtt_file = tmp_path / "captions.vtt"
+        vtt_file.write_text(
+            "WEBVTT\n\nfirst-cue\n00:00.000 --> 00:01.250 align:start\nhello\n\n"
+            "00:01.250 --> 00:02.500\nworld\n",
+            encoding="utf-8",
+        )
+        lrc_file = tmp_path / "captions.lrc"
+        lrc_file.write_text(
+            "[ar:tester]\n[00:00.00]hello\n[00:01.25]world\n",
+            encoding="utf-8",
+        )
+        service = SubtitleDomainService()
+
+        vtt = service.load_asset(str(vtt_file))
+        lrc = service.load_asset(str(lrc_file))
+
+        assert [(segment.start, segment.end, segment.text) for segment in vtt.document.segments] == [
+            (0.0, 1.25, "hello"),
+            (1.25, 2.5, "world"),
+        ]
+        assert [(segment.start, segment.end, segment.text) for segment in lrc.document.segments] == [
+            (0.0, 1.25, "hello"),
+            (1.25, 4.25, "world"),
+        ]
+
+    def test_vtt_cue_identifier_may_begin_with_note(self, tmp_path):
+        from src.core.subtitles.service import SubtitleDomainService
+
+        vtt_file = tmp_path / "identifier.vtt"
+        vtt_file.write_text(
+            "WEBVTT\n\nNOTEWORTHY\n00:00.000 --> 00:01.000\nkept cue\n",
+            encoding="utf-8",
+        )
+
+        document = SubtitleDomainService().load_asset(str(vtt_file)).document
+
+        assert [segment.text for segment in document.segments] == ["kept cue"]
+
+    def test_domain_exports_reloadable_vtt_and_lrc(self, tmp_path):
+        from src.core.subtitles.models import SubtitleDocument, SubtitleSegment
+        from src.core.subtitles.service import SubtitleDomainService
+
+        document = SubtitleDocument(
+            segments=[
+                SubtitleSegment(start=0.0, end=1.25, text="hello"),
+                SubtitleSegment(start=1.25, end=2.5, text="world"),
+            ]
+        )
+        service = SubtitleDomainService()
+
+        for extension in ("vtt", "lrc"):
+            output = tmp_path / f"export.{extension}"
+            service.export_document(document, output_path=str(output))
+            reloaded = service.load_asset(str(output))
+            assert [segment.text for segment in reloaded.document.segments] == ["hello", "world"]
+
+        assert (tmp_path / "export.vtt").read_text(encoding="utf-8").startswith("WEBVTT")
+        assert (tmp_path / "export.lrc").read_text(encoding="utf-8").startswith("[00:00.00]")
+
+    def test_bilingual_export_rejects_unknown_extension(self, tmp_path):
+        from src.core.subtitles.exporter import SubtitleExporter
+
+        with pytest.raises(ValueError, match="unsupported subtitle format: ass"):
+            SubtitleExporter().export_bilingual_subtitle(
+                [{"start": 0.0, "end": 1.0, "text": "hello", "translation": "你好"}],
+                str(tmp_path / "captions.ass"),
+            )
 
 
 class TestDeprecationWarnings:

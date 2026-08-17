@@ -34,6 +34,31 @@ class SubtitleExporter:
             return ""
         return "\n\n".join(blocks) + "\n"
 
+    def export_vtt_text(self, document: SubtitleDocument) -> str:
+        lines = ["WEBVTT", ""]
+        for segment in document.segments:
+            lines.extend(
+                [
+                    (
+                        f"{self._format_vtt_timestamp(segment.start)} --> "
+                        f"{self._format_vtt_timestamp(segment.end)}"
+                    ),
+                    segment.text,
+                    "",
+                ]
+            )
+        return "\n".join(lines)
+
+    def export_lrc_text(self, document: SubtitleDocument) -> str:
+        lines = []
+        for segment in document.segments:
+            text = " / ".join(
+                line.strip() for line in segment.text.replace("\r\n", "\n").split("\n") if line.strip()
+            )
+            if text:
+                lines.append(f"{self._format_lrc_timestamp(segment.start)}{text}")
+        return "\n".join(lines) + ("\n" if lines else "")
+
     def export_bilingual_srt_text(self, segments: list[dict]) -> str:
         blocks = []
         for index, segment in enumerate(segments, start=1):
@@ -75,9 +100,28 @@ class SubtitleExporter:
             ]
             return self.export_document(document, output_path=output_path)
 
+        if ext not in {".srt", ".vtt", ".lrc"}:
+            raise ValueError(f"unsupported subtitle format: {ext.lstrip('.') or '(missing)'}")
         if ext == ".vtt":
             content = self.export_bilingual_vtt_text(segments)
-        else:
+        elif ext == ".lrc":
+            document = SubtitleDocument(
+                segments=[
+                    self._segment_from_timestamp_entry(
+                        {
+                            **segment,
+                            "text": (
+                                f"{segment['text']}\n{segment['translation']}"
+                                if segment.get("translation")
+                                else segment["text"]
+                            ),
+                        }
+                    )
+                    for segment in segments
+                ]
+            )
+            content = self.export_lrc_text(document)
+        else:  # .srt
             content = self.export_bilingual_srt_text(segments)
 
         path = Path(output_path)
@@ -96,12 +140,19 @@ class SubtitleExporter:
         resolved_format = SubtitleParser.normalize_format(
             fmt or Path(output_path).suffix.lstrip(".") or normalized_document.format or "srt"
         )
-        if resolved_format != "srt":
-            raise ValueError(f"unsupported subtitle format: {resolved_format}")
+        exporters = {
+            "srt": self.export_srt_text,
+            "vtt": self.export_vtt_text,
+            "lrc": self.export_lrc_text,
+        }
+        try:
+            exporter = exporters[resolved_format]
+        except KeyError as exc:
+            raise ValueError(f"unsupported subtitle format: {resolved_format}") from exc
 
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.export_srt_text(normalized_document), encoding="utf-8")
+        path.write_text(exporter(normalized_document), encoding="utf-8")
         return str(path)
 
     @staticmethod
@@ -128,3 +179,10 @@ class SubtitleExporter:
         minutes = int((seconds % 3600) // 60)
         remainder = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{remainder:06.3f}"
+
+    @staticmethod
+    def _format_lrc_timestamp(seconds: float) -> str:
+        total_centiseconds = max(0, int(round(seconds * 100)))
+        minutes, remainder = divmod(total_centiseconds, 6000)
+        whole_seconds, centiseconds = divmod(remainder, 100)
+        return f"[{minutes:02d}:{whole_seconds:02d}.{centiseconds:02d}]"

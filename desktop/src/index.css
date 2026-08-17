@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+.subtitle-translation-cell:empty::before {
+  color: var(--muted);
+  content: attr(data-placeholder);
+  font-style: italic;
+  pointer-events: none;
+}
+
 /* ============================================
    Modern Minimal Design System - ASMR Helper
    Direction: Linear / Vercel

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { subtitlesApi } from '@/api/subtitles'
 import { toolsApi } from '@/api/tools'
 import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
@@ -590,6 +590,9 @@ export default function SubtitleWorkshop() {
   const [exportFormat, setExportFormat] = useState('srt')
   const [modifiedIdx, setModifiedIdx] = useState<Set<number>>(new Set())
   const [activeIdx, setActiveIdx] = useState<number | null>(null)
+  const [isDirty, setIsDirty] = useState(false)
+  const [editorAudioPath, setEditorAudioPath] = useState('')
+  const loadRequestId = useRef(0)
   const { selectFiles } = useFileSelector()
 
   // Translate state
@@ -603,7 +606,7 @@ export default function SubtitleWorkshop() {
   // Script-to-VTT state
   const [scriptMode, setScriptMode] = useState<ScriptMode>('text_only')
   const [scriptPath, setScriptPath] = useState('')
-  const [audioPath, setAudioPath] = useState('')
+  const [scriptAudioPath, setScriptAudioPath] = useState('')
   const [vttPath, setVttPath] = useState('')
   const [scriptFmt, setScriptFmt] = useState('vtt')
   const [useLlmClean, setUseLlmClean] = useState(true)
@@ -620,34 +623,83 @@ export default function SubtitleWorkshop() {
   // Audio player
   const audioPlayer = useAudioPlayerStore()
   const setPage = useNavStore((state) => state.setPage)
+  const setNavigationGuard = useNavStore((state) => state.setNavigationGuard)
   const addTask = useTaskStore((state) => state.addTask)
   const updateTask = useTaskStore((state) => state.updateTask)
+
+  useEffect(() => {
+    const guard = isDirty
+      ? () => window.confirm('当前字幕有尚未导出的修改，确定要离开吗？')
+      : null
+    setNavigationGuard(guard)
+    return () => setNavigationGuard(null)
+  }, [isDirty, setNavigationGuard])
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isDirty])
 
   // ── Handlers ───────────────────────────────────────────
 
   const handleLoadSubtitle = async () => {
-    const files = await selectFiles({
-      multiple: false,
-      filters: [FILE_FILTERS.subtitle],
-      browserPrompt: '请输入字幕文件所在目录的完整路径：',
-    })
-    if (files.length === 0) return
+    if (loading) return
+    const requestId = ++loadRequestId.current
+    setLoading('select')
+    let files: string[]
+    try {
+      files = await selectFiles({
+        multiple: false,
+        filters: [FILE_FILTERS.subtitle],
+        browserPrompt: '请输入字幕文件所在目录的完整路径：',
+      })
+    } catch (selectionError) {
+      if (requestId === loadRequestId.current) {
+        setError(`选择字幕失败：${selectionError instanceof Error ? selectionError.message : String(selectionError)}`)
+        setLoading('')
+      }
+      return
+    }
+    if (requestId !== loadRequestId.current) return
+    if (files.length === 0) {
+      setLoading('')
+      return
+    }
     const path = files[0]!
-    setFilePath(path)
-    setFileName(path.split(/[/\\]/).pop() || path)
+    if (isDirty && !window.confirm('加载新文件会替换当前未导出的修改，确定继续吗？')) {
+      setLoading('')
+      return
+    }
     setLoading('load')
     setError('')
     setMessage('')
     try {
       const res = await subtitlesApi.load({ file_path: path })
+      if (requestId !== loadRequestId.current) return
+      if (res.segments.length === 0) {
+        setError(`加载失败：${path.split(/[/\\]/).pop() || path} 中未识别到有效字幕`)
+        return
+      }
+      if (editorAudioPath && audioPlayer.src === editorAudioPath) audioPlayer.hide()
+      setFilePath(path)
+      setFileName(path.split(/[/\\]/).pop() || path)
       setSegments(res.segments)
       setTranslations(res.segments.map(() => ''))
       setModifiedIdx(new Set())
+      setActiveIdx(null)
+      setEditorAudioPath('')
+      setIsDirty(false)
       setMessage(`已加载 ${res.segments.length} 条字幕`)
     } catch (err) {
-      setError(`加载失败: ${err}`)
+      if (requestId !== loadRequestId.current) return
+      setError(`加载失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      setLoading('')
+      if (requestId === loadRequestId.current) setLoading('')
     }
   }
 
@@ -666,6 +718,7 @@ export default function SubtitleWorkshop() {
         segments: exportSegments,
         output_path: outPath,
       })
+      setIsDirty(false)
       setMessage(`已导出到: ${outPath}`)
     } catch (err) {
       setError(`导出失败: ${err}`)
@@ -676,29 +729,37 @@ export default function SubtitleWorkshop() {
 
   const handleNormalize = () => {
     // Normalize timestamps: ensure each segment's end <= next segment's start
-    const normalized = [...segments]
+    const normalized = segments.map((segment) => ({
+      ...segment,
+      start: Math.max(0, segment.start),
+      end: Math.max(Math.max(0, segment.start), segment.end),
+    }))
     for (let i = 0; i < normalized.length - 1; i++) {
       const curr = normalized[i]!
       const next = normalized[i + 1]!
-      if (curr.end > next.start) {
+      if (next.start >= curr.start && curr.end > next.start) {
         normalized[i] = { ...curr, end: next.start }
       }
     }
     setSegments(normalized)
+    setIsDirty(true)
     setMessage('时间轴已规范化')
   }
 
   const handleSegmentEdit = (idx: number, field: 'text' | 'translated', value: string) => {
     if (field === 'text') {
+      if (segments[idx]?.text === value) return
       const updated = [...segments]
       updated[idx] = { ...updated[idx]!, text: value }
       setSegments(updated)
     } else {
+      if ((translations[idx] || '') === value) return
       const updated = [...translations]
       updated[idx] = value
       setTranslations(updated)
     }
     setModifiedIdx((prev) => new Set(prev).add(idx))
+    setIsDirty(true)
   }
 
   const handleDeleteSegment = (idx: number) => {
@@ -709,15 +770,17 @@ export default function SubtitleWorkshop() {
       prev.forEach((i) => { if (i < idx) next.add(i); if (i > idx) next.add(i - 1) })
       return next
     })
+    setActiveIdx((current) => current === idx ? null : current !== null && current > idx ? current - 1 : current)
+    setIsDirty(true)
   }
 
   const handlePlaySegment = (seg: SubtitleSegmentModel) => {
-    if (!audioPath) {
+    if (!editorAudioPath) {
       setError('请先为字幕选择对应的音频文件')
       return
     }
-    if (audioPlayer.src !== audioPath) {
-      audioPlayer.show(audioPath, audioPath.split(/[/\\]/).pop() || '字幕伴随音频')
+    if (audioPlayer.src !== editorAudioPath) {
+      audioPlayer.show(editorAudioPath, editorAudioPath.split(/[/\\]/).pop() || '字幕伴随音频')
     }
     audioPlayer.seek(seg.start)
     if (!useAudioPlayerStore.getState().isPlaying) {
@@ -732,7 +795,7 @@ export default function SubtitleWorkshop() {
       browserPrompt: '请输入音频文件所在目录的完整路径：',
     })
     if (files.length === 0) return
-    setAudioPath(files[0]!)
+    setEditorAudioPath(files[0]!)
     audioPlayer.show(files[0]!, files[0]!.split(/[/\\]/).pop() || '字幕伴随音频')
     setError('')
   }
@@ -787,7 +850,7 @@ export default function SubtitleWorkshop() {
   // ── Script-to-VTT handler ──────────────────────────────
   const handleScriptToVtt = async () => {
     if (!scriptPath) return
-    if (scriptMode === 'full' && !audioPath) {
+    if (scriptMode === 'full' && !scriptAudioPath) {
       setError('完整模式需要选择音频文件')
       return
     }
@@ -804,7 +867,7 @@ export default function SubtitleWorkshop() {
         use_llm_clean: useLlmClean,
       }
       if (scriptMode === 'full') {
-        req.audio_path = audioPath || undefined
+        req.audio_path = scriptAudioPath || undefined
         req.asr_model_size = asrModelSize
         req.asr_language = asrLanguage
         req.track_index = trackIndex ? parseInt(trackIndex) : null
@@ -888,11 +951,11 @@ export default function SubtitleWorkshop() {
         {/* Toolbar */}
         <div style={S.toolbar}>
           <h2 style={S.toolbarTitle}>字幕编辑</h2>
-          <button style={S.btn} onClick={handleLoadSubtitle}>
+          <button style={S.btn} onClick={handleLoadSubtitle} disabled={!!loading}>
             <Icon.Download /> 加载字幕
           </button>
           <button style={S.btn} onClick={handleSelectAudio}>
-            <Icon.Audio /> {audioPath ? '更换音频' : '选择音频'}
+            <Icon.Audio /> {editorAudioPath ? '更换音频' : '选择音频'}
           </button>
           {fileName && (
             <span style={S.fileBadge}>
@@ -933,7 +996,7 @@ export default function SubtitleWorkshop() {
                   <path d="M16 20h16M16 26h10" />
                 </svg>
                 <p>点击"加载字幕"按钮选择字幕文件<br />支持 SRT、VTT、LRC 格式</p>
-                <button style={{ ...S.btn, ...S.btnPrimary }} onClick={handleLoadSubtitle}>
+                <button style={{ ...S.btn, ...S.btnPrimary }} onClick={handleLoadSubtitle} disabled={!!loading}>
                   <Icon.Download /> 加载字幕
                 </button>
               </div>
@@ -965,6 +1028,8 @@ export default function SubtitleWorkshop() {
                       {seg.text}
                     </div>
                     <div
+                      className="subtitle-translation-cell"
+                      data-placeholder="（未翻译）"
                       style={{
                         ...S.segCell,
                         ...(translations[i] ? S.segCellTranslated : S.segCellEmpty),
@@ -973,7 +1038,7 @@ export default function SubtitleWorkshop() {
                       suppressContentEditableWarning
                       onBlur={(e) => handleSegmentEdit(i, 'translated', e.currentTarget.textContent || '')}
                     >
-                      {translations[i] || '（未翻译）'}
+                      {translations[i] || ''}
                     </div>
                     <div style={S.segActions}>
                       <button style={S.segActionBtn} title="播放此段" onClick={() => handlePlaySegment(seg)}>
@@ -1291,8 +1356,8 @@ export default function SubtitleWorkshop() {
                         <div style={S.fileInput}>
                           <input
                             style={{ ...S.formInput, flex: 1 }}
-                            value={audioPath}
-                            onChange={(e) => setAudioPath(e.target.value)}
+                            value={scriptAudioPath}
+                            onChange={(e) => setScriptAudioPath(e.target.value)}
                             placeholder="选择音频文件 (.mp3 / .wav)"
                           />
                           <button
@@ -1304,7 +1369,7 @@ export default function SubtitleWorkshop() {
                                 browserPrompt: '请输入音频文件所在目录的完整路径：',
                               })
                               if (files.length > 0) {
-                                setAudioPath(files[0]!)
+                                setScriptAudioPath(files[0]!)
                                 audioPlayer.show(files[0]!, files[0]!.split(/[/\\]/).pop() || '台本音频')
                               }
                             }}
