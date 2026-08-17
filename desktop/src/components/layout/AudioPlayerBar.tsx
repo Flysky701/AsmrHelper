@@ -8,25 +8,22 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-function IconButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+function IconButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  children: React.ReactNode
+}) {
   return (
     <button
+      type="button"
+      className="audio-player__icon-button"
+      aria-label={label}
+      title={label}
       onClick={onClick}
-      style={{
-        width: 32,
-        height: 32,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: 6,
-        border: 'none',
-        background: 'transparent',
-        color: 'var(--fg)',
-        cursor: 'pointer',
-        fontSize: 14,
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg)' }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
     >
       {children}
     </button>
@@ -47,95 +44,70 @@ export default function AudioPlayerBar() {
   const { seek } = useAudioPlayer()
 
   return (
-    <div
-      style={{
-        gridColumn: '1 / -1',
-        height: 56,
-        background: 'var(--surface)',
-        borderTop: '1px solid var(--border)',
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 16px',
-        gap: 12,
-      }}
-    >
-      <IconButton onClick={togglePlay}>
-        {isPlaying ? (
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-            <rect x="2" y="1" width="3.5" height="12" rx="1" />
-            <rect x="8.5" y="1" width="3.5" height="12" rx="1" />
+    <div className="audio-player">
+      <div className="audio-player__identity">
+        <IconButton label={isPlaying ? '暂停' : '播放'} onClick={togglePlay}>
+          {isPlaying ? (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <rect x="2" y="1" width="3.5" height="12" rx="1" />
+              <rect x="8.5" y="1" width="3.5" height="12" rx="1" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <path d="M3 1.5v11l9-5.5z" />
+            </svg>
+          )}
+        </IconButton>
+
+        <span
+          className="audio-player__title"
+          data-error={error ? 'true' : undefined}
+          title={error || title}
+        >
+          {error || title}
+        </span>
+      </div>
+
+      <div className="audio-player__timeline">
+        <span className="audio-player__time audio-player__time--current">
+          {formatTime(currentTime)}
+        </span>
+
+        <input
+          className="audio-player__range"
+          aria-label="播放进度"
+          type="range"
+          min={0}
+          max={duration || 100}
+          step={0.1}
+          value={currentTime}
+          onChange={(e) => seek(Number(e.target.value))}
+        />
+
+        <span className="audio-player__time">
+          {formatTime(duration)}
+        </span>
+      </div>
+
+      <div className="audio-player__controls">
+        <input
+          className="audio-player__range audio-player__volume"
+          aria-label="音量"
+          title="音量"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={volume}
+          onChange={(e) => setVolume(Number(e.target.value))}
+        />
+
+        <IconButton label="关闭播放器" onClick={hide}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M2 2l8 8M10 2l-8 8" />
           </svg>
-        ) : (
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-            <path d="M3 1.5v11l9-5.5z" />
-          </svg>
-        )}
-      </IconButton>
-
-      <span
-        style={{
-          fontSize: 13,
-          fontWeight: 500,
-          color: 'var(--fg)',
-          minWidth: 100,
-          maxWidth: 200,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-        title={error || title}
-      >
-        {error || title}
-      </span>
-
-      <span
-        style={{
-          fontSize: 12,
-          fontFamily: 'var(--font-mono)',
-          color: 'var(--muted)',
-          minWidth: 36,
-          textAlign: 'right',
-        }}
-      >
-        {formatTime(currentTime)}
-      </span>
-
-      <input
-        type="range"
-        min={0}
-        max={duration || 100}
-        step={0.1}
-        value={currentTime}
-        onChange={(e) => seek(Number(e.target.value))}
-        style={{ flex: 1, height: 4, accentColor: 'var(--accent)' }}
-      />
-
-      <span
-        style={{
-          fontSize: 12,
-          fontFamily: 'var(--font-mono)',
-          color: 'var(--muted)',
-          minWidth: 36,
-        }}
-      >
-        {formatTime(duration)}
-      </span>
-
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.01}
-        value={volume}
-        onChange={(e) => setVolume(Number(e.target.value))}
-        style={{ width: 80, height: 4, accentColor: 'var(--accent)' }}
-      />
-
-      <IconButton onClick={hide}>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M2 2l8 8M10 2l-8 8" />
-        </svg>
-      </IconButton>
+        </IconButton>
+      </div>
     </div>
   )
 }

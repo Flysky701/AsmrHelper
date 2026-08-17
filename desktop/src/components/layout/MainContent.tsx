@@ -25,14 +25,7 @@ export default function MainContent() {
   const Page = PAGES[activePage]
 
   return (
-    <main
-      style={{
-        flex: 1,
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
+    <main className="app-main">
       <Page />
     </main>
   )

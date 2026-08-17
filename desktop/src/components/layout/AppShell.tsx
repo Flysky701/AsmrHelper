@@ -7,16 +7,7 @@ export default function AppShell() {
   const playerVisible = useAudioPlayerStore((s) => s.visible)
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '220px minmax(0, 1fr)',
-        gridTemplateRows: '1fr auto',
-        height: '100vh',
-        background: 'var(--bg)',
-        overflow: 'hidden',
-      }}
-    >
+    <div className="app-shell">
       <LeftNav />
       <MainContent />
       {playerVisible && <AudioPlayerBar />}

@@ -59,86 +59,47 @@ export default function LeftNav() {
     return (
       <button
         key={pageId}
+        type="button"
+        className="app-nav__item"
         data-page={pageId}
+        aria-current={isActive ? 'page' : undefined}
         onClick={() => setPage(pageId)}
-        style={{
-          width: '100%',
-          minHeight: 40,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '0 14px',
-          borderRadius: 10,
-          border: `1px solid ${isActive ? 'var(--accent-ghost-border)' : 'transparent'}`,
-          cursor: 'pointer',
-          fontSize: 13,
-          fontFamily: 'inherit',
-          background: isActive ? 'var(--accent-soft)' : 'transparent',
-          color: isActive ? 'var(--accent)' : 'var(--muted)',
-          transition: 'background 0.15s, color 0.15s, border-color 0.15s',
-          textAlign: 'left',
-        }}
-        onMouseEnter={(e) => {
-          if (!isActive) {
-            e.currentTarget.style.background = 'var(--panel-muted)'
-            e.currentTarget.style.color = 'var(--fg)'
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!isActive) {
-            e.currentTarget.style.background = 'transparent'
-            e.currentTarget.style.color = 'var(--muted)'
-          }
-        }}
       >
         {NAV_ICONS[pageId]}
-        <span>{PAGE_LABELS[pageId]}</span>
+        <span className="app-nav__item-label">{PAGE_LABELS[pageId]}</span>
       </button>
     )
   }
 
   return (
-    <nav
-      style={{
-        width: 220,
-        background: 'var(--surface)',
-        borderRight: '1px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '18px 12px 14px',
-        gap: 6,
-      }}
-    >
-      <div
-        style={{
-          marginBottom: 10,
-          padding: '12px 12px 14px',
-          borderRadius: 14,
-          background: 'linear-gradient(180deg, var(--panel-muted) 0%, rgba(255,255,255,0.86) 100%)',
-          border: '1px solid var(--border)',
-        }}
-      >
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+    <nav className="app-nav" aria-label="主导航">
+      <div className="app-nav__brand">
+        <div className="app-nav__brand-eyebrow">
           AsmrHelper
         </div>
-        <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--fg)' }}>
+        <div className="app-nav__brand-title">
           Production Desk
         </div>
-        <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>
+        <div className="app-nav__brand-description">
           把输入、任务、产物和预览串在同一条主链路里。
         </div>
       </div>
 
-      <div style={{ padding: '0 8px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-        Workflow
-      </div>
-      {TOP_PAGES.map(renderItem)}
+      <div className="app-nav__scroller">
+        <div className="app-nav__group">
+          <div className="app-nav__group-label">Workflow</div>
+          <div className="app-nav__items">
+            {TOP_PAGES.map(renderItem)}
+          </div>
+        </div>
 
-      <div style={{ flex: 1, minHeight: 18 }} />
-      <div style={{ padding: '0 8px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-        Control
+        <div className="app-nav__group app-nav__group--control">
+          <div className="app-nav__group-label">Control</div>
+          <div className="app-nav__items">
+            {BOTTOM_PAGES.map(renderItem)}
+          </div>
+        </div>
       </div>
-      {BOTTOM_PAGES.map(renderItem)}
     </nav>
   )
 }
