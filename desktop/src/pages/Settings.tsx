@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import { pipelineApi } from '@/api/pipeline'
 import type { SettingsUpdate, SettingsView } from '@/api/settings'
@@ -30,6 +30,11 @@ export default function Settings() {
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<SettingsTab>('api')
   const [presets, setPresets] = useState<PresetItem[]>([])
+  const [settingsLoadError, setSettingsLoadError] = useState('')
+  const [presetsLoadError, setPresetsLoadError] = useState('')
+  const [presetsLoading, setPresetsLoading] = useState(true)
+  const loadGenerationRef = useRef(0)
+  const presetGenerationRef = useRef(0)
 
   // API test state
   const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null)
@@ -52,35 +57,78 @@ export default function Settings() {
   })
 
   useEffect(() => {
-    loadData()
+    void loadData()
+    return () => {
+      loadGenerationRef.current += 1
+      presetGenerationRef.current += 1
+    }
   }, [])
 
   const loadData = async () => {
+    const generation = ++loadGenerationRef.current
+    const presetGeneration = ++presetGenerationRef.current
     setLoading(true)
+    setPresetsLoading(true)
     setMessage('')
+    setSettingsLoadError('')
+    setPresetsLoadError('')
     try {
-      const [settingsData, presetsData] = await Promise.all([
+      const [settingsResult, presetsResult] = await Promise.allSettled([
         settingsApi.get(),
         pipelineApi.presets(),
       ])
-      const current = settingsData.settings
-      setSettings(current)
-      setDraft({
-        provider: current.providers.default_llm || 'deepseek',
-        deepseekKey: '',
-        openaiKey: '',
-        deepseekBaseUrl: current.providers.deepseek.base_url || 'https://api.deepseek.com',
-        openaiBaseUrl: current.providers.openai.base_url || 'https://api.openai.com/v1',
-        outputDir: current.paths.output_dir || '',
-        vttDir: current.paths.vtt_dir || '',
-        modelCacheDir: current.paths.model_cache_dir || '',
-        tempDir: current.paths.temp_dir || '',
-      })
-      setPresets(presetsData.presets || [])
-    } catch (error) {
-      setMessage(`加载设置失败: ${error instanceof Error ? error.message : String(error)}`)
+      if (generation !== loadGenerationRef.current) return
+
+      if (settingsResult.status === 'fulfilled') {
+        const current = settingsResult.value.settings
+        setSettings(current)
+        setDraft({
+          provider: current.providers.default_llm || 'deepseek',
+          deepseekKey: '',
+          openaiKey: '',
+          deepseekBaseUrl: current.providers.deepseek.base_url || 'https://api.deepseek.com',
+          openaiBaseUrl: current.providers.openai.base_url || 'https://api.openai.com/v1',
+          outputDir: current.paths.output_dir || '',
+          vttDir: current.paths.vtt_dir || '',
+          modelCacheDir: current.paths.model_cache_dir || '',
+          tempDir: current.paths.temp_dir || '',
+        })
+      } else {
+        setSettings(null)
+        setSettingsLoadError(
+          `无法读取当前设置：${settingsResult.reason instanceof Error ? settingsResult.reason.message : String(settingsResult.reason)}`,
+        )
+      }
+
+      if (presetGeneration === presetGenerationRef.current) {
+        if (presetsResult.status === 'fulfilled') {
+          setPresets(presetsResult.value.presets || [])
+        } else {
+          setPresets([])
+          setPresetsLoadError(
+            `无法加载内置预设：${presetsResult.reason instanceof Error ? presetsResult.reason.message : String(presetsResult.reason)}`,
+          )
+        }
+      }
     } finally {
-      setLoading(false)
+      if (generation === loadGenerationRef.current) setLoading(false)
+      if (presetGeneration === presetGenerationRef.current) setPresetsLoading(false)
+    }
+  }
+
+  const reloadPresets = async () => {
+    const generation = ++presetGenerationRef.current
+    setPresetsLoading(true)
+    setPresetsLoadError('')
+    try {
+      const result = await pipelineApi.presets()
+      if (generation !== presetGenerationRef.current) return
+      setPresets(result.presets || [])
+    } catch (error) {
+      if (generation !== presetGenerationRef.current) return
+      setPresetsLoadError(`无法加载内置预设：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      if (generation === presetGenerationRef.current) setPresetsLoading(false)
     }
   }
 
@@ -116,7 +164,7 @@ export default function Settings() {
       await settingsApi.update(updates)
       setValidation({ valid: true, errors: [] })
       setMessage('设置已保存')
-      loadData()
+      void loadData()
     } catch (err) {
       setMessage(`保存失败: ${err}`)
     } finally {
@@ -170,6 +218,36 @@ export default function Settings() {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '200px', color: 'var(--muted)' }}>
         加载设置中...
+      </div>
+    )
+  }
+
+  if (!settings) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%',
+        padding: '24px', background: 'var(--bg)',
+      }}>
+        <div role="alert" style={{
+          width: 'min(460px, 100%)', padding: '24px', borderRadius: '10px',
+          border: '1px solid var(--border)', background: 'var(--surface)', textAlign: 'center',
+        }}>
+          <h2 style={{
+            margin: '0 0 8px', fontFamily: 'var(--font-display)', fontSize: '17px', fontWeight: 600,
+          }}>
+            设置暂时无法加载
+          </h2>
+          <p style={{ margin: '0 0 18px', color: 'var(--muted)', fontSize: '13px', lineHeight: 1.6 }}>
+            {settingsLoadError || '未能读取当前设置。为避免覆盖已有配置，编辑和保存已暂停。'}
+          </p>
+          <button onClick={() => void loadData()} style={{
+            fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '8px 16px',
+            borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
+            color: 'white', cursor: 'pointer',
+          }}>
+            重新加载
+          </button>
+        </div>
       </div>
     )
   }
@@ -432,6 +510,27 @@ export default function Settings() {
                   </div>
                 </div>
 
+                {presetsLoadError && (
+                  <div role="alert" style={{
+                    display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px',
+                    padding: '12px 14px', borderRadius: '8px', border: '1px solid oklch(82% 0.06 25)',
+                    background: 'oklch(96% 0.025 25)', color: 'oklch(40% 0.12 25)',
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: '12px', lineHeight: 1.55, overflowWrap: 'anywhere' }}>
+                      <strong style={{ display: 'block', marginBottom: '2px', fontWeight: 600 }}>预设加载失败</strong>
+                      {presetsLoadError}
+                    </div>
+                    <button onClick={() => void reloadPresets()} disabled={presetsLoading} style={{
+                      flex: '0 0 auto', fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 500,
+                      padding: '7px 12px', borderRadius: '6px', border: '1px solid var(--border)',
+                      background: 'var(--surface)', color: 'var(--fg)', cursor: presetsLoading ? 'default' : 'pointer',
+                      opacity: presetsLoading ? 0.6 : 1,
+                    }}>
+                      {presetsLoading ? '重试中...' : '重新加载'}
+                    </button>
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {presets.map(preset => (
                     <div key={preset.id} style={{
@@ -469,9 +568,15 @@ export default function Settings() {
                     </div>
                   ))}
 
-                  {presets.length === 0 && (
+                  {presetsLoading && presets.length === 0 && (
                     <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '16px', textAlign: 'center' }}>
-                      未加载到内置预设，请检查后端配置。
+                      正在加载内置预设...
+                    </div>
+                  )}
+
+                  {!presetsLoading && !presetsLoadError && presets.length === 0 && (
+                    <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '16px', textAlign: 'center' }}>
+                      当前没有可用的内置预设。
                     </div>
                   )}
                 </div>

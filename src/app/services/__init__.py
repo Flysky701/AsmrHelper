@@ -14,6 +14,7 @@ __all__ = [
     "InputCatalogService",
     "LlmCapabilityService",
     "ModelService",
+    "PresetCatalogService",
     "PipelineService",
     "PipelineTaskOrchestrator",
     "ResourceService",
@@ -35,6 +36,7 @@ __all__ = [
     "get_input_catalog_service",
     "get_llm_capability_service",
     "get_model_service",
+    "get_preset_catalog_service",
     "get_pipeline_service",
     "get_pipeline_task_orchestrator",
     "get_resource_service",
@@ -69,6 +71,10 @@ _EXPORTS = {
         "LlmCapabilityService",
     ),
     "ModelService": ("src.app.services.model_service", "ModelService"),
+    "PresetCatalogService": (
+        "src.app.services.preset_catalog_service",
+        "PresetCatalogService",
+    ),
     "PipelineService": ("src.app.services.pipeline_service", "PipelineService"),
     "PipelineTaskOrchestrator": (
         "src.app.services.pipeline_task_orchestrator",
@@ -111,6 +117,10 @@ _EXPORTS = {
         "get_llm_capability_service",
     ),
     "get_model_service": ("src.app.services.model_service", "get_model_service"),
+    "get_preset_catalog_service": (
+        "src.app.services.preset_catalog_service",
+        "get_preset_catalog_service",
+    ),
     "get_pipeline_service": ("src.app.services.pipeline_service", "get_pipeline_service"),
     "get_pipeline_task_orchestrator": (
         "src.app.services.pipeline_task_orchestrator",

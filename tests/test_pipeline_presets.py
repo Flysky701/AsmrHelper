@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from src.app.services.preset_catalog_service import PresetCatalogService
 from src.app.services.pipeline_service import PipelineService
 
 
@@ -28,7 +29,7 @@ def _make_pipeline_service() -> PipelineService:
 
 
 def test_builtin_presets_expose_only_verified_closed_loops():
-    presets = _make_pipeline_service().list_presets()
+    presets = PresetCatalogService().list_presets()
 
     assert [preset["id"] for preset in presets] == ["asmr_bilingual", "asr_only"]
     assert {preset["id"]: preset["stages"] for preset in presets} == {
@@ -45,7 +46,7 @@ def test_builtin_presets_expose_only_verified_closed_loops():
 
 
 def test_builtin_preset_stages_are_known_unique_and_described():
-    presets = _make_pipeline_service().list_presets()
+    presets = PresetCatalogService().list_presets()
 
     for preset in presets:
         assert preset["label"].strip()
@@ -53,3 +54,7 @@ def test_builtin_preset_stages_are_known_unique_and_described():
         assert preset["stages"]
         assert len(preset["stages"]) == len(set(preset["stages"]))
         assert set(preset["stages"]) <= ALLOWED_PRESET_STAGES
+
+
+def test_pipeline_service_keeps_preset_catalog_compatibility():
+    assert _make_pipeline_service().list_presets() == PresetCatalogService().list_presets()

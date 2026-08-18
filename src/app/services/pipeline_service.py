@@ -18,6 +18,7 @@ from ..dto import ArtifactSet, PipelineRequest, PipelineResult
 from ..errors import AppExecutionError, AppValidationError, ResourceValidationError
 from .artifact_service import ArtifactService, get_artifact_service
 from .input_catalog_service import InputCatalogService, get_input_catalog_service
+from .preset_catalog_service import get_preset_catalog_service
 from .resource_service import ResourceService, get_resource_service
 from .session_service import SessionService, get_session_service
 from .task_service import TaskService, get_task_service
@@ -357,17 +358,8 @@ class PipelineService:
         )
 
     def list_presets(self) -> list[dict[str, Any]]:
-        """Load presets from config/presets.yaml."""
-        import yaml
-
-        from src.config import PROJECT_ROOT
-
-        presets_path = PROJECT_ROOT / "config" / "presets.yaml"
-        if not presets_path.exists():
-            return []
-        with open(presets_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        return data.get("presets", [])
+        """Compatibility facade for callers that still use PipelineService."""
+        return get_preset_catalog_service().list_presets()
 
     def build_plan(self, task_spec) -> PipelineExecutionPlan:
         """Build an execution plan from a task spec without running it.

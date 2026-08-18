@@ -777,6 +777,7 @@ export default function Workbench() {
     selectedFiles,
     preset,
     presets,
+    presetsLoading,
     params,
     capabilityOptions,
     commonExpanded,
@@ -785,6 +786,8 @@ export default function Workbench() {
     setFiles,
     removeFile,
     setPreset,
+    setPresets,
+    setPresetsLoading,
     updateParam,
     updateCapabilityOption,
     toggleCommon,
@@ -809,6 +812,7 @@ export default function Workbench() {
   const [checkingReadiness, setCheckingReadiness] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [presetError, setPresetError] = useState('')
+  const [presetReloadToken, setPresetReloadToken] = useState(0)
   const submitLockRef = useRef(false)
   const currentPreset = presets.find((item) => item.id === preset) ?? null
   const activePresetStages = normalizePresetStages(currentPreset?.stages ?? [])
@@ -822,27 +826,25 @@ export default function Workbench() {
   }
 
   useEffect(() => {
-    if (!stageFlags.tts) {
-      setTtsVoices([])
-      setTtsVoiceError('')
-      return
-    }
     let cancelled = false
     let retryTimer: number | undefined
 
     const loadPresets = () => {
+      setPresetsLoading(true)
       pipelineApi.presets().then((response) => {
         if (cancelled) return
-        useWorkbenchStore.getState().setPresets(response.presets)
+        setPresets(response.presets)
         const currentPresetId = useWorkbenchStore.getState().preset
         const presetStillExists = response.presets.some((item) => item.id === currentPresetId)
         if (!presetStillExists) {
           setPreset(response.presets[0]?.id ?? '')
         }
         setPresetError(response.presets.length > 0 ? '' : '没有可用的内置预设')
+        setPresetsLoading(false)
       }).catch((error) => {
         if (cancelled) return
         setPresetError(`预设加载失败：${error instanceof Error ? error.message : String(error)}`)
+        setPresetsLoading(false)
         retryTimer = window.setTimeout(loadPresets, 2000)
       })
     }
@@ -851,23 +853,40 @@ export default function Workbench() {
     return () => {
       cancelled = true
       if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+      setPresetsLoading(false)
     }
-  }, [setPreset])
+  }, [presetReloadToken, setPreset, setPresets, setPresetsLoading])
 
   useEffect(() => {
-    capabilitiesApi
-      .list()
-      .then((items) => {
+    let cancelled = false
+    let retryTimer: number | undefined
+
+    const loadCapabilities = () => {
+      capabilitiesApi.list().then((items) => {
+        if (cancelled) return
         setCapabilities(items)
         setCapabilityError('')
-      })
-      .catch((error) => {
+      }).catch((error) => {
+        if (cancelled) return
         setCapabilities([])
         setCapabilityError(`能力目录加载失败：${error instanceof Error ? error.message : String(error)}`)
+        retryTimer = window.setTimeout(loadCapabilities, 2000)
       })
+    }
+
+    loadCapabilities()
+    return () => {
+      cancelled = true
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
   }, [])
 
   useEffect(() => {
+    if (!stageFlags.tts) {
+      setTtsVoices([])
+      setTtsVoiceError('')
+      return
+    }
     let cancelled = false
     ttsApi
       .listVoices(params.ttsEngine)
@@ -1159,7 +1178,10 @@ export default function Workbench() {
 
   const presetOptions = presets.length > 0
     ? presets.map((item) => ({ value: item.id, label: item.label || item.id }))
-    : [{ value: '', label: '加载预设中...' }]
+    : [{
+        value: '',
+        label: presetsLoading ? '加载预设中...' : presetError ? '预设加载失败' : '没有可用预设',
+      }]
 
   const descriptorsFor = (category: string) =>
     capabilities.filter((item) => item.category === category)
@@ -1695,8 +1717,21 @@ export default function Workbench() {
           <Section title="执行前确认" caption="点击执行前，先确认这次任务会发生什么">
             <div style={{ display: 'grid', gap: 14 }}>
               {presetError ? (
-                <div className="workbench-break-anywhere" style={{ padding: '12px 14px', border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)', fontSize: 12 }}>
-                  {presetError}
+                <div
+                  aria-live="polite"
+                  className="workbench-break-anywhere"
+                  style={{ padding: '12px 14px', border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)', fontSize: 12 }}
+                >
+                  <div>{presetError}</div>
+                  {!presetsLoading ? (
+                    <button
+                      type="button"
+                      onClick={() => setPresetReloadToken((value) => value + 1)}
+                      style={{ marginTop: 8, border: 'none', background: 'transparent', color: 'var(--accent)', padding: 0, cursor: 'pointer', fontWeight: 700 }}
+                    >
+                      立即重试
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
               {capabilityError ? (

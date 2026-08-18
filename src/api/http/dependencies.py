@@ -12,6 +12,7 @@ from src.app.services import (
     get_input_catalog_service,
     get_llm_capability_service,
     get_model_service,
+    get_preset_catalog_service,
     get_pipeline_service,
     get_pipeline_task_orchestrator,
     get_resource_service,
@@ -30,6 +31,10 @@ from src.app.services import (
 
 def pipeline_service():
     return get_pipeline_service()
+
+
+def preset_catalog_service():
+    return get_preset_catalog_service()
 
 
 def asr_engine_service():

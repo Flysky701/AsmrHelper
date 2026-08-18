@@ -88,7 +88,9 @@ class TestPipelineRoutes:
             {"id": "asmr_bilingual", "label": "ASMR Bilingual", "description": "Full pipeline", "stages": ["asr", "tts"]},
             {"id": "asr_only", "label": "ASR Only", "description": "ASR only", "stages": ["asr"]},
         ]
-        client.app.dependency_overrides[dependencies.pipeline_service] = _mock_dep(mock_svc)
+        client.app.dependency_overrides[dependencies.preset_catalog_service] = _mock_dep(
+            mock_svc
+        )
 
         resp = client.get("/api/v1/pipeline/presets")
         assert resp.status_code == 200
@@ -98,6 +100,24 @@ class TestPipelineRoutes:
         assert "asr_only" in ids
         assert data["presets"][0]["label"] == "ASMR Bilingual"
         mock_svc.list_presets.assert_called_once_with()
+
+    def test_list_presets_does_not_initialize_pipeline_runtime(self, client, monkeypatch):
+        def fail_pipeline_initialization():
+            raise AssertionError("preset catalog must not initialize pipeline runtime")
+
+        monkeypatch.setattr(
+            dependencies,
+            "get_pipeline_service",
+            fail_pipeline_initialization,
+        )
+
+        resp = client.get("/api/v1/pipeline/presets")
+
+        assert resp.status_code == 200
+        assert [preset["id"] for preset in resp.json()["presets"]] == [
+            "asmr_bilingual",
+            "asr_only",
+        ]
 
     def test_legacy_pipeline_routes_are_removed(self, client):
         assert client.post("/api/v1/pipeline/run", json={}).status_code == 404

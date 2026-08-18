@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from src.api.http.dependencies import batch_pipeline_service, pipeline_service
+from src.api.http.dependencies import batch_pipeline_service, preset_catalog_service
 from src.api.http.schemas.pipeline import (
     BatchPipelineRequest,
     BatchPipelineResponse,
@@ -13,14 +13,14 @@ from src.api.http.schemas.pipeline import (
     PresetItem,
 )
 from src.app.dto import BatchPipelineRequest as BatchPipelineDTO
-from src.app.services import BatchPipelineService, PipelineService
+from src.app.services import BatchPipelineService, PresetCatalogService
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
 @router.get("/presets", response_model=PipelinePresetsResponse)
 def list_presets(
-    svc: PipelineService = Depends(pipeline_service),
+    svc: PresetCatalogService = Depends(preset_catalog_service),
 ):
     raw = svc.list_presets()
     return PipelinePresetsResponse(
