@@ -376,30 +376,28 @@ export default function Settings() {
 
                 {/* DeepSeek API Key */}
                 <div style={{ marginBottom: '16px' }}>
-                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>DeepSeek API Key</label>
-                      <input
-                        type="password"
-                        value={draft.deepseekKey}
-                        onChange={e => setDraft({ ...draft, deepseekKey: e.target.value })}
-                        placeholder={settings?.providers.deepseek.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
-                        style={{
-                          fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
-                          borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                          color: 'var(--fg)', width: '100%', letterSpacing: '0.05em',
-                        }}
-                      />
-                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>环境变量: DEEPSEEK_API_KEY 优先</div>
-                    </div>
-                    <button onClick={() => handleTestProvider('deepseek')} disabled={testing} style={{
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>DeepSeek API Key</label>
+                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                    <input
+                      type="password"
+                      value={draft.deepseekKey}
+                      onChange={e => setDraft({ ...draft, deepseekKey: e.target.value })}
+                      placeholder={settings?.providers.deepseek.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
+                      style={{
+                        fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
+                        borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
+                        color: 'var(--fg)', flex: 1, minWidth: 0, height: '36px', letterSpacing: '0.05em',
+                      }}
+                    />
+                    <button type="button" onClick={() => handleTestProvider('deepseek')} disabled={testing} style={{
                       fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
                       borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                      color: 'var(--fg)', cursor: 'pointer', whiteSpace: 'nowrap', height: '36px',
+                      color: 'var(--fg)', cursor: 'pointer', whiteSpace: 'nowrap', minHeight: '36px', flexShrink: 0,
                     }}>
                       测试连通
                     </button>
                   </div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>环境变量: DEEPSEEK_API_KEY 优先</div>
                 </div>
 
                 {/* DeepSeek Base URL */}
@@ -420,30 +418,28 @@ export default function Settings() {
 
                 {/* OpenAI API Key */}
                 <div style={{ marginBottom: '16px' }}>
-                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>OpenAI API Key</label>
-                      <input
-                        type="password"
-                        value={draft.openaiKey}
-                        onChange={e => setDraft({ ...draft, openaiKey: e.target.value })}
-                        placeholder={settings?.providers.openai.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
-                        style={{
-                          fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
-                          borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                          color: 'var(--fg)', width: '100%', letterSpacing: '0.05em',
-                        }}
-                      />
-                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>环境变量: OPENAI_API_KEY 优先</div>
-                    </div>
-                    <button onClick={() => handleTestProvider('openai')} disabled={testing} style={{
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>OpenAI API Key</label>
+                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                    <input
+                      type="password"
+                      value={draft.openaiKey}
+                      onChange={e => setDraft({ ...draft, openaiKey: e.target.value })}
+                      placeholder={settings?.providers.openai.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
+                      style={{
+                        fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
+                        borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
+                        color: 'var(--fg)', flex: 1, minWidth: 0, height: '36px', letterSpacing: '0.05em',
+                      }}
+                    />
+                    <button type="button" onClick={() => handleTestProvider('openai')} disabled={testing} style={{
                       fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
                       borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                      color: 'var(--fg)', cursor: 'pointer', whiteSpace: 'nowrap', height: '36px',
+                      color: 'var(--fg)', cursor: 'pointer', whiteSpace: 'nowrap', minHeight: '36px', flexShrink: 0,
                     }}>
                       测试连通
                     </button>
                   </div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>环境变量: OPENAI_API_KEY 优先</div>
                 </div>
 
                 {/* OpenAI Base URL */}
@@ -641,7 +637,7 @@ export default function Settings() {
         .settings-page,
         .settings-layout,
         .settings-panel,
-        .settings-provider-row > div,
+        .settings-provider-row > input,
         .settings-path-row > input {
           min-width: 0;
         }

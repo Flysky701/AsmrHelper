@@ -15,7 +15,7 @@ import type {
   TtsVoiceItemResponse,
   VoiceProfileSummaryResponse,
 } from '@/api/types'
-import { useFileSelector } from '@/hooks/useFileSelector'
+import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
 import {
   PIPELINE_STAGE_IDS,
@@ -325,6 +325,35 @@ function mergeUniquePaths(current: string[], incoming: string[]) {
 
 function fileName(path: string) {
   return path.split(/[/\\]/).pop() ?? path
+}
+
+const WORKBENCH_AUDIO_EXTENSIONS = new Set(
+  FILE_FILTERS.audio.extensions.map((extension) => extension.toLowerCase()),
+)
+
+function partitionAudioPaths(paths: string[]) {
+  const accepted: string[] = []
+  const rejected: string[] = []
+
+  paths.forEach((path) => {
+    const name = fileName(path).toLowerCase()
+    const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
+    if (WORKBENCH_AUDIO_EXTENSIONS.has(extension)) {
+      accepted.push(path)
+    } else {
+      rejected.push(path)
+    }
+  })
+
+  return { accepted, rejected }
+}
+
+function unsupportedAudioMessage(paths: string[]) {
+  if (paths.length === 0) return ''
+  const examples = paths.slice(0, 3).map(fileName).join('、')
+  const remainder = paths.length > 3 ? ` 等 ${paths.length} 个文件` : ''
+  const formats = FILE_FILTERS.audio.extensions.map((extension) => extension.toUpperCase()).join('、')
+  return `只接受 ${formats} 音频；已忽略 ${examples}${remainder}`
 }
 
 function optionLabel(options: Option[], value: string) {
@@ -803,6 +832,7 @@ export default function Workbench() {
   const { selectFiles } = useFileSelector()
 
   const [dragOver, setDragOver] = useState(false)
+  const [fileSelectionError, setFileSelectionError] = useState('')
   const [capabilities, setCapabilities] = useState<CapabilityDescriptorResponse[]>([])
   const [capabilityError, setCapabilityError] = useState('')
   const [ttsVoices, setTtsVoices] = useState<TtsVoiceItemResponse[]>([])
@@ -923,11 +953,29 @@ export default function Workbench() {
       setVoiceProfiles([])
       return
     }
+    let cancelled = false
     voiceApi
       .listProfiles()
-      .then(setVoiceProfiles)
-      .catch(() => setVoiceProfiles([]))
-  }, [stageFlags.tts])
+      .then((profiles) => {
+        if (cancelled) return
+        setVoiceProfiles(profiles)
+        const availableProfileIds = new Set(
+          profiles
+            .filter((profile) => profile.available && profile.engine.startsWith('qwen3'))
+            .map((profile) => profile.id),
+        )
+        const currentProfileId = useWorkbenchStore.getState().params.voiceProfileId
+        if (currentProfileId && !availableProfileIds.has(currentProfileId)) {
+          updateParam('voiceProfileId', null)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setVoiceProfiles([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [stageFlags.tts, updateParam])
 
   useEffect(() => {
     setReadinessIssues([])
@@ -938,12 +986,19 @@ export default function Workbench() {
   const completedCount = tasks.filter((task) => task.status === 'completed').length
   const recentTasks = tasks.slice(-5).reverse()
 
+  const appendFiles = useCallback((files: string[]) => {
+    if (files.length === 0) return
+    const currentFiles = useWorkbenchStore.getState().selectedFiles
+    setFiles(mergeUniquePaths(currentFiles, files))
+  }, [setFiles])
+
   const handleSelectFiles = useCallback(async () => {
-    const files = await selectFiles()
-    if (files.length > 0) {
-      setFiles(mergeUniquePaths(selectedFiles, files))
-    }
-  }, [selectFiles, selectedFiles, setFiles])
+    setFileSelectionError('')
+    const files = await selectFiles({ filters: [FILE_FILTERS.audio] })
+    const { accepted, rejected } = partitionAudioPaths(files)
+    setFileSelectionError(unsupportedAudioMessage(rejected))
+    appendFiles(accepted)
+  }, [appendFiles, selectFiles])
 
   const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -953,24 +1008,31 @@ export default function Workbench() {
     if (dropped.length === 0) return
 
     const paths = dropped.map((file) => (file as File & { path?: string }).path || file.name)
-    const hasFullPath = paths.some((path) => path.includes('/') || path.includes('\\'))
+    const { accepted, rejected } = partitionAudioPaths(paths)
+    setFileSelectionError(unsupportedAudioMessage(rejected))
+    if (accepted.length === 0) return
 
-    if (hasFullPath) {
-      setFiles(mergeUniquePaths(selectedFiles, paths))
+    const missingFullPath = accepted.some((path) => !path.includes('/') && !path.includes('\\'))
+
+    if (!missingFullPath) {
+      appendFiles(accepted)
       return
     }
 
+    const missingNames = accepted.filter((path) => !path.includes('/') && !path.includes('\\'))
     const dir = prompt(
-      '浏览器模式无法获取完整路径。请输入文件所在目录：\n' + `（文件：${paths.join(', ')}）`,
+      '浏览器模式无法获取完整路径。请输入文件所在目录：\n' + `（文件：${missingNames.join(', ')}）`,
       'D:\\Asmr',
     )
 
     if (!dir) return
 
     const sep = dir.includes('/') ? '/' : '\\'
-    const fullPaths = paths.map((name) => `${dir}${sep}${name}`)
-    setFiles(mergeUniquePaths(selectedFiles, fullPaths))
-  }, [selectedFiles, setFiles])
+    const fullPaths = accepted.map((path) => (
+      path.includes('/') || path.includes('\\') ? path : `${dir}${sep}${path}`
+    ))
+    appendFiles(fullPaths)
+  }, [appendFiles])
 
   const handleExecute = async () => {
     if (selectedFiles.length === 0 || !currentPreset || submitLockRef.current) return
@@ -1321,10 +1383,6 @@ export default function Workbench() {
         </div>
 
         <div className="workbench-header-actions">
-          <ActionButton variant="secondary" disabled={submitting} onClick={handleSelectFiles}>
-            <UploadIcon />
-            添加输入音频
-          </ActionButton>
           <div className="workbench-header-preset">
             <select
               value={preset}
@@ -1389,13 +1447,30 @@ export default function Workbench() {
         <div className="workbench-main-column" inert={submitting} aria-busy={submitting}>
           <Section
             title="文件队列"
-            caption={selectedFiles.length === 0 ? '把音频拖进来，或点击“添加音频”' : `本次将处理 ${selectedFiles.length} 个音频文件`}
+            caption={selectedFiles.length === 0 ? '点击下方区域选择音频，也可以直接拖入' : `本次将处理 ${selectedFiles.length} 个音频文件`}
             actions={
               selectedFiles.length > 0 ? (
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>{selectedFiles.length} items</span>
               ) : null
             }
           >
+            {fileSelectionError ? (
+              <div
+                role="alert"
+                style={{
+                  marginBottom: 12,
+                  padding: '9px 12px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--error)',
+                  background: 'var(--error-soft)',
+                  color: 'var(--error)',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                }}
+              >
+                {fileSelectionError}
+              </div>
+            ) : null}
             <div
               onDragOver={(event) => {
                 event.preventDefault()
@@ -1407,11 +1482,27 @@ export default function Workbench() {
                 borderRadius: 'var(--radius-card)',
                 border: `1px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
                 background: dragOver ? 'var(--accent-soft)' : 'var(--panel-muted)',
-                padding: selectedFiles.length === 0 ? '36px 24px' : '14px',
+                padding: selectedFiles.length === 0 ? 0 : '14px',
               }}
             >
               {selectedFiles.length === 0 ? (
-                <div style={{ textAlign: 'center' }}>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={handleSelectFiles}
+                  aria-label="选择要处理的音频文件"
+                  style={{
+                    width: '100%',
+                    padding: '36px 24px',
+                    border: 0,
+                    borderRadius: 'inherit',
+                    background: 'transparent',
+                    color: 'inherit',
+                    font: 'inherit',
+                    textAlign: 'center',
+                    cursor: submitting ? 'default' : 'pointer',
+                  }}
+                >
                   <div
                     style={{
                       width: 52,
@@ -1429,9 +1520,9 @@ export default function Workbench() {
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 700 }}>先添加这次要处理的音频</div>
                   <div style={{ marginTop: 8, fontSize: 13, color: 'var(--muted)' }}>
-                    Workbench 只关注主链路：输入、流水线、执行。
+                    点击选择文件，或把音频拖到这里。
                   </div>
-                </div>
+                </button>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {selectedFiles.map((path) => (
@@ -1472,6 +1563,30 @@ export default function Workbench() {
                       </button>
                     </div>
                   ))}
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={handleSelectFiles}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      width: '100%',
+                      padding: '10px 14px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px dashed var(--border)',
+                      background: 'transparent',
+                      color: 'var(--accent)',
+                      font: 'inherit',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: submitting ? 'default' : 'pointer',
+                    }}
+                  >
+                    <UploadIcon />
+                    继续添加音频
+                  </button>
                 </div>
               )}
             </div>
@@ -1523,7 +1638,7 @@ export default function Workbench() {
             </div>
           </Section>
 
-          <Section title="常用参数" caption="只保留会影响主链路判断的配置" open={commonExpanded} onToggle={toggleCommon}>
+          <Section title="基础参数" caption="直接影响本次处理结果的常用设置" open={commonExpanded} onToggle={toggleCommon}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
               <SelectField
                 title="源语言"
@@ -1553,6 +1668,48 @@ export default function Workbench() {
                 checked={params.skipExisting}
                 onChange={(value) => updateParam('skipExisting', value)}
               />
+              {stageFlags.tts ? (
+                <RangeField
+                  title="语速"
+                  value={params.ttsSpeed}
+                  min={0.6}
+                  max={1.6}
+                  step={0.05}
+                  displayValue={`${params.ttsSpeed.toFixed(2)}x`}
+                  onChange={(value) => updateParam('ttsSpeed', value)}
+                />
+              ) : null}
+              {stageFlags.mix ? (
+                <>
+                  <RangeField
+                    title="原声保留"
+                    value={params.originalVolume}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    displayValue={`${Math.round(params.originalVolume * 100)}%`}
+                    onChange={(value) => updateParam('originalVolume', value)}
+                  />
+                  <RangeField
+                    title="配音音量占比"
+                    value={params.ttsVolumeRatio}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    displayValue={`${Math.round(params.ttsVolumeRatio * 100)}%`}
+                    onChange={(value) => updateParam('ttsVolumeRatio', value)}
+                  />
+                  <RangeField
+                    title="配音延迟"
+                    value={params.ttsDelay}
+                    min={-2}
+                    max={2}
+                    step={0.05}
+                    displayValue={`${params.ttsDelay.toFixed(2)}s`}
+                    onChange={(value) => updateParam('ttsDelay', value)}
+                  />
+                </>
+              ) : null}
             </div>
           </Section>
 
@@ -1656,61 +1813,21 @@ export default function Workbench() {
             </div>
           </Section>
 
-          <Section title="高级参数" caption="保留，但不让它们占住主操作空间" open={advExpanded} onToggle={toggleAdv}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 18 }}>
-              {stageFlags.tts ? (
-                <RangeField
-                  title="语速"
-                  value={params.ttsSpeed}
-                  min={0.6}
-                  max={1.6}
-                  step={0.05}
-                  displayValue={`${params.ttsSpeed.toFixed(2)}x`}
-                  onChange={(value) => updateParam('ttsSpeed', value)}
-                />
-              ) : null}
-              {stageFlags.mix ? (
-                <>
-                  <RangeField
-                    title="原声保留"
-                    value={params.originalVolume}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    displayValue={`${Math.round(params.originalVolume * 100)}%`}
-                    onChange={(value) => updateParam('originalVolume', value)}
+          {dynamicCapabilityOptions.length > 0 ? (
+            <Section title="高级参数" caption="保留，但不让它们占住主操作空间" open={advExpanded} onToggle={toggleAdv}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 18 }}>
+                {dynamicCapabilityOptions.map(({ descriptor, option, scope }) => (
+                  <CapabilityOptionField
+                    key={`${scope}/${option.name}`}
+                    option={option}
+                    context={descriptor.display_name}
+                    value={capabilityOptions[scope]?.[option.name] ?? option.default}
+                    onChange={(value) => updateCapabilityOption(scope, option.name, value)}
                   />
-                  <RangeField
-                    title="配音音量占比"
-                    value={params.ttsVolumeRatio}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    displayValue={`${Math.round(params.ttsVolumeRatio * 100)}%`}
-                    onChange={(value) => updateParam('ttsVolumeRatio', value)}
-                  />
-                  <RangeField
-                    title="配音延迟"
-                    value={params.ttsDelay}
-                    min={-2}
-                    max={2}
-                    step={0.05}
-                    displayValue={`${params.ttsDelay.toFixed(2)}s`}
-                    onChange={(value) => updateParam('ttsDelay', value)}
-                  />
-                </>
-              ) : null}
-              {dynamicCapabilityOptions.map(({ descriptor, option, scope }) => (
-                <CapabilityOptionField
-                  key={`${scope}/${option.name}`}
-                  option={option}
-                  context={descriptor.display_name}
-                  value={capabilityOptions[scope]?.[option.name] ?? option.default}
-                  onChange={(value) => updateCapabilityOption(scope, option.name, value)}
-                />
-              ))}
-            </div>
-          </Section>
+                ))}
+              </div>
+            </Section>
+          ) : null}
         </div>
 
         <aside className="workbench-side-column">
