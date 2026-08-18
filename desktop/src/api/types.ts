@@ -144,6 +144,7 @@ export interface ModelSummaryResponse {
   category: string
   backend: string
   display_name: string
+  estimated_size_mb?: number | null
   install_strategy: string
   supports_install: boolean
   supports_remove: boolean
@@ -208,6 +209,7 @@ export interface ModelVerificationResponse {
   success: boolean
   status: string
   detail: string
+  issues: ModelStatusResponse['issues']
 }
 
 // ── Subtitles ──────────────────────────────────────────

@@ -697,10 +697,6 @@ const CAPABILITY_OPTION_PRESENTATIONS: Record<string, CapabilityOptionPresentati
   reference_wav_path: { label: '参考音频路径', hint: '可选；用于复刻参考声线', placeholder: '留空时不使用参考音频' },
   prompt_wav_path: { label: '提示音频路径', hint: '可选；用于高保真音色复刻', placeholder: '留空时不使用提示音频' },
   prompt_text: { label: '提示音频文本', hint: '可选；填写提示音频对应的准确文本', placeholder: '留空时不提供提示文本' },
-  sample_rate: { label: '输出采样率', hint: '生成音频的采样率；Kokoro 默认 24000 Hz' },
-  lang_code: { label: '合成语言代码', hint: '可选；用于覆盖声线自动判断的语言', placeholder: '留空时根据声线自动推断' },
-  repo_id: { label: '模型仓库', hint: '可选；仅在使用自定义 Kokoro 模型时填写', placeholder: '留空时使用官方默认仓库' },
-  split_pattern: { label: '文本分段规则', hint: '用于拆分长文本的规则；默认按换行分段' },
 }
 
 function CapabilityOptionField({

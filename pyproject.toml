@@ -54,16 +54,14 @@ qwen3 = [
     "numpy>=2.0.0,<2.5.0",
 ]
 funasr = [
-    "funasr>=1.2.6",
-    "transformers>=4.52.0",
+    "funasr==1.3.26",
+    "torch>=2.4.0",
+    "torchaudio>=2.4.0",
+    "transformers>=4.52.0,<5.0.0",
     "huggingface-hub>=0.30.0",
 ]
 qwen_asr = [
     "qwen-asr",
-]
-kokoro = [
-    "kokoro>=0.9.4",
-    "soundfile>=0.12.0",
 ]
 voxcpm2 = [
     "voxcpm>=2.0.0",

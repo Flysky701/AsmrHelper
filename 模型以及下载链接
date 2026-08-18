@@ -2,13 +2,6 @@
 TTS 模型
 ========================================
 
---- Kokoro TTS ---
-GitHub:    https://github.com/hexgrad/kokoro
-安装:      pip install kokoro soundfile
-系统依赖:  espeak-ng
-           Windows 安装包: https://github.com/espeak-ng/espeak-ng/releases
-状态:      需手动安装 pip 包 + espeak-ng，不支持一键下载
-
 --- Qwen3 TTS ---
 
 

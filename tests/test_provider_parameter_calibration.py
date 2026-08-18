@@ -343,7 +343,7 @@ def test_generic_tts_provider_is_adapted_to_pipeline_segments(tmp_path) -> None:
 
     class Registry:
         def get(self, name, **kwargs):
-            assert name == "kokoro"
+            assert name == "text_only"
             return TextOnlyEngine()
 
     output_path = tmp_path / "tts.wav"
@@ -356,9 +356,9 @@ def test_generic_tts_provider_is_adapted_to_pipeline_segments(tmp_path) -> None:
         output_dir=str(tmp_path),
         output_path=str(output_path),
         profile={
-            "provider": "kokoro",
-            "model": "kokoro-82m",
-            "common_options": {"voice": "af_heart", "speed": 1.0},
+            "provider": "text_only",
+            "model": "text-only",
+            "common_options": {"voice": "default", "speed": 1.0},
             "provider_options": {},
         },
         reference_duration=0.5,

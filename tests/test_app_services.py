@@ -333,6 +333,7 @@ class TestModelService:
                 provider="deepseek",
                 engine=None,
                 display_name="DeepSeek API",
+                estimated_size_mb=None,
                 install_strategy=None,
                 capability_models=[],
                 supports_install=False,
@@ -378,6 +379,41 @@ class TestModelService:
         assert task.state == "failed"
         assert task.stage == "install"
         assert task.error["code"] == "TASK_EXECUTION_FAILED"
+
+    def test_local_model_verification_requires_executable_runtime(self):
+        from src.app.services.model_service import ModelService
+        from src.core.resources.model_status import (
+            ModelState,
+            ModelStatus,
+            ModelStatusIssue,
+        )
+
+        core_service = MagicMock()
+        core_service.get_model.return_value = SimpleNamespace(kind="local")
+        core_service.verify.return_value = {"fun-asr-nano-2512": True}
+        core_service.get_status.return_value = ModelStatus(
+            model_id="fun-asr-nano-2512",
+            status=ModelState.INSTALLED,
+            detail="Model is installed but runtime requirements are unavailable",
+            executable=False,
+            issues=(
+                ModelStatusIssue(
+                    code="PYTHON_DEPENDENCY_MISSING",
+                    requirement="torchaudio",
+                    message="Python dependency is unavailable: torchaudio",
+                ),
+            ),
+        )
+
+        result = ModelService(core_service=core_service).verify_models(
+            "fun-asr-nano-2512"
+        )[0]
+
+        assert result.success is False
+        assert result.status == ModelState.INSTALLED
+        assert [(issue.code, issue.requirement) for issue in result.issues] == [
+            ("PYTHON_DEPENDENCY_MISSING", "torchaudio")
+        ]
 
 
 class TestTaskService:

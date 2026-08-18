@@ -163,7 +163,7 @@ Provider 测试请求与响应：
 
 ## 7. 当前稳定标识
 
-- TTS：`edge`、`qwen3`、`kokoro`、`voxcpm2`
+- TTS：`edge`、`qwen3`、`voxcpm2`
 - ASR：`faster_whisper`、`fun_asr`、`qwen3_asr`
 - 分离：Provider 为 `demucs`，模型为 `htdemucs`
 - 翻译：`deepseek`、`openai`

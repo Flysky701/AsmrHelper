@@ -48,20 +48,18 @@ class ModelStatusResolver:
 
     _RUNTIME_IMPORTS = {
         "faster_whisper": ("faster_whisper",),
-        "fun_asr": ("funasr",),
+        "fun_asr": ("funasr", "torch", "torchaudio"),
         "qwen3_asr": ("qwen_asr",),
         "qwen3": ("qwen_tts",),
         "voxcpm2": ("voxcpm",),
-        "kokoro": ("kokoro", "soundfile"),
         "demucs": ("demucs",),
     }
     _EXTRA_IMPORTS = {
         "audio": ("torch",),
-        "funasr": ("funasr",),
+        "funasr": ("funasr", "torch", "torchaudio"),
         "qwen_asr": ("qwen_asr",),
         "qwen3": ("qwen_tts",),
         "voxcpm2": ("voxcpm",),
-        "kokoro": ("kokoro",),
     }
 
     def __init__(
@@ -255,22 +253,39 @@ class ModelStatusResolver:
                 )
             )
 
-        for module in dict.fromkeys(modules):
-            if runtime_missing:
-                continue
-            available = (
-                self._runtime_resolver.check_modules(runtime.id, [module])
-                if runtime.isolated and runtime.python_executable.is_file()
-                else self._import_checker(module)
-            )
-            if not available:
-                issues.append(
-                    ModelStatusIssue(
-                        "PYTHON_DEPENDENCY_MISSING",
-                        module,
-                        f"Python dependency is unavailable: {module}",
-                    )
+        unique_modules = list(dict.fromkeys(modules))
+        missing_modules: list[str] = []
+        combined_import_failed = False
+        if not runtime_missing and runtime.isolated and runtime.python_executable.is_file():
+            if not self._runtime_resolver.check_modules(runtime.id, unique_modules):
+                combined_import_failed = True
+                missing_modules = [
+                    module
+                    for module in unique_modules
+                    if not self._runtime_resolver.check_modules(runtime.id, [module])
+                ]
+        elif not runtime_missing:
+            missing_modules = [
+                module for module in unique_modules if not self._import_checker(module)
+            ]
+
+        for module in missing_modules:
+            issues.append(
+                ModelStatusIssue(
+                    "PYTHON_DEPENDENCY_MISSING",
+                    module,
+                    f"Python dependency is unavailable: {module}",
                 )
+            )
+        if combined_import_failed and not missing_modules:
+            requirement = ",".join(unique_modules)
+            issues.append(
+                ModelStatusIssue(
+                    "PYTHON_DEPENDENCY_INCOMPATIBLE",
+                    requirement,
+                    "Python dependencies import separately but fail when loaded together",
+                )
+            )
 
         for tool in entry.required_system_tools:
             if not self._tool_checker(tool):

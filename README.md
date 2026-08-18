@@ -13,7 +13,7 @@ ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、
 - **人声分离** - 基于 Demucs 从背景音中提取纯净人声
 - **语音识别** - Faster-Whisper / Fun-ASR / Qwen3-ASR 高精度日文 ASR
 - **翻译引擎** - DeepSeek / OpenAI API，批量翻译 + 质量检测
-- **语音合成** - Edge-TTS (免费) / Qwen3-TTS / Kokoro-TTS (高质量)
+- **语音合成** - Edge-TTS (免费) / Qwen3-TTS / VoxCPM2 (高质量)
 - **智能混音** - 时间轴对齐 + 音量平衡，输出原声+中文配音双轨
 - **HTTP API** - FastAPI RESTful API，支持完整流水线和单步操作
 - **任务中心** - 统一展示 Pipeline、音频工具、模型安装、音色和台本任务的阶段、错误与产物
@@ -274,7 +274,7 @@ MIT License
 
 - `asr/` - ASR 语音识别，支持 Faster-Whisper、Fun-ASR、Qwen3-ASR
 - `translate/` - 翻译引擎，支持 DeepSeek/OpenAI，包含缓存和术语库
-- `tts/` - 语音合成，支持 Edge-TTS、Qwen3-TTS、Kokoro-TTS
+- `tts/` - 语音合成，支持 Edge-TTS、Qwen3-TTS、VoxCPM2
 - `vocal_separator/` - Demucs 人声分离
 - `orchestration/` - 流水线编排，使用 PipelineExecutor 执行
 - `engines/` - 引擎运行时，统一管理各引擎生命周期

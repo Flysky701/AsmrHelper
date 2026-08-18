@@ -1,6 +1,6 @@
 # AsmrHelper 当前源码基线
 
-日期：2026-07-23
+日期：2026-08-18
 
 ## 1. 本文定位
 
@@ -215,7 +215,7 @@ text_utils.py
 
 2026-07-31 修复 Edge TTS 瞬时连接失败：`pipeline-6` 在 TTS 阶段发生 WebSocket 连接超时，相同参数的 `pipeline-7` 重试成功，确认不是 voice/speed 参数错误。Edge 句子合成改为最多 4 个并发连接，单句瞬时网络错误最多尝试 3 次，并支持 Capability 中的可选 `proxy`。当前开发机通过 `http://127.0.0.1:7890` 完成项目级真实 Edge TTS → WAV 探测；修复重启后，用户已完成 APP 侧验证。全量测试 `199 passed`。
 
-2026-08-01 模型安装链路继续收敛：Fun-ASR、Qwen3-ASR 和 VoxCPM2 已绑定项目模型目录，Kokoro 可通过通用时间线适配进入 Pipeline；Workbench 会提交明确的翻译模型和 TTS 默认模型。客户端异步安装已兼容纯 Python 包策略，能按模型默认模式安装或修复缺失的 Python 依赖；UV 明确向后端当前解释器安装，下载子进程输出不会再阻塞长任务。模型列表会把云端模型缺省的安装策略归一化为空字符串，避免资源页请求返回 500。大模型下载改为后端串行和单文件执行并延长读取超时；连接中断会重启下载进程，从 HuggingFace `.incomplete` 文件自动续传，最终 subprocess 错误会进入任务。模型文件按声明路径精确校验，避免子目录同名权重造成假完成。当前全量测试 `214 passed`，桌面生产构建通过；除默认组合外的 Provider 仍需按 [多引擎支持现状](multi-engine-status.md) 分别安装和真实验收，环境隔离后续按 [运行环境隔离 TODO](runtime-environment-isolation-todo.md) 按需实施。
+2026-08-01 模型安装链路继续收敛：Fun-ASR、Qwen3-ASR 和 VoxCPM2 已绑定项目模型目录；Workbench 会提交明确的翻译模型和 TTS 默认模型。客户端异步安装已兼容纯 Python 包策略，能按模型默认模式安装或修复缺失的 Python 依赖；UV 明确向后端当前解释器安装，下载子进程输出不会再阻塞长任务。模型列表会把云端模型缺省的安装策略归一化为空字符串，避免资源页请求返回 500。大模型下载改为后端串行和单文件执行并延长读取超时；连接中断会重启下载进程，从 HuggingFace `.incomplete` 文件自动续传，最终 subprocess 错误会进入任务。模型文件按声明路径精确校验，避免子目录同名权重造成假完成。当前全量测试 `214 passed`，桌面生产构建通过；除默认组合外的 Provider 仍需按 [多引擎支持现状](multi-engine-status.md) 分别安装和真实验收，环境隔离后续按 [运行环境隔离 TODO](runtime-environment-isolation-todo.md) 按需实施。
 
 2026-08-01 完成运行环境隔离第一阶段与 Qwen3 CustomVoice 验收：`runtime_profile` 已定义 `main`、`qwen_asr`、`qwen_tts`，只有用户实际选择的 Qwen3-TTS 创建 `.runtimes/qwen_tts`；模型资产继续共享 `models/`。模型安装、状态和 CUDA 检查面向目标解释器，TTS Runtime Router 通过短生命周期 Worker 执行 Qwen3，结构化错误及完整 Worker traceback 写入后端日志。当前隔离环境为 Torch `2.10.0+cu126`、`transformers 4.57.3`、NumPy `2.4.6`，正式 TTS API 已生成有效 24 kHz 非静音 WAV，重复执行后无残留 Qwen Worker。全量测试 `219 passed`，桌面生产构建与 Ruff `F821/F601` 通过。随后用户完成 `pipeline-8` 单文件手动验收，任务由 Workbench 提交并在 `export` 阶段正常完成，Qwen3 CustomVoice 的真实 Pipeline 主链路已通过。
 
@@ -266,7 +266,7 @@ TaskCenter 随后选择仍有真实文件的历史任务 `pipeline-2`，成功�
 
 1. 保持 Workbench 多文件等于多个独立 Task；除非产品明确需要批次级查询/取消，否则不引入 BatchRun。
 2. `.runtimes/*-backup-*` 不参与当前环境，需用户明确确认后再删除；可选模型权重按实际保留需求另行处理。
-3. 未配置或未安装的 OpenAI、Fun-ASR、Kokoro、VoxCPM2 继续显示真实不可用原因；只有实际选择后才安装并验收。
+3. 未配置或未安装的 OpenAI、VoxCPM2 继续显示真实不可用原因；Fun-ASR 当前可执行，但仍需完成 Pipeline 级验收。
 4. 后续修改 Tauri 对话框、任务状态、Voice 提交或 Artifact 播放时，应重跑对应的正式窗口交互验收。
 
 ## 7. DOCS 维护规则

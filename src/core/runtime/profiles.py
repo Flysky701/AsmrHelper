@@ -153,7 +153,12 @@ class RuntimeProfileResolver:
         script = (
             "import importlib, json\n"
             f"modules = {unique_modules!r}\n"
-            "result = {name: bool(importlib.import_module(name)) for name in modules}\n"
+            "def probe(name):\n"
+            "    if name == 'funasr':\n"
+            "        from funasr import AutoModel\n"
+            "        return AutoModel is not None\n"
+            "    return bool(importlib.import_module(name))\n"
+            "result = {name: probe(name) for name in modules}\n"
             "print('__ASMR_RUNTIME_PROBE__' + json.dumps(result))\n"
         )
         try:

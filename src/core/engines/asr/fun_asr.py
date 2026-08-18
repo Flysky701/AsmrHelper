@@ -33,11 +33,21 @@ class FunAsrRecognizer:
     ) -> None:
         try:
             from funasr import AutoModel
+        except ModuleNotFoundError as exc:
+            missing_module = str(exc.name or "unknown")
+            if missing_module == "funasr":
+                message = (
+                    "Fun-ASR requires the optional 'funasr' dependency. "
+                    "Open 引擎与资源 and choose 修复依赖 for the selected Fun-ASR model."
+                )
+            else:
+                message = (
+                    f"Fun-ASR runtime dependency '{missing_module}' is missing. "
+                    "Open 引擎与资源 and choose 修复依赖 for the selected Fun-ASR model."
+                )
+            raise RuntimeError(message) from exc
         except ImportError as exc:
-            raise RuntimeError(
-                "Fun-ASR requires the optional 'funasr' dependency. "
-                "Install it with `uv sync --extra funasr` or `pip install funasr`."
-            ) from exc
+            raise RuntimeError(f"Fun-ASR runtime dependencies could not be imported: {exc}") from exc
 
         self._device = self._resolve_device(device)
         self._language = self.LANGUAGE_HINTS.get(language or "", language)

@@ -1,6 +1,6 @@
 # AsmrHelper 后端能力事实清单
 
-> 更新时间：2026-08-07
+> 更新时间：2026-08-18
 >
 > 事实优先级：当前源码与运行探测 > 自动测试 > 真实手动验收 > 设计文档。
 > 本文只说明后端现在能做什么、当前机器是否具备条件，以及哪些接口仍只是接线或兼容入口。
@@ -64,15 +64,14 @@ Tauri / React
 | Separator | `demucs` | `htdemucs` | 可执行 | 已通过 |
 | ASR | `faster_whisper` | `faster-whisper-base` | Tiny/Base/Small/Medium/Large-v3 均被状态服务判定可执行 | Base 已通过；其他尺寸未逐个验收 |
 | ASR | `qwen3_asr` | `qwen3-asr-0.6b` | 0.6B/1.7B 权重和 `qwen_asr` 环境存在，CPU Torch 可用 | 0.6B 已通过直接 HTTP API，并进入合成样本双 Worker Pipeline |
-| ASR | `fun_asr` | `fun-asr-nano-2512` | `fun_asr` 环境存在；模型资产缺失 | 待验收 |
+| ASR | `fun_asr` | `fun-asr-nano-2512` | Nano 权重与 `fun_asr` 环境可执行 | 独立运行时短音频真实转写已通过；Pipeline 待验收 |
 | LLM | `deepseek` | `deepseek-chat` | 凭据已配置 | 已通过 |
 | LLM | `openai` | `gpt-4o-mini` | 未配置凭据 | 待验收 |
 | TTS | `edge` | `default` | 可执行 | 已通过；瞬时网络失败有重试 |
 | TTS | `qwen3` | `qwen3-custom-voice` | 权重和 `qwen_tts` 环境存在 | CustomVoice 已通过用户音频单文件 Pipeline 和合成样本双 Worker Pipeline；Base/VoiceDesign 未验收 |
-| TTS | `kokoro` | `kokoro-82m` | Python 包存在，缺 `espeak-ng` | 待验收 |
 | TTS | `voxcpm2` | `voxcpm2` | 模型和 Python 包均缺失 | 待验收 |
 
-2026-08-07 已将 `.venv`、`qwen_tts`、`qwen_asr` 和 `fun_asr` 全部迁移到项目内 UV Python 3.12.13。三个隔离环境的依赖一致性检查与模块导入均通过；Qwen3-ASR 0.6B 和 Qwen3 CustomVoice 分别完成重建后的真实推理，模型状态返回 `installed + executable`。旧环境仅移动为 `.runtimes/*-backup-*` 备份，尚未删除。
+2026-08-07 已将 `.venv`、`qwen_tts`、`qwen_asr` 和 `fun_asr` 全部迁移到项目内 UV Python 3.12.13。2026-08-18 将 FunASR 固定为锁文件中的 `1.3.26`，补齐 `torchaudio` 并把 Transformers 限制在 5.0 以下；三个隔离环境的依赖一致性检查与模块导入均通过，Qwen3-ASR 0.6B、Qwen3 CustomVoice 和 Fun-ASR Nano 均完成真实推理。旧环境仅移动为 `.runtimes/*-backup-*` 备份，尚未删除。
 
 ### 4.2 默认产品组合
 
@@ -86,7 +85,7 @@ demucs/htdemucs
 → ffmpeg
 ```
 
-Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均属于可选能力，不应进入默认安装承诺。
+Fun-ASR、Qwen3-ASR、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均属于可选能力，不应进入默认安装承诺。
 
 ## 5. 本机环境与资产现状
 
@@ -97,7 +96,8 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 | `.venv` | 约 1.02 GB | FastAPI、Edge TTS、基础音频链路和开发测试；Qwen/FunASR 已移出主环境 |
 | `.runtimes/qwen_tts` | 约 4.55 GB | 项目内 Python 3.12.13；Qwen3-TTS CUDA 依赖与真实合成已验收 |
 | `.runtimes/qwen_asr` | 约 1.22 GB | 项目内 Python 3.12.13、CPU Torch；0.6B 直接 ASR 已真实验收 |
-| `.runtimes/fun_asr` | 约 1.08 GB | 项目内 Python 3.12.13、CPU Torch；运行时可导入但缺模型资产 |
+| `.runtimes/fun_asr` | 约 1.1 GB | 项目内 Python 3.12.13、CPU Torch；依赖一致且 Nano 短音频转写已通过 |
+| `models/funasr` | 约 1.9 GB | Fun-ASR Nano 权重存在且可加载；MLT 变体未安装 |
 | `models/whisper` | 约 5.08 GB | 五个尺寸同时存在，默认只需要 Base |
 | `models/qwen3tts` | 约 12.65 GB | CustomVoice/Base/VoiceDesign 同时存在，只有 CustomVoice 已验收 |
 | `models/qwen3asr` | 约 6.13 GB | 0.6B/1.7B 同时存在；0.6B 已直接推理验收，1.7B 未验收 |
@@ -109,8 +109,8 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 
 - `.venv`：FastAPI、Edge TTS、基础音频链路和开发测试；
 - `.runtimes/qwen_tts`：Qwen3-TTS；
-- `.runtimes/qwen_asr`、`.runtimes/fun_asr`：只有用户选择并完成验收后保留；
-- Kokoro、VoxCPM2 等能力不进入默认环境。
+- `.runtimes/qwen_asr`、`.runtimes/fun_asr`：按用户选择保留，继续分别记录 Pipeline 验收边界；
+- VoxCPM2 等未安装能力不进入默认环境。
 
 环境精简必须通过重新解析依赖和重建环境完成，不手工删除单个传递依赖。
 

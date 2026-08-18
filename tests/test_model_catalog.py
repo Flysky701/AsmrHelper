@@ -4,7 +4,7 @@ from textwrap import dedent
 
 import pytest
 
-from src.core.resources.model_catalog import load_catalog_file
+from src.core.resources.model_catalog import DEFAULT_CATALOG_PATH, load_catalog_file
 
 
 def test_load_catalog_file_parses_extended_metadata(tmp_path):
@@ -24,6 +24,7 @@ def test_load_catalog_file_parses_extended_metadata(tmp_path):
                 dependency_group: sample_dep_group
                 display_name: Sample Model
                 description: Sample description
+                estimated_size_mb: 2048
                 install_root: models
                 install_path: sample/model
                 required_files: [model.bin]
@@ -66,6 +67,7 @@ def test_load_catalog_file_parses_extended_metadata(tmp_path):
     assert entry.variant_tier == "standard"
     assert entry.is_primary_variant is True
     assert entry.dependency_group == "sample_dep_group"
+    assert entry.estimated_size_mb == 2048
     assert entry.required_python_extras == ["sample_extra"]
     assert entry.required_runtime_packages == ["sample-runtime"]
     assert entry.recommended_runtime_packages == ["flash-attn"]
@@ -105,3 +107,40 @@ def test_load_catalog_file_rejects_invalid_supported_python_shape(tmp_path):
 
     with pytest.raises(ValueError, match="supported_python"):
         load_catalog_file(catalog_path)
+
+
+@pytest.mark.parametrize("invalid_size", [-1, 1.5, True, "1024"])
+def test_load_catalog_file_rejects_invalid_estimated_size(tmp_path, invalid_size):
+    catalog_path = tmp_path / "models.yaml"
+    catalog_path.write_text(
+        dedent(
+            f"""
+            models:
+              - id: bad-size
+                kind: local
+                category: asr
+                display_name: Bad Size
+                description: Invalid estimated size
+                install_path: bad/size
+                estimated_size_mb: {invalid_size!r}
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="estimated_size_mb"):
+        load_catalog_file(catalog_path)
+
+
+def test_project_catalog_declares_size_for_every_local_model():
+    catalog = load_catalog_file(DEFAULT_CATALOG_PATH)
+    local_models = catalog.list(kind="local")
+
+    assert local_models
+    assert all(entry.estimated_size_mb and entry.estimated_size_mb > 0 for entry in local_models)
+    tts_backends = {
+        entry.provider or entry.engine
+        for entry in local_models
+        if entry.category == "tts"
+    }
+    assert tts_backends == {"qwen3", "voxcpm2"}

@@ -218,31 +218,6 @@ class CapabilityDescriptorService:
             },
             {
                 "category": "tts",
-                "provider": "kokoro",
-                "display_name": "Kokoro TTS",
-                "kind": "local",
-                "supported_models": ["kokoro-82m"],
-                "default_model": "kokoro-82m",
-                "common_option_schema": [
-                    _option("voice", "string", required=False, default="af_heart", description="Kokoro voice id"),
-                    _option("speed", "number", required=False, default=1.0, description="Synthesis speed"),
-                ],
-                "provider_option_schema": [
-                    _option("lang_code", "string", required=False, description="Optional Kokoro language code"),
-                    _option("repo_id", "string", required=False, description="Optional custom Hugging Face repo id"),
-                    _option("split_pattern", "string", required=False, default="\\n+", description="Chunk split regex"),
-                    _option("sample_rate", "integer", required=False, default=24000, description="Output sample rate"),
-                ],
-                "supports": {
-                    "voice_list": True,
-                    "voice_clone": False,
-                    "preview": False,
-                    "streaming": False,
-                    "lightweight_local": True,
-                },
-            },
-            {
-                "category": "tts",
                 "provider": "voxcpm2",
                 "display_name": "VoxCPM2",
                 "kind": "local",

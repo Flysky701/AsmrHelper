@@ -10,6 +10,7 @@ models:
     required_python_extras: [audio]
     display_name: Faster-Whisper Tiny
     description: Fastest Whisper model with the lowest accuracy.
+    estimated_size_mb: 78
     install_root: models
     install_path: whisper/tiny
     required_files:
@@ -41,6 +42,7 @@ models:
     required_python_extras: [audio]
     display_name: Faster-Whisper Base
     description: Recommended balanced Whisper model.
+    estimated_size_mb: 148
     install_root: models
     install_path: whisper/base
     required_files:
@@ -71,6 +73,7 @@ models:
     required_python_extras: [audio]
     display_name: Faster-Whisper Small
     description: Higher-accuracy Whisper model.
+    estimated_size_mb: 486
     install_root: models
     install_path: whisper/small
     required_files:
@@ -101,6 +104,7 @@ models:
     required_python_extras: [audio]
     display_name: Faster-Whisper Medium
     description: High-accuracy Whisper model.
+    estimated_size_mb: 1530
     install_root: models
     install_path: whisper/medium
     required_files:
@@ -131,6 +135,7 @@ models:
     required_python_extras: [audio]
     display_name: Faster-Whisper Large-v3
     description: Highest-accuracy Whisper model.
+    estimated_size_mb: 3090
     install_root: models
     install_path: whisper/large-v3
     required_files:
@@ -160,9 +165,9 @@ models:
     is_primary_variant: true
     dependency_group: fun_asr
     required_python_extras: [funasr]
-    required_runtime_packages: ["torch>=2.4.0"]
     display_name: Fun-ASR Nano 2512
     description: Fun-ASR Nano multilingual speech recognition model weights from Hugging Face.
+    estimated_size_mb: 1990
     install_root: models
     install_path: funasr/Fun-ASR-Nano-2512
     required_files:
@@ -195,9 +200,9 @@ models:
     variant_tier: full
     dependency_group: fun_asr
     required_python_extras: [funasr]
-    required_runtime_packages: ["torch>=2.4.0"]
     display_name: Fun-ASR MLT Nano 2512
     description: Fun-ASR multilingual 31-language model weights from Hugging Face.
+    estimated_size_mb: 1990
     install_root: models
     install_path: funasr/Fun-ASR-MLT-Nano-2512
     required_files:
@@ -234,6 +239,7 @@ models:
     required_runtime_packages: ["torch>=2.4.0"]
     display_name: Qwen3-ASR 0.6B
     description: Qwen3-ASR 0.6B multilingual offline ASR model from Hugging Face.
+    estimated_size_mb: 1880
     install_root: models
     install_path: qwen3asr/Qwen3-ASR-0.6B
     required_files:
@@ -269,6 +275,7 @@ models:
     required_runtime_packages: ["torch>=2.4.0"]
     display_name: Qwen3-ASR 1.7B
     description: Qwen3-ASR 1.7B multilingual offline ASR model from Hugging Face.
+    estimated_size_mb: 4700
     install_root: models
     install_path: qwen3asr/Qwen3-ASR-1.7B
     required_files:
@@ -305,6 +312,7 @@ models:
     required_python_extras: [qwen3]
     display_name: Qwen3 CustomVoice
     description: Preset-speaker Qwen3 TTS model.
+    estimated_size_mb: 4520
     install_root: models
     install_path: qwen3tts/models--Qwen--Qwen3-TTS-12Hz-1.7B-CustomVoice
     required_files:
@@ -341,6 +349,7 @@ models:
     required_python_extras: [qwen3]
     display_name: Qwen3 VoiceDesign
     description: Natural-language voice design model.
+    estimated_size_mb: 4520
     install_root: models
     install_path: qwen3tts/models--Qwen--Qwen3-TTS-12Hz-1.7B-VoiceDesign
     required_files:
@@ -376,6 +385,7 @@ models:
     required_python_extras: [qwen3]
     display_name: Qwen3 Base
     description: Voice clone Qwen3 TTS model.
+    estimated_size_mb: 4540
     install_root: models
     install_path: qwen3tts/models--Qwen--Qwen3-TTS-12Hz-1.7B-Base
     required_files:
@@ -413,6 +423,7 @@ models:
     required_runtime_packages: [voxcpm>=2.0.0, soundfile>=0.12.0]
     display_name: VoxCPM2
     description: "2B-parameter tokenizer-free TTS by OpenBMB. 30 languages, voice design, controllable cloning, 48kHz output."
+    estimated_size_mb: 4960
     install_root: models
     install_path: voxcpm2
     required_files:
@@ -432,36 +443,6 @@ models:
     install_modes: [single]
     default_install_mode: single
 
-  - id: kokoro-82m
-    kind: local
-    category: tts
-    provider: kokoro
-    family_id: kokoro
-    variant_group: kokoro_main
-    variant_tier: lite
-    is_primary_variant: true
-    dependency_group: kokoro
-    required_python_extras: [kokoro]
-    required_runtime_packages: [kokoro>=0.9.4, soundfile>=0.12.0]
-    display_name: Kokoro 82M
-    description: Lightweight local Kokoro TTS package-backed runtime.
-    install_root: models
-    install_path: kokoro
-    required_files: []
-    required_dirs: []
-    supports_install: true
-    supports_remove: false
-    install_strategy: package
-    runtime_profile: python_package_local
-    supported_os: [windows, linux, macos]
-    supported_python:
-      min: "3.10"
-      max: "3.13"
-    preferred_runtime: python_package_local
-    required_system_tools: [espeak-ng]
-    install_modes: [single]
-    default_install_mode: single
-
   - id: demucs-htdemucs
     kind: local
     category: separator
@@ -475,6 +456,7 @@ models:
     required_python_extras: [audio]
     display_name: Demucs HTDemucs
     description: Demucs separator provided by the installed Python package.
+    estimated_size_mb: 337
     install_root: models
     install_path: demucs/htdemucs
     required_files: []

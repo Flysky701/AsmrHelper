@@ -164,6 +164,7 @@ class ModelSummary:
     category: str
     backend: str
     display_name: str
+    estimated_size_mb: int | None = None
     install_strategy: str = ""
     capability_models: list[str] = field(default_factory=list)
     supports_install: bool = False
@@ -214,3 +215,4 @@ class ModelVerificationResult:
     success: bool
     status: str
     detail: str
+    issues: list[ModelStatusIssueView] = field(default_factory=list)

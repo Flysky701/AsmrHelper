@@ -1,6 +1,6 @@
 # AsmrHelper 总体进度状态
 
-日期：2026-07-30（源码结构基线：2026-05-27；最新验证：2026-07-30）
+日期：2026-08-18（源码结构基线：2026-05-27；最新验证：2026-08-18）
 
 ## 1. 事实源
 
@@ -39,7 +39,7 @@
 
 2026-07-31 的 Edge TTS 稳定性补充：失败任务与成功重试使用相同参数，确认问题来自瞬时 WebSocket 连接超时。Edge 批量句子改为最多 4 并发、单句网络失败最多尝试 3 次，并提供可选 HTTP 代理参数；项目级代理合成已生成有效 WAV，重启后的 APP 侧验证也已完成。最新全量测试为 `199 passed`。
 
-2026-07-31 的多引擎恢复补充：ASR/TTS 可选 Provider 已重新接入项目模型目录、Pipeline 时间线和资源安装流程；Workbench 会提交明确模型，依赖冲突不再被误报为安装成功。当前注册范围为 ASR `faster_whisper/fun_asr/qwen3_asr`、TTS `edge/qwen3/kokoro/voxcpm2`、LLM `deepseek/openai` 和分离 `demucs`。最新全量测试为 `205 passed`，桌面生产构建通过；真实验收状态单独记录在 [多引擎支持现状](multi-engine-status.md)。
+2026-07-31 的多引擎恢复补充：ASR/TTS 可选 Provider 已重新接入项目模型目录、Pipeline 时间线和资源安装流程；Workbench 会提交明确模型，依赖冲突不再被误报为安装成功。2026-08-18 收口后的当前注册范围为 ASR `faster_whisper/fun_asr/qwen3_asr`、TTS `edge/qwen3/voxcpm2`、LLM `deepseek/openai` 和分离 `demucs`；真实验收状态单独记录在 [多引擎支持现状](multi-engine-status.md)。
 
 2026-08-03 的后端 P0 验收补充：顺序批量任务已验证单项 TTS 失败不会阻塞后续任务，任务状态、失败阶段和 Artifact 归属保持隔离；Edge 瞬时失败、模型下载中断重试、Worker 异常退出清理、取消后新任务重提均有确定性恢复验收。批处理已接入权威 readiness，失败项保留输入路径，直接执行 `verify_env.py` 的项目根解析已修复。全量测试 `226 passed`，桌面生产构建通过。当前先收束后端事实和安装边界，GUI 整理延后。
 
@@ -115,16 +115,16 @@ src.core.script_to_subtitle
 | 7 字幕与文本资产管理 | 已迁入 `core/subtitles`，残留旧引用已修复 |
 | 8 结果资产与产物索引管理 | TaskResult 与 Artifact 公共结构已统一并持久化 |
 | 9 结果预览与人工确认 | TaskCenter 已按 Artifact 声明展示主产物与音频预览入口 |
-| 10 TTS 引擎管理 | Edge 已验收；Qwen3、Kokoro、VoxCPM2 已接线，待分别安装和验收 |
+| 10 TTS 引擎管理 | Edge 已验收；Qwen3 已通过主链路；VoxCPM2 已接线、待安装和验收 |
 | 11 LLM 能力管理 | DeepSeek 已验收；OpenAI 已接线，待配置凭据和验收 |
-| 12 ASR 引擎管理 | Faster-Whisper 已验收；Fun-ASR、Qwen3-ASR 已接线，待分别安装和验收 |
+| 12 ASR 引擎管理 | Faster-Whisper 已验收；Qwen3-ASR 已通过可选主链路；Fun-ASR 独立推理已通过、Pipeline 待验收 |
 
 ## 6. 推荐下一步
 
 ### P1.5：参数与能力细化
 
 - 先在正式 APP 进程复核 Qwen3-TTS 模型状态，并决定批量能力是否需要 batch task 契约。
-- 再按实际需要选择 Qwen3-ASR、Fun-ASR 或 Kokoro 中的一个完成真实短样本主链路验收；当前优先候选为已有环境和权重的 Qwen3-ASR 0.6B。
+- 按实际需要完成 Fun-ASR 的 Pipeline 级短样本产物验收，并为未安装的 VoxCPM2 保持真实不可用状态。
 - 后端基线稳定后，再对照真实 API 整理 GUI 页面、状态和组件，不新增无后端能力支撑的入口。
 
 ## 7. 一句话结论

@@ -25,6 +25,7 @@ class ModelEntry:
     category: str
     display_name: str
     description: str
+    estimated_size_mb: Optional[int] = None
     provider: Optional[str] = None
     engine: Optional[str] = None
     install_root: Optional[str] = None
@@ -136,6 +137,7 @@ def _validate_entry(raw: Dict[str, Any]) -> ModelEntry:
         category=category,
         display_name=raw["display_name"],
         description=raw["description"],
+        estimated_size_mb=_optional_non_negative_int(raw.get("estimated_size_mb")),
         provider=raw.get("provider"),
         engine=raw.get("engine"),
         install_root=raw.get("install_root"),
@@ -225,6 +227,14 @@ def _optional_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise ModelCatalogError("healthcheck_timeout_seconds must be an integer") from exc
+
+
+def _optional_non_negative_int(value: Any) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ModelCatalogError("estimated_size_mb must be a non-negative integer")
+    return value
 
 
 def load_catalog_file(path: Path) -> ModelCatalog:

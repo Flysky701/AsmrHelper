@@ -58,6 +58,7 @@ class ModelService:
                 category=entry.category,
                 backend=entry.provider or entry.engine or "-",
                 display_name=entry.display_name,
+                estimated_size_mb=entry.estimated_size_mb,
                 install_strategy=entry.install_strategy or "",
                 capability_models=entry.capability_models or [entry.id],
                 supports_install=entry.supports_install,
@@ -234,14 +235,30 @@ class ModelService:
             raise AppExecutionError(str(exc)) from exc
 
         verification_results: list[ModelVerificationResult] = []
-        for current_id, ok in results.items():
+        for current_id, asset_ok in results.items():
             status = self.get_model_status(current_id)
+            issues = list(status.issues)
+            if not asset_ok and not any(
+                issue.code.startswith("MODEL_ASSET_") for issue in issues
+            ):
+                issues.append(
+                    ModelStatusIssueView(
+                        code="MODEL_ASSET_VERIFICATION_FAILED",
+                        requirement=current_id,
+                        message="Model asset verification failed",
+                    )
+                )
             verification_results.append(
                 ModelVerificationResult(
                     model_id=current_id,
-                    success=bool(ok),
+                    success=bool(asset_ok and status.executable),
                     status=status.status,
-                    detail=status.detail,
+                    detail=(
+                        status.detail
+                        if asset_ok
+                        else "Model assets are missing or failed verification"
+                    ),
+                    issues=issues,
                 )
             )
         if model_id is None:
@@ -273,6 +290,7 @@ class ModelService:
                 if provider_result.success
                 else provider_result.message or status.detail
             ),
+            issues=list(status.issues),
         )
 
     def remove_model(self, model_id: str) -> ModelOperationResult:

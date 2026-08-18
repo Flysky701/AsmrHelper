@@ -38,6 +38,15 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   unknown: { dot: 'oklch(62% 0.02 240)', label: '状态未知' },
 }
 
+function formatEstimatedSize(sizeMb?: number | null): string {
+  if (!sizeMb || sizeMb <= 0) return ''
+  if (sizeMb >= 1000) {
+    const sizeGb = sizeMb / 1000
+    return `约 ${sizeGb >= 10 ? sizeGb.toFixed(0) : sizeGb.toFixed(1)} GB`
+  }
+  return `约 ${Math.round(sizeMb)} MB`
+}
+
 export default function EnginesResources() {
   const setPage = useNavStore((state) => state.setPage)
   const addTask = useTaskStore((state) => state.addTask)
@@ -379,18 +388,22 @@ export default function EnginesResources() {
                         const resolvedStatusInfo = statusInfo ?? STATUS_STYLES.unknown!
                         const installState = installing[model.model_id]
                         const isInstalling = !!installState?.active || status?.status === 'installing'
-                        const missingPythonDependency = status?.issues?.some(
-                          issue => issue.code === 'PYTHON_DEPENDENCY_MISSING',
+                        const repairableRuntimeIssue = status?.issues?.some(
+                          issue => [
+                            'PYTHON_DEPENDENCY_MISSING',
+                            'PYTHON_DEPENDENCY_INCOMPATIBLE',
+                            'RUNTIME_ENVIRONMENT_MISSING',
+                          ].includes(issue.code),
                         ) ?? false
                         const needsInstall =
                           !!status && (
                           status.status === 'not_installed' ||
                           status.status === 'missing' ||
                           (status.status === 'invalid' && !probeFailed) ||
-                          missingPythonDependency)
+                          repairableRuntimeIssue)
                         const installLabel = model.install_strategy === 'package'
                           ? '安装依赖'
-                          : missingPythonDependency
+                          : repairableRuntimeIssue
                             ? '修复依赖'
                             : status?.status === 'invalid'
                               ? '重新安装'
@@ -405,6 +418,7 @@ export default function EnginesResources() {
                               <div style={{ fontWeight: 500 }}>{model.display_name}</div>
                               <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
                                 {model.backend || model.family_id || model.kind}
+                                {model.estimated_size_mb ? ` · ${formatEstimatedSize(model.estimated_size_mb)}` : ''}
                               </div>
                               {status?.issues?.length ? (
                                 <div style={{ fontSize: '11px', color: 'oklch(48% 0.12 65)', marginTop: '4px' }}>

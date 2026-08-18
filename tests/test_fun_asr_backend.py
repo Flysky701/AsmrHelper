@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 
 
 def test_fun_asr_recognizer_normalizes_sentence_info(tmp_path, monkeypatch):
@@ -77,6 +79,26 @@ def test_fun_asr_recognizer_falls_back_to_full_duration_segment(tmp_path, monkey
     results = recognizer.recognize(str(audio_path))
 
     assert results == [{"start": 0.0, "end": 5.0, "text": "plain transcript"}]
+
+
+def test_fun_asr_recognizer_reports_nested_runtime_dependency(monkeypatch):
+    fake_module = ModuleType("funasr")
+
+    def missing_auto_model(name: str):
+        if name == "AutoModel":
+            raise ModuleNotFoundError(
+                "No module named 'torchaudio'",
+                name="torchaudio",
+            )
+        raise AttributeError(name)
+
+    fake_module.__getattr__ = missing_auto_model  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "funasr", fake_module)
+
+    from src.core.engines.asr.fun_asr import FunAsrRecognizer
+
+    with pytest.raises(RuntimeError, match="runtime dependency 'torchaudio' is missing"):
+        FunAsrRecognizer(model_size="FunAudioLLM/Fun-ASR-Nano-2512")
 
 
 def test_execution_profile_builder_uses_fun_asr_default_model_when_settings_hold_whisper():
