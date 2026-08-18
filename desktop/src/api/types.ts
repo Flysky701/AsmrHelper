@@ -321,6 +321,7 @@ export interface VoiceCloneRequest {
   audio_path: string
   name: string
   ref_text?: string
+  x_vector_only_mode?: boolean
 }
 
 export interface SegmentAnalyzeRequest {
@@ -351,6 +352,7 @@ export interface SegmentAnalyzeResponse {
 export interface VoicePreviewRequest {
   text: string
   speed?: number
+  language?: string
 }
 
 // ── Tool tasks ─────────────────────────────────────────

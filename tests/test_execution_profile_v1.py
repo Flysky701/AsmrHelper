@@ -80,6 +80,7 @@ def test_planner_consumes_unified_stage_profiles():
     assert plan.asr.provider_options["vad_filter"] is False
     assert plan.translation.model == "default"
     assert plan.tts.common_options["speed"] == 1.1
+    assert plan.tts.common_options["language"] == "zh"
     assert plan.mix.original_volume == 0.7
     assert plan.mix.tts_delay_ms == 250
     assert plan.subtitle.export_format == "vtt"

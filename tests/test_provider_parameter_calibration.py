@@ -147,6 +147,23 @@ def test_edge_runtime_forwards_optional_proxy() -> None:
     assert kwargs["proxy"] == "http://127.0.0.1:7890"
 
 
+def test_qwen_runtime_forwards_target_language() -> None:
+    kwargs = TtsEngineRuntime._build_engine_kwargs(
+        "qwen3",
+        {
+            "common_options": {
+                "voice": "Ono_Anna",
+                "speed": 1.0,
+                "language": "ja",
+            },
+            "provider_options": {"voice_profile_id": "C1"},
+        },
+    )
+
+    assert kwargs["language"] == "ja"
+    assert kwargs["voice_profile_id"] == "C1"
+
+
 def test_voxcpm_runtime_prefers_managed_model_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

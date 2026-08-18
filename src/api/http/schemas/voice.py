@@ -37,7 +37,14 @@ class VoiceDesignRequest(BaseModel):
 class VoiceCloneRequest(BaseModel):
     audio_path: str = Field(..., description="Path to reference audio file")
     name: str = Field(..., description="Display name for the new voice")
-    ref_text: str = Field("", description="Reference text for synthesis")
+    ref_text: str = Field(
+        "",
+        description="Exact reference transcript; required for ICL cloning",
+    )
+    x_vector_only_mode: bool = Field(
+        False,
+        description="Use only the speaker embedding for cross-language cloning",
+    )
 
 
 class SegmentAnalyzeRequest(BaseModel):
@@ -69,3 +76,4 @@ class SegmentAnalyzeResponse(BaseModel):
 class VoicePreviewRequest(BaseModel):
     text: str = Field("", description="Text to synthesize")
     speed: float = Field(1.0, description="Speech speed")
+    language: str = Field("auto", description="Target synthesis language")

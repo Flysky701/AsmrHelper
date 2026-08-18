@@ -203,6 +203,14 @@ class CapabilityDescriptorService:
                 "common_option_schema": [
                     _option("voice", "string", required=False, default="Vivian", description="Preset voice or speaker"),
                     _option("speed", "number", required=False, default=1.0, description="Synthesis speed"),
+                    _option(
+                        "language",
+                        "string",
+                        required=False,
+                        default="auto",
+                        enum=["auto", "zh", "en", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"],
+                        description="Target synthesis language",
+                    ),
                 ],
                 "provider_option_schema": [
                     _option("voice_profile_id", "string", required=False, description="Custom profile identifier"),

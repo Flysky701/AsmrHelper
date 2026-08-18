@@ -88,6 +88,7 @@ def _build_tts(profile: dict[str, Any], pipeline_opts: dict[str, Any], *, enable
         common_options={
             "voice": common.get("voice", pipeline_opts.get("tts_voice", "zh-CN-XiaoxiaoNeural")),
             "speed": float(common.get("speed", pipeline_opts.get("tts_speed", 1.0))),
+            "language": common.get("language", pipeline_opts.get("target_lang", "auto")),
         },
         provider_options=provider_opts,
     )

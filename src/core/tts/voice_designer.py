@@ -88,6 +88,7 @@ class VoiceDesigner:
         Returns:
             VoiceProfile 实例
         """
+        from src.core.tts import normalize_qwen3_language
         from src.core.tts.qwen3_manager import Qwen3ModelManager
         from src.core.tts.voice_profile import VoiceProfile, get_voice_manager
 
@@ -116,7 +117,7 @@ class VoiceDesigner:
                 audios, sample_rate = vd_model.generate_voice_design(
                     text=ref_text,
                     instruct=description,
-                    language="chinese",
+                    language=normalize_qwen3_language("auto"),
                 )
 
             # 保存参考音频
@@ -179,7 +180,8 @@ class VoiceDesigner:
         self,
         audio_path: str,
         name: str,
-        ref_text: str = DEFAULT_REF_TEXT,
+        ref_text: str = "",
+        x_vector_only_mode: bool = False,
         progress_callback: Optional[Callable[[str, int], None]] = None,
     ):
         """
@@ -194,7 +196,8 @@ class VoiceDesigner:
         Args:
             audio_path: 参考音频路径
             name: 音色名称
-            ref_text: 参考音频对应的文本
+            ref_text: ICL 模式下参考音频对应的准确文本
+            x_vector_only_mode: 仅提取说话人向量，不使用参考文本和语音编码
             progress_callback: 进度回调 (msg, progress_percent)
 
         Returns:
@@ -209,6 +212,12 @@ class VoiceDesigner:
         audio_path = Path(audio_path)
         if not audio_path.exists():
             raise FileNotFoundError(f"参考音频不存在: {audio_path}")
+        ref_text = "" if x_vector_only_mode else (ref_text or "").strip()
+        if not x_vector_only_mode and not ref_text:
+            raise ValueError(
+                "ICL 音色克隆需要准确的参考文本；跨语言克隆请启用 "
+                "x_vector_only_mode"
+            )
 
         # 生成唯一 ID (C 系列 = clone)
         clone_ids = [int(p.id[1:]) for p in manager.get_all()
@@ -224,16 +233,18 @@ class VoiceDesigner:
             base_model = Qwen3ModelManager.get_base_model()
 
             # ===== Step 2: 分析音频 =====
-            self._report_progress(progress_callback, f"分析音频内容...", 30)
-            print(f"[VoiceDesigner] 参考文本: {ref_text}")
+            self._report_progress(progress_callback, "分析音频内容...", 30)
+            clone_mode = "x-vector" if x_vector_only_mode else "ICL"
+            print(f"[VoiceDesigner] 克隆模式: {clone_mode}, 参考文本: {ref_text}")
 
             # ===== Step 3: 创建 voice_clone_prompt =====
-            self._report_progress(progress_callback, f"创建音色克隆 prompt...", 40)
+            self._report_progress(progress_callback, "创建音色克隆 prompt...", 40)
 
             with torch.no_grad():
                 voice_clone_prompt = base_model.create_voice_clone_prompt(
                     ref_audio=str(audio_path),
-                    ref_text=ref_text,
+                    ref_text=ref_text or None,
+                    x_vector_only_mode=x_vector_only_mode,
                 )
 
             # 保存 prompt
@@ -247,7 +258,7 @@ class VoiceDesigner:
                 name=name,
                 category="clone",
                 engine="qwen3_clone",
-                description=f"克隆自: {audio_path.name}",
+                description=f"克隆自: {audio_path.name} · {clone_mode}",
                 ref_audio=str(audio_path),
                 prompt_cache=str(prompt_cache),
                 generated=True,
@@ -272,6 +283,7 @@ class VoiceDesigner:
         text: str = DEFAULT_REF_TEXT,
         output_path: str = None,
         speed: float = 1.0,
+        language: str = "auto",
     ) -> str:
         """
         试听音色效果
@@ -281,6 +293,7 @@ class VoiceDesigner:
             text: 试听文本
             output_path: 输出文件路径 (可选，默认临时文件)
             speed: 语速 (默认 1.0)
+            language: 目标合成语言
 
         Returns:
             生成的音频文件路径
@@ -293,7 +306,11 @@ class VoiceDesigner:
         try:
             # 统一使用 Qwen3TTSEngine 合成音频
             print(f"[VoiceDesigner] 试听音色: {profile.name}, 文本: {text[:50]}... (长度: {len(text)})")
-            engine = Qwen3TTSEngine(voice_profile_id=profile.id, speed=speed)
+            engine = Qwen3TTSEngine(
+                voice_profile_id=profile.id,
+                speed=speed,
+                language=language,
+            )
             audio_path = engine.synthesize(text, str(output_path))
             print(f"[VoiceDesigner] 试听音频已生成: {audio_path}")
 
@@ -308,7 +325,9 @@ class VoiceDesigner:
         audio_path: str,
         text: str = DEFAULT_REF_TEXT,
         output_path: str = None,
-        ref_text: str = DEFAULT_REF_TEXT,
+        ref_text: str = "",
+        x_vector_only_mode: bool = False,
+        language: str = "auto",
     ) -> str:
         """
         直接从音频文件克隆音色并生成试音音频（不保存音色配置）
@@ -317,12 +336,22 @@ class VoiceDesigner:
             audio_path: 参考音频路径
             text: 待合成文本
             output_path: 输出文件路径
-            ref_text: 参考音频对应的文本
+            ref_text: ICL 模式下参考音频对应的准确文本
+            x_vector_only_mode: 是否仅使用说话人向量
+            language: 目标合成语言
 
         Returns:
             生成的音频文件路径
         """
+        from src.core.tts import normalize_qwen3_language
         from src.core.tts.qwen3_manager import Qwen3ModelManager
+
+        ref_text = "" if x_vector_only_mode else (ref_text or "").strip()
+        if not x_vector_only_mode and not ref_text:
+            raise ValueError(
+                "ICL 音色克隆需要准确的参考文本；跨语言克隆请启用 "
+                "x_vector_only_mode"
+            )
 
         if output_path is None:
             import tempfile
@@ -334,7 +363,7 @@ class VoiceDesigner:
 
         try:
             # Step 1: 加载 Base 模型
-            print(f"[VoiceDesigner] 加载 Base 模型...")
+            print("[VoiceDesigner] 加载 Base 模型...")
             base_model = Qwen3ModelManager.get_base_model()
 
             # Step 2: 创建 voice_clone_prompt
@@ -342,16 +371,17 @@ class VoiceDesigner:
             with torch.no_grad():
                 voice_clone_prompt = base_model.create_voice_clone_prompt(
                     ref_audio=str(audio_path),
-                    ref_text=ref_text,
+                    ref_text=ref_text or None,
+                    x_vector_only_mode=x_vector_only_mode,
                 )
 
             # Step 3: 合成音频
-            print(f"[VoiceDesigner] 生成试音音频...")
+            print("[VoiceDesigner] 生成试音音频...")
             print(f"[VoiceDesigner] 合成文本: {text[:50]}... (长度: {len(text)})")
             with torch.no_grad():
                 wavs, sr = base_model.generate_voice_clone(
                     text,
-                    language="chinese",
+                    language=normalize_qwen3_language(language),
                     voice_clone_prompt=voice_clone_prompt,
                 )
 

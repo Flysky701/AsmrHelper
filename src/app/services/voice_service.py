@@ -30,6 +30,9 @@ from .task_service import TaskService, get_task_dispatcher, get_task_service
 
 logger = logging.getLogger(__name__)
 
+_VOICE_TASK_LOCK = threading.Lock()
+_VOICE_TASK_LOCK_POLL_SECONDS = 0.1
+
 
 class VoiceService:
     """Stable application-facing facade for voice operations."""
@@ -119,18 +122,20 @@ class VoiceService:
     # --- Voice Design ---
 
     def design_voice(self, request: VoiceDesignRequest) -> VoiceDesignResult:
-        if not request.description:
+        description = request.description.strip()
+        name = request.name.strip()
+        if not description:
             raise AppValidationError("description is required")
-        if not request.name:
+        if not name:
             raise AppValidationError("name is required")
 
         try:
             result = self._run_voice_task(
                 "design",
                 {
-                    "description": request.description,
-                    "name": request.name,
-                    "ref_text": request.ref_text or None,
+                    "description": description,
+                    "name": name,
+                    "ref_text": request.ref_text.strip() or None,
                 },
             )
         except ValueError as exc:
@@ -150,16 +155,18 @@ class VoiceService:
         )
 
     def submit_design_voice(self, request: VoiceDesignRequest):
-        if not request.description:
+        description = request.description.strip()
+        name = request.name.strip()
+        if not description:
             raise AppValidationError("description is required")
-        if not request.name:
+        if not name:
             raise AppValidationError("name is required")
         return self._submit_voice_task(
             "design",
             {
-                "description": request.description,
-                "name": request.name,
-                "ref_text": request.ref_text or None,
+                "description": description,
+                "name": name,
+                "ref_text": request.ref_text.strip() or None,
             },
         )
 
@@ -168,19 +175,27 @@ class VoiceService:
     def clone_voice(self, request: VoiceCloneRequest) -> VoiceCloneResult:
         if not request.audio_path:
             raise AppValidationError("audio_path is required")
-        if not request.name:
+        name = request.name.strip()
+        if not name:
             raise AppValidationError("name is required")
 
         audio_path = Path(request.audio_path)
-        if not audio_path.exists():
+        if not audio_path.is_file():
             raise AppValidationError(f"audio file does not exist: {request.audio_path}")
+        ref_text = "" if request.x_vector_only_mode else (request.ref_text or "").strip()
+        if not request.x_vector_only_mode and not ref_text:
+            raise AppValidationError(
+                "ref_text is required for ICL voice cloning; provide the exact "
+                "reference transcript or enable x_vector_only_mode"
+            )
         try:
             result = self._run_voice_task(
                 "clone",
                 {
                     "audio_path": str(audio_path),
-                    "name": request.name,
-                    "ref_text": request.ref_text or None,
+                    "name": name,
+                    "ref_text": ref_text or None,
+                    "x_vector_only_mode": request.x_vector_only_mode,
                 },
             )
         except AppValidationError:
@@ -202,17 +217,25 @@ class VoiceService:
     def submit_clone_voice(self, request: VoiceCloneRequest):
         if not request.audio_path:
             raise AppValidationError("audio_path is required")
-        if not request.name:
+        name = request.name.strip()
+        if not name:
             raise AppValidationError("name is required")
         audio_path = Path(request.audio_path)
-        if not audio_path.exists():
+        if not audio_path.is_file():
             raise AppValidationError(f"audio file does not exist: {request.audio_path}")
+        ref_text = "" if request.x_vector_only_mode else (request.ref_text or "").strip()
+        if not request.x_vector_only_mode and not ref_text:
+            raise AppValidationError(
+                "ref_text is required for ICL voice cloning; provide the exact "
+                "reference transcript or enable x_vector_only_mode"
+            )
         return self._submit_voice_task(
             "clone",
             {
                 "audio_path": str(audio_path),
-                "name": request.name,
-                "ref_text": request.ref_text or None,
+                "name": name,
+                "ref_text": ref_text or None,
+                "x_vector_only_mode": request.x_vector_only_mode,
             },
         )
 
@@ -261,20 +284,26 @@ class VoiceService:
     # --- Voice Preview ---
 
     def preview_voice(self, request: VoicePreviewRequest) -> VoicePreviewResult:
-        if not request.profile_id:
+        profile_id = request.profile_id.strip()
+        text = request.text.strip()
+        if not profile_id:
             raise AppValidationError("profile_id is required")
+        if not text:
+            raise AppValidationError("text is required")
+        language = self._normalize_preview_language(request.language)
 
-        profile = self._get_profile_or_raise(request.profile_id)
+        self._get_profile_or_raise(profile_id)
 
         try:
             result = self._run_voice_task(
                 "preview",
                 {
-                    "profile_id": request.profile_id,
-                    "text": request.text or None,
+                    "profile_id": profile_id,
+                    "text": text,
                     "speed": request.speed,
+                    "language": language,
                     "output_path": str(
-                        PROJECT_ROOT / ".tmp" / f"voice-preview-{request.profile_id}.wav"
+                        PROJECT_ROOT / ".tmp" / f"voice-preview-{profile_id}.wav"
                     ),
                 },
             )
@@ -285,20 +314,26 @@ class VoiceService:
 
         return VoicePreviewResult(
             task_id=result["task_id"],
-            profile_id=request.profile_id,
+            profile_id=profile_id,
             audio_path=result["audio_path"],
         )
 
     def submit_preview_voice(self, request: VoicePreviewRequest):
-        if not request.profile_id:
+        profile_id = request.profile_id.strip()
+        text = request.text.strip()
+        if not profile_id:
             raise AppValidationError("profile_id is required")
-        self._get_profile_or_raise(request.profile_id)
+        if not text:
+            raise AppValidationError("text is required")
+        language = self._normalize_preview_language(request.language)
+        self._get_profile_or_raise(profile_id)
         return self._submit_voice_task(
             "preview",
             {
-                "profile_id": request.profile_id,
-                "text": request.text or None,
+                "profile_id": profile_id,
+                "text": text,
                 "speed": request.speed,
+                "language": language,
             },
         )
 
@@ -336,36 +371,65 @@ class VoiceService:
     def _execute_voice_task(self, task_spec, context):
         profile = dict(task_spec.execution_profile)
         operation = str(profile.get("operation") or task_spec.task_type.split(".")[-1])
+        if operation not in {"design", "clone", "preview"}:
+            raise AppValidationError(f"unsupported voice task operation: {operation}")
         if context.cancellation_requested:
             raise RuntimeError("cancelled by user")
         context.update_progress(
             0.0,
-            message=f"running voice {operation}",
+            message=f"waiting for voice {operation} runtime",
             stage=operation,
         )
 
+        while not _VOICE_TASK_LOCK.acquire(timeout=_VOICE_TASK_LOCK_POLL_SECONDS):
+            if context.cancellation_requested:
+                raise RuntimeError("cancelled by user")
+
+        try:
+            if context.cancellation_requested:
+                raise RuntimeError("cancelled by user")
+            context.update_progress(
+                0.0,
+                message=f"running voice {operation}",
+                stage=operation,
+            )
+            return self._execute_serialized_voice_operation(
+                operation=operation,
+                profile=profile,
+                task_id=task_spec.task_id,
+            )
+        finally:
+            _VOICE_TASK_LOCK.release()
+
+    def _execute_serialized_voice_operation(
+        self,
+        *,
+        operation: str,
+        profile: dict,
+        task_id: str,
+    ) -> dict:
         if operation == "design":
             result = self._runtime_router.design_voice(profile)
             self._restore_profile(result)
-            self._register_voice_artifacts(task_spec.task_id, result)
+            self._register_voice_artifacts(task_id, result)
             return {
                 **result,
                 "primary_output": result.get("ref_audio_path", ""),
-                "artifact_set_id": task_spec.task_id,
+                "artifact_set_id": task_id,
             }
         if operation == "clone":
             result = self._runtime_router.clone_voice(profile)
             self._restore_profile(result)
-            self._register_voice_artifacts(task_spec.task_id, result)
+            self._register_voice_artifacts(task_id, result)
             return {
                 **result,
                 "primary_output": result.get("prompt_cache_path", ""),
-                "artifact_set_id": task_spec.task_id,
+                "artifact_set_id": task_id,
             }
         if operation == "preview":
             audio_path = self._runtime_router.preview_voice(profile)
             self._artifact_service.register_artifact(
-                task_id=task_spec.task_id,
+                task_id=task_id,
                 artifact_type="audio.voice_preview",
                 path=str(audio_path),
                 label="Voice Preview",
@@ -377,9 +441,31 @@ class VoiceService:
                 "profile_id": profile.get("profile_id", ""),
                 "audio_path": str(audio_path),
                 "primary_output": str(audio_path),
-                "artifact_set_id": task_spec.task_id,
+                "artifact_set_id": task_id,
             }
         raise AppValidationError(f"unsupported voice task operation: {operation}")
+
+    @staticmethod
+    def _normalize_preview_language(language: str) -> str:
+        from src.core.tts import normalize_qwen3_language
+
+        try:
+            normalized = normalize_qwen3_language(language)
+        except ValueError as exc:
+            raise AppValidationError(str(exc)) from exc
+        return {
+            "Auto": "auto",
+            "Chinese": "zh",
+            "English": "en",
+            "Japanese": "ja",
+            "Korean": "ko",
+            "German": "de",
+            "French": "fr",
+            "Russian": "ru",
+            "Portuguese": "pt",
+            "Spanish": "es",
+            "Italian": "it",
+        }[normalized]
 
     @staticmethod
     def _restore_profile(result: dict) -> None:

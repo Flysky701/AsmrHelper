@@ -62,7 +62,8 @@ def _execute(request: dict[str, Any]) -> dict[str, Any]:
         profile = designer.clone_from_audio(
             audio_path=str(payload.get("audio_path") or ""),
             name=str(payload.get("name") or ""),
-            ref_text=str(payload.get("ref_text") or "你好，今天辛苦了，让我来帮助你放松一下吧。"),
+            ref_text=str(payload.get("ref_text") or ""),
+            x_vector_only_mode=bool(payload.get("x_vector_only_mode", False)),
         )
         return _serialize_voice_profile(profile)
     elif operation == "voice.preview":
@@ -77,6 +78,7 @@ def _execute(request: dict[str, Any]) -> dict[str, Any]:
             text=str(payload.get("text") or ""),
             output_path=str(payload.get("output_path")) if payload.get("output_path") else None,
             speed=float(payload.get("speed", 1.0)),
+            language=str(payload.get("language") or "auto"),
         )
         return {"output_path": str(output_path)}
     raise ValueError(f"unsupported runtime worker operation: {operation}")

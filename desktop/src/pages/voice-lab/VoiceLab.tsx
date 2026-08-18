@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { voiceApi } from '@/api/voice'
 import type { VoiceProfileSummaryResponse, VoiceProfileResponse, SegmentInfo } from '@/api/types'
 import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
@@ -9,6 +9,7 @@ import type { TaskStatus } from '@/stores/taskStore'
 // ── Types ────────────────────────────────────────────
 type FilterKind = 'all' | 'preset' | 'design' | 'clone'
 type PanelType = 'preset' | 'design-create' | 'design-detail' | 'clone-create' | 'clone-detail' | 'empty'
+type CloneMode = 'icl' | 'x-vector'
 
 interface ProfileGroup {
   engine: string
@@ -213,6 +214,20 @@ const ENGINE_GROUPS: Record<string, { label: string; badge: string }> = {
   qwen3_clone: { label: '克隆音色', badge: 'Qwen3' },
 }
 
+const QWEN_LANGUAGE_OPTIONS = [
+  { value: 'auto', label: '自动识别' },
+  { value: 'zh', label: '中文' },
+  { value: 'ja', label: '日语' },
+  { value: 'en', label: '英语' },
+  { value: 'ko', label: '韩语' },
+  { value: 'de', label: '德语' },
+  { value: 'fr', label: '法语' },
+  { value: 'ru', label: '俄语' },
+  { value: 'pt', label: '葡萄牙语' },
+  { value: 'es', label: '西班牙语' },
+  { value: 'it', label: '意大利语' },
+]
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -239,9 +254,11 @@ export default function VoiceLab() {
   const [cloneAudioPath, setCloneAudioPath] = useState('')
   const [cloneSubtitlePath, setCloneSubtitlePath] = useState('')
   const [cloneAudioLanguage, setCloneAudioLanguage] = useState('ja')
+  const [cloneMode, setCloneMode] = useState<CloneMode>('icl')
 
   // Preview state
   const [previewText, setPreviewText] = useState('哥哥，今天给你做个特别的按摩哦，先从肩膀开始，放松一下吧。')
+  const [previewLanguage, setPreviewLanguage] = useState('zh')
   const [previewLoading, setPreviewLoading] = useState(false)
 
   // Instruct editing
@@ -252,6 +269,8 @@ export default function VoiceLab() {
   const [recommendedIndices, setRecommendedIndices] = useState<number[]>([])
   const [analysisWarnings, setAnalysisWarnings] = useState<string[]>([])
   const [analyzing, setAnalyzing] = useState(false)
+  const analysisRequestId = useRef(0)
+  const selectionRequestId = useRef(0)
 
   // Loading states
   const [designing, setDesigning] = useState(false)
@@ -259,7 +278,8 @@ export default function VoiceLab() {
   const [actionError, setActionError] = useState('')
 
   // ── Load profiles ──────────────────────────────────
-  const loadProfiles = useCallback(async () => {
+  const loadProfiles = useCallback(async (invalidateSelection = true) => {
+    if (invalidateSelection) selectionRequestId.current += 1
     try {
       const data = await voiceApi.listProfiles()
       setProfiles(data)
@@ -271,59 +291,79 @@ export default function VoiceLab() {
 
   useEffect(() => { loadProfiles() }, [loadProfiles])
 
-  // ── Select profile ─────────────────────────────────
-  const handleSelect = useCallback(async (id: string, category: string) => {
-    setActionError('')
-    setSelectedId(id)
+  const invalidateAnalysis = useCallback(() => {
+    analysisRequestId.current += 1
     setSegments([])
     setRecommendedIndices([])
     setAnalysisWarnings([])
+    setAnalyzing(false)
+  }, [])
+
+  // ── Select profile ─────────────────────────────────
+  const handleSelect = useCallback(async (id: string, category: string) => {
+    const requestId = ++selectionRequestId.current
+    setActionError('')
+    setSelectedId(id)
+    setDetail(null)
+    setPanel('empty')
+    invalidateAnalysis()
 
     if (category === 'preset') {
       try {
         const d = await voiceApi.getProfile(id)
+        if (requestId !== selectionRequestId.current) return
         setDetail(d)
         setInstructValue(d.instruct || '')
         setPanel('preset')
       } catch (error) {
+        if (requestId !== selectionRequestId.current) return
         setActionError(`读取音色详情失败：${errorMessage(error)}`)
         setPanel('empty')
       }
     } else if (category === 'custom') {
       try {
         const d = await voiceApi.getProfile(id)
+        if (requestId !== selectionRequestId.current) return
         setDetail(d)
         setPanel('design-detail')
       } catch (error) {
+        if (requestId !== selectionRequestId.current) return
         setActionError(`读取音色详情失败：${errorMessage(error)}`)
         setPanel('empty')
       }
     } else if (category === 'clone') {
       try {
         const d = await voiceApi.getProfile(id)
+        if (requestId !== selectionRequestId.current) return
         setDetail(d)
         setPanel('clone-detail')
       } catch (error) {
+        if (requestId !== selectionRequestId.current) return
         setActionError(`读取音色详情失败：${errorMessage(error)}`)
         setPanel('empty')
       }
     }
-  }, [])
+  }, [invalidateAnalysis])
 
   // ── Actions ────────────────────────────────────────
   const handlePreview = useCallback(async () => {
-    if (!selectedId) return
+    const text = previewText.trim()
+    if (!selectedId || !text) return
     setActionError('')
     setPreviewLoading(true)
     const localTaskId = addTask({
       jobType: 'voice-preview',
       sourceName: detail?.name || selectedId,
       sourcePath: selectedId,
-      params: { profile_id: selectedId, text: previewText, speed: 1.0 },
+      params: { profile_id: selectedId, text, speed: 1.0, language: previewLanguage },
     })
     updateTask(localTaskId, { message: '正在创建音色试听任务' })
     try {
-      const remote = await voiceApi.preview(selectedId, { text: previewText, speed: 1.0 })
+      const remote = await voiceApi.preview(selectedId, {
+        text,
+        speed: 1.0,
+        language: previewLanguage,
+      })
       updateTask(localTaskId, {
         serverTaskId: remote.task_id,
         status: remote.state as TaskStatus,
@@ -339,21 +379,24 @@ export default function VoiceLab() {
     } finally {
       setPreviewLoading(false)
     }
-  }, [addTask, detail?.name, previewText, selectedId, setPage, updateTask])
+  }, [addTask, detail?.name, previewLanguage, previewText, selectedId, setPage, updateTask])
 
   const handleDesign = useCallback(async () => {
-    if (!designName || !designDesc) return
+    const name = designName.trim()
+    const description = designDesc.trim()
+    const refText = designRefText.trim()
+    if (!name || !description) return
     setActionError('')
     setDesigning(true)
     const localTaskId = addTask({
       jobType: 'voice-design',
-      sourceName: designName,
+      sourceName: name,
       sourcePath: '',
-      params: { name: designName, description: designDesc, ref_text: designRefText || undefined },
+      params: { name, description, ref_text: refText || undefined },
     })
     updateTask(localTaskId, { message: '正在创建音色设计任务' })
     try {
-      const remote = await voiceApi.design({ name: designName, description: designDesc, ref_text: designRefText || undefined })
+      const remote = await voiceApi.design({ name, description, ref_text: refText || undefined })
       updateTask(localTaskId, {
         serverTaskId: remote.task_id,
         status: remote.state as TaskStatus,
@@ -373,6 +416,7 @@ export default function VoiceLab() {
 
   const handleAnalyze = useCallback(async () => {
     if (!cloneAudioPath) return
+    const requestId = ++analysisRequestId.current
     setActionError('')
     setSegments([])
     setRecommendedIndices([])
@@ -384,29 +428,44 @@ export default function VoiceLab() {
         subtitle_path: cloneSubtitlePath || undefined,
         audio_language: cloneAudioLanguage,
       })
+      if (requestId !== analysisRequestId.current) return
       setSegments(res.segments)
       setRecommendedIndices(res.recommended_indices)
       setAnalysisWarnings(res.warnings)
     } catch (error) {
+      if (requestId !== analysisRequestId.current) return
       setActionError(`音频分析失败：${errorMessage(error)}`)
     } finally {
-      setAnalyzing(false)
+      if (requestId === analysisRequestId.current) setAnalyzing(false)
     }
   }, [cloneAudioLanguage, cloneAudioPath, cloneSubtitlePath])
 
   const handleClone = useCallback(async () => {
-    if (!cloneAudioPath || !cloneName) return
+    const name = cloneName.trim()
+    if (!cloneAudioPath || !name) return
+    const xVectorOnly = cloneMode === 'x-vector'
+    const refText = cloneRefText.trim()
+    if (!xVectorOnly && !refText) {
+      setActionError('高保真 ICL 模式需要填写与参考音频完全一致的文本')
+      return
+    }
     setActionError('')
     setCloning(true)
+    const cloneParams = {
+      audio_path: cloneAudioPath,
+      name,
+      ref_text: xVectorOnly ? undefined : (refText || undefined),
+      x_vector_only_mode: xVectorOnly,
+    }
     const localTaskId = addTask({
       jobType: 'voice-clone',
-      sourceName: cloneName,
+      sourceName: name,
       sourcePath: cloneAudioPath,
-      params: { audio_path: cloneAudioPath, name: cloneName, ref_text: cloneRefText || undefined },
+      params: cloneParams,
     })
     updateTask(localTaskId, { message: '正在创建音色克隆任务' })
     try {
-      const remote = await voiceApi.clone({ audio_path: cloneAudioPath, name: cloneName, ref_text: cloneRefText || undefined })
+      const remote = await voiceApi.clone(cloneParams)
       updateTask(localTaskId, {
         serverTaskId: remote.task_id,
         status: remote.state as TaskStatus,
@@ -422,21 +481,30 @@ export default function VoiceLab() {
     } finally {
       setCloning(false)
     }
-  }, [addTask, cloneAudioPath, cloneName, cloneRefText, setPage, updateTask])
+  }, [addTask, cloneAudioPath, cloneMode, cloneName, cloneRefText, setPage, updateTask])
 
   const handleDelete = useCallback(async () => {
-    if (!selectedId) return
+    if (!selectedId || detail?.id !== selectedId) {
+      setActionError('当前音色详情尚未加载完成，请重新选择后再删除')
+      return
+    }
+    const profileId = selectedId
+    const requestId = ++selectionRequestId.current
     setActionError('')
     try {
-      await voiceApi.deleteProfile(selectedId)
-      setSelectedId(null)
-      setDetail(null)
-      setPanel('empty')
-      await loadProfiles()
+      await voiceApi.deleteProfile(profileId)
+      const selectionIsCurrent = requestId === selectionRequestId.current
+      if (selectionIsCurrent) {
+        setSelectedId(null)
+        setDetail(null)
+        setPanel('empty')
+      }
+      await loadProfiles(selectionIsCurrent)
     } catch (error) {
+      if (requestId !== selectionRequestId.current) return
       setActionError(`删除音色失败：${errorMessage(error)}`)
     }
-  }, [selectedId, loadProfiles])
+  }, [detail?.id, selectedId, loadProfiles])
 
   const handleSelectCloneAudio = useCallback(async () => {
     const files = await selectFiles({
@@ -445,10 +513,11 @@ export default function VoiceLab() {
       browserPrompt: '请输入参考音频所在目录的完整路径：',
     })
     if (files.length > 0) {
+      invalidateAnalysis()
       setCloneAudioPath(files[0]!)
       setActionError('')
     }
-  }, [selectFiles])
+  }, [invalidateAnalysis, selectFiles])
 
   const handleSelectCloneSubtitle = useCallback(async () => {
     const files = await selectFiles({
@@ -457,22 +526,23 @@ export default function VoiceLab() {
       browserPrompt: '请输入参考字幕文件的完整路径：',
     })
     if (files.length > 0) {
+      invalidateAnalysis()
       setCloneSubtitlePath(files[0]!)
       setActionError('')
     }
-  }, [selectFiles])
+  }, [invalidateAnalysis, selectFiles])
 
   const showCreate = (type: 'design' | 'clone') => {
+    selectionRequestId.current += 1
     setSelectedId(null)
     setDetail(null)
-    setSegments([])
-    setRecommendedIndices([])
-    setAnalysisWarnings([])
+    setActionError('')
+    invalidateAnalysis()
     if (type === 'design') {
       setDesignName(''); setDesignDesc(''); setDesignRefText('')
       setPanel('design-create')
     } else {
-      setCloneName(''); setCloneRefText(''); setCloneAudioPath(''); setCloneSubtitlePath(''); setCloneAudioLanguage('ja')
+      setCloneName(''); setCloneRefText(''); setCloneAudioPath(''); setCloneSubtitlePath(''); setCloneAudioLanguage('ja'); setCloneMode('icl')
       setPanel('clone-create')
     }
   }
@@ -618,7 +688,7 @@ export default function VoiceLab() {
                 </div>
               </div>
               <div className="voice-lab-actions-row" style={S.actionsRow}>
-                <button style={S.btnPrimarySm} onClick={handleDesign} disabled={designing}>
+                <button style={S.btnPrimarySm} onClick={handleDesign} disabled={designing || !designName.trim() || !designDesc.trim()}>
                   {designing ? '生成中...' : '生成音色'}
                 </button>
               </div>
@@ -670,31 +740,62 @@ export default function VoiceLab() {
                   <input style={S.input} type="text" value={cloneName} onChange={e => setCloneName(e.target.value)} placeholder="克隆音色名称" />
                 </div>
                 <div style={S.formField}>
-                  <label style={S.formLabel}>参考文本 (可选)</label>
-                  <input style={S.input} type="text" value={cloneRefText} onChange={e => setCloneRefText(e.target.value)} placeholder="参考音频中说的内容，提升克隆质量" />
+                  <label style={S.formLabel}>克隆模式</label>
+                  <select style={S.input} value={cloneMode} onChange={event => setCloneMode(event.target.value as CloneMode)}>
+                    <option value="icl">高保真 ICL</option>
+                    <option value="x-vector">跨语言 x-vector</option>
+                  </select>
+                  <span style={S.hint}>
+                    {cloneMode === 'icl'
+                      ? '结合语音与准确文本，音色还原更好'
+                      : '仅提取说话人特征，降低参考语言干扰，但还原度可能下降'}
+                  </span>
+                </div>
+                <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
+                  <label style={S.formLabel}>
+                    参考文本 {cloneMode === 'icl' ? '*' : '(x-vector 模式不使用)'}
+                  </label>
+                  <input
+                    style={{ ...S.input, background: cloneMode === 'x-vector' ? 'var(--bg)' : 'var(--surface)' }}
+                    type="text"
+                    value={cloneRefText}
+                    onChange={event => setCloneRefText(event.target.value)}
+                    placeholder="请逐字填写参考音频中实际说出的内容"
+                    disabled={cloneMode === 'x-vector'}
+                  />
                 </div>
                 <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
                   <label style={S.formLabel}>参考音频 *</label>
-                  <div
+                  <button
+                    type="button"
                     className="voice-lab-upload-zone"
-                    style={S.uploadZone}
+                    style={{ ...S.uploadZone, width: '100%', background: 'var(--surface)', fontFamily: 'var(--font-body)' }}
                     onClick={handleSelectCloneAudio}
+                    aria-label="选择参考音频"
                   >
                     <UploadIcon />
                     <div>{cloneAudioPath || '点击选择参考音频文件 (.wav / .mp3)'}</div>
                     <div style={{ fontSize: 11, marginTop: 4 }}>建议 5-30 秒清晰人声，无背景音</div>
-                  </div>
+                  </button>
                 </div>
                 <div style={S.formField}>
-                  <label style={S.formLabel}>参考字幕 (可选)</label>
+                  <label style={S.formLabel}>参考字幕 (仅用于质量检查)</label>
                   <button style={S.btnSm} type="button" onClick={handleSelectCloneSubtitle}>
                     {cloneSubtitlePath ? '更换字幕' : '选择字幕'}
                   </button>
                   <span style={S.hint}>{cloneSubtitlePath || '未提供时使用 ASR 识别音频文本'}</span>
                 </div>
                 <div style={S.formField}>
-                  <label style={S.formLabel}>音频语言</label>
-                  <select style={S.input} value={cloneAudioLanguage} onChange={event => setCloneAudioLanguage(event.target.value)}>
+                  <label style={S.formLabel}>参考音频语言 (仅用于质量检查)</label>
+                  <select
+                    style={S.input}
+                    value={cloneAudioLanguage}
+                    onChange={event => {
+                      invalidateAnalysis()
+                      setActionError('')
+                      setCloneAudioLanguage(event.target.value)
+                    }}
+                  >
                     <option value="ja">日语</option>
                     <option value="zh">中文</option>
                     <option value="en">英语</option>
@@ -748,11 +849,19 @@ export default function VoiceLab() {
                 </div>
               )}
 
+              <div style={{ ...S.hint, marginTop: 12 }}>
+                片段分析仅用于检查素材质量，不会自动裁剪或替换克隆输入；开始克隆时仍使用上方选择的完整参考音频。
+              </div>
+
               <div className="voice-lab-actions-row" style={S.actionsRow}>
                 <button style={S.btnSm} onClick={handleAnalyze} disabled={analyzing || !cloneAudioPath}>
-                  {analyzing ? '分析中...' : '分析片段'}
+                  {analyzing ? '分析中...' : '检查素材质量'}
                 </button>
-                <button style={S.btnPrimarySm} onClick={handleClone} disabled={cloning || !cloneName || !cloneAudioPath}>
+                <button
+                  style={S.btnPrimarySm}
+                  onClick={handleClone}
+                  disabled={cloning || !cloneName.trim() || !cloneAudioPath || (cloneMode === 'icl' && !cloneRefText.trim())}
+                >
                   {cloning ? '克隆中...' : '开始克隆'}
                 </button>
               </div>
@@ -795,7 +904,7 @@ export default function VoiceLab() {
             <svg width="48" height="48" fill="none" stroke="currentColor" strokeWidth="1" opacity={0.3}>
               <path d="M24 8v32M16 14v20M32 12v24M40 20v8M8 20v8" />
             </svg>
-            <div>选择一个音色查看详情，或点击「新建音色」创建</div>
+            <div>选择一个音色查看详情，或从上方设计、克隆新音色</div>
           </div>
         )
     }
@@ -812,7 +921,17 @@ export default function VoiceLab() {
           onChange={e => setPreviewText(e.target.value)}
           placeholder="输入试听文本"
         />
-        <button style={S.btnPrimarySm} onClick={handlePreview} disabled={previewLoading}>
+        <select
+          style={{ ...S.input, width: 132, flex: '0 0 132px' }}
+          value={previewLanguage}
+          onChange={event => setPreviewLanguage(event.target.value)}
+          aria-label="试听目标语言"
+        >
+          {QWEN_LANGUAGE_OPTIONS.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <button style={S.btnPrimarySm} onClick={handlePreview} disabled={previewLoading || !previewText.trim()}>
           <PlayIcon /> {previewLoading ? '生成中...' : '试听'}
         </button>
       </div>
@@ -836,7 +955,10 @@ export default function VoiceLab() {
         <span style={S.gpuPill}>Qwen3 扩展</span>
         <div className="voice-lab-action-spacer" style={S.spacer} />
         <button style={S.btn} onClick={() => showCreate('design')}>
-          <PlusIcon /> 新建音色
+          <PlusIcon /> 设计音色
+        </button>
+        <button style={S.btnPrimary} onClick={() => showCreate('clone')}>
+          <PlusIcon /> 克隆音色
         </button>
       </div>
 
@@ -878,7 +1000,9 @@ export default function VoiceLab() {
                     <div>
                       {group.profiles.length === 0 ? (
                         <div style={S.groupEmpty}>
-                          {group.engine === 'qwen3_custom' ? '暂无预设音色' : `暂无${group.label}，点击「新建音色」创建`}
+                          {group.engine === 'qwen3_custom'
+                            ? '暂无预设音色'
+                            : `暂无${group.label}，点击「${group.engine === 'qwen3_design' ? '设计音色' : '克隆音色'}」创建`}
                         </div>
                       ) : (
                         group.profiles.map(p => (

@@ -131,6 +131,7 @@ class TtsEngineRuntime:
             "voice": voice or "zh-CN-XiaoxiaoNeural",
             "speed": speed,
             "voice_profile_id": provider_options.get("voice_profile_id"),
+            "language": common_options.get("language", "auto"),
         }
         # Pass through all extra provider options (emotion, temperature, etc.)
         for key, value in provider_options.items():
