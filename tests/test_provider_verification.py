@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
+import os
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
+import pytest
 
 from src.api.http.app import create_app
 from src.app.services.model_service import ModelService as AppModelService
@@ -11,7 +15,10 @@ from src.app.services.resource_service import ResourceService
 from src.app.services.settings_service import SettingsService
 from src.core.resources.model_catalog import ModelEntry
 from src.core.resources.model_status import ModelStatusResolver
-from src.core.resources.provider_verification import ProviderVerificationRegistry
+from src.core.resources.provider_verification import (
+    ProviderVerificationPersistenceError,
+    ProviderVerificationRegistry,
+)
 
 
 class _Clock:
@@ -149,6 +156,398 @@ def test_configuration_fingerprint_and_ttl_invalidate_success(monkeypatch):
     expired = resolver.resolve(_entry())
     assert expired.executable is False
     assert expired.issues[0].code == "PROVIDER_UNVERIFIED"
+
+
+def test_successful_verification_survives_registry_restart(tmp_path):
+    cache_path = tmp_path / "provider-verifications.json"
+    first = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(100),
+        storage_path=cache_path,
+    )
+    first.record_success(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+        message="verified",
+    )
+
+    restarted = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(120),
+        storage_path=cache_path,
+    )
+
+    restored = restarted.get_fresh(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+    )
+    assert restored is not None
+    assert restored.success is True
+    assert restored.message == ""
+
+
+def test_persisted_verification_expires_and_never_contains_credentials(tmp_path):
+    cache_path = tmp_path / "provider-verifications.json"
+    registry = ProviderVerificationRegistry(
+        ttl_seconds=10,
+        clock=_Clock(100),
+        storage_path=cache_path,
+    )
+    registry.record_success(
+        "deepseek",
+        "super-secret-key",
+        "https://api.deepseek.com",
+    )
+
+    serialized = cache_path.read_text(encoding="utf-8")
+    assert "super-secret-key" not in serialized
+    assert "https://api.deepseek.com" not in serialized
+
+    restarted = ProviderVerificationRegistry(
+        ttl_seconds=10,
+        clock=_Clock(110),
+        storage_path=cache_path,
+    )
+    assert (
+        restarted.get_fresh(
+            "deepseek",
+            "super-secret-key",
+            "https://api.deepseek.com",
+        )
+        is None
+    )
+    assert json.loads(cache_path.read_text(encoding="utf-8"))["records"] == []
+
+
+def test_failed_recheck_removes_persisted_success(tmp_path):
+    cache_path = tmp_path / "provider-verifications.json"
+    registry = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(100),
+        storage_path=cache_path,
+    )
+    registry.record_success(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+    )
+    registry.record_failure(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+        message="invalid credential",
+        error_code="PROVIDER_CONNECTION_FAILED",
+    )
+
+    restarted = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(101),
+        storage_path=cache_path,
+    )
+    assert (
+        restarted.get_fresh(
+            "deepseek",
+            "current-key",
+            "https://api.deepseek.com",
+        )
+        is None
+    )
+
+
+def test_failed_recheck_discards_old_cache_when_atomic_replace_fails(
+    monkeypatch,
+    tmp_path,
+):
+    cache_path = tmp_path / "provider-verifications.json"
+    registry = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(100),
+        storage_path=cache_path,
+    )
+    registry.record_success(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+    )
+
+    monkeypatch.setattr(os, "replace", MagicMock(side_effect=OSError("disk full")))
+    registry.record_failure(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+        message="invalid credential",
+        error_code="PROVIDER_CONNECTION_FAILED",
+    )
+
+    assert cache_path.exists() is False
+    restarted = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(101),
+        storage_path=cache_path,
+    )
+    assert (
+        restarted.get_fresh(
+            "deepseek",
+            "current-key",
+            "https://api.deepseek.com",
+        )
+        is None
+    )
+
+
+def test_revocation_marker_blocks_locked_old_success_after_restart(
+    monkeypatch,
+    tmp_path,
+):
+    cache_path = tmp_path / "provider-verifications.json"
+    registry = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(100),
+        storage_path=cache_path,
+    )
+    registry.record_success(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+    )
+    real_unlink = Path.unlink
+
+    def locked_cache_unlink(path: Path, *args, **kwargs):
+        if path == cache_path:
+            raise PermissionError("cache file is locked")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", MagicMock(side_effect=OSError("locked")))
+    monkeypatch.setattr(Path, "unlink", locked_cache_unlink)
+    registry.record_failure(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+        message="invalid credential",
+        error_code="PROVIDER_CONNECTION_FAILED",
+    )
+
+    monkeypatch.undo()
+    assert cache_path.exists() is True
+    assert cache_path.with_suffix(".json.revoked").exists() is True
+    restarted = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(101),
+        storage_path=cache_path,
+    )
+    assert (
+        restarted.get_fresh(
+            "deepseek",
+            "current-key",
+            "https://api.deepseek.com",
+        )
+        is None
+    )
+
+
+def test_revocation_marker_is_durable_before_cache_replacement(
+    monkeypatch,
+    tmp_path,
+):
+    cache_path = tmp_path / "provider-verifications.json"
+    marker_path = cache_path.with_suffix(".json.revoked")
+    registry = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(100),
+        storage_path=cache_path,
+    )
+    registry.record_success(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+    )
+
+    def interrupt_replace(_source, _target):
+        assert marker_path.read_text(encoding="utf-8") == "revoked\n"
+        raise RuntimeError("simulated process interruption")
+
+    monkeypatch.setattr(os, "replace", interrupt_replace)
+    with pytest.raises(RuntimeError, match="interruption"):
+        registry.record_failure(
+            "deepseek",
+            "current-key",
+            "https://api.deepseek.com",
+            message="invalid credential",
+            error_code="PROVIDER_CONNECTION_FAILED",
+        )
+
+    monkeypatch.undo()
+    restarted = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(101),
+        storage_path=cache_path,
+    )
+    assert (
+        restarted.get_fresh(
+            "deepseek",
+            "current-key",
+            "https://api.deepseek.com",
+        )
+        is None
+    )
+
+
+def test_revocation_storage_total_failure_is_a_hard_error(monkeypatch, tmp_path):
+    cache_path = tmp_path / "provider-verifications.json"
+    registry = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(100),
+        storage_path=cache_path,
+    )
+    registry.record_success(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+    )
+    real_unlink = Path.unlink
+    real_open = Path.open
+
+    def blocked_open(path: Path, *args, **kwargs):
+        if path == cache_path.with_suffix(".json.revoked"):
+            raise PermissionError("marker is read-only")
+        return real_open(path, *args, **kwargs)
+
+    def blocked_unlink(path: Path, *args, **kwargs):
+        if path == cache_path:
+            raise PermissionError("cache is locked")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", blocked_open)
+    monkeypatch.setattr(Path, "unlink", blocked_unlink)
+    monkeypatch.setattr(os, "replace", MagicMock(side_effect=OSError("locked")))
+
+    with pytest.raises(ProviderVerificationPersistenceError, match="revoked"):
+        registry.invalidate_provider("deepseek")
+
+
+def test_invalidation_discards_old_cache_when_write_fails(monkeypatch, tmp_path):
+    cache_path = tmp_path / "provider-verifications.json"
+    registry = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(100),
+        storage_path=cache_path,
+    )
+    registry.record_success(
+        "deepseek",
+        "current-key",
+        "https://api.deepseek.com",
+    )
+    temporary_path = cache_path.with_suffix(".json.tmp")
+    real_open = Path.open
+
+    def blocked_temporary_open(path: Path, *args, **kwargs):
+        if path == temporary_path:
+            raise OSError("read-only filesystem")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", blocked_temporary_open)
+
+    registry.invalidate_provider("deepseek")
+
+    monkeypatch.setattr(Path, "open", real_open)
+    assert cache_path.exists() is False
+    restarted = ProviderVerificationRegistry(
+        ttl_seconds=60,
+        clock=_Clock(101),
+        storage_path=cache_path,
+    )
+    assert (
+        restarted.get_fresh(
+            "deepseek",
+            "current-key",
+            "https://api.deepseek.com",
+        )
+        is None
+    )
+
+
+def test_registry_rejects_non_finite_ttl_and_clock(tmp_path):
+    with pytest.raises(ValueError, match="TTL"):
+        ProviderVerificationRegistry(ttl_seconds=float("nan"))
+    with pytest.raises(ValueError, match="TTL"):
+        ProviderVerificationRegistry(ttl_seconds=float("inf"))
+    with pytest.raises(ValueError, match="clock"):
+        ProviderVerificationRegistry(
+            clock=lambda: float("nan"),
+            storage_path=tmp_path / "provider-verifications.json",
+        )
+
+
+def test_persisted_verification_rejects_unbounded_or_future_timestamps(tmp_path):
+    cache_path = tmp_path / "provider-verifications.json"
+    records = [
+        {
+            "provider": "deepseek",
+            "configuration_fingerprint": "infinite",
+            "success": True,
+            "checked_at": 100,
+            "expires_at": float("inf"),
+        },
+        {
+            "provider": "deepseek",
+            "configuration_fingerprint": "nan",
+            "success": True,
+            "checked_at": float("nan"),
+            "expires_at": 105,
+        },
+        {
+            "provider": "deepseek",
+            "configuration_fingerprint": "too-long",
+            "success": True,
+            "checked_at": 100,
+            "expires_at": 1000,
+        },
+        {
+            "provider": "deepseek",
+            "configuration_fingerprint": "future",
+            "success": True,
+            "checked_at": 1000,
+            "expires_at": 1010,
+        },
+    ]
+    cache_path.write_text(
+        json.dumps({"version": 1, "records": records}),
+        encoding="utf-8",
+    )
+
+    registry = ProviderVerificationRegistry(
+        ttl_seconds=10,
+        clock=_Clock(100),
+        storage_path=cache_path,
+    )
+
+    assert json.loads(cache_path.read_text(encoding="utf-8"))["records"] == []
+    assert (
+        registry.get_fresh(
+            "deepseek",
+            "any-key",
+            "https://api.deepseek.com",
+        )
+        is None
+    )
+
+
+def test_corrupt_verification_cache_is_ignored(tmp_path):
+    cache_path = tmp_path / "provider-verifications.json"
+    cache_path.write_text("not-json", encoding="utf-8")
+
+    registry = ProviderVerificationRegistry(storage_path=cache_path)
+
+    assert (
+        registry.get_fresh(
+            "deepseek",
+            "current-key",
+            "https://api.deepseek.com",
+        )
+        is None
+    )
 
 
 def test_successful_draft_probe_does_not_unlock_different_saved_configuration(monkeypatch):
