@@ -1,12 +1,12 @@
 # AsmrHelper 当前源码基线
 
-日期：2026-08-18
+日期：2026-08-19
 
 ## 1. 本文定位
 
 本文是当前 DOCS 的事实基线。
 
-架构、环境、文档定位和完整问题清单见 [当前架构与文档审计](current-architecture-and-doc-audit-2026-07-23.md)。本文只记录可由当前源码与验证直接支撑的事实。
+当前阶段与最新验证见 [总体进度状态](overall-progress-status.md)。[2026-07-23 架构与文档审计](../archived/roadmap/current-architecture-and-doc-audit-2026-07-23.md)只保留为历史快照。本文只记录可由当前源码与验证直接支撑的事实。
 
 后续判断项目进度时，优先级如下：
 
@@ -17,37 +17,20 @@
 
 ## 2. 当前 Git 状态
 
-当前分支：
+2026-08-19 审计基线：
 
 ```text
-refactor/re-design
+branch: codex/full-module-repair
+HEAD: b2aa2e7 功能：补齐 Qwen 音色克隆与语言链路
 ```
 
-当前 HEAD：
-
-```text
-f7c6b52 feat: 补齐 TaskStatus 横向字段（stage / timestamps / error / artifact_set_id）
-```
-
-近期对状态判断有直接影响的提交：
-
-| commit | 结论 |
-|---|---|
-| `74fa181` | 已移除旧 GUI、deprecated API 和 legacy pipeline |
-| `a190cac` | Phase 2A 收尾与能力描述符扩展已推进 |
-| `6326d6b` | 桌面端任务状态已与后端 `TaskStatus` 对齐 |
-| `5e61d14` | 桌面端页面已完成一轮重构 |
-| `605d825` | pipeline 预设、TTS voice list 和 preset 配置已接入 |
-| `b494ad6` | VoxCPM2 TTS 引擎已接入 |
-| `c4271d7` | 模型安装支持按需安装 Python 依赖 |
-| `3bd5c4a` | 完成 Workbench、TaskCenter、导航与样式的一轮桌面 UI 重设计；LLM registry 与能力描述符继续收束；重组 docs |
-| `f7c6b52` | TaskStatus 已补齐阶段、时间线、结构化错误和产物集合关联字段 |
-
-仓库最后一次提交日期为 2026-05-27。本次恢复工作已在工作区更新 UV 锁文件、安装/启动脚本和 Vite 配置；这些未提交变动属于当前环境收束工作。因此后续执行必须区分：
+当前工作树同时包含尚未提交的主线收口与验收改动。因此后续执行必须区分：
 
 - `HEAD` 已提交事实。
 - 当前工作区事实。
 - DOCS 正在更新中的事实。
+
+提交历史由 `git log` 直接查询；本文不再复制容易失真的长期提交清单。
 
 ## 3. 当前源码事实
 
@@ -144,7 +127,7 @@ src/core/runtime/
 当前状态：
 
 - ASR、LLM、TTS、separator registry/runtime 已经是主路径的一部分。
-- `ModelManager` 仍保留在 `src/core/model_manager.py`，但已是 deprecated 兼容层，不应再描述为新代码默认入口。
+- `ModelManager` 与 `src/core/translate` 弃用转发已在引用审计后删除；模型、翻译与字幕能力只保留各领域正式入口。
 - TTS 侧仍存在 Qwen3 相关 manager 与 voice 扩展能力，属于扩展能力兼容与逐步收束对象。
 
 ### 当前字幕与文本状态
@@ -221,7 +204,7 @@ text_utils.py
 
 2026-08-03 完成后端 P0 批量与异常恢复验收：顺序批量任务以确定性服务层故障注入验证“成功 → TTS 失败 → 成功”，中间失败不阻塞后续任务；三个任务分别保留 `completed/failed/completed` 状态，失败阶段为 `tts`，成功产物严格归属于各自 task_id。Edge TTS 瞬时连接失败重试、模型下载中断后保留 partial 文件并重试、隔离 Worker 无响应退出及交换文件清理、任务取消后以新 task_id 重提并生成新产物均已覆盖。批处理创建改走后端权威 readiness，失败汇总保留原输入路径；`verify_env.py` 可从项目外目录直接执行。全量测试 `226 passed`，桌面生产构建、compileall、Ruff `F821/F601` 均通过。该结论验证后端编排与恢复语义；Edge 和下载故障采用确定性模拟，不宣称真实外部网络在任意故障下均可恢复。
 
-当前边界必须保持明确：`POST /pipeline/batch` 仍是等待全部项目结束后返回的同步聚合接口，每个输入会创建独立 Pipeline task，但尚无独立 batch task_id、批量状态查询或 HTTP 批量取消入口；桌面端仅有 API 封装，当前页面未消费该接口。取消后重提验收针对单任务 `PipelineTaskOrchestrator`；Worker 异常退出会使当前任务明确失败并清理交换文件，不会自动重启 Worker，恢复方式是重提新任务。
+当时的边界是：`POST /pipeline/batch` 为同步聚合接口，没有独立 batch_id 和批量控制；该历史入口仍不作为桌面产品路径。2026-08-19 已新增持久化 `/batch-runs`：稳定记录子任务、聚合进度、整批取消和失败项重提。每个输入继续通过 `PipelineTaskOrchestrator` 创建独立 Task，Worker 异常仍使当前任务明确失败并清理交换文件，不会自动重启 Worker。
 
 2026-08-04 已完成 [后端能力事实清单](backend-capability-baseline.md)：按“已实现、环境可执行、真实验收、已接线、受限”区分当前能力，并明确批量、历史任务、运行环境、VoiceLab、兼容层和 GUI 可依赖边界。后续 GUI 整理以该清单和当前源码为准，不再从路由存在或设计稿推断能力已完成。
 
@@ -243,13 +226,13 @@ TaskCenter 随后完成契约收口：重试不再原地替换旧任务，而是
 
 桌面 API 表面也按实际页面消费继续收束：删除未使用的 ASR、翻译和 TTS 合成直连封装及对应 TypeScript 类型；后端同名同步接口保留为 Provider 诊断面。Workbench 的用户长任务仍只走 Pipeline，字幕翻译走 Tool，音色生成走 Voice Task。
 
-同样无人消费的 `pipelineApi.batch` 与 TypeScript 批量响应类型已删除。后端同步聚合仍用于服务层批量验收，但桌面只展示“多个输入对应多个独立 Task”的真实产品边界，不再留下 BatchRun 已接入的代码暗示。
+旧 `pipelineApi.batch` 与同步批量响应类型此前因无人消费而删除。2026-08-19 新增的 `batchesApi` 对应不同的持久 BatchRun 契约；桌面“批量处理”页提供目录扫描、文件选择、总进度、整批取消和失败项重提，不复活旧同步请求。
 
 最新源码已再次完成 Tauri release 构建并以 installed 模式启动。正式 `ASMR Helper` 窗口进程响应正常，后端健康、能力、任务历史、预设、音色档案与 Edge 音色请求均成功，启动日志无错误。Computer Use 初始化被 Codex 宿主目录权限拒绝后，使用一次性 WebView2 CDP 连接当前真实 Tauri 窗口，逐页点击工作台、任务中心、音频工具、字幕工坊、音色实验室、引擎与资源和设置；页面内容、按钮、27 条任务历史、17 个模型及真实凭据状态均正确。工作台“添加音频”会使页面失焦并进入原生模态等待，当前 release 的对话框调用已确认。
 
 TaskCenter 随后选择仍有真实文件的历史任务 `pipeline-2`，成功读取主音频 Artifact 并显示 8 秒时长；点击播放器后进度由 `0:00` 前进到 `0:02`，播放按钮同步切换为暂停。由此确认当前 release 的结果查询、Artifact 文件服务和音频播放器链路。
 
-正式窗口生命周期随后修复：主窗口 `CloseRequested` 不再依赖 Tauri 默认退出时序，而是显式结束 AppHandle。新 release 连续 3 次“启动—标准关闭—APP 退出—后端端口释放”均通过，解决了间歇性无窗口残留进程问题。
+正式窗口生命周期随后修复：Tauri 侧对主窗口 `CloseRequested` 采用 fail-closed 拦截，前端完成未保存状态确认后调用 `WebviewWindow.destroy()`；启动器只结束本轮创建的后端 PID，并仅在 PID 文件仍匹配时移除该文件。2026-08-19 最新 release 连续 2 轮“启动—标准关闭—APP/后端退出—8000 端口释放—PID 文件清理”均通过，解决了无窗口残留进程与过期 PID 文件问题。
 
 `vite.config.ts` 已忽略 `src-tauri/target/**`，避免 Windows 下 Tauri 开发期 Vite 监视 Cargo 的 `.pdb` 文件触发 `EBUSY`。这是一项开发环境兼容配置，不是业务架构变化。
 
@@ -257,6 +240,8 @@ TaskCenter 随后选择仍有真实文件的历史任务 `pipeline-2`，成功�
 
 - 当前 `src` 语法编译通过。
 - 完整验证应使用项目 `.venv` 运行 `python -m pytest`，并在 `desktop/` 中运行 `npm run build`。
+- 2026-08-19 BatchRun 变更完成 `343 passed`、92 路由环境自检、Ruff、UV lock、桌面生产构建和 Tauri release build；正式窗口批量操作尚需人工点击验收。
+- 同日全仓收尾审计确认活跃 Markdown 文档无本地断链；Ruff `C901` 仍记录 35 个复杂度热点。这些函数仍有运行时引用且测试通过，不按死代码机械删除，后续应按服务边界和算法行为分阶段拆分。
 
 ## 5. 当前项目阶段判断
 
@@ -264,7 +249,7 @@ TaskCenter 随后选择仍有真实文件的历史任务 `pipeline-2`，成功�
 
 ## 6. 后续维护事项
 
-1. 保持 Workbench 多文件等于多个独立 Task；除非产品明确需要批次级查询/取消，否则不引入 BatchRun。
+1. BatchRun 只聚合独立 Pipeline Task；保持 Dispatcher 为唯一执行边界，重启中断后只允许显式重提失败项，不伪装续跑。
 2. `.runtimes/*-backup-*` 不参与当前环境，需用户明确确认后再删除；可选模型权重按实际保留需求另行处理。
 3. 未配置或未安装的 OpenAI、VoxCPM2 继续显示真实不可用原因；Fun-ASR 当前可执行，但仍需完成 Pipeline 级验收。
 4. 后续修改 Tauri 对话框、任务状态、Voice 提交或 Artifact 播放时，应重跑对应的正式窗口交互验收。

@@ -190,6 +190,7 @@ models:
     default_install_mode: single
     auto_install_dependencies: true
     allow_remote_code: true
+    required_assets: [fun-asr-fsmn-vad]
 
   - id: fun-asr-mlt-nano-2512
     kind: local
@@ -225,6 +226,38 @@ models:
     default_install_mode: single
     auto_install_dependencies: true
     allow_remote_code: true
+    required_assets: [fun-asr-fsmn-vad]
+
+  - id: fun-asr-fsmn-vad
+    kind: local
+    category: asr
+    provider: fun_asr
+    capability_models: [fun-asr-nano-2512, fun-asr-mlt-nano-2512]
+    family_id: fun_asr_assets
+    dependency_group: fun_asr
+    required_python_extras: [funasr]
+    display_name: FunASR FSMN VAD
+    description: Voice activity detector required to split long audio before Fun-ASR recognition.
+    estimated_size_mb: 5
+    install_root: models
+    install_path: funasr/fsmn-vad
+    required_files:
+      - config.yaml
+      - model.pt
+    required_dirs: []
+    supports_install: true
+    supports_remove: true
+    install_strategy: huggingface_snapshot
+    upstream_name: funasr/fsmn-vad
+    runtime_profile: fun_asr
+    supported_os: [windows, linux, macos]
+    supported_python:
+      min: "3.10"
+      max: "3.13"
+    preferred_runtime: python_package_local
+    install_modes: [single]
+    default_install_mode: single
+    auto_install_dependencies: true
 
   - id: qwen3-asr-0.6b
     kind: local
@@ -262,6 +295,7 @@ models:
     install_modes: [single, recommended, family_all]
     default_install_mode: single
     auto_install_dependencies: true
+    required_assets: [qwen3-forced-aligner-0.6b]
 
   - id: qwen3-asr-1.7b
     kind: local
@@ -298,6 +332,42 @@ models:
       max: "3.13"
     preferred_runtime: python_package_local
     install_modes: [single, recommended, family_all]
+    default_install_mode: single
+    auto_install_dependencies: true
+    required_assets: [qwen3-forced-aligner-0.6b]
+
+  - id: qwen3-forced-aligner-0.6b
+    kind: local
+    category: asr
+    provider: qwen3_asr
+    capability_models: [qwen3-asr-0.6b, qwen3-asr-1.7b]
+    family_id: qwen3_asr_assets
+    dependency_group: qwen3_asr
+    required_python_extras: [qwen_asr]
+    required_runtime_packages: ["torch>=2.4.0"]
+    display_name: Qwen3 Forced Aligner 0.6B
+    description: Official Qwen3 forced aligner required for word and sentence timestamps.
+    estimated_size_mb: 1880
+    install_root: models
+    install_path: qwen3asr/Qwen3-ForcedAligner-0.6B
+    required_files:
+      - config.json
+      - model.safetensors
+      - preprocessor_config.json
+      - tokenizer_config.json
+      - vocab.json
+    required_dirs: []
+    supports_install: true
+    supports_remove: true
+    install_strategy: huggingface_snapshot
+    upstream_name: Qwen/Qwen3-ForcedAligner-0.6B
+    runtime_profile: qwen_asr
+    supported_os: [windows, linux]
+    supported_python:
+      min: "3.10"
+      max: "3.13"
+    preferred_runtime: python_package_local
+    install_modes: [single]
     default_install_mode: single
     auto_install_dependencies: true
 

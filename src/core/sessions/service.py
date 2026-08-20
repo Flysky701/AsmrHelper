@@ -72,6 +72,8 @@ class SessionRegistry:
     def _resolve_output_dir(default_output_root: str, display_name: str, output_policy: dict) -> str:
         mode = output_policy.get("mode", "workspace-default")
         custom = output_policy.get("custom_output_dir")
+        if mode == "task-scoped-root":
+            return str(Path(custom or default_output_root).resolve())
         if mode == "custom-dir" and custom:
             return str(Path(custom).resolve())
         safe_name = sanitize_filename(Path(display_name).stem or "session")

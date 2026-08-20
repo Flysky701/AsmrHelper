@@ -110,20 +110,20 @@ class ModelStatusResolver:
                     return ModelStatus(
                         entry.id,
                         ModelState.CONFIGURED,
-                        issue.message,
-                        executable=False,
+                        f"{issue.message}. Tasks may still be started; verify the connection manually or retry the task",
+                        executable=True,
                         issues=(issue,),
                     )
                 issue = ModelStatusIssue(
                     "PROVIDER_UNVERIFIED",
                     provider,
-                    "Credential is configured, but provider availability has not been verified",
+                    "Credential is configured. Connection verification is optional and can be started manually",
                 )
                 return ModelStatus(
                     entry.id,
                     ModelState.CONFIGURED,
                     issue.message,
-                    executable=False,
+                    executable=True,
                     issues=(issue,),
                 )
             issue = ModelStatusIssue(

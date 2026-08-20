@@ -3,6 +3,7 @@ import type { PageId } from '@/stores/navStore'
 import type { ComponentType } from 'react'
 
 import Workbench from '@/pages/Workbench'
+import BatchProcessing from '@/pages/BatchProcessing'
 import SubtitleWorkshop from '@/pages/SubtitleWorkshop'
 import VoiceLab from '@/pages/voice-lab/VoiceLab'
 import TaskCenter from '@/pages/TaskCenter'
@@ -12,6 +13,7 @@ import AudioTools from '@/pages/AudioTools'
 
 const PAGES: Record<PageId, ComponentType> = {
   workbench: Workbench,
+  'batch-processing': BatchProcessing,
   'subtitle-workshop': SubtitleWorkshop,
   'voice-lab': VoiceLab,
   'audio-tools': AudioTools,

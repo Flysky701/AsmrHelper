@@ -8,17 +8,20 @@ function useWindowCloseGuard() {
   useEffect(() => {
     if (!isTauri()) return
 
+    const currentWindow = getCurrentWindow()
     let disposed = false
     let unlisten: (() => void) | undefined
 
-    void getCurrentWindow()
+    void currentWindow
       .onCloseRequested((event) => {
+        event.preventDefault()
         try {
-          if (useNavStore.getState().confirmLeaveCurrentPage()) return
-          event.preventDefault()
+          if (!useNavStore.getState().confirmLeaveCurrentPage()) return
+          void currentWindow.destroy().catch((error) => {
+            console.error('关闭窗口失败', error)
+          })
         } catch (error) {
           // A broken guard must fail closed so unsaved work is never discarded.
-          event.preventDefault()
           console.error('确认窗口关闭失败', error)
         }
       })

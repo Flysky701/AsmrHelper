@@ -320,10 +320,12 @@ class ModelInstaller:
 
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             proc.kill()
             proc.communicate()
-            raise ModelDownloadError(f"model download timed out after {timeout} seconds")
+            raise ModelDownloadError(
+                f"model download timed out after {timeout} seconds"
+            ) from exc
 
         if proc.returncode != 0:
             detail = (stderr or stdout or "no subprocess output").strip()[-2000:]

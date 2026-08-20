@@ -189,10 +189,10 @@ class RuntimeProfileResolver:
             available = all(json.loads(line.removeprefix("__ASMR_RUNTIME_PROBE__")).values())
             self._set_cached_probe(cache_key, available)
             return available
-        except (json.JSONDecodeError, AttributeError, StopIteration):
+        except (json.JSONDecodeError, AttributeError, StopIteration) as exc:
             detail = "runtime module probe returned an invalid response"
             self._set_cached_probe_error(cache_key, detail)
-            raise RuntimeProbeError(detail)
+            raise RuntimeProbeError(detail) from exc
 
     def has_cuda(self, profile_id: str | None) -> bool:
         profile = self.resolve(profile_id)

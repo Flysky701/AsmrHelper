@@ -16,7 +16,6 @@ __all__ = [
     "LlmOperationRuntime",
     "Mixer",
     "MixConfig",
-    "ModelManager",
     "ModelService",
     "PipelineExecutionContext",
     "PipelineExecutionPlan",
@@ -52,7 +51,6 @@ __all__ = [
     "WorkspaceContext",
     "WorkspaceResolver",
     "build_execution_plan",
-    "get_model_manager",
     "get_model_service",
 ]
 
@@ -68,7 +66,6 @@ _EXPORTS = {
     "LlmOperationRuntime": ("src.core.engines", "LlmOperationRuntime"),
     "Mixer": ("src.mixer", "Mixer"),
     "MixConfig": ("src.core.orchestration", "MixConfig"),
-    "ModelManager": ("src.core.model_manager", "ModelManager"),
     "ModelService": ("src.core.resources", "ModelService"),
     "PipelineExecutionContext": ("src.core.orchestration", "PipelineExecutionContext"),
     "PipelineExecutionPlan": ("src.core.orchestration", "PipelineExecutionPlan"),
@@ -104,7 +101,6 @@ _EXPORTS = {
     "WorkspaceContext": ("src.core.sessions", "WorkspaceContext"),
     "WorkspaceResolver": ("src.core.sessions", "WorkspaceResolver"),
     "build_execution_plan": ("src.core.orchestration", "build_execution_plan"),
-    "get_model_manager": ("src.core.model_manager", "get_model_manager"),
     "get_model_service": ("src.core.resources", "get_model_service"),
 }
 

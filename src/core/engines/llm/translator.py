@@ -287,7 +287,7 @@ class Translator:
         # 构建批量请求
         batch_data = [
             {"id": i, "idx": idx, "src": text}
-            for i, (idx, text) in enumerate(zip(batch_indices, batch))
+            for i, (idx, text) in enumerate(zip(batch_indices, batch, strict=True))
         ]
 
         for attempt in range(max_retries):
@@ -322,7 +322,7 @@ class Translator:
                             break
                     
                     if trans_key is None:
-                        print(f"[ERROR] API 返回缺少翻译字段，尝试使用 src（原文）")
+                        print("[ERROR] API 返回缺少翻译字段，尝试使用 src（原文）")
                         trans_key = "src"
                     
                     return [
@@ -339,10 +339,10 @@ class Translator:
                 # 继续重试，温度递增
 
         # 所有批量重试均失败，降级为逐条翻译
-        print(f"  [WARN] 批量翻译失败，降级为逐条翻译")
+        print("  [WARN] 批量翻译失败，降级为逐条翻译")
         return [
             (idx, text, False)  # 标记为需要逐条重试
-            for idx, text in zip(batch_indices, batch)
+            for idx, text in zip(batch_indices, batch, strict=True)
         ]
 
     def translate_batch(
@@ -380,7 +380,7 @@ class Translator:
         need_translate = []  # [(index, preprocessed_text), ...]
         cache_hits = {}  # {index: cached_translation}
 
-        for i, (orig, pre) in enumerate(zip(texts, preprocessed)):
+        for i, pre in enumerate(preprocessed):
             if not pre.strip():
                 results[i] = ""
                 continue
@@ -414,7 +414,7 @@ class Translator:
         total_cache = len(cache_hits)
 
         if total_need == 0 and total_cache == 0:
-            print(f"[Translator] 批量翻译完成，0 段有效文本")
+            print("[Translator] 批量翻译完成，0 段有效文本")
             return results
 
         # 输出缓存命中信息
@@ -452,7 +452,7 @@ class Translator:
 
         # Step 7.5: 检测未翻译的文本（日文残留）
         untranslated = []
-        for i, (orig, trans) in enumerate(zip(texts, results)):
+        for i, (orig, trans) in enumerate(zip(texts, results, strict=True)):
             if orig == trans and orig.strip():  # 原文 == 译文，说明没有翻译
                 untranslated.append((i, orig[:50]))
         if untranslated:
@@ -565,7 +565,7 @@ class Translator:
     ) -> List[str]:
         """逐条翻译模式（备用）"""
         total = len(need_translate)
-        print(f"[Translator] 使用逐条翻译模式...")
+        print("[Translator] 使用逐条翻译模式...")
 
         for i, (idx, text) in enumerate(need_translate):
             translated, success = self._translate_single_with_retry(text, system_prompt)
@@ -635,10 +635,10 @@ class Translator:
 
         # 合并结果
         results = []
-        for seg, trans in zip(segments, translations):
-            seg = seg.copy()
-            seg["translation"] = trans
-            results.append(seg)
+        for segment, translation in zip(segments, translations, strict=True):
+            translated_segment = segment.copy()
+            translated_segment["translation"] = translation
+            results.append(translated_segment)
 
         return results
 

@@ -77,7 +77,7 @@ def _patch_config_get(monkeypatch, config: _Config) -> None:
     monkeypatch.setattr("src.core.resources.model_status.config.get", get_value)
 
 
-def test_successful_provider_probe_unlocks_status_without_status_network_io(monkeypatch):
+def test_provider_status_is_runnable_and_manual_probe_is_cached_without_status_io(monkeypatch):
     config = _Config()
     _patch_config_get(monkeypatch, config)
     registry = ProviderVerificationRegistry()
@@ -94,7 +94,7 @@ def test_successful_provider_probe_unlocks_status_without_status_network_io(monk
     after = resolver.resolve(_entry())
     repeated = resolver.resolve(_entry())
 
-    assert before.executable is False
+    assert before.executable is True
     assert before.issues[0].code == "PROVIDER_UNVERIFIED"
     assert result.success is True
     assert after.executable is True
@@ -106,7 +106,7 @@ def test_successful_provider_probe_unlocks_status_without_status_network_io(monk
     )
 
 
-def test_failed_probe_records_blocking_status(monkeypatch):
+def test_failed_manual_probe_records_advisory_status(monkeypatch):
     config = _Config()
     _patch_config_get(monkeypatch, config)
     registry = ProviderVerificationRegistry()
@@ -121,7 +121,7 @@ def test_failed_probe_records_blocking_status(monkeypatch):
     status = resolver.resolve(_entry())
 
     assert result.success is False
-    assert status.executable is False
+    assert status.executable is True
     assert status.issues[0].code == "PROVIDER_VERIFICATION_FAILED"
     assert "authentication failed" in status.detail
 
@@ -142,19 +142,19 @@ def test_configuration_fingerprint_and_ttl_invalidate_success(monkeypatch):
 
     config.data["api"]["deepseek_base_url"] = "https://gateway.invalid/v1"
     changed = resolver.resolve(_entry())
-    assert changed.executable is False
+    assert changed.executable is True
     assert changed.issues[0].code == "PROVIDER_UNVERIFIED"
 
     config.data["api"]["deepseek_base_url"] = "https://api.deepseek.com"
     config.data["api"]["deepseek_api_key"] = "replacement-key"
     changed_key = resolver.resolve(_entry())
-    assert changed_key.executable is False
+    assert changed_key.executable is True
     assert changed_key.issues[0].code == "PROVIDER_UNVERIFIED"
 
     config.data["api"]["deepseek_api_key"] = "current-key"
     clock.now += 10
     expired = resolver.resolve(_entry())
-    assert expired.executable is False
+    assert expired.executable is True
     assert expired.issues[0].code == "PROVIDER_UNVERIFIED"
 
 
@@ -574,10 +574,10 @@ def test_successful_draft_probe_does_not_unlock_different_saved_configuration(mo
     )
 
     assert result.success is True
-    assert resolver.resolve(_entry()).executable is False
+    assert resolver.resolve(_entry()).executable is True
 
 
-def test_cloud_model_verify_closes_pipeline_readiness_loop(monkeypatch, tmp_path):
+def test_cloud_verification_is_advisory_for_pipeline_readiness(monkeypatch, tmp_path):
     config = _Config()
     _patch_config_get(monkeypatch, config)
     clock = _Clock()
@@ -638,14 +638,23 @@ def test_cloud_model_verify_closes_pipeline_readiness_loop(monkeypatch, tmp_path
         task_type="pipeline",
         execution_profile=profile,
     )
+    probe.side_effect = RuntimeError("authentication failed")
+    failed_verification = models.verify_models("deepseek")
+    after_failed_verification = resources.check_task_readiness(
+        task_type="pipeline",
+        execution_profile=profile,
+    )
 
-    assert before["ready"] is False
-    assert before["issues"][0]["code"] == "PROVIDER_UNVERIFIED"
+    assert before["ready"] is True
+    assert before["issues"] == []
     assert verification[0].success is True
     assert after["ready"] is True
-    assert expired["ready"] is False
-    assert expired["issues"][0]["code"] == "PROVIDER_UNVERIFIED"
-    probe.assert_called_once()
+    assert expired["ready"] is True
+    assert expired["issues"] == []
+    assert failed_verification[0].success is False
+    assert after_failed_verification["ready"] is True
+    assert after_failed_verification["issues"] == []
+    assert probe.call_count == 2
 
 
 def test_batch_verify_includes_cloud_probe_and_explicit_failure(monkeypatch):
@@ -718,7 +727,7 @@ def test_default_http_model_verify_records_status_without_status_probe(monkeypat
         statuses = client.get("/api/v1/models/statuses?kind=cloud")
 
     assert before.status_code == 200
-    assert before.json()["executable"] is False
+    assert before.json()["executable"] is True
     assert verified.status_code == 200
     assert verified.json()[0]["success"] is True
     assert after.status_code == 200

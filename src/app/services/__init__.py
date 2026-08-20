@@ -8,6 +8,7 @@ __all__ = [
     "AsrEngineService",
     "ArtifactService",
     "AudioToolService",
+    "BatchRunService",
     "BatchPipelineService",
     "CapabilityDescriptorService",
     "ExecutionProfileBuilder",
@@ -30,6 +31,7 @@ __all__ = [
     "get_asr_engine_service",
     "get_artifact_service",
     "get_audio_tool_service",
+    "get_batch_run_service",
     "get_batch_pipeline_service",
     "get_capability_descriptor_service",
     "get_execution_profile_builder",
@@ -56,6 +58,7 @@ _EXPORTS = {
     "AsrEngineService": ("src.app.services.asr_engine_service", "AsrEngineService"),
     "ArtifactService": ("src.app.services.artifact_service", "ArtifactService"),
     "AudioToolService": ("src.app.services.audio_tool_service", "AudioToolService"),
+    "BatchRunService": ("src.app.services.batch_run_service", "BatchRunService"),
     "BatchPipelineService": ("src.app.services.batch_pipeline_service", "BatchPipelineService"),
     "CapabilityDescriptorService": (
         "src.app.services.capability_descriptor_service",
@@ -96,6 +99,10 @@ _EXPORTS = {
     "get_asr_engine_service": ("src.app.services.asr_engine_service", "get_asr_engine_service"),
     "get_artifact_service": ("src.app.services.artifact_service", "get_artifact_service"),
     "get_audio_tool_service": ("src.app.services.audio_tool_service", "get_audio_tool_service"),
+    "get_batch_run_service": (
+        "src.app.services.batch_run_service",
+        "get_batch_run_service",
+    ),
     "get_batch_pipeline_service": (
         "src.app.services.batch_pipeline_service",
         "get_batch_pipeline_service",

@@ -492,7 +492,7 @@ class PipelineExecutor:
         normalized = list(translations[: len(segments)])
         if len(normalized) < len(segments):
             normalized.extend([""] * (len(segments) - len(normalized)))
-        for seg, trans in zip(segments, normalized):
+        for seg, trans in zip(segments, normalized, strict=True):
             seg["translation"] = trans
 
     @staticmethod

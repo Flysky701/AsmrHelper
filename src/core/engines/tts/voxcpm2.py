@@ -175,7 +175,7 @@ class VoxCPM2Engine:
 
         output_audio = np.zeros(total_samples, dtype="float32")
 
-        for start_time, end_time, wav_chunk in chunks:
+        for start_time, _end_time, wav_chunk in chunks:
             start_sample = int(start_time * model_sr)
             available_samples = total_samples - start_sample
             if available_samples <= 0:

@@ -1,8 +1,8 @@
 # Task Execution V1
 
-更新时间：2026-08-07
+更新时间：2026-08-19
 
-本文收口 AsmrHelper 的长耗时任务执行边界。它复用现有 `TaskRegistry`、`TaskDispatcher`、`PipelineTaskOrchestrator` 和 `RuntimeRouter`，不引入新的持久队列、BatchRun 聚合实体或分布式调度平台。
+本文收口 AsmrHelper 的长耗时任务执行边界。它复用现有 `TaskRegistry`、`TaskDispatcher`、`PipelineTaskOrchestrator` 和 `RuntimeRouter`，并以持久化 `BatchRun` 聚合多个普通 Pipeline Task；不引入新的持久执行队列或分布式调度平台。
 
 ## 1. 统一入口
 
@@ -19,6 +19,8 @@
 `ExecutorRegistry` 在提交时拒绝未知任务类型。已声明但尚未绑定 callable 的类型也不能被 Dispatcher 执行：它会在执行边界明确失败，不会永久停留在 `pending`。
 
 通用 `POST /api/v1/tasks` 和 `POST /api/v1/tasks/batch` 是“创建并提交”入口，不是只创建 TaskSpec 的存根接口；成功创建的每一项会立即交给 Dispatcher。领域入口仍须先完成各自的输入、readiness 和资源校验。
+
+批量产品入口为 `POST /api/v1/batch-runs`。`BatchRun` 只拥有稳定 `batch_id`、输入项、子任务 ID、聚合进度和批次控制状态，不成为第二种 Pipeline 执行器。每个文件仍创建普通 `pipeline` Task，沿用原有 readiness、取消、错误和 Artifact 归属。批量并行度只决定同时提交多少个子任务，实际执行容量仍由共享 Dispatcher 限制。
 
 Tool 领域入口 `POST /api/v1/tool-runs/tasks` 同样是“创建并提交”：响应返回 Task 快照，执行在后台继续。旧 `POST /api/v1/tool-runs` 同步执行入口已删除，避免已提交任务被再次接管。
 
@@ -38,6 +40,7 @@ ASR、LLM 与 TTS 的单次直连接口是底层同步诊断面，不是桌面�
 - 异常统一落在 `failed`，`error.stage` 使用执行时最后已知阶段，`error.code` 和 `detail` 保留可诊断信息。
 - 产物由产物服务以 `task_id` 注册；失败和取消任务不继承其他任务的产物。
 - 重试创建新 Task，原任务保持终态，新 Task 的 `retry_of_task_id` 指向原任务。重启时继续清理未完成任务；恢复的 Pipeline、Tool、模型安装和 Voice 终态历史任务均只读。
+- BatchRun 的失败项重提会依据批次保存的输入与执行配置创建新的 Pipeline Task，并把新 task_id 追加到对应条目历史；成功项不会重复执行。APP 重启时未完成子任务仍按 Task V1 清理，批次标记为 `interrupted`，用户可显式重提其中失败项，不伪装成断点续跑。
 
 ## 3. Pipeline 与 Worker 边界
 
@@ -47,4 +50,4 @@ ASR、LLM 与 TTS 的单次直连接口是底层同步诊断面，不是桌面�
 
 ## 4. 明确不做
 
-本版本不引入 `root_task_id`、`executor_version`、CPU/GPU/网络资源标签、`BatchRun` 聚合实体或分布式队列；同步 batch 聚合接口继续由每个独立 Pipeline task 组成。
+本版本不引入 `root_task_id`、`executor_version`、CPU/GPU/网络资源标签、持久执行队列或分布式调度。`BatchRun` 仅为持久聚合与控制事实，不能绕过 TaskDispatcher，也不承诺进程重启后继续执行未完成音频。

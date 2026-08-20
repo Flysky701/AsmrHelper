@@ -58,7 +58,7 @@ class LLMProcessor:
     def __init__(self, translator=None, debug_dir: Optional[Union[str, Path]] = None):
         """
         Args:
-            translator: Translator 实例，为 None 时通过 ModelManager 自动获取
+            translator: Translator 实例，为 None 时通过 LLM registry 自动获取
             debug_dir: 调试输出目录（可选，设置后保存各阶段中间文件）
         """
         self._translator = translator
@@ -498,7 +498,7 @@ class LLMProcessor:
                 # 重叠：取上一块的最后 N 行作为下一块的开头
                 overlap = current[-overlap_lines:] if overlap_lines > 0 else []
                 current = list(overlap)
-                current_len = sum(len(l) + 1 for l in current)
+                current_len = sum(len(overlap_line) + 1 for overlap_line in current)
             current.append(line)
             current_len += len(line) + 1
         if current:

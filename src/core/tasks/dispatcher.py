@@ -105,7 +105,7 @@ class TaskDispatcher:
             # queue here. Lifecycle/persistence failures intentionally do not
             # drain: a broken state store must not fail every pending task.
             self._drain_pending()
-            raise exc.cause
+            raise exc.cause from exc
         return self._lifecycle().get_task(task_id)
 
     def run(self, task_id: str, *, cancel_event: threading.Event | None = None) -> Any:

@@ -67,7 +67,7 @@ class ScriptProcessor:
             
             if len(gap_matches) >= 1:
                 start_pos = 0
-                for i, m in enumerate(gap_matches):
+                for m in gap_matches:
                     end_pos = m.start()
                     section_text = text[start_pos:end_pos].strip()
                     if section_text:
@@ -156,15 +156,15 @@ class ScriptProcessor:
         而 ASMR 台本等横排短对话虽然行长也较短，但每行通常有多个字符。
         因此以"极短行（≤3字符）占比"作为主要判据，避免短对话台本被误判。
         """
-        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
         if not lines:
             return False
 
-        lengths = [len(l) for l in lines]
+        lengths = [len(line) for line in lines]
         avg_length = sum(lengths) / len(lengths)
 
         # 极短行（1-3字符）占比 — 真正竖排的核心特征
-        very_short_count = sum(1 for l in lengths if l <= 3)
+        very_short_count = sum(1 for length in lengths if length <= 3)
         very_short_ratio = very_short_count / len(lengths)
 
         # 规则1：极短行占比 > 50% 且行数足够多 → 大概率是竖排提取伪影

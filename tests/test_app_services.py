@@ -1235,6 +1235,28 @@ class TestPipelineServiceCallbacks:
         )
         assert result.mix_path == "/tmp/output/input_mix.wav"
 
+    def test_plan_uses_task_and_filename_scoped_output_directory(self):
+        service, _, _, task_spec = self._make_service()
+
+        plan = service.build_plan(task_spec)
+
+        assert Path(plan.output_dir).parts[-2:] == ("pipeline-1", "input")
+
+    def test_batch_plan_scopes_batch_root_under_task_and_filename(self):
+        service, _, _, task_spec = self._make_service()
+        task_spec.execution_profile = dict(task_spec.execution_profile)
+        task_spec.execution_profile["output_mode"] = "batch"
+        task_spec.execution_profile["batch_root_dir"] = "/tmp/batch"
+
+        plan = service.build_plan(task_spec)
+
+        assert Path(plan.batch_root_dir).parts[-4:] == (
+            "tmp",
+            "batch",
+            "pipeline-1",
+            "input",
+        )
+
     def test_prepare_rechecks_v1_readiness_and_fails_task(self):
         from src.app.errors import ResourceValidationError
 
@@ -1377,6 +1399,12 @@ class TestPipelineServiceCallbacks:
                 "PROVIDER_RESPONSE_INVALID",
                 "No audio was received. Please verify the parameters.",
             ),
+            (
+                {"translate": "authentication failed"},
+                "translate",
+                "PROVIDER_EXECUTION_FAILED",
+                "authentication failed",
+            ),
         ],
     )
     def test_first_stage_error_is_reported_with_stable_contract(
@@ -1400,6 +1428,9 @@ class TestPipelineServiceCallbacks:
         assert failure["error"]["code"] == expected_code
         assert failure["error"]["stage"] == expected_stage
         assert failure["error"]["retryable"] is True
+        if expected_code == "PROVIDER_EXECUTION_FAILED":
+            assert failure["error"]["action"] == "settings"
+            assert "验证服务连接" in failure["error"]["suggestion"]
 
 
 class TestBatchPipelineServiceCompanions:

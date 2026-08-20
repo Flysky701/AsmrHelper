@@ -1,6 +1,6 @@
 # AsmrHelper 总体进度状态
 
-日期：2026-08-18（源码结构基线：2026-05-27；最新验证：2026-08-18）
+日期：2026-08-19（源码结构基线：2026-05-27；最新验证：2026-08-19）
 
 ## 1. 事实源
 
@@ -9,7 +9,7 @@
 当前事实基线见：
 
 - [当前源码基线](current-source-baseline.md)
-- [当前架构与文档审计](current-architecture-and-doc-audit-2026-07-23.md)
+- [2026-07-23 架构与文档审计（历史快照）](../archived/roadmap/current-architecture-and-doc-audit-2026-07-23.md)
 
 后续如果本文与旧计划、归档文档或历史 roadmap 冲突，以当前源码基线为准。
 
@@ -19,7 +19,7 @@
 
 更准确的状态是：
 
-> Phase 2 后段：旧 GUI、旧 pipeline 包、旧字幕脚本包已经从源码树移除，新 core 主干及主要公共契约已建立并被调用；当前剩余工作集中在兼容入口和旧服务依赖瘦身。
+> 主线已进入收尾审计：旧 GUI、旧 pipeline/字幕包以及无运行时引用的 `ModelManager/core.translate` 兼容入口均已移除；剩余工作集中在正式窗口人工验收、可选 Provider 实机验收和高复杂度算法函数的分阶段拆分。
 
 2026-07-24 的运行验证补充：项目全量测试为 `166 passed`，HTTP 环境验证发现 88 条路由，前端构建和 Tauri release build 均已通过，生成的桌面程序可连接健康检查正常的本地后端。该结果只覆盖基础启动与构建；本地音频引擎仍取决于 `audio` 可选依赖、模型权重和提供方配置。
 
@@ -43,7 +43,9 @@
 
 2026-08-03 的后端 P0 验收补充：顺序批量任务已验证单项 TTS 失败不会阻塞后续任务，任务状态、失败阶段和 Artifact 归属保持隔离；Edge 瞬时失败、模型下载中断重试、Worker 异常退出清理、取消后新任务重提均有确定性恢复验收。批处理已接入权威 readiness，失败项保留输入路径，直接执行 `verify_env.py` 的项目根解析已修复。全量测试 `226 passed`，桌面生产构建通过。当前先收束后端事实和安装边界，GUI 整理延后。
 
-批量能力的现行边界是同步 HTTP 聚合：每项有独立 task 与 Artifact，但尚无 batch 级任务、状态查询或取消接口，桌面页面也尚未实际接入。Worker 异常退出当前采用明确失败和人工重提，不承诺自动重启。
+2026-08-19 批量产品闭环已落地：新增持久化 BatchRun、稳定 batch_id、子任务列表、聚合进度、整批取消、失败项重提和重启中断事实；桌面增加“批量处理”页，支持目录递归扫描、清单选择、同名字幕发现、输出目录和并行度。每个文件仍是独立 Pipeline Task，Worker 异常明确失败，不承诺自动重启或跨 APP 重启续跑。
+
+同轮验证为：`343 passed`、Ruff 默认规则全量通过、92 条 API 路由环境自检通过、桌面生产构建与 Tauri release build 通过；生成程序位于 `desktop/src-tauri/target/release/asmr-helper.exe`。正式启动器随后连续 2 轮通过“启动—标准关闭—APP/后端退出—端口释放—PID 文件清理”验收。活跃 Markdown 文档无本地断链；Ruff `C901` 仍记录 35 个有运行时引用的复杂度热点，应分阶段拆分而不是按死代码删除。这些结果证明构建、契约与生命周期闭环，不替代正式窗口中的批量目录选择、取消和失败重提人工验收。
 
 2026-08-04 已完成 [后端能力事实清单](backend-capability-baseline.md)，后续以“已实现、环境可执行、真实验收、已接线、受限”五级状态约束 GUI 和清理工作。Voice Design/Clone/Preview、批量任务管理和未验收 Provider 不再因存在路由或页面入口而被视为已完成能力。
 
@@ -66,6 +68,7 @@
 - RuntimeEvent 已按任务生成单调递增序列；SSE、TaskCenter 日志和模型安装增量消息使用同一事件结构。
 - 桌面 P0 可用性缺口已收束：文件类型选择、空响应、基础音频预览、关键错误反馈和无效按钮均已处理。
 - 桌面 P1 已接入后端能力目录与阶段级 readiness；不可执行配置会在入队前被拦截，并引导至设置或引擎资源页。
+- 持久 BatchRun 与桌面批量处理页已接入；批次复用工作台执行配置，并通过独立子任务保留错误和 Artifact 归属。
 
 ## 4. 当前仍缺
 
@@ -96,18 +99,18 @@ src.core.script_to_subtitle
 
 已改为 `src.core.subtitles.script_to_subtitle`，实际 runtime 导入已由测试覆盖。
 
-### 兼容层还需要瘦身
+### 兼容层清理已完成
 
-- `ModelManager` 已是 deprecated 兼容层，但仍存在。
-- Translator、缓存、质量检测和术语库已迁入 LLM 域；`src/core/translate` 只保留兼容转发，等待兼容期结束后删除。
+- `ModelManager` 与 `src/core/translate` 已删除，core 根导出同步收口，并由负向架构测试防止复活。
+- Translator、缓存、质量检测和术语库只保留 LLM 域正式实现；字幕工具只保留 `core/subtitles` 正式实现。
 - `/tools/*`、`/pipeline/run` 和 `/pipeline/tasks` 均已删除；公共 HTTP 不再返回路径型兼容结果。
 
 ## 5. 功能域当前状态
 
 | 功能域 | 当前状态 |
 |---|---|
-| 1 工作空间与输入管理 | 已落地，需接入 Workbench 主路径 |
-| 2 单任务 pipeline 编排执行器 | 主执行器与桌面正式入口已迁移，旧 execution profile 仅在兼容层保留 |
+| 1 工作空间与输入管理 | 已落地并接入 Workbench 主路径 |
+| 2 单任务 pipeline 编排执行器 | 主执行器与桌面正式入口已迁移，Planner 拒绝旧 execution profile |
 | 3 统一任务生成与任务队列 | 终态历史已持久化；低并发场景继续使用进程内线程，不建设独立调度器 |
 | 4 单步工具执行体系 | 已接入主干，继续收束兼容 DTO |
 | 5 模型与运行资源管理 | 已落地；阶段级 readiness 已接入 Workbench，安装链路继续增强 |
@@ -123,7 +126,7 @@ src.core.script_to_subtitle
 
 ### P1.5：参数与能力细化
 
-- 先在正式 APP 进程复核 Qwen3-TTS 模型状态，并决定批量能力是否需要 batch task 契约。
+- 在正式 APP 中用短样本复核批量目录扫描、整批取消和失败项重提交互。
 - 按实际需要完成 Fun-ASR 的 Pipeline 级短样本产物验收，并为未安装的 VoxCPM2 保持真实不可用状态。
 - 后端基线稳定后，再对照真实 API 整理 GUI 页面、状态和组件，不新增无后端能力支撑的入口。
 

@@ -110,7 +110,7 @@ def test_status_failure_is_isolated_to_one_model(tmp_path):
     assert statuses[0].issues[0].code == "STATUS_PROBE_FAILED"
 
 
-def test_cloud_credential_is_configured_but_not_claimed_executable(monkeypatch):
+def test_cloud_credential_can_execute_before_optional_verification(monkeypatch):
     entry = ModelEntry(
         id="cloud-model",
         kind="cloud",
@@ -125,7 +125,7 @@ def test_cloud_credential_is_configured_but_not_claimed_executable(monkeypatch):
     status = ModelStatusResolver().resolve(entry)
 
     assert status.status == ModelState.CONFIGURED
-    assert status.executable is False
+    assert status.executable is True
     assert status.issues[0].code == "PROVIDER_UNVERIFIED"
 
 

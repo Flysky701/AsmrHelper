@@ -15,7 +15,7 @@
 
 这些判断不再作为当前基准。
 
-当前判断必须以 [当前源码基线](current-source-baseline.md) 和 [当前架构与文档审计](current-architecture-and-doc-audit-2026-07-23.md) 为准。本计划只定义尚未完成的收尾切片，不能用于推翻已验证的运行状态。
+当前判断必须以 [当前源码基线](../../roadmap/current-source-baseline.md) 和 [历史架构审计](../roadmap/current-architecture-and-doc-audit-2026-07-23.md) 为准。本计划只记录当时尚未完成的收尾切片，不能用于推翻已验证的运行状态。
 
 ## 2. 当前 Phase 2 状态
 
@@ -41,9 +41,9 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 
 当前目标是：
 
-1. 让代码先遵守 [数据结构契约 v1](../contracts/schemas-v1.md)。
-2. 让能力参数、敏感设置和 RuntimeBinding 遵守 [Provider 与设置契约 v1](../contracts/provider-v1.md)。
-3. 按 [兼容与迁移说明](../contracts/compatibility.md) 归一化旧主链路字段。
+1. 让代码先遵守 [数据结构契约 v1](../../contracts/schemas-v1.md)。
+2. 让能力参数、敏感设置和 RuntimeBinding 遵守 [Provider 与设置契约 v1](../../contracts/provider-v1.md)。
+3. 按 [兼容与迁移说明](../../contracts/compatibility.md) 归一化旧主链路字段。
 4. 让 TaskCenter 消费后端显式状态，而不是前端推断阶段。
 5. 让 Workbench 进入 `session + task` 主路径。
 6. 修掉迁移后残留的旧 import 和旧字段映射。
@@ -148,7 +148,7 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 完成标准：
 
 - TaskCenter 不需要通过 message/detail 猜阶段。
-- API 返回字段满足 [主链路契约 v1](../contracts/mainline-v1.md)。
+- API 返回字段满足 [主链路契约 v1](../../contracts/mainline-v1.md)。
 
 完成记录：
 

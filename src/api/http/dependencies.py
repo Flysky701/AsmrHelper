@@ -6,6 +6,7 @@ from src.app.services import (
     get_asr_engine_service,
     get_artifact_service,
     get_audio_tool_service,
+    get_batch_run_service,
     get_batch_pipeline_service,
     get_capability_descriptor_service,
     get_execution_profile_builder,
@@ -82,6 +83,10 @@ def audio_tool_service():
 
 def batch_pipeline_service():
     return get_batch_pipeline_service()
+
+
+def batch_run_service():
+    return get_batch_run_service()
 
 
 def pipeline_task_orchestrator():

@@ -50,7 +50,7 @@ venv.bak/
 .test-tmp/
 .coverage
 htmlcov/
-tests/reports/
+tests/Manual_testing/
 
 # =====================
 # Output & Media

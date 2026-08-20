@@ -1,48 +1,28 @@
-"""Tests for Phase 2B+2D: ModelManager deprecation and facade slimming.
+"""Tests for removed compatibility layers and slim application facades.
 
 Verifies:
-- ModelService uses engine registries (no ModelManager import)
-- ModelManager emits DeprecationWarning
+- ModelManager and core.translate compatibility modules stay removed
+- ModelService uses engine registries directly
 - Facade services delegate to engine runtimes (no legacy class imports)
 - AudioToolService dispatches by tool name
 """
 
 from __future__ import annotations
 
-import warnings
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 
-class TestModelManagerDeprecation:
-    """Verify ModelManager emits DeprecationWarning."""
+class TestRemovedCoreCompatibility:
+    """Keep retired core compatibility entry points from returning."""
 
-    def test_get_model_manager_emits_warning(self):
-        # Clear cached singleton
-        import src.core.model_manager as mm_module
-        old_manager = mm_module._manager
-        mm_module._manager = None
-        try:
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                from src.core.model_manager import get_model_manager
-                mgr = get_model_manager()
-                dep_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-                assert len(dep_warnings) >= 1
-                assert "deprecated" in str(dep_warnings[0].message).lower()
-                assert mgr is not None
-        finally:
-            mm_module._manager = old_manager
+    def test_model_manager_module_removed(self):
+        assert not Path("src/core/model_manager.py").exists()
 
-    def test_model_manager_instantiation_emits_warning(self):
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            from src.core.model_manager import ModelManager
-            mgr = ModelManager()
-            dep_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(dep_warnings) >= 1
-            assert "engine registries" in str(dep_warnings[0].message).lower()
+    def test_translate_compatibility_package_removed(self):
+        assert not list(Path("src/core/translate").glob("*.py"))
 
 
 class TestModelServiceNoModelManager:
@@ -90,16 +70,6 @@ class TestTranslationServiceRemoved:
         from src.app.services import LlmCapabilityService
         assert LlmCapabilityService is not None
 
-    def test_translator_implementation_lives_in_llm_domain(self):
-        from src.core.engines.llm import Translator as DomainTranslator
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            from src.core.translate import Translator as CompatibilityTranslator
-
-        assert DomainTranslator is CompatibilityTranslator
-        assert DomainTranslator.__module__ == "src.core.engines.llm.translator"
-
     def test_llm_registry_does_not_import_legacy_translate_package(self):
         import inspect
         from src.core.engines.llm.registry import LlmRegistry
@@ -109,9 +79,7 @@ class TestTranslationServiceRemoved:
         assert "from .translator import Translator" in source
 
     def test_subtitle_mapping_is_owned_by_subtitle_domain(self):
-        source_code = open(
-            "src/core/subtitles/text_utils.py", encoding="utf-8"
-        ).read()
+        source_code = Path("src/core/subtitles/text_utils.py").read_text(encoding="utf-8")
         assert "translate" not in source_code.replace(
             "Migrated from src.core.translate", ""
         )
@@ -171,16 +139,12 @@ class TestAudioToolServiceDispatch:
             service.run_tool_task_spec(mock_task_spec)
 
     def test_no_legacy_imports(self):
-        source_code = open(
-            "src/app/services/audio_tool_service.py", encoding="utf-8"
-        ).read()
+        source_code = Path("src/app/services/audio_tool_service.py").read_text(encoding="utf-8")
         assert "from src.core.translate import Translator" not in source_code
         assert "from src.core.asr import ASRRecognizer" not in source_code
         assert "from src.core.tts import TTSEngine" not in source_code
 
     def test_tts_audio_preprocessor_uses_subtitle_domain(self):
-        source_code = open(
-            "src/core/tts/audio_preprocessor.py", encoding="utf-8"
-        ).read()
+        source_code = Path("src/core/tts/audio_preprocessor.py").read_text(encoding="utf-8")
         assert "from src.core.translate import" not in source_code
         assert "from src.core.subtitles import" in source_code

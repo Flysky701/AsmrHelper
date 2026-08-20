@@ -270,7 +270,7 @@ class EdgeTTSEngine:
 
         tasks = [
             synthesize_one(sent, tf)
-            for sent, tf in zip(sentences, temp_files)
+            for sent, tf in zip(sentences, temp_files, strict=True)
             if sent.strip()
         ]
         await asyncio.gather(*tasks)
@@ -481,8 +481,8 @@ class Qwen3TTSEngine:
         # 检查是否安装
         try:
             __import__("qwen_tts")
-        except ImportError:
-            raise ImportError("请先安装 qwen-tts: pip install qwen-tts")
+        except ImportError as exc:
+            raise ImportError("请先安装 qwen-tts: pip install qwen-tts") from exc
 
         desc = self.VOICE_DESC.get(self.voice, '')
         if self.profile and self.profile.category in ("custom", "clone"):
@@ -808,7 +808,9 @@ class TTSEngine:
                 _run_async(self.engine._synthesize_all_async(valid_texts, valid_temp_files))
                 print(f"  [EdgeTTS] 并发合成完成，耗时: {time.time()-t_syn:.1f}s")
             else:
-                for idx, (text, temp_file) in enumerate(zip(valid_texts, valid_temp_files)):
+                for idx, (text, temp_file) in enumerate(
+                    zip(valid_texts, valid_temp_files, strict=True)
+                ):
                     i = valid_indices[idx]
                     success = False
                     last_error = None
@@ -833,7 +835,9 @@ class TTSEngine:
             timeline_samples = int(reference_duration * sample_rate) if reference_duration > 0 else 0
             timeline = np.zeros(timeline_samples, dtype=np.float32) if timeline_samples > 0 else None
 
-            for idx, (i, temp_tts) in enumerate(zip(valid_indices, valid_temp_files)):
+            for idx, (i, temp_tts) in enumerate(
+                zip(valid_indices, valid_temp_files, strict=True)
+            ):
                 if (idx + 1) % 10 == 0 or idx == 0:
                     print(f"  [进度] 后处理中... {idx+1}/{len(valid_indices)} 句")
 

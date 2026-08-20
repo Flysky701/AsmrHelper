@@ -160,6 +160,10 @@ class AsrEngineRuntime:
             for key in supported:
                 if key in provider_options:
                     kwargs[key] = provider_options[key]
+            vad_model = str(kwargs.get("vad_model") or "fun-asr-fsmn-vad")
+            kwargs["vad_model"] = _resolve_model_name(provider, vad_model)
+            kwargs.setdefault("vad_kwargs", {"max_single_segment_time": 30000})
+            kwargs.setdefault("sentence_timestamp", True)
             return kwargs
 
         if provider == "qwen3_asr":
@@ -172,11 +176,23 @@ class AsrEngineRuntime:
                 "forced_aligner",
                 "forced_aligner_kwargs",
                 "return_time_stamps",
+                "max_alignment_chunk_seconds",
                 "context",
             )
             for key in supported:
                 if key in provider_options:
                     kwargs[key] = provider_options[key]
+            timestamps_requested = bool(common_options.get("timestamps", False))
+            if timestamps_requested:
+                # The common pipeline contract is authoritative. A provider-level
+                # false value must not silently downgrade a timestamped task into
+                # one whole-file subtitle cue.
+                kwargs["return_time_stamps"] = True
+            if kwargs.get("return_time_stamps"):
+                aligner = str(
+                    kwargs.get("forced_aligner") or "qwen3-forced-aligner-0.6b"
+                )
+                kwargs["forced_aligner"] = _resolve_model_name(provider, aligner)
             return kwargs
 
         kwargs.update(provider_options)

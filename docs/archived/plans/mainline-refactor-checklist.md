@@ -27,12 +27,12 @@ Workbench 选择输入
 
 相关文档的对应关系如下：
 
-- 当前主链路契约：[`../contracts/mainline-v1.md`](../contracts/mainline-v1.md)
-- 当前数据参数契约：[`../contracts/schemas-v1.md`](../contracts/schemas-v1.md)
-- 领域责任边界：[`../domains/README.md`](../domains/README.md)
-- 前端结构蓝图：[`../designs/desktop-ui-redesign-blueprint.md`](../designs/desktop-ui-redesign-blueprint.md)
-- Provider 与设置契约：[`../contracts/provider-v1.md`](../contracts/provider-v1.md)
-- 当前实现兼容说明：[`../contracts/compatibility.md`](../contracts/compatibility.md)
+- 当前主链路契约：[`../../contracts/mainline-v1.md`](../../contracts/mainline-v1.md)
+- 当前数据参数契约：[`../../contracts/schemas-v1.md`](../../contracts/schemas-v1.md)
+- 领域责任边界：[`../../domains/README.md`](../../domains/README.md)
+- 前端结构蓝图：[`../../designs/desktop-ui-redesign-blueprint.md`](../../designs/desktop-ui-redesign-blueprint.md)
+- Provider 与设置契约：[`../../contracts/provider-v1.md`](../../contracts/provider-v1.md)
+- 当前实现兼容说明：[`../../contracts/compatibility.md`](../../contracts/compatibility.md)
 
 ## 3. 先冻结，再推进
 
@@ -45,8 +45,8 @@ Workbench 选择输入
 
 ### 当前默认推进项
 
-- 先按 [`../contracts/mainline-v1.md`](../contracts/mainline-v1.md) 收束主链路契约
-- 再按 [`../contracts/schemas-v1.md`](../contracts/schemas-v1.md) 固定数据参数，并按 [`../contracts/compatibility.md`](../contracts/compatibility.md) 处理旧字段
+- 先按 [`../../contracts/mainline-v1.md`](../../contracts/mainline-v1.md) 收束主链路契约
+- 再按 [`../../contracts/schemas-v1.md`](../../contracts/schemas-v1.md) 固定数据参数，并按 [`../../contracts/compatibility.md`](../../contracts/compatibility.md) 处理旧字段
 - `desktop/` 中围绕主链路的页面结构与信息层级
 - pipeline task 的状态、阶段、时间戳、产物入口
 - 与主链路直接相关的接口契约澄清
@@ -124,7 +124,7 @@ error_type
 - 终态时是否能明确区分 `completed / failed / cancelled / skipped`
 - 产物是否能通过统一结构返回，而不是靠前端猜路径
 
-如果某个任务页面开始依赖“额外补字段才能用”，应优先回查 [`../contracts/mainline-v1.md`](../contracts/mainline-v1.md) 和 [`../contracts/schemas-v1.md`](../contracts/schemas-v1.md)。
+如果某个任务页面开始依赖“额外补字段才能用”，应优先回查 [`../../contracts/mainline-v1.md`](../../contracts/mainline-v1.md) 和 [`../../contracts/schemas-v1.md`](../../contracts/schemas-v1.md)。
 
 ## 8. 本阶段实施顺序
 

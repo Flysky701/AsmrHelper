@@ -188,4 +188,4 @@ def cut_audio_by_subtitle(
 
 
 # 导出格式化工具
-from src.utils.formatters import format_timestamp as format_timestamp
+from src.utils.formatters import format_timestamp as format_timestamp  # noqa: E402

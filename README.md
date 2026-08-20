@@ -188,6 +188,7 @@ cp config/config.example.json config/config.json
 ### 主界面布局
 
 - **工作台** - 一个或多个输入分别创建独立 Pipeline Task
+- **批量处理** - 扫描目录并创建持久 BatchRun，支持总进度、整批取消和失败项重提
 - **任务中心** - 查看进度、失败阶段、结构化错误、取消、重提与产物
 - **字幕工坊** - 编辑、导出、后台翻译和台本转字幕
 - **音色实验室** - Qwen3-TTS 专属的设计、克隆、片段分析和试音
@@ -273,7 +274,7 @@ MIT License
 ### 核心模块 (src/core)
 
 - `asr/` - ASR 语音识别，支持 Faster-Whisper、Fun-ASR、Qwen3-ASR
-- `translate/` - 翻译引擎，支持 DeepSeek/OpenAI，包含缓存和术语库
+- `engines/llm/` - 翻译引擎，支持 DeepSeek/OpenAI，包含缓存和术语库
 - `tts/` - 语音合成，支持 Edge-TTS、Qwen3-TTS、VoxCPM2
 - `vocal_separator/` - Demucs 人声分离
 - `orchestration/` - 流水线编排，使用 PipelineExecutor 执行
@@ -297,30 +298,13 @@ FastAPI RESTful API，提供以下端点：
 - `dto/` - 数据传输对象，定义 API 契约
 - `errors/` - 错误定义和处理
 
-### TODO LIST（优先级从高到低）
+### 项目状态
 
-#### feat
+README 只保留安装、启动和使用入口，不再维护容易失真的 TODO/DONE 双清单。当前能力、验收范围与剩余边界统一记录在：
 
-- Model 审查功能， 通过接入 API 进行循环审查（ASR质量，翻译文本质量等）
-- 批量处理 文件夹 分别处理功能
+- [总体进度状态](docs/roadmap/overall-progress-status.md)
+- [后端能力事实清单](docs/roadmap/backend-capability-baseline.md)
+- [当前源码基线](docs/roadmap/current-source-baseline.md)
+- [文档索引](docs/README.md)
 
-#### model
-
-- 模型配置项，针对不同 本地/API 模型的统一流水线
-- 对 ASR API的支持(与MODEL API整合)
-- 更多 ASR 支持（Qwen3ASR，FUNASR， MIMOASR）
-- 更多 语音合成引擎支持（VoxCPM2，indexTTS等）（同上）
-- 添加 本地模型下载页， 不再使用脚本下载（网络配置提醒）
-
-#### 重构
-
-- 前端重构
-- 流水线重构
-- 后端逻辑重构整合
-
-## DONE LIST
-
-- PDF/TXT台本 转换为 时间轴字幕文件（通过接入Model解决）
-- 处理后输出翻译字幕
-- GUI 优化和增强
-- 添加音频音量预览功能
+历史计划和已执行检查表已移入 `docs/archived/`，不再作为当前开发入口。

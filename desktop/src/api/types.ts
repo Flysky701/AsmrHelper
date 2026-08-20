@@ -137,6 +137,78 @@ export interface PipelinePresetsResponse {
   presets: PresetItem[]
 }
 
+// ── Batch runs ─────────────────────────────────────────
+export type BatchRunState =
+  | 'pending'
+  | 'running'
+  | 'cancelling'
+  | 'completed'
+  | 'completed_with_errors'
+  | 'cancelled'
+  | 'interrupted'
+
+export interface BatchDiscoveredFileResponse {
+  path: string
+  name: string
+  size_bytes: number
+  companion_paths: string[]
+}
+
+export interface BatchDiscoverResponse {
+  directory: string
+  files: BatchDiscoveredFileResponse[]
+}
+
+export interface BatchRunCreateRequest {
+  name: string
+  inputs: Array<{
+    path: string
+    companion_paths: string[]
+  }>
+  output: {
+    directory?: string
+  }
+  execution_profile: PipelineExecutionProfileRequest
+  max_parallel: number
+}
+
+export interface BatchRunItemResponse {
+  item_id: string
+  input_path: string
+  companion_paths: string[]
+  task_ids: string[]
+  current_task_id: string | null
+  state: TaskState
+  progress: number
+  message: string
+  output_path: string
+  error: Record<string, unknown> | null
+}
+
+export interface BatchRunResponse {
+  batch_id: string
+  name: string
+  state: BatchRunState
+  progress: number
+  created_at: string
+  updated_at: string
+  finished_at: string | null
+  output_dir: string
+  max_parallel: number
+  total_count: number
+  pending_count: number
+  running_count: number
+  completed_count: number
+  failed_count: number
+  cancelled_count: number
+  skipped_count: number
+  items: BatchRunItemResponse[]
+}
+
+export interface BatchRunListResponse {
+  batches: BatchRunResponse[]
+}
+
 // ── Models ─────────────────────────────────────────────
 export interface ModelSummaryResponse {
   model_id: string

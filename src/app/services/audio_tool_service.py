@@ -386,8 +386,10 @@ class AudioToolService:
         ]
         try:
             subprocess.run(cmd, check=True, capture_output=True)
-        except FileNotFoundError:
-            raise AppExecutionError("ffmpeg is required for m4a conversion but was not found")
+        except FileNotFoundError as exc:
+            raise AppExecutionError(
+                "ffmpeg is required for m4a conversion but was not found"
+            ) from exc
 
         import soundfile as sf
 
