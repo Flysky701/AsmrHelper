@@ -1,6 +1,8 @@
 # Task Execution V1
 
-更新时间：2026-08-07
+更新时间：2026-08-21
+
+> 本文的最新源码边界已按 2026-08-21 工作树核对；真实运行证据仍保留原验收日期。
 
 本文收口 AsmrHelper 的长耗时任务执行边界。它复用现有 `TaskRegistry`、`TaskDispatcher`、`PipelineTaskOrchestrator` 和 `RuntimeRouter`，不引入新的持久队列、BatchRun 聚合实体或分布式调度平台。
 

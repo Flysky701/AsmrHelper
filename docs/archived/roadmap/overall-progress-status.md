@@ -8,7 +8,7 @@
 
 当前事实基线见：
 
-- [当前源码基线](current-source-baseline.md)
+- [当前源码基线](../../roadmap/current-source-baseline.md)
 - [当前架构与文档审计](current-architecture-and-doc-audit-2026-07-23.md)
 
 后续如果本文与旧计划、归档文档或历史 roadmap 冲突，以当前源码基线为准。
@@ -39,13 +39,13 @@
 
 2026-07-31 的 Edge TTS 稳定性补充：失败任务与成功重试使用相同参数，确认问题来自瞬时 WebSocket 连接超时。Edge 批量句子改为最多 4 并发、单句网络失败最多尝试 3 次，并提供可选 HTTP 代理参数；项目级代理合成已生成有效 WAV，重启后的 APP 侧验证也已完成。最新全量测试为 `199 passed`。
 
-2026-07-31 的多引擎恢复补充：ASR/TTS 可选 Provider 已重新接入项目模型目录、Pipeline 时间线和资源安装流程；Workbench 会提交明确模型，依赖冲突不再被误报为安装成功。当前注册范围为 ASR `faster_whisper/fun_asr/qwen3_asr`、TTS `edge/qwen3/kokoro/voxcpm2`、LLM `deepseek/openai` 和分离 `demucs`。最新全量测试为 `205 passed`，桌面生产构建通过；真实验收状态单独记录在 [多引擎支持现状](multi-engine-status.md)。
+2026-07-31 的多引擎恢复补充：ASR/TTS 可选 Provider 已重新接入项目模型目录、Pipeline 时间线和资源安装流程；Workbench 会提交明确模型，依赖冲突不再被误报为安装成功。当前注册范围为 ASR `faster_whisper/fun_asr/qwen3_asr`、TTS `edge/qwen3/kokoro/voxcpm2`、LLM `deepseek/openai` 和分离 `demucs`。最新全量测试为 `205 passed`，桌面生产构建通过；真实验收状态单独记录在 [多引擎支持现状](../../roadmap/multi-engine-status.md)。
 
 2026-08-03 的后端 P0 验收补充：顺序批量任务已验证单项 TTS 失败不会阻塞后续任务，任务状态、失败阶段和 Artifact 归属保持隔离；Edge 瞬时失败、模型下载中断重试、Worker 异常退出清理、取消后新任务重提均有确定性恢复验收。批处理已接入权威 readiness，失败项保留输入路径，直接执行 `verify_env.py` 的项目根解析已修复。全量测试 `226 passed`，桌面生产构建通过。当前先收束后端事实和安装边界，GUI 整理延后。
 
 批量能力的现行边界是同步 HTTP 聚合：每项有独立 task 与 Artifact，但尚无 batch 级任务、状态查询或取消接口，桌面页面也尚未实际接入。Worker 异常退出当前采用明确失败和人工重提，不承诺自动重启。
 
-2026-08-04 已完成 [后端能力事实清单](backend-capability-baseline.md)，后续以“已实现、环境可执行、真实验收、已接线、受限”五级状态约束 GUI 和清理工作。Voice Design/Clone/Preview、批量任务管理和未验收 Provider 不再因存在路由或页面入口而被视为已完成能力。
+2026-08-04 已完成 [后端能力事实清单](../../roadmap/backend-capability-baseline.md)，后续以“已实现、环境可执行、真实验收、已接线、受限”五级状态约束 GUI 和清理工作。Voice Design/Clone/Preview、批量任务管理和未验收 Provider 不再因存在路由或页面入口而被视为已完成能力。
 
 ## 3. 当前已完成
 
@@ -73,10 +73,10 @@
 
 DOCS 已经收束到：
 
-- [主链路契约 v1](../contracts/mainline-v1.md)
-- [数据结构契约 v1](../contracts/schemas-v1.md)
-- [Provider 与设置契约 v1](../contracts/provider-v1.md)
-- [兼容与迁移说明](../contracts/compatibility.md)
+- [主链路契约 v1](../../contracts/mainline-v1.md)
+- [数据结构契约 v1](../../contracts/schemas-v1.md)
+- [Provider 与设置契约 v1](../../contracts/provider-v1.md)
+- [兼容与迁移说明](../../contracts/compatibility.md)
 
 当前主链路请求、任务状态、Provider 设置、结果语义、模型可执行状态和 RuntimeEvent 已经落码。旧 Pipeline 与 Tool 同步入口已删除，HTTP 只支持 V1 新客户端；剩余工作集中在内部模型瘦身。
 

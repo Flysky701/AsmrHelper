@@ -20,6 +20,12 @@ def test_voice_analysis_routes_catalog_model_id_through_asr_runtime(
             )
 
     monkeypatch.setattr(asr_service_module, "AsrEngineRuntime", FakeRuntime)
+    monkeypatch.setattr(
+        "src.config.config.get",
+        lambda key, default=None: (
+            "faster-whisper-base" if key == "processing.asr_model" else default
+        ),
+    )
     preprocessor = AudioPreprocessor(output_dir=str(tmp_path))
 
     result = preprocessor._run_asr(str(tmp_path / "input.wav"), language="ja")

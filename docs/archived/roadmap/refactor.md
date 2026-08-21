@@ -1,6 +1,6 @@
 # AsmrHelper 重构规划（历史架构草案）
 
-> 本文保留早期重构思考，其中关于旧 GUI、旧 `core/pipeline` 和多入口现状的描述可能已失效。当前执行请以 [当前架构与文档审计](docs/roadmap/current-architecture-and-doc-audit-2026-07-23.md) 和 [当前源码基线](docs/roadmap/current-source-baseline.md) 为准；本文不再作为项目进度或实施顺序依据。
+> 本文保留早期重构思考，其中关于旧 GUI、旧 `core/pipeline` 和多入口现状的描述可能已失效。当前执行请以 [当前架构与文档审计](../../roadmap/current-source-baseline.md) 和 [当前源码基线](../../roadmap/current-source-baseline.md) 为准；本文不再作为项目进度或实施顺序依据。
 
 ## 一、文档定位
 这份文档是项目的“现状对照 + 目标架构”主文档，用来回答四个问题：

@@ -1,6 +1,8 @@
 # AsmrHelper 后端能力事实清单
 
-> 更新时间：2026-08-07
+> 更新时间：2026-08-21
+>
+> 2026-08-21 完成源码入口和文档整理；本轮自动化为 `272 passed`，最新真实 Provider 运行证据仍以 2026-08-07 的日期记录为准。项目 `.venv` 启动器仍失效，测试通过工作区 Python 3.12.13 复用现有 site-packages 完成。
 >
 > 事实优先级：当前源码与运行探测 > 自动测试 > 真实手动验收 > 设计文档。
 > 本文只说明后端现在能做什么、当前机器是否具备条件，以及哪些接口仍只是接线或兼容入口。
@@ -116,11 +118,10 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 
 ## 6. 当前兼容层
 
-### 可以进入删除评估
+### 已清理与仍保留的兼容边界
 
-- `src/core/model_manager.py`：已 deprecated；当前主服务使用各领域 Registry，源码中未发现新的直接调用。
-- `src/core/translate`：实现已迁到 `core.engines.llm` 和 `core.subtitles`，当前主要是弃用转发。
-- `/tasks/{id}/review-status`、POST `/review-note`、`/task-queue`：与当前 PATCH/PUT 或 `/tasks/queue` 重复，属于兼容别名候选。
+- 2026-08-21 已删除零调用的 `src/core/model_manager.py`、`src/core/translate` 及 `src.core` 根包兼容导出；正式入口不受影响。
+- `/tasks/{id}/review-status`、`/tasks/{id}/review-note` 和 `/task-queue` 仍是当前代码保留的兼容别名；规范入口分别是 `PATCH /tasks/{id}/review`、`PUT /tasks/{id}/review-note` 和 `/tasks/queue`。
 - Pipeline 与 Tool 的旧手动启动/同步执行 HTTP 入口已删除；创建接口是唯一正式执行入口，结果由 GET 查询。
 
 ### 现在不能删除
@@ -133,7 +134,13 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 
 删除这些旧命名模块前，必须先把真实实现迁入 `core/engines` 或新的领域目录，而不是只删除导入入口。
 
-## 7. GUI 必须遵守的后端边界
+## 7. 2026-08-21 源码整理结果
+
+- 删除无调用的 `ModelManager`、`core.translate`、core 根包懒加载导出和桌面旧兼容组件，当前入口只保留领域 Registry、服务和页面实际使用的 API 封装。
+- `toolsApi` 不再保留已删除的同步 `POST /tool-runs` 包装；模型安装和工具提交均以后台 Task 入口为准。
+- 当前 `.venv` 启动器仍指向已不存在的 Python；本轮使用兼容的工作区 Python 3.12.13 复用现有 site-packages，自动化为 `272 passed`。这不等于项目环境已修复，也不升级真实 Provider 验收结论。
+
+## 8. GUI 必须遵守的后端边界
 
 - Workbench 可以使用：能力目录、StageProfile V1、readiness、单文件后台任务、取消、活动任务重提和 Artifact 结果。
 - Workbench 暂不能宣称：可管理批次、批量取消、批量恢复或跨重启续跑。
@@ -148,7 +155,7 @@ Fun-ASR、Qwen3-ASR、Kokoro、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均
 - Workbench 的多文件操作是“逐文件创建独立 Pipeline Task”，不是 BatchRun 实体；每项失败不阻塞后续提交，状态与产物仍按各自 task_id 隔离。
 - 桌面端已删除无人消费的 `pipelineApi.batch` 封装；当前只呈现 Workbench 的逐文件独立 Task，不暗示存在 batch 级状态、取消或恢复能力。
 
-## 8. 后续维护边界
+## 9. 后续维护边界
 
 1. 保持 Workbench 当前“多个独立 Task”的轻量批量边界；只有产品明确需要批次级查询、取消或恢复时才设计 BatchRun。
 2. 未安装或未配置的可选 Provider 继续展示真实原因；只有用户决定启用后才下载、安装并执行专项验收。
@@ -163,7 +170,7 @@ Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内�
 
 Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。本轮没有引入 root task、executor version、资源标签、BatchRun 实体或分布式队列。
 
-自动化基线为 `254 passed`，覆盖 Tool/字幕/Voice 创建即后台提交、自定义输出目录、台本自动输出、Artifact 归属和失效执行入口守卫。删除 3 条重复同步执行入口后，当前环境自检注册 86 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601/F401` 同步通过。
+2026-08-07 的自动化基线为 `254 passed`，覆盖 Tool/字幕/Voice 创建即后台提交、自定义输出目录、台本自动输出、Artifact 归属和失效执行入口守卫；这些是日期证据，不是本轮重新执行的结果。
 
 2026-08-07 使用固定非敏感日语测试句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` 正式 Pipeline。任务 `pipeline-1` 在 `export` 阶段完成，登记混音、双语字幕、TTS WAV 和 ASR 文本四类 Artifact；ASR 文本与测试句一致，字幕包含有效中文翻译，TTS 产物为 24 kHz、6.48 秒 WAV，执行后无 Qwen Worker 残留。该验收不包含用户素材外发。
 
@@ -175,7 +182,7 @@ Voice 正式路由随后改为后台提交。使用内置 A1 与固定非敏感�
 
 环境重建后再次执行默认正式 Pipeline：非敏感合成样本按 `Demucs → Faster-Whisper Base → DeepSeek → Edge TTS → FFmpeg` 完成 `pipeline-1`，终态为 `export/completed`，登记混音、双语字幕、分离人声、TTS 和转写文本 5 个 Artifact。分离人声与 TTS 均为 6.48 秒，字幕包含有效日文原文与中文译文；启动助手同时通过独立端口健康检查、真实 PID、持久日志和退出后端口释放验收。
 
-## 9. 启动与日志事实（2026-08-07）
+## 10. 启动与日志事实（2026-08-07）
 
 - `GUIRun.bat` 默认优先启动已有 release；没有 release 时才进入开发模式。`--installed` 不要求 Node/Rust，`--dev` 和 `--release` 才检查构建工具。
 - 后端由隐藏进程启动，日志持久写入 `logs/backend.log`；启动失败会显示日志尾部，不再只表现为窗口闪退。
@@ -187,7 +194,7 @@ Voice 正式路由随后改为后台提交。使用内置 A1 与固定非敏感�
 - 同一正式窗口在 TaskCenter 选择仍存在主产物的 `pipeline-2`，成功加载主音频 Artifact；播放器识别时长 8 秒，点击播放后进度由 `0:00` 前进到 `0:02` 且控制按钮切换为暂停，确认任务结果查询、Artifact 文件服务和桌面播放器链路可用。
 - 正式窗口关闭曾间歇出现“窗口消失但 APP 与后端仍存活”；Tauri 主窗口现显式处理 `CloseRequested` 并退出 AppHandle。修复后的 release 连续 3 次完成启动、标准关闭、APP 进程结束和 8000 端口释放，启动脚本后端清理闭环已验收。
 
-## 10. Tool 任务与桌面入口验收（2026-08-07）
+## 11. Tool 任务与桌面入口验收（2026-08-07）
 
 - `POST /api/v1/tool-runs/tasks` 已收口为创建即提交，桌面端只需一次请求即可获得后台 Task，不再依赖第二次同步执行调用。
 - 使用非敏感合成音频/字幕连续提交分离、格式转换、字幕切分、字幕翻译和音量预览五项任务，全部到达 `completed`；前四项 Artifact 分别归属各自 task_id，音量预览按设计只返回分析结果。

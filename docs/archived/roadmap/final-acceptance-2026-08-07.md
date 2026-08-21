@@ -1,6 +1,6 @@
 # AsmrHelper 最终验收矩阵（2026-08-07）
 
-本文把本轮 Goal 的交付要求逐项映射到当前源码、自动测试、真实运行和 GUI 证据。能力状态定义以[后端能力事实清单](backend-capability-baseline.md)为准；“代码存在”不单独计为可用。
+本文把本轮 Goal 的交付要求逐项映射到当前源码、自动测试、真实运行和 GUI 证据。能力状态定义以[后端能力事实清单](../../roadmap/backend-capability-baseline.md)为准；“代码存在”不单独计为可用。
 
 ## 1. 执行与数据契约
 
@@ -12,7 +12,7 @@
 | 持久化 | 已完成 | SQLite 保存终态 TaskSpec/TaskStatus/Artifact；重启删除未完成任务，历史终态只读 |
 | 重复执行入口 | 已清理 | 已删除 Pipeline start/execute 和 Tool 同步 HTTP 重复入口；模型、Voice、字幕和 Tool 创建即提交 |
 
-详细契约见 [Task Execution V1](../contracts/task-execution-v1.md) 和 [Schemas V1](../contracts/schemas-v1.md)。
+详细契约见 [Task Execution V1](../../contracts/task-execution-v1.md) 和 [Schemas V1](../../contracts/schemas-v1.md)。
 
 ## 2. 功能模块
 

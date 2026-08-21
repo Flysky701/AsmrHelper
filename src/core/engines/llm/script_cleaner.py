@@ -58,7 +58,7 @@ class LLMProcessor:
     def __init__(self, translator=None, debug_dir: Optional[Union[str, Path]] = None):
         """
         Args:
-            translator: Translator 实例，为 None 时通过 ModelManager 自动获取
+            translator: Translator 实例，为 None 时通过 LLM Registry 自动获取
             debug_dir: 调试输出目录（可选，设置后保存各阶段中间文件）
         """
         self._translator = translator

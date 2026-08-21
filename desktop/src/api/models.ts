@@ -18,9 +18,6 @@ export const modelsApi = {
   status: (modelId: string) =>
     api.get<ModelStatusResponse>(`/models/${modelId}/status`),
 
-  install: (modelId: string, body?: ModelInstallRequest) =>
-    api.post<ModelOperationResponse>(`/models/${modelId}/install?sync=true`, body),
-
   installAsync: (modelId: string, body?: ModelInstallRequest) =>
     api.post<TaskStatusResponse>(`/models/${modelId}/install`, body),
 

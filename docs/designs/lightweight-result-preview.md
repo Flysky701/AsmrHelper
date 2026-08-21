@@ -1,5 +1,7 @@
 # 轻量结果预览方案 V1
 
+> 状态：设计草案。当前实现已提供 TaskResult/Preview 和审阅接口，但公共结果字段以 `primary_artifact_id + artifacts` 为准；本文中的方案字段不自动构成 API 契约。
+
 ## 目标
 
 - 在不展开复杂结果系统、字幕编辑器或多人审校平台的前提下，先定义一版最小可用结果预览方案。
@@ -58,7 +60,7 @@ V1 只解决：
 
 ### 1. 展示主产物
 
-每个任务结果都应明确一个 `primary_output`。
+每个任务结果都应明确一个 `primary_artifact_id`，并在 `artifacts` 中返回完整产物记录。
 
 例如：
 
@@ -120,34 +122,34 @@ V1 可以先约定一个轻量结果预览结构：
 ```json
 {
   "task_id": "task_xxx",
-  "status": "completed",
-  "primary_output": {
-    "artifact_id": "art_mix_001",
-    "artifact_type": "audio.mix",
-    "path": "D:/output/a_mix.wav",
-    "display_name": "最终混音",
-    "preview_kind": "audio"
-  },
-  "secondary_outputs": [
+  "primary_artifact_id": "art_mix_001",
+  "artifacts": [
     {
-      "artifact_id": "art_sub_001",
-      "artifact_type": "subtitle.srt",
-      "path": "D:/output/a.srt",
-      "display_name": "字幕文件",
-      "preview_kind": "subtitle"
+      "artifact_id": "art_mix_001",
+      "task_id": "task_xxx",
+      "type": "audio.mix",
+      "path": "D:/output/a_mix.wav",
+      "stage": "mix",
+      "label": "最终混音",
+      "primary": true,
+      "preview": true,
+      "metadata": {}
     },
     {
-      "artifact_id": "art_tts_001",
-      "artifact_type": "audio.tts",
-      "path": "D:/output/a_tts.wav",
-      "display_name": "TTS 音频",
-      "preview_kind": "audio"
+      "artifact_id": "art_sub_001",
+      "task_id": "task_xxx",
+      "type": "subtitle.srt",
+      "path": "D:/output/a.srt",
+      "stage": "export",
+      "label": "字幕文件",
+      "primary": false,
+      "preview": true,
+      "metadata": {}
     }
   ],
   "warnings": [],
-  "error_message": null,
-  "review_status": "needs_review",
-  "review_note": ""
+  "preview_modes": ["audio", "subtitle"],
+  "artifact_count": 2
 }
 ```
 
@@ -192,17 +194,17 @@ V1 可先定义这几个轻量接口：
 
 - 返回结果预览层所需的最小数据包
 
-### `POST /api/v1/tasks/{task_id}/review-status`
+### `PATCH /api/v1/tasks/{task_id}/review`
 
 用途：
 
-- 更新人工轻量确认状态
+- 更新人工轻量确认状态；`POST /review-status` 是当前保留的兼容别名
 
-### `POST /api/v1/tasks/{task_id}/review-note`
+### `PUT /api/v1/tasks/{task_id}/review-note`
 
 用途：
 
-- 更新人工备注
+- 更新人工备注；`POST /review-note` 是当前保留的兼容别名
 
 ## 明确当前不做的内容
 

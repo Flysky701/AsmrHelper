@@ -30,10 +30,9 @@
 
 | 兼容项 | 当前真实用途 | 删除条件 |
 | --- | --- | --- |
-| `src.core.model_manager` | 仅支持显式旧导入并发出 DeprecationWarning；主服务使用各引擎 registry | 仓库外调用方完成迁移，且兼容期结束 |
-| `src.core.translate` | 已只保留 Translator、缓存、术语和字幕工具的弃用转发；实现分别位于 `core.engines.llm` 与 `core.subtitles` | 兼容期结束且仓库外旧导入完成迁移 |
-| `src.core.translate` 中的字幕工具转发 | 只服务仓库外旧导入；活跃 TTS 预处理已改用 `src.core.subtitles` | 兼容期结束且外部调用迁移完成 |
 | 路径型 `primary_output/files` | 仅存在于内部执行器模型 | 内部执行器全面改用 ArtifactRecord 后删除 |
+
+2026-08-21 已删除零调用的 `src.core.model_manager`、`src.core.translate` 和 `src.core` 根包懒加载导出。个人桌面端、HTTP API 与仓库内脚本均不依赖这些兼容入口。
 
 ## 3. 迁移顺序
 
@@ -59,7 +58,7 @@
 
 2026-07-24 已完成 RuntimeEvent 收敛：任务生命周期生成单任务递增事件，`after_sequence` 支持续读，SSE 和 TaskCenter 日志消费统一结构；模型安装事件明确携带 `operation/model_id/state/progress`。同时移除 TTS 音频预处理对旧翻译包中字幕工具的反向依赖。全量测试 `160 passed`，桌面端构建通过。
 
-2026-07-24 已完成翻译核心迁移：Translator、翻译缓存、质量检测和术语库迁入 `core.engines.llm`；繁简映射迁入 `core.subtitles`；LLM registry、ModelManager 内部构造和 core 根导出均使用新实现路径。`core.translate` 只保留带弃用提示的兼容转发。全量测试 `163 passed`。
+2026-07-24 已完成翻译核心迁移：Translator、翻译缓存、质量检测和术语库迁入 `core.engines.llm`；繁简映射迁入 `core.subtitles`。2026-08-21 进一步删除零调用的 `ModelManager`、`core.translate` 与 core 根导出兼容层。
 
 2026-07-24 曾完成同步执行结果收敛：CLI、当时的 `POST /pipeline-runs/execute` 和 `POST /tool-runs` 都从权威 Artifact 索引返回或展示 TaskResult。两条同步 HTTP 执行入口已在 2026-08-07 删除；正式产品只保留创建即提交与结果查询。
 
