@@ -53,6 +53,7 @@ class VoiceCloneRequest:
     audio_path: str
     name: str
     ref_text: str = ""
+    x_vector_only_mode: bool = False
 
 
 @dataclass(slots=True)
@@ -98,6 +99,7 @@ class VoicePreviewRequest:
     profile_id: str
     text: str = ""
     speed: float = 1.0
+    language: str = "auto"
 
 
 @dataclass(slots=True)

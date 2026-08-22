@@ -64,7 +64,6 @@ def test_dispatcher_starts_one_task_once_and_finalizes_after_executor_exit():
     service = TaskService()
     dispatcher = TaskDispatcher(service.registry, task_service=service)
     started = threading.Event()
-    release = threading.Event()
     exited = threading.Event()
     calls = 0
 
@@ -189,6 +188,173 @@ def test_background_queue_drains_after_a_slot_is_released():
     release.set()
     _wait_for(service, second.task_id, "completed")
     assert service.get_task(first.task_id).state == "completed"
+
+
+def test_concurrent_submit_reserves_only_one_execution_slot(monkeypatch):
+    service = TaskService(max_concurrent=1)
+    dispatcher = TaskDispatcher(service.registry, task_service=service)
+    release = threading.Event()
+    started = threading.Event()
+    submit_gate = threading.Barrier(3)
+    counter_lock = threading.Lock()
+    active = 0
+    max_active = 0
+    executed: list[str] = []
+    submit_errors: list[BaseException] = []
+    can_start_gate = threading.Barrier(2)
+    original_can_start = service.can_start
+    can_start_calls = 0
+
+    def synchronize_initial_capacity_checks() -> bool:
+        # Make legacy check-then-start implementations expose the race reliably.
+        nonlocal can_start_calls
+        result = original_can_start()
+        if not threading.current_thread().name.startswith("submit-"):
+            return result
+        with counter_lock:
+            can_start_calls += 1
+            should_wait = can_start_calls <= 2
+        if should_wait:
+            can_start_gate.wait(timeout=1)
+        return result
+
+    monkeypatch.setattr(service, "can_start", synchronize_initial_capacity_checks)
+
+    def execute(spec):
+        nonlocal active, max_active
+        with counter_lock:
+            active += 1
+            max_active = max(max_active, active)
+            executed.append(spec.task_id)
+        started.set()
+        try:
+            release.wait(timeout=2)
+            return {"detail": spec.task_id}
+        finally:
+            with counter_lock:
+                active -= 1
+
+    dispatcher.register_executor("pipeline", execute)
+    first, _ = _create(service)
+    second, _ = _create(service)
+
+    def submit(task_id: str) -> None:
+        try:
+            submit_gate.wait(timeout=1)
+            dispatcher.submit(task_id)
+        except BaseException as exc:
+            submit_errors.append(exc)
+
+    submitters = [
+        threading.Thread(target=submit, args=(first.task_id,), name="submit-first"),
+        threading.Thread(target=submit, args=(second.task_id,), name="submit-second"),
+    ]
+    for submitter in submitters:
+        submitter.start()
+    submit_gate.wait(timeout=1)
+    for submitter in submitters:
+        submitter.join(timeout=1)
+
+    assert not submit_errors
+    assert all(not submitter.is_alive() for submitter in submitters)
+    assert started.wait(timeout=1)
+    states = {
+        service.get_task(first.task_id).state,
+        service.get_task(second.task_id).state,
+    }
+    assert states == {"pending", "running"}
+    assert service.running_count() == 1
+    assert max_active == 1
+
+    release.set()
+    _wait_for(service, first.task_id, "completed")
+    _wait_for(service, second.task_id, "completed")
+    assert set(executed) == {first.task_id, second.task_id}
+    assert max_active == 1
+
+
+def test_thread_start_failure_releases_slot_and_drains_next_task(monkeypatch):
+    service = TaskService(max_concurrent=1)
+    dispatcher = TaskDispatcher(service.registry, task_service=service)
+    executed: list[str] = []
+    dispatcher.register_executor("pipeline", lambda spec: executed.append(spec.task_id))
+    failed_start, _ = _create(service)
+    healthy, _ = _create(service)
+    original_start = threading.Thread.start
+    start_attempts = 0
+
+    def fail_first_start(thread):
+        nonlocal start_attempts
+        start_attempts += 1
+        if start_attempts == 1:
+            raise RuntimeError("injected thread start failure")
+        return original_start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", fail_first_start)
+
+    with pytest.raises(RuntimeError, match="injected thread start failure"):
+        dispatcher.submit(failed_start.task_id)
+
+    assert service.get_task(failed_start.task_id).state == "failed"
+    assert dispatcher._records[failed_start.task_id].thread is None
+    _wait_for(service, healthy.task_id, "completed")
+    assert executed == [healthy.task_id]
+    assert service.running_count() == 0
+
+
+def test_start_persistence_failure_does_not_fail_the_remaining_queue():
+    class RunningWriteFailureStore:
+        def purge_unfinished(self):
+            return None
+
+        def load_terminal_tasks(self):
+            return []
+
+        def save_task(self, _spec, status):
+            if status.state == "running":
+                raise OSError("injected disk full")
+
+    service = TaskService(
+        max_concurrent=1,
+        state_store=RunningWriteFailureStore(),
+    )
+    dispatcher = TaskDispatcher(service.registry, task_service=service)
+    first, _ = _create(service)
+    second, _ = _create(service)
+
+    with pytest.raises(AppExecutionError, match="failed to persist task state"):
+        dispatcher.submit(first.task_id)
+
+    assert service.get_task(first.task_id).state == "failed"
+    assert service.get_task(second.task_id).state == "pending"
+    assert service.running_count() == 0
+
+
+def test_queue_drain_stops_after_start_persistence_failure():
+    class RunningWriteFailureStore:
+        def purge_unfinished(self):
+            return None
+
+        def load_terminal_tasks(self):
+            return []
+
+        def save_task(self, _spec, status):
+            if status.state == "running":
+                raise OSError("injected disk full")
+
+    service = TaskService(
+        max_concurrent=1,
+        state_store=RunningWriteFailureStore(),
+    )
+    dispatcher = TaskDispatcher(service.registry, task_service=service)
+    first, _ = _create(service)
+    second, _ = _create(service)
+
+    dispatcher._drain_pending()
+
+    assert service.get_task(first.task_id).state == "failed"
+    assert service.get_task(second.task_id).state == "pending"
+    assert service.running_count() == 0
 
 
 def test_restored_non_pipeline_history_is_read_only(tmp_path):

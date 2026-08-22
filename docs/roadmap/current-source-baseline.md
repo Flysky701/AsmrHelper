@@ -1,6 +1,6 @@
 # AsmrHelper 当前源码基线
 
-日期：2026-08-21
+日期：2026-08-22
 
 ## 1. 本文定位
 
@@ -31,6 +31,7 @@ src/app/services/                 应用服务、任务提交和 DTO 映射
 src/core/engines/                 ASR、LLM、TTS、separator registry/runtime
 src/core/orchestration/pipeline/  Pipeline planner、executor、result mapper
 src/core/tasks/                   TaskSpec、TaskStatus、Dispatcher、ExecutorRegistry
+src/core/batches/                 BatchRun 聚合模型
 src/core/artifacts/               ArtifactRecord、索引和 TaskResult/Preview 视图
 src/core/resources/               模型目录、安装、状态和 readiness
 src/core/runtime/                 隔离运行时、Router 和短生命周期 Worker
@@ -40,7 +41,7 @@ src/core/subtitles/               字幕、台本、清洗、解析、导出和�
 ### 桌面端主路径
 
 ```text
-desktop/src/pages/                Workbench、TaskCenter、AudioTools、字幕工坊、VoiceLab、资源和设置
+desktop/src/pages/                Workbench、BatchProcessing、TaskCenter、AudioTools、字幕工坊、VoiceLab、资源和设置
 desktop/src/api/                  页面实际使用的按领域 HTTP 封装
 desktop/src/hooks/                任务和音频状态轮询
 desktop/src/stores/               页面导航、任务、日志、工作台和播放器状态
@@ -69,6 +70,7 @@ src/core/script_processor.py
 | 能力 | 正式入口 | 语义 |
 | --- | --- | --- |
 | Pipeline | `POST /api/v1/pipeline-runs` | 返回 `202`，创建并提交后台任务 |
+| BatchRun | `POST /api/v1/batch-runs` | 持久聚合多个普通 Pipeline Task，支持整批取消和失败项重提 |
 | Tool | `POST /api/v1/tool-runs/tasks` | 返回 `201`，创建并提交后台任务 |
 | 模型安装 | `POST /api/v1/models/{model_id}/install` | 默认返回 `201` 的 TaskStatus |
 | 字幕台本转 VTT | `POST /api/v1/subtitles/script-to-vtt/tasks` | 后台 Task，产物归属 Task |
@@ -87,28 +89,30 @@ src/core/script_processor.py
 - 取消是协作请求，执行器退出后才写入最终 `cancelled`；重试创建新 Task，并用 `retry_of_task_id` 关联原任务。
 - Artifact 按 `task_id` 登记，公共结果使用 `primary_artifact_id`、`artifacts` 和 `warnings`，不再把 `files/primary_output` 作为公共响应契约。
 - SQLite 保存终态历史和 Artifact 索引；重启时清理未完成任务，不恢复中断执行；恢复的历史任务只读。
-- 当前不引入持久化执行队列、BatchRun 聚合实体或分布式调度。Workbench 多文件是多个独立 Task；`POST /api/v1/pipeline/batch` 仍是同步聚合接口，桌面页面不消费它。
+- BatchRun 持久记录批次输入、子任务和聚合状态，但不成为第二套执行器；每个文件仍创建普通 Pipeline Task。APP 重启后中断批次标记为 `interrupted`，只能显式重提失败项，不伪装成断点续跑。
+- 当前不引入持久化执行队列或分布式调度；旧同步 `POST /api/v1/pipeline/batch` 不作为桌面产品入口。
 
 ## 7. Provider 和运行时事实
 
 当前 Registry/能力目录包含：
 
 - ASR：`faster_whisper`、`fun_asr`、`qwen3_asr`。
-- TTS：`edge`、`qwen3`、`kokoro`、`voxcpm2`。
+- TTS：`edge`、`qwen3`、`voxcpm2`。
 - LLM：`deepseek`、`openai`。
 - Separator：`demucs`。
 
 默认组合为 `demucs/htdemucs → faster-whisper/faster-whisper-base → deepseek/deepseek-chat → edge → ffmpeg`。最新的真实验收证据（[2026-08-07 验收矩阵](../archived/roadmap/final-acceptance-2026-08-07.md)）还覆盖 `qwen3_asr/qwen3-asr-0.6b → deepseek → qwen3/qwen3-custom-voice`；这不代表所有可列出的 Provider 都已在当前机器完成验收。
 
-Qwen3-TTS、Qwen3-ASR 和 Fun-ASR 使用按需隔离运行时；Qwen3-TTS 通过短生命周期 Worker 执行。模型已安装、当前解释器可导入、readiness 通过和真实主链路验收是四个不同状态，界面必须分别展示。
+Qwen3-TTS、Qwen3-ASR 和 Fun-ASR 使用按需隔离运行时；ASR/TTS 可通过短生命周期 Worker 执行。Fun-ASR Nano 已完成独立运行时短音频转写，Pipeline 级验收仍待完成。模型已安装、当前解释器可导入、readiness 通过和真实主链路验收是四个不同状态，界面必须分别展示。
 
 ## 8. 本轮验证状态
 
 - 已完成源码引用审计：当前页面没有引用已删除的桌面组件，仓库内没有活跃代码导入 `src.core.model_manager` 或 `src.core.translate`。
 - 已确认 `git diff --check` 无空白错误。
-- 使用工作区 Python 3.12.13 复用现有 `.venv\Lib\site-packages` 运行全量自动化，结果为 `272 passed`。
+- 使用工作区 Python 3.12.13 复用现有 `.venv\Lib\site-packages` 运行合并后全量自动化，结果为 `345 passed`。
 - `compileall -q src tests` 与 Ruff `F821/F601/F401` 检查通过。
-- 使用桌面端现有 TypeScript/Vite 二进制完成 `tsc -b` 和生产构建，构建通过。
+- 合并后的 `tsc -b` 通过；Vite 生产构建命令因权限审批超时未实际启动，不写成新的通过结论。
+- 远端子分支的同一前端基线已在 2026-08-19 完成生产构建和 Tauri release build；该日期证据保留在能力基线中。
 - 项目 `.venv\Scripts\python.exe` 的启动器仍指向已经不存在的 Python；本轮解释器绕行只用于验证，不代表项目环境已修复。
 - 本轮没有重新执行真实 Provider 推理或正式桌面窗口验收；截至 2026-08-07 的证据保存在 [历史路线图](../archived/roadmap/) 和 [多引擎支持现状](multi-engine-status.md) 中。
 

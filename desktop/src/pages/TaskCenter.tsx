@@ -7,6 +7,7 @@ import { useTaskPolling } from '@/hooks/useTaskPolling'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 import { useLogStore } from '@/stores/logStore'
 import type { LogLevel } from '@/stores/logStore'
+import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
 import type { JobType, Task, TaskStatus } from '@/stores/taskStore'
 
@@ -340,6 +341,13 @@ function pipelineStageIndex(task: Task): number {
   return 0
 }
 
+function shouldSuggestProviderVerification(task: Task): boolean {
+  if (task.status !== 'failed') return false
+  const action = typeof task.error?.action === 'string' ? task.error.action : ''
+  const code = typeof task.error?.code === 'string' ? task.error.code : ''
+  return action === 'settings' || code === 'PROVIDER_EXECUTION_FAILED'
+}
+
 function stageLabel(task: Task) {
   if (task.jobType !== 'pipeline') {
     if (task.status === 'completed') return '任务已完成'
@@ -468,6 +476,7 @@ export default function TaskCenter() {
   const selectTask = useTaskStore((state) => state.selectTask)
   const addTask = useTaskStore((state) => state.addTask)
   const updateTask = useTaskStore((state) => state.updateTask)
+  const setPage = useNavStore((state) => state.setPage)
 
   const logs = useLogStore((state) => state.logs)
   const levelFilter = useLogStore((state) => state.levelFilter)
@@ -861,6 +870,16 @@ export default function TaskCenter() {
                     {selectedTask.detail && selectedTask.detail !== selectedTask.errorMessage ? (
                       <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)', wordBreak: 'break-word' }}>
                         {selectedTask.detail}
+                      </div>
+                    ) : null}
+                    {shouldSuggestProviderVerification(selectedTask) ? (
+                      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, color: 'var(--muted)', flex: '1 1 280px' }}>
+                          任务已经实际尝试执行。请主动验证服务连接或检查配置，然后再重试。
+                        </span>
+                        <ToolbarButton variant="secondary" onClick={() => setPage('settings')}>
+                          去设置验证连接
+                        </ToolbarButton>
                       </div>
                     ) : null}
                   </div>

@@ -22,6 +22,60 @@ import soundfile as sf
 from src.utils import get_ffmpeg
 
 
+_QWEN3_LANGUAGE_ALIASES = {
+    "": "Auto",
+    "auto": "Auto",
+    "zh": "Chinese",
+    "zh-cn": "Chinese",
+    "chinese": "Chinese",
+    "en": "English",
+    "en-us": "English",
+    "english": "English",
+    "ja": "Japanese",
+    "ja-jp": "Japanese",
+    "jp": "Japanese",
+    "japanese": "Japanese",
+    "ko": "Korean",
+    "ko-kr": "Korean",
+    "korean": "Korean",
+    "de": "German",
+    "de-de": "German",
+    "german": "German",
+    "fr": "French",
+    "fr-fr": "French",
+    "french": "French",
+    "ru": "Russian",
+    "ru-ru": "Russian",
+    "russian": "Russian",
+    "pt": "Portuguese",
+    "pt-pt": "Portuguese",
+    "pt-br": "Portuguese",
+    "portuguese": "Portuguese",
+    "es": "Spanish",
+    "es-es": "Spanish",
+    "spanish": "Spanish",
+    "it": "Italian",
+    "it-it": "Italian",
+    "italian": "Italian",
+}
+
+
+def normalize_qwen3_language(language: Optional[str]) -> str:
+    """Map project language codes to Qwen3-TTS's supported language names."""
+    key = str(language or "auto").strip().lower().replace("_", "-")
+    normalized = _QWEN3_LANGUAGE_ALIASES.get(key)
+    if normalized is None and "-" in key:
+        normalized = _QWEN3_LANGUAGE_ALIASES.get(key.split("-", 1)[0])
+    if normalized is None:
+        supported = ", ".join(
+            ("auto", "zh", "en", "ja", "ko", "de", "fr", "ru", "pt", "es", "it")
+        )
+        raise ValueError(
+            f"Qwen3-TTS does not support language {language!r}; supported: {supported}"
+        )
+    return normalized
+
+
 def _run_async(coro):
     try:
         loop = asyncio.get_running_loop()
@@ -216,7 +270,7 @@ class EdgeTTSEngine:
 
         tasks = [
             synthesize_one(sent, tf)
-            for sent, tf in zip(sentences, temp_files)
+            for sent, tf in zip(sentences, temp_files, strict=True)
             if sent.strip()
         ]
         await asyncio.gather(*tasks)
@@ -360,9 +414,19 @@ class Qwen3TTSEngine:
 
     @classmethod
     def list_voices(cls) -> list[dict]:
+        voice_languages = {
+            "Ryan": "en",
+            "Aiden": "en",
+            "Ono_Anna": "ja",
+            "Sohee": "ko",
+        }
         return [
-            {"id": v, "name": cls.VOICE_DESC.get(v, v), "language": "zh" if not v.startswith("Ono") and not v.startswith("Sohee") else "ja"}
-            for v in cls.VOICES
+            {
+                "id": voice,
+                "name": cls.VOICE_DESC.get(voice, voice),
+                "language": voice_languages.get(voice, "zh"),
+            }
+            for voice in cls.VOICES
         ]
 
     def __init__(
@@ -370,6 +434,7 @@ class Qwen3TTSEngine:
         voice: str = "Vivian",
         speed: float = 1.0,
         voice_profile_id: str = None,
+        language: str = "auto",
         **kwargs,
     ):
         """
@@ -381,11 +446,13 @@ class Qwen3TTSEngine:
                   注：qwen_tts 0.1.1 不支持 speed 参数，此字段保留供未来版本使用。
                   当前通过 mixer 的时域压缩/拉伸来对齐时长。
             voice_profile_id: 音色配置 ID（优先级高于 voice）
+            language: 目标合成语言（项目语言代码或 Qwen3 语言名称）
             **kwargs: 额外引擎参数（emotion, temperature 等），透传至 qwen_tts API
         """
         self.voice = voice
         self.speed = max(0.5, min(2.0, speed))
         self.voice_profile_id = voice_profile_id
+        self.language = normalize_qwen3_language(language)
         self.extra_options = kwargs
         self.profile = None
         self.instruct = ""
@@ -397,20 +464,25 @@ class Qwen3TTSEngine:
                 from .voice_profile import get_voice_manager
                 manager = get_voice_manager()
                 self.profile = manager.get_by_id(voice_profile_id)
-                if self.profile:
-                    if self.profile.category == "preset":
-                        self.voice = self.profile.speaker
-                        self.instruct = self.profile.instruct
-                    elif self.profile.category in ("custom", "clone"):
-                        self.prompt_cache = self.profile.prompt_cache
             except Exception as e:
-                print(f"[Qwen3TTS] 加载音色配置失败: {e}")
+                raise ValueError(f"failed to load voice profile {voice_profile_id!r}: {e}") from e
+            if self.profile is None:
+                raise ValueError(f"voice profile not found: {voice_profile_id}")
+            if self.profile.category == "preset":
+                self.voice = self.profile.speaker
+                self.instruct = self.profile.instruct
+            elif self.profile.category in ("custom", "clone"):
+                self.prompt_cache = self.profile.get_prompt_cache_path()
+            else:
+                raise ValueError(
+                    f"unsupported voice profile category: {self.profile.category}"
+                )
 
         # 检查是否安装
         try:
             __import__("qwen_tts")
-        except ImportError:
-            raise ImportError("请先安装 qwen-tts: pip install qwen-tts")
+        except ImportError as exc:
+            raise ImportError("请先安装 qwen-tts: pip install qwen-tts") from exc
 
         desc = self.VOICE_DESC.get(self.voice, '')
         if self.profile and self.profile.category in ("custom", "clone"):
@@ -459,7 +531,7 @@ class Qwen3TTSEngine:
         with torch.no_grad():
             wavs, sr = model.generate_voice_clone(
                 text,
-                language="chinese",
+                language=self.language,
                 voice_clone_prompt=prompt_cache,
             )
         if wavs and len(wavs) > 0:
@@ -525,7 +597,7 @@ class Qwen3TTSEngine:
                     wavs, sr = model.generate_custom_voice(
                         text,
                         speaker=self.voice,
-                        language="chinese",
+                        language=self.language,
                         instruct=instruct,
                         **self.extra_options,
                     )
@@ -534,7 +606,7 @@ class Qwen3TTSEngine:
                     wavs, sr = model.generate_custom_voice(
                         text,
                         speaker=self.voice,
-                        language="chinese",
+                        language=self.language,
                         instruct=instruct,
                     )
             if wavs and len(wavs) > 0:
@@ -603,6 +675,7 @@ class TTSEngine:
         pitch: str = "+0Hz",
         proxy: str = None,
         voice_profile_id: str = None,
+        language: str = "auto",
     ):
         """
         初始化 TTS 引擎（使用注册式工厂）
@@ -616,6 +689,7 @@ class TTSEngine:
             pitch: 音调 (仅 Edge-TTS, +/-Hz)
             proxy: 可选 Edge-TTS HTTP 代理
             voice_profile_id: 音色配置 ID（Qwen3 专用）
+            language: 目标合成语言（Qwen3 专用）
         """
         self.engine_type = engine
 
@@ -632,6 +706,7 @@ class TTSEngine:
                 voice=voice,
                 speed=speed,
                 voice_profile_id=voice_profile_id,
+                language=language,
             )
         else:
             raise ValueError(f"不支持的引擎: {engine}，可用: edge/qwen3")
@@ -733,7 +808,9 @@ class TTSEngine:
                 _run_async(self.engine._synthesize_all_async(valid_texts, valid_temp_files))
                 print(f"  [EdgeTTS] 并发合成完成，耗时: {time.time()-t_syn:.1f}s")
             else:
-                for idx, (text, temp_file) in enumerate(zip(valid_texts, valid_temp_files)):
+                for idx, (text, temp_file) in enumerate(
+                    zip(valid_texts, valid_temp_files, strict=True)
+                ):
                     i = valid_indices[idx]
                     success = False
                     last_error = None
@@ -758,7 +835,9 @@ class TTSEngine:
             timeline_samples = int(reference_duration * sample_rate) if reference_duration > 0 else 0
             timeline = np.zeros(timeline_samples, dtype=np.float32) if timeline_samples > 0 else None
 
-            for idx, (i, temp_tts) in enumerate(zip(valid_indices, valid_temp_files)):
+            for idx, (i, temp_tts) in enumerate(
+                zip(valid_indices, valid_temp_files, strict=True)
+            ):
                 if (idx + 1) % 10 == 0 or idx == 0:
                     print(f"  [进度] 后处理中... {idx+1}/{len(valid_indices)} 句")
 

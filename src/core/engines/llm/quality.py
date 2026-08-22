@@ -151,7 +151,7 @@ class QualityChecker:
             List[QualityCheckResult]: 检测结果列表
         """
         results = []
-        for i, (orig, trans) in enumerate(zip(originals, translations)):
+        for i, (orig, trans) in enumerate(zip(originals, translations, strict=True)):
             results.append(self.check(orig, trans, i))
         return results
 
@@ -171,7 +171,7 @@ class QualityChecker:
             List[Tuple[str, QualityCheckResult]]: 有问题的翻译及检测结果
         """
         results = []
-        for i, (orig, trans) in enumerate(zip(originals, translations)):
+        for i, (orig, trans) in enumerate(zip(originals, translations, strict=True)):
             result = self.check(orig, trans, i)
             if result.has_issues:
                 results.append((trans, result))
@@ -195,16 +195,11 @@ class QualityChecker:
         if not kana_matches:
             return False  # 没有假名，没问题
 
-        # 计算非允许的假名数量
-        non_allowed = [k for k in kana_matches if k not in self.ALLOWED_SHORT_KANA]
+        non_allowed = [kana for kana in kana_matches if kana not in self.ALLOWED_SHORT_KANA]
 
-        # 如果允许短假名，减去它们
-        if self.allow_short_kana:
-            short_kana = [k for k in kana_matches if k in self.ALLOWED_SHORT_KANA]
-            non_allowed = [k for k in kana_matches if k not in self.ALLOWED_SHORT_KANA]
-            # 如果总假名数 <= 阈值，允许
-            if len(kana_matches) <= self.short_kana_threshold:
-                return False
+        # 如果总假名数不超过阈值，允许短假名。
+        if self.allow_short_kana and len(kana_matches) <= self.short_kana_threshold:
+            return False
 
         # 有超过阈值的非允许假名，认为是残日
         return len(non_allowed) > self.short_kana_threshold

@@ -1,7 +1,6 @@
 # 多引擎支持现状
 
-> 更新日期：2026-08-21
-> 源码目录和 Registry 事实已按 2026-08-21 工作树核对；真实运行证据仍保留原验收日期。
+> 更新日期：2026-08-18
 > 本页只记录当前代码、当前环境和真实验收状态。
 
 ## 当前结论
@@ -13,13 +12,12 @@
 | --- | --- | --- | --- | --- |
 | 分离 | `demucs` | 已接线 | 可执行 | 已通过 |
 | ASR | `faster_whisper` | 已接线 | Base 可执行 | 已通过 |
-| ASR | `fun_asr` | 已接线并路由隔离 Worker | 环境存在，模型缺失 | 待验收 |
+| ASR | `fun_asr` | 已接线并路由隔离 Worker | Nano 权重与运行环境可执行 | 独立 Worker 短音频推理已通过；Pipeline 待验收 |
 | ASR | `qwen3_asr` | 已接线并路由隔离 Worker | 0.6B/1.7B 可执行 | 0.6B 直接 API 与双 Worker Pipeline 已通过 |
 | 翻译 | `deepseek` | 已接线 | 已配置 | 已通过 |
 | 翻译 | `openai` | 已接线 | 未配置凭据 | 待验收 |
 | TTS | `edge` | 已接线 | 可执行 | 已通过 |
 | TTS | `qwen3` | 已接线并路由隔离 Worker | CustomVoice 在正常用户进程可执行 | 单文件 Pipeline 与双 Worker Pipeline 已通过 |
-| TTS | `kokoro` | 已接线 | Python 包存在，缺 `espeak-ng` | 待验收 |
 | TTS | `voxcpm2` | 已接线 | 未安装 | 待验收 |
 
 默认真实验收组合仍是：
@@ -44,12 +42,12 @@ qwen3_asr/qwen3-asr-0.6b
 ## 本轮恢复内容
 
 - Fun-ASR、Qwen3-ASR 和 VoxCPM2 优先使用项目模型目录，不再绕过已下载资源重新解析上游名称。
-- 只有单文本合成接口的 TTS Provider 可以通过通用时间线适配器进入 Pipeline；Kokoro 不再因缺少 `synthesize_segments` 被直接拒绝。
+- 只有单文本合成接口的 TTS Provider 可以通过通用时间线适配器进入 Pipeline。
 - Workbench 会提交明确的翻译模型和 TTS 默认模型。
 - 模型依赖安装失败会在大模型下载前终止，异步任务会保留真实失败原因。
-- “引擎与资源”可以触发 Faster-Whisper、Demucs、Kokoro 及其他可安装 Provider 的依赖安装。
+- “引擎与资源”可以触发 Faster-Whisper、Demucs 及其他可安装 Provider 的依赖安装。
 - 下载脚本支持按 Provider 或模型 ID 选择，不再只认识 Whisper 和 Qwen3。
-- 客户端异步安装已兼容纯 Python 包策略；Kokoro 不再误走模型权重下载分支。
+- 客户端异步安装已兼容纯 Python 包策略，不会让纯依赖项误走模型权重下载分支。
 - 客户端会提交模型默认安装模式，并为“资产已存在但 Python 依赖缺失”的模型提供修复入口。
 - UV 依赖安装明确指向后端当前解释器；模型下载子进程会持续排空输出，避免长下载因管道写满卡住。
 - 大模型安装在后端串行执行，避免多个 HuggingFace 权重并发争用带宽和当前 Python 环境；默认下载读取超时提高到 120 秒。
@@ -74,6 +72,8 @@ Qwen3-TTS 与 Qwen3-ASR 当前锁定依赖存在冲突，不能把“安装全�
 同日用户完成 `pipeline-8` 手动验收，任务从 Workbench 提交并在 `export` 阶段正常完成，确认 Qwen3 CustomVoice 已能进入真实单文件主链路。
 
 2026-08-07 使用固定非敏感合成句完成 Qwen3-ASR 0.6B 直接 HTTP 推理，并完成 `Qwen3-ASR → DeepSeek → Qwen3 CustomVoice` Pipeline；任务在 `export` 阶段完成并生成混音、双语字幕、TTS WAV 和 ASR 文本，执行后无隔离 Worker 残留。
+
+2026-08-18 修复 `.runtimes/fun_asr` 依赖声明与状态探测：FunASR 固定为锁文件中的 `1.3.26`，运行时同时要求 `torch`、`torchaudio`，并将 Transformers 限制在 5.0 以下。当前 Nano 权重已在该锁定组合上完成 `AutoModel` 导入、依赖一致性检查和短音频真实转写；Pipeline 级产物验收仍单独保留。
 
 后续按需隔离方案及实施边界见 [运行环境隔离 TODO](runtime-environment-isolation-todo.md)。该计划不阻塞当前模型下载链路修复，也不会在用户未选择安装模型时创建环境。
 

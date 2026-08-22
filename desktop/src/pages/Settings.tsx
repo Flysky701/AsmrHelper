@@ -1,16 +1,26 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import { pipelineApi } from '@/api/pipeline'
 import type { SettingsUpdate, SettingsView } from '@/api/settings'
+import type { PresetItem } from '@/api/types'
 import { useFileSelector } from '@/hooks/useFileSelector'
 
 type SettingsTab = 'api' | 'presets' | 'paths'
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'api', label: 'API 配置' },
-  { id: 'presets', label: '预设管理' },
+  { id: 'presets', label: '内置预设' },
   { id: 'paths', label: '路径配置' },
 ]
+
+const PRESET_STAGE_LABELS: Record<string, string> = {
+  separation: '人声分离',
+  asr: '语音识别',
+  translation: '翻译',
+  tts: '语音合成',
+  mix: '混音',
+  export: '导出结果',
+}
 
 export default function Settings() {
   const { selectFolder } = useFileSelector()
@@ -19,7 +29,12 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<SettingsTab>('api')
-  const [presets, setPresets] = useState<Array<{ id: string; label: string }>>([])
+  const [presets, setPresets] = useState<PresetItem[]>([])
+  const [settingsLoadError, setSettingsLoadError] = useState('')
+  const [presetsLoadError, setPresetsLoadError] = useState('')
+  const [presetsLoading, setPresetsLoading] = useState(true)
+  const loadGenerationRef = useRef(0)
+  const presetGenerationRef = useRef(0)
 
   // API test state
   const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null)
@@ -42,35 +57,78 @@ export default function Settings() {
   })
 
   useEffect(() => {
-    loadData()
+    void loadData()
+    return () => {
+      loadGenerationRef.current += 1
+      presetGenerationRef.current += 1
+    }
   }, [])
 
   const loadData = async () => {
+    const generation = ++loadGenerationRef.current
+    const presetGeneration = ++presetGenerationRef.current
     setLoading(true)
+    setPresetsLoading(true)
     setMessage('')
+    setSettingsLoadError('')
+    setPresetsLoadError('')
     try {
-      const [settingsData, presetsData] = await Promise.all([
+      const [settingsResult, presetsResult] = await Promise.allSettled([
         settingsApi.get(),
         pipelineApi.presets(),
       ])
-      const current = settingsData.settings
-      setSettings(current)
-      setDraft({
-        provider: current.providers.default_llm || 'deepseek',
-        deepseekKey: '',
-        openaiKey: '',
-        deepseekBaseUrl: current.providers.deepseek.base_url || 'https://api.deepseek.com',
-        openaiBaseUrl: current.providers.openai.base_url || 'https://api.openai.com/v1',
-        outputDir: current.paths.output_dir || '',
-        vttDir: current.paths.vtt_dir || '',
-        modelCacheDir: current.paths.model_cache_dir || '',
-        tempDir: current.paths.temp_dir || '',
-      })
-      setPresets(presetsData.presets || [])
-    } catch (error) {
-      setMessage(`加载设置失败: ${error instanceof Error ? error.message : String(error)}`)
+      if (generation !== loadGenerationRef.current) return
+
+      if (settingsResult.status === 'fulfilled') {
+        const current = settingsResult.value.settings
+        setSettings(current)
+        setDraft({
+          provider: current.providers.default_llm || 'deepseek',
+          deepseekKey: '',
+          openaiKey: '',
+          deepseekBaseUrl: current.providers.deepseek.base_url || 'https://api.deepseek.com',
+          openaiBaseUrl: current.providers.openai.base_url || 'https://api.openai.com/v1',
+          outputDir: current.paths.output_dir || '',
+          vttDir: current.paths.vtt_dir || '',
+          modelCacheDir: current.paths.model_cache_dir || '',
+          tempDir: current.paths.temp_dir || '',
+        })
+      } else {
+        setSettings(null)
+        setSettingsLoadError(
+          `无法读取当前设置：${settingsResult.reason instanceof Error ? settingsResult.reason.message : String(settingsResult.reason)}`,
+        )
+      }
+
+      if (presetGeneration === presetGenerationRef.current) {
+        if (presetsResult.status === 'fulfilled') {
+          setPresets(presetsResult.value.presets || [])
+        } else {
+          setPresets([])
+          setPresetsLoadError(
+            `无法加载内置预设：${presetsResult.reason instanceof Error ? presetsResult.reason.message : String(presetsResult.reason)}`,
+          )
+        }
+      }
     } finally {
-      setLoading(false)
+      if (generation === loadGenerationRef.current) setLoading(false)
+      if (presetGeneration === presetGenerationRef.current) setPresetsLoading(false)
+    }
+  }
+
+  const reloadPresets = async () => {
+    const generation = ++presetGenerationRef.current
+    setPresetsLoading(true)
+    setPresetsLoadError('')
+    try {
+      const result = await pipelineApi.presets()
+      if (generation !== presetGenerationRef.current) return
+      setPresets(result.presets || [])
+    } catch (error) {
+      if (generation !== presetGenerationRef.current) return
+      setPresetsLoadError(`无法加载内置预设：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      if (generation === presetGenerationRef.current) setPresetsLoading(false)
     }
   }
 
@@ -106,7 +164,7 @@ export default function Settings() {
       await settingsApi.update(updates)
       setValidation({ valid: true, errors: [] })
       setMessage('设置已保存')
-      loadData()
+      void loadData()
     } catch (err) {
       setMessage(`保存失败: ${err}`)
     } finally {
@@ -164,6 +222,36 @@ export default function Settings() {
     )
   }
 
+  if (!settings) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%',
+        padding: '24px', background: 'var(--bg)',
+      }}>
+        <div role="alert" style={{
+          width: 'min(460px, 100%)', padding: '24px', borderRadius: '10px',
+          border: '1px solid var(--border)', background: 'var(--surface)', textAlign: 'center',
+        }}>
+          <h2 style={{
+            margin: '0 0 8px', fontFamily: 'var(--font-display)', fontSize: '17px', fontWeight: 600,
+          }}>
+            设置暂时无法加载
+          </h2>
+          <p style={{ margin: '0 0 18px', color: 'var(--muted)', fontSize: '13px', lineHeight: 1.6 }}>
+            {settingsLoadError || '未能读取当前设置。为避免覆盖已有配置，编辑和保存已暂停。'}
+          </p>
+          <button onClick={() => void loadData()} style={{
+            fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '8px 16px',
+            borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
+            color: 'white', cursor: 'pointer',
+          }}>
+            重新加载
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="settings-page" style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%', overflow: 'hidden' }}>
       {/* Action bar */}
@@ -175,20 +263,31 @@ export default function Settings() {
           设置
         </h1>
         <div className="settings-action-spacer" style={{ flex: 1 }} />
-        <button onClick={handleValidate} style={{
-          fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
-          borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-          color: 'var(--fg)', cursor: 'pointer',
-        }}>
-          验证配置
-        </button>
-        <button onClick={handleSave} disabled={saving} style={{
-          fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
-          borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
-          color: 'white', cursor: 'pointer', opacity: saving ? 0.6 : 1,
-        }}>
-          {saving ? '保存中...' : '保存'}
-        </button>
+        {activeTab === 'presets' ? (
+          <span style={{
+            fontSize: '12px', color: 'var(--muted)', padding: '6px 10px',
+            borderRadius: '999px', background: 'var(--panel-muted)',
+          }}>
+            内置流程 · 无需保存
+          </span>
+        ) : (
+          <>
+            <button onClick={handleValidate} style={{
+              fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
+              borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--fg)', cursor: 'pointer',
+            }}>
+              验证配置
+            </button>
+            <button onClick={handleSave} disabled={saving} style={{
+              fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
+              borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
+              color: 'white', cursor: 'pointer', opacity: saving ? 0.6 : 1,
+            }}>
+              {saving ? '保存中...' : '保存'}
+            </button>
+          </>
+        )}
       </div>
 
       {/* Content: nav + panel */}
@@ -277,30 +376,28 @@ export default function Settings() {
 
                 {/* DeepSeek API Key */}
                 <div style={{ marginBottom: '16px' }}>
-                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>DeepSeek API Key</label>
-                      <input
-                        type="password"
-                        value={draft.deepseekKey}
-                        onChange={e => setDraft({ ...draft, deepseekKey: e.target.value })}
-                        placeholder={settings?.providers.deepseek.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
-                        style={{
-                          fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
-                          borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                          color: 'var(--fg)', width: '100%', letterSpacing: '0.05em',
-                        }}
-                      />
-                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>环境变量: DEEPSEEK_API_KEY 优先</div>
-                    </div>
-                    <button onClick={() => handleTestProvider('deepseek')} disabled={testing} style={{
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>DeepSeek API Key</label>
+                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                    <input
+                      type="password"
+                      value={draft.deepseekKey}
+                      onChange={e => setDraft({ ...draft, deepseekKey: e.target.value })}
+                      placeholder={settings?.providers.deepseek.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
+                      style={{
+                        fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
+                        borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
+                        color: 'var(--fg)', flex: 1, minWidth: 0, height: '36px', letterSpacing: '0.05em',
+                      }}
+                    />
+                    <button type="button" onClick={() => handleTestProvider('deepseek')} disabled={testing} style={{
                       fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
                       borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                      color: 'var(--fg)', cursor: 'pointer', whiteSpace: 'nowrap', height: '36px',
+                      color: 'var(--fg)', cursor: 'pointer', whiteSpace: 'nowrap', minHeight: '36px', flexShrink: 0,
                     }}>
                       测试连通
                     </button>
                   </div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>环境变量: DEEPSEEK_API_KEY 优先</div>
                 </div>
 
                 {/* DeepSeek Base URL */}
@@ -321,30 +418,28 @@ export default function Settings() {
 
                 {/* OpenAI API Key */}
                 <div style={{ marginBottom: '16px' }}>
-                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>OpenAI API Key</label>
-                      <input
-                        type="password"
-                        value={draft.openaiKey}
-                        onChange={e => setDraft({ ...draft, openaiKey: e.target.value })}
-                        placeholder={settings?.providers.openai.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
-                        style={{
-                          fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
-                          borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                          color: 'var(--fg)', width: '100%', letterSpacing: '0.05em',
-                        }}
-                      />
-                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>环境变量: OPENAI_API_KEY 优先</div>
-                    </div>
-                    <button onClick={() => handleTestProvider('openai')} disabled={testing} style={{
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>OpenAI API Key</label>
+                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                    <input
+                      type="password"
+                      value={draft.openaiKey}
+                      onChange={e => setDraft({ ...draft, openaiKey: e.target.value })}
+                      placeholder={settings?.providers.openai.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
+                      style={{
+                        fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
+                        borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
+                        color: 'var(--fg)', flex: 1, minWidth: 0, height: '36px', letterSpacing: '0.05em',
+                      }}
+                    />
+                    <button type="button" onClick={() => handleTestProvider('openai')} disabled={testing} style={{
                       fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
                       borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                      color: 'var(--fg)', cursor: 'pointer', whiteSpace: 'nowrap', height: '36px',
+                      color: 'var(--fg)', cursor: 'pointer', whiteSpace: 'nowrap', minHeight: '36px', flexShrink: 0,
                     }}>
                       测试连通
                     </button>
                   </div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>环境变量: OPENAI_API_KEY 优先</div>
                 </div>
 
                 {/* OpenAI Base URL */}
@@ -382,60 +477,105 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Panel: 预设管理 */}
+          {/* Panel: 内置预设 */}
           {activeTab === 'presets' && (
             <div>
               <div style={{ marginBottom: '32px' }}>
                 <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '16px', fontWeight: 600, letterSpacing: '-0.02em', marginBottom: '4px' }}>
-                  管道预设
+                  内置管道预设
                 </h2>
                 <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '16px' }}>
-                  定义处理管道的阶段组合。预设在工作台中选择，决定任务执行哪些步骤。
+                  当前版本只展示已经接入执行链路的流程。请在工作台中选择预设并创建任务。
                 </div>
+
+                <div style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '16px',
+                  padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border)',
+                  background: 'var(--panel-muted)',
+                }}>
+                  <span aria-hidden="true" style={{
+                    width: '18px', height: '18px', borderRadius: '50%', flex: '0 0 auto',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--accent-soft)', color: 'var(--accent)', fontSize: '12px', fontWeight: 700,
+                  }}>
+                    i
+                  </span>
+                  <div style={{ fontSize: '12px', lineHeight: 1.6, color: 'var(--muted)' }}>
+                    <strong style={{ display: 'block', color: 'var(--fg)', fontWeight: 600 }}>只读说明</strong>
+                    这些流程由应用内置并统一维护，本页用于核对处理范围，不提供新建、编辑或删除操作。
+                  </div>
+                </div>
+
+                {presetsLoadError && (
+                  <div role="alert" style={{
+                    display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px',
+                    padding: '12px 14px', borderRadius: '8px', border: '1px solid oklch(82% 0.06 25)',
+                    background: 'oklch(96% 0.025 25)', color: 'oklch(40% 0.12 25)',
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: '12px', lineHeight: 1.55, overflowWrap: 'anywhere' }}>
+                      <strong style={{ display: 'block', marginBottom: '2px', fontWeight: 600 }}>预设加载失败</strong>
+                      {presetsLoadError}
+                    </div>
+                    <button onClick={() => void reloadPresets()} disabled={presetsLoading} style={{
+                      flex: '0 0 auto', fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 500,
+                      padding: '7px 12px', borderRadius: '6px', border: '1px solid var(--border)',
+                      background: 'var(--surface)', color: 'var(--fg)', cursor: presetsLoading ? 'default' : 'pointer',
+                      opacity: presetsLoading ? 0.6 : 1,
+                    }}>
+                      {presetsLoading ? '重试中...' : '重新加载'}
+                    </button>
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {presets.map(preset => (
                     <div key={preset.id} style={{
-                      border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--surface)', overflow: 'hidden',
+                      border: '1px solid var(--border)', borderRadius: '10px', background: 'var(--surface)',
+                      padding: '16px',
                     }}>
-                      <div className="settings-preset-row" style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                         <span style={{ fontSize: '14px', fontWeight: 600, flex: 1 }}>{preset.label}</span>
-                        <div className="settings-preset-actions" style={{ display: 'flex', gap: '6px' }}>
-                          <button disabled title="当前内置预设为只读" style={{
-                            fontFamily: 'var(--font-body)', fontSize: '12px', padding: '5px 10px',
-                            borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                            color: 'var(--muted)', cursor: 'not-allowed', opacity: 0.55,
-                          }}>
-                            编辑（只读）
-                          </button>
-                          <button disabled title="当前内置预设为只读" style={{
-                            fontFamily: 'var(--font-body)', fontSize: '12px', padding: '5px 10px',
-                            borderRadius: '6px', border: '1px solid oklch(85% 0.06 25)', background: 'var(--surface)',
-                            color: 'var(--muted)', cursor: 'not-allowed', opacity: 0.55,
-                          }}>
-                            删除（只读）
-                          </button>
-                        </div>
+                        <span style={{
+                          fontSize: '11px', color: 'var(--muted)', padding: '3px 8px',
+                          borderRadius: '999px', border: '1px solid var(--border)', whiteSpace: 'nowrap',
+                        }}>
+                          内置 · 只读
+                        </span>
+                      </div>
+                      <p style={{ margin: '0 0 14px', color: 'var(--muted)', fontSize: '12px', lineHeight: 1.65 }}>
+                        {preset.description}
+                      </p>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '7px' }}>实际执行阶段</div>
+                      <div className="settings-preset-stages" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        {preset.stages.map((stage, index) => (
+                          <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {index > 0 && <span aria-hidden="true" style={{ color: 'var(--border-strong)', fontSize: '12px' }}>→</span>}
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '5px',
+                              padding: '5px 8px', borderRadius: '6px', background: 'var(--accent-soft)',
+                              color: 'var(--accent)', fontSize: '12px', fontWeight: 500,
+                            }}>
+                              <span style={{ fontSize: '10px', opacity: 0.72 }}>{index + 1}</span>
+                              {PRESET_STAGE_LABELS[stage] ?? '其他处理'}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
 
-                  {presets.length === 0 && (
+                  {presetsLoading && presets.length === 0 && (
                     <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '16px', textAlign: 'center' }}>
-                      暂无预设，请先创建
+                      正在加载内置预设...
+                    </div>
+                  )}
+
+                  {!presetsLoading && !presetsLoadError && presets.length === 0 && (
+                    <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '16px', textAlign: 'center' }}>
+                      当前没有可用的内置预设。
                     </div>
                   )}
                 </div>
-
-                <button disabled title="当前版本仅支持内置只读预设" style={{
-                  marginTop: '16px', fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500,
-                  padding: '7px 14px', borderRadius: '6px', border: '1px solid var(--border)',
-                  background: 'var(--surface)', color: 'var(--muted)', cursor: 'not-allowed', opacity: 0.55,
-                  display: 'inline-flex', alignItems: 'center', gap: '6px',
-                }}>
-                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M7 2v10M2 7h10" /></svg>
-                  新建预设（暂不可用）
-                </button>
               </div>
             </div>
           )}
@@ -497,7 +637,7 @@ export default function Settings() {
         .settings-page,
         .settings-layout,
         .settings-panel,
-        .settings-provider-row > div,
+        .settings-provider-row > input,
         .settings-path-row > input {
           min-width: 0;
         }
@@ -573,18 +713,8 @@ export default function Settings() {
             width: 100%;
           }
 
-          .settings-preset-row {
+          .settings-preset-stages {
             align-items: flex-start !important;
-            flex-direction: column;
-          }
-
-          .settings-preset-actions {
-            width: 100%;
-            flex-wrap: wrap;
-          }
-
-          .settings-preset-actions > button {
-            flex: 1 1 auto;
           }
         }
       `}</style>

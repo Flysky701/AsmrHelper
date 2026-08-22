@@ -9,9 +9,9 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.app import PipelineRequest
-from src.app.errors import AppError
-from src.app.services import get_pipeline_service
+from src.app import PipelineRequest  # noqa: E402 - path bootstrap must run first
+from src.app.errors import AppError  # noqa: E402 - path bootstrap must run first
+from src.app.services import get_pipeline_service  # noqa: E402 - path bootstrap must run first
 
 
 def _resolve_output_dir(input_path: Path, output: str | None) -> Path:

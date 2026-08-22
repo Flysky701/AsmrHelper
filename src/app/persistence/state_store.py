@@ -10,6 +10,7 @@ import sqlite3
 import threading
 
 from src.core.artifacts import ArtifactRecord
+from src.core.batches import BatchRunRecord
 from src.core.tasks import TaskSpec, TaskStatus
 
 
@@ -75,10 +76,20 @@ class SqliteStateStore:
                     FOREIGN KEY(task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS batch_runs (
+                    batch_id TEXT PRIMARY KEY,
+                    state TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    record_json TEXT NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_tasks_state_created
                     ON tasks(state, created_at);
                 CREATE INDEX IF NOT EXISTS idx_artifacts_task
                     ON artifacts(task_id);
+                CREATE INDEX IF NOT EXISTS idx_batch_runs_created
+                    ON batch_runs(created_at);
                 """
             )
 
@@ -169,6 +180,40 @@ class SqliteStateStore:
                 TERMINAL_STATES,
             ).fetchall()
         return [ArtifactRecord(**json.loads(row["record_json"])) for row in rows]
+
+    def save_batch_run(self, record: BatchRunRecord) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO batch_runs (
+                    batch_id, state, created_at, updated_at, record_json
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(batch_id) DO UPDATE SET
+                    state = excluded.state,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at,
+                    record_json = excluded.record_json
+                """,
+                (
+                    record.batch_id,
+                    record.state,
+                    record.created_at,
+                    record.updated_at,
+                    json.dumps(asdict(record), ensure_ascii=False),
+                ),
+            )
+
+    def load_batch_runs(self) -> list[BatchRunRecord]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT record_json
+                FROM batch_runs
+                ORDER BY created_at, batch_id
+                """
+            ).fetchall()
+        return [BatchRunRecord.from_dict(json.loads(row["record_json"])) for row in rows]
 
 
 _store: SqliteStateStore | None = None

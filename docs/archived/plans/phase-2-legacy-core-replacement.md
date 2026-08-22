@@ -15,7 +15,7 @@
 
 这些判断不再作为当前基准。
 
-当前判断必须以 [当前源码基线](../../roadmap/current-source-baseline.md) 和 [当前架构与文档审计](current-architecture-and-doc-audit-2026-07-23.md) 为准。本计划只定义尚未完成的收尾切片，不能用于推翻已验证的运行状态。
+当前判断必须以 [当前源码基线](../../roadmap/current-source-baseline.md) 和 [历史架构审计](../roadmap/current-architecture-and-doc-audit-2026-07-23.md) 为准。本计划只记录当时尚未完成的收尾切片，不能用于推翻已验证的运行状态。
 
 ## 2. 当前 Phase 2 状态
 
@@ -33,7 +33,7 @@
 仍未完成：
 
 - 部分 app service 仍有旧字段拼装或旧路径引用。
-- `ModelManager` 与 `core.translate` 的零调用兼容入口已删除；Qwen3 manager 仍承载实际 Voice 能力，不能按兼容层直接删除。
+- `ModelManager`、`core.translate`、Qwen3 manager 等兼容入口仍需在兼容期结束后删除；其中 `core.translate` 已只剩弃用转发。
 
 ## 3. 后段目标
 
@@ -210,13 +210,13 @@ Phase 2 后段不再以“删除旧目录”为核心目标。
 - `translation_service`
 - `tts_service`
 - `asr_service`
-- `ModelManager`（已删除）
-- `core.translate`（已删除）
+- `ModelManager`
+- `core.translate`（实现已迁出，仅保留兼容转发）
 
 目标：
 
 - app service 主要做校验、DTO 映射、调用 core。
-- 保持 `ModelManager` 和 `core.translate` 已删除，测试防止旧入口复活。
+- 新代码不再新增对 `ModelManager` 和 `core.translate` 的直接依赖。
 - 兼容 route 可以保留，但内部必须尽快转成新 core 对象。
 
 完成标准：
@@ -248,7 +248,7 @@ Workbench 已走 `/pipeline-runs`，TaskCenter 已消费后端显式阶段。受
 
 ### 旧路径残留会在运行时炸
 
-P0 的 `script_subtitle_service.py` 残留导入已修复。已删除的 `ModelManager`、`core.translate` 与 core 根包懒加载出口由负向测试保护，避免同类旧入口复发。
+P0 的 `script_subtitle_service.py` 残留导入已修复。后续仍应对兼容层的懒加载路径保留针对性测试，避免同类问题复发。
 
 ## 7. 完成标准
 
@@ -261,7 +261,7 @@ P0 的 `script_subtitle_service.py` 残留导入已修复。已删除的 `ModelM
 5. Workbench 主路径为一次提交 `/pipeline-runs`，由后端创建并接管任务。
 6. TaskCenter 主路径为 `tasks + artifacts + preview`。
 7. 已删除旧路径没有活跃 import 残留。
-8. `ModelManager` 和 `core.translate` 已删除且没有活跃 import 残留。
+8. `ModelManager` 和 `core.translate` 不再是新服务的默认依赖入口。
 
 ## 8. 一句话结论
 

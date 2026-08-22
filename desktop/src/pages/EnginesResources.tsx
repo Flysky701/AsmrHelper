@@ -35,7 +35,17 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   installing: { dot: 'oklch(65% 0.14 85)', label: '安装中' },
   checking: { dot: 'oklch(65% 0.10 225)', label: '检测中' },
   unverified: { dot: 'oklch(65% 0.10 225)', label: '已配置，待验证' },
+  verification_failed: { dot: 'oklch(65% 0.14 85)', label: '验证失败，可直接尝试' },
   unknown: { dot: 'oklch(62% 0.02 240)', label: '状态未知' },
+}
+
+function formatEstimatedSize(sizeMb?: number | null): string {
+  if (!sizeMb || sizeMb <= 0) return ''
+  if (sizeMb >= 1000) {
+    const sizeGb = sizeMb / 1000
+    return `约 ${sizeGb >= 10 ? sizeGb.toFixed(0) : sizeGb.toFixed(1)} GB`
+  }
+  return `约 ${Math.round(sizeMb)} MB`
 }
 
 export default function EnginesResources() {
@@ -360,9 +370,15 @@ export default function EnginesResources() {
                         const runtimeUnavailable =
                           status?.executable === false &&
                           (status.status === 'installed' || status.status === 'configured') &&
-                          !status.issues.some(issue => issue.code === 'PROVIDER_UNVERIFIED')
+                          !status.issues.some(issue => [
+                            'PROVIDER_UNVERIFIED',
+                            'PROVIDER_VERIFICATION_FAILED',
+                          ].includes(issue.code))
                         const providerUnverified = status?.issues.some(
                           issue => issue.code === 'PROVIDER_UNVERIFIED',
+                        ) ?? false
+                        const providerVerificationFailed = status?.issues.some(
+                          issue => issue.code === 'PROVIDER_VERIFICATION_FAILED',
                         ) ?? false
                         const probeFailed = status?.issues.some(
                           issue => issue.code === 'STATUS_PROBE_FAILED',
@@ -371,6 +387,8 @@ export default function EnginesResources() {
                           ? STATUS_STYLES[
                             providerUnverified
                               ? 'unverified'
+                              : providerVerificationFailed
+                                ? 'verification_failed'
                               : runtimeUnavailable
                                 ? 'runtime_unavailable'
                                 : status.status
@@ -379,18 +397,22 @@ export default function EnginesResources() {
                         const resolvedStatusInfo = statusInfo ?? STATUS_STYLES.unknown!
                         const installState = installing[model.model_id]
                         const isInstalling = !!installState?.active || status?.status === 'installing'
-                        const missingPythonDependency = status?.issues?.some(
-                          issue => issue.code === 'PYTHON_DEPENDENCY_MISSING',
+                        const repairableRuntimeIssue = status?.issues?.some(
+                          issue => [
+                            'PYTHON_DEPENDENCY_MISSING',
+                            'PYTHON_DEPENDENCY_INCOMPATIBLE',
+                            'RUNTIME_ENVIRONMENT_MISSING',
+                          ].includes(issue.code),
                         ) ?? false
                         const needsInstall =
                           !!status && (
                           status.status === 'not_installed' ||
                           status.status === 'missing' ||
                           (status.status === 'invalid' && !probeFailed) ||
-                          missingPythonDependency)
+                          repairableRuntimeIssue)
                         const installLabel = model.install_strategy === 'package'
                           ? '安装依赖'
-                          : missingPythonDependency
+                          : repairableRuntimeIssue
                             ? '修复依赖'
                             : status?.status === 'invalid'
                               ? '重新安装'
@@ -405,6 +427,7 @@ export default function EnginesResources() {
                               <div style={{ fontWeight: 500 }}>{model.display_name}</div>
                               <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
                                 {model.backend || model.family_id || model.kind}
+                                {model.estimated_size_mb ? ` · ${formatEstimatedSize(model.estimated_size_mb)}` : ''}
                               </div>
                               {status?.issues?.length ? (
                                 <div style={{ fontSize: '11px', color: 'oklch(48% 0.12 65)', marginTop: '4px' }}>
@@ -439,8 +462,23 @@ export default function EnginesResources() {
                                   {isInstalling ? '安装中...' : statusLoading ? '检测中...' : '状态不可用'}
                                 </button>
                               ) : model.kind === 'cloud' ? (
-                                /* Cloud models: no install/unload, only show config status */
-                                null
+                                status.status === 'unconfigured' ? (
+                                  <button onClick={() => setPage('settings')} style={{
+                                    fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
+                                    borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
+                                    color: 'white', cursor: 'pointer',
+                                  }}>
+                                    去配置
+                                  </button>
+                                ) : (
+                                  <button onClick={() => handleVerify(model.model_id)} style={{
+                                    fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
+                                    borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
+                                    color: 'var(--fg)', cursor: 'pointer',
+                                  }}>
+                                    验证连接
+                                  </button>
+                                )
                               ) : (
                                 <>
                                   {needsInstall && model.supports_install ? (

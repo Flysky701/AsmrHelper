@@ -9,6 +9,7 @@ from src.api.http.schemas.tasks import TaskStatusResponse
 from src.api.http.schemas.models import (
     ModelInstallRequest,
     ModelOperationResponse,
+    ModelStatusIssueResponse,
     ModelStatusResponse,
     ModelSummaryResponse,
     ModelVerificationResponse,
@@ -32,6 +33,7 @@ def list_models(
             category=m.category,
             backend=m.backend,
             display_name=m.display_name,
+            estimated_size_mb=m.estimated_size_mb,
             install_strategy=m.install_strategy,
             supports_install=m.supports_install,
             supports_remove=m.supports_remove,
@@ -162,6 +164,14 @@ def verify_model(
             success=r.success,
             status=r.status,
             detail=r.detail,
+            issues=[
+                ModelStatusIssueResponse(
+                    code=issue.code,
+                    requirement=issue.requirement,
+                    message=issue.message,
+                )
+                for issue in r.issues
+            ],
         )
         for r in results
     ]

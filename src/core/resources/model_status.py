@@ -11,6 +11,10 @@ from src.config import config
 from src.core.runtime import RuntimeProfileResolver, get_runtime_profile_resolver
 
 from .model_catalog import ModelEntry
+from .provider_verification import (
+    ProviderVerificationRegistry,
+    get_provider_verification_registry,
+)
 
 
 class ModelState:
@@ -44,20 +48,18 @@ class ModelStatusResolver:
 
     _RUNTIME_IMPORTS = {
         "faster_whisper": ("faster_whisper",),
-        "fun_asr": ("funasr",),
+        "fun_asr": ("funasr", "torch", "torchaudio"),
         "qwen3_asr": ("qwen_asr",),
         "qwen3": ("qwen_tts",),
         "voxcpm2": ("voxcpm",),
-        "kokoro": ("kokoro", "soundfile"),
         "demucs": ("demucs",),
     }
     _EXTRA_IMPORTS = {
         "audio": ("torch",),
-        "funasr": ("funasr",),
+        "funasr": ("funasr", "torch", "torchaudio"),
         "qwen_asr": ("qwen_asr",),
         "qwen3": ("qwen_tts",),
         "voxcpm2": ("voxcpm",),
-        "kokoro": ("kokoro",),
     }
 
     def __init__(
@@ -67,26 +69,61 @@ class ModelStatusResolver:
         tool_checker: Callable[[str], bool] | None = None,
         gpu_checker: Callable[[], bool] | None = None,
         runtime_resolver: RuntimeProfileResolver | None = None,
+        provider_verifications: ProviderVerificationRegistry | None = None,
     ) -> None:
         self._import_checker = import_checker or self._can_import
         self._tool_checker = tool_checker or self._has_system_tool
         self._gpu_checker = gpu_checker or self._has_cuda_gpu
         self._runtime_resolver = runtime_resolver or get_runtime_profile_resolver()
+        self._provider_verifications = (
+            provider_verifications or get_provider_verification_registry()
+        )
 
     def resolve(self, entry: ModelEntry) -> ModelStatus:
         if entry.kind == "cloud":
-            api_key = config.get(entry.api_key_config or "", "")
+            api_key = str(config.get(entry.api_key_config or "", "") or "").strip()
             if api_key:
+                provider = str(entry.provider or entry.engine or entry.id).strip()
+                base_url = str(
+                    config.get(f"api.{provider}_base_url", "") or ""
+                ).strip()
+                verification = self._provider_verifications.get_fresh(
+                    provider,
+                    api_key,
+                    base_url,
+                )
+                if verification is not None and verification.success:
+                    return ModelStatus(
+                        entry.id,
+                        ModelState.CONFIGURED,
+                        verification.message
+                        or "Provider connection and authentication are verified",
+                        executable=True,
+                    )
+                if verification is not None:
+                    issue = ModelStatusIssue(
+                        "PROVIDER_VERIFICATION_FAILED",
+                        provider,
+                        verification.message
+                        or "Provider connection or authentication verification failed",
+                    )
+                    return ModelStatus(
+                        entry.id,
+                        ModelState.CONFIGURED,
+                        f"{issue.message}. Tasks may still be started; verify the connection manually or retry the task",
+                        executable=True,
+                        issues=(issue,),
+                    )
                 issue = ModelStatusIssue(
                     "PROVIDER_UNVERIFIED",
-                    entry.api_key_config or "credential",
-                    "Credential is configured, but provider availability has not been verified",
+                    provider,
+                    "Credential is configured. Connection verification is optional and can be started manually",
                 )
                 return ModelStatus(
                     entry.id,
                     ModelState.CONFIGURED,
                     issue.message,
-                    executable=False,
+                    executable=True,
                     issues=(issue,),
                 )
             issue = ModelStatusIssue(
@@ -216,22 +253,39 @@ class ModelStatusResolver:
                 )
             )
 
-        for module in dict.fromkeys(modules):
-            if runtime_missing:
-                continue
-            available = (
-                self._runtime_resolver.check_modules(runtime.id, [module])
-                if runtime.isolated and runtime.python_executable.is_file()
-                else self._import_checker(module)
-            )
-            if not available:
-                issues.append(
-                    ModelStatusIssue(
-                        "PYTHON_DEPENDENCY_MISSING",
-                        module,
-                        f"Python dependency is unavailable: {module}",
-                    )
+        unique_modules = list(dict.fromkeys(modules))
+        missing_modules: list[str] = []
+        combined_import_failed = False
+        if not runtime_missing and runtime.isolated and runtime.python_executable.is_file():
+            if not self._runtime_resolver.check_modules(runtime.id, unique_modules):
+                combined_import_failed = True
+                missing_modules = [
+                    module
+                    for module in unique_modules
+                    if not self._runtime_resolver.check_modules(runtime.id, [module])
+                ]
+        elif not runtime_missing:
+            missing_modules = [
+                module for module in unique_modules if not self._import_checker(module)
+            ]
+
+        for module in missing_modules:
+            issues.append(
+                ModelStatusIssue(
+                    "PYTHON_DEPENDENCY_MISSING",
+                    module,
+                    f"Python dependency is unavailable: {module}",
                 )
+            )
+        if combined_import_failed and not missing_modules:
+            requirement = ",".join(unique_modules)
+            issues.append(
+                ModelStatusIssue(
+                    "PYTHON_DEPENDENCY_INCOMPATIBLE",
+                    requirement,
+                    "Python dependencies import separately but fail when loaded together",
+                )
+            )
 
         for tool in entry.required_system_tools:
             if not self._tool_checker(tool):

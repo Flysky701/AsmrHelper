@@ -30,7 +30,7 @@ ASR、TTS、LLM 等能力统一按 Provider 类别扩展，不再分别维护重
 - [多引擎支持现状](roadmap/multi-engine-status.md)
 - [运行环境隔离进度](roadmap/runtime-environment-isolation-todo.md)
 
-2026-08-21 已将阶段性计划、旧进度快照、旧架构审计、旧验收矩阵和根目录重构草案移入 [历史路线图](archived/roadmap/)。它们保留用于追溯，不再参与当前执行顺序。
+2026-08-21 已将阶段性计划、旧进度快照、旧架构审计、旧验收矩阵和根目录重构草案移入历史归档；状态快照位于 [历史路线图](archived/roadmap/)，计划和架构草案位于 [已执行计划](archived/plans/)。它们只用于追溯，不再参与当前执行顺序。
 
 ## 设计草案
 

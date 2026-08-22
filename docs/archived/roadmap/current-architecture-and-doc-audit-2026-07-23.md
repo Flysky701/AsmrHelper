@@ -1,6 +1,6 @@
 # AsmrHelper 架构与文档审计快照（2026-07-23）
 
-> 本文是指定提交附近的历史审计快照，不再作为当前实现基线。当前状态以 [当前源码基线](../../roadmap/current-source-baseline.md) 和 [整体进度状态](overall-progress-status.md) 为准。
+> 本文是指定提交附近的历史审计快照，不再作为当前实现基线。当前状态以 [当前源码基线](../../roadmap/current-source-baseline.md) 和 [整体进度状态](../../roadmap/overall-progress-status.md) 为准。
 
 日期：2026-07-23  
 适用分支：`refactor/re-design`  
@@ -106,11 +106,11 @@ flowchart LR
 | 活跃目标 | [主链路](../../contracts/mainline-v1.md)、[数据结构](../../contracts/schemas-v1.md)、[Provider 与设置](../../contracts/provider-v1.md)、[兼容迁移](../../contracts/compatibility.md) | 四份 V1 文档是当前跨层契约；目标与实现差异集中记录在兼容迁移文档 |
 | 活跃边界 | [领域边界总览](../../domains/README.md) | 只定义六组责任边界；ASR、TTS、LLM 作为 Provider 类别扩展，不再重复维护跨层契约 |
 | 活跃设计 | `docs/designs/desktop-ui-redesign-blueprint.md` | 用于 UI 实现方向；实现前应对照源码基线确认进度 |
-| 需持续收束 | [Phase 2 后段收尾计划](phase-2-legacy-core-replacement.md)、[总体进度状态](overall-progress-status.md)、[主链路检查清单](mainline-refactor-checklist.md) | 仍可用，但只作为执行清单；本轮已补充当前状态链接 |
+| 需持续收束 | [Phase 2 后段收尾计划](../plans/phase-2-legacy-core-replacement.md)、[总体进度状态](../../roadmap/overall-progress-status.md)、[主链路检查清单](../plans/mainline-refactor-checklist.md) | 仅作为历史执行记录；当前状态以活跃路线图为准 |
 | 历史快照 | [重构恢复简报（2026-07-18）](restart-briefing-2026-07-18.md) | 已归档；仅记录恢复时断点，其中旧接口与测试限制均不代表当前状态 |
 | 需修订的设计 | `designs/model-asset-management-requirements.md` | 原“`uv sync --all-extras`”建议与当前互斥 optional extra 不再相容，已改为按安装档选择 |
 | 归档资料 | [归档说明](../README.md) | 原 7 份契约和 12 份领域文档已归档；旧路径、旧命令和 `D:/WorkSpace/...` 链接不作为当前操作依据 |
-| 仓库根部历史草案 | `refactor.md` | 保留为历史架构思考，不再是现状对照或执行入口 |
+| 早期重构草案 | [历史架构草案](../plans/refactor-architecture-draft.md) | 保留为历史架构思考，不再是现状对照或执行入口 |
 
 当前 DOCS 尚未充分体现的内容已在本文补齐：可启动/可打包的验证基线、Python 可选引擎边界、Qwen 依赖互斥、Windows 下 Tauri 开发约束、当前 API 与目标契约的差距，以及“能启动”不等于完整本地音频能力可用的发布边界。
 

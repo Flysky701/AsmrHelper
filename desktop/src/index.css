@@ -41,17 +41,7 @@
   --radius-card: 16px;
   --radius-tag: 4px;
 
-  /* Neu component aliases (legacy compat) */
-  --bg-surface: var(--surface);
-  --bg-base: var(--bg);
-  --bg-elevated: var(--surface);
-  --bg-hover: oklch(96.2% 0.012 225);
-  --text-primary: var(--fg);
-  --text-secondary: var(--muted);
-  --accent-text: oklch(99% 0.002 255);
-  --color-error: var(--error);
-  --shadow-raised: 0 12px 26px oklch(28% 0.02 240 / 0.06);
-  --shadow-pressed: inset 0 1px 3px oklch(0% 0 0 / 0.08);
+  /* Effects */
   --shadow-panel: 0 10px 26px oklch(28% 0.03 240 / 0.06);
   --shadow-float: 0 8px 20px oklch(40% 0.04 230 / 0.12);
 

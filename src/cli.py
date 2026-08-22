@@ -2,6 +2,8 @@
 ASMR Helper CLI entrypoints.
 """
 
+# ruff: noqa: E402 -- this executable bootstraps the project root before imports.
+
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -127,7 +129,7 @@ def pipeline_group():
 @click.option("--output", "-o", "output_dir", default=None, help="Output directory")
 @click.option("--source-lang", default="ja", help="Source language code (ja/zh/en)")
 @click.option("--target-lang", default="zh", help="Target language code")
-@click.option("--tts-engine", default="edge", type=click.Choice(["edge", "qwen3", "kokoro"]), help="TTS engine")
+@click.option("--tts-engine", default="edge", type=click.Choice(["edge", "qwen3", "voxcpm2"]), help="TTS engine")
 @click.option("--tts-voice", default="zh-CN-XiaoxiaoNeural", help="TTS voice")
 @click.option("--vocal-model", default="htdemucs", help="Separator model")
 @click.option("--asr-model", default="faster-whisper-base", help="ASR model id")
@@ -238,7 +240,7 @@ def translate_cmd(input_path: str, output_path: Optional[str], provider: str, so
 @cli.command(name="tts")
 @click.option("--input", "-i", "input_path", required=True, help="Input text file path")
 @click.option("--output", "-o", "output_path", required=True, help="Output audio file path")
-@click.option("--engine", default="edge", type=click.Choice(["edge", "qwen3", "kokoro"]), help="TTS engine")
+@click.option("--engine", default="edge", type=click.Choice(["edge", "qwen3", "voxcpm2"]), help="TTS engine")
 @click.option("--voice", default=None, help="TTS voice")
 def tts_cmd(input_path: str, output_path: str, engine: str, voice: Optional[str]):
     """Run standalone TTS through the application API layer."""

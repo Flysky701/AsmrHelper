@@ -58,6 +58,27 @@ def test_runtime_module_probe_timeout_is_reported_as_probe_failure(tmp_path, mon
         resolver.has_cuda("qwen_tts")
 
 
+def test_fun_asr_runtime_probe_imports_auto_model_symbol(tmp_path, monkeypatch):
+    resolver = RuntimeProfileResolver(project_root=tmp_path)
+    python_executable = resolver.resolve("fun_asr").python_executable
+    python_executable.parent.mkdir(parents=True)
+    python_executable.write_bytes(b"python")
+    captured: dict[str, str] = {}
+
+    def fake_run(cmd, **_kwargs):
+        captured["script"] = cmd[-1]
+        return SimpleNamespace(
+            returncode=0,
+            stdout='__ASMR_RUNTIME_PROBE__{"funasr": true}\n',
+            stderr="",
+        )
+
+    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", fake_run)
+
+    assert resolver.check_modules("fun_asr", ["funasr"]) is True
+    assert "from funasr import AutoModel" in captured["script"]
+
+
 def test_isolated_model_status_reports_missing_runtime(tmp_path):
     install_dir = tmp_path / "models" / "qwen"
     install_dir.mkdir(parents=True)

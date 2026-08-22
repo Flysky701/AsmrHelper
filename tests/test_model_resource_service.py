@@ -110,7 +110,7 @@ def test_status_failure_is_isolated_to_one_model(tmp_path):
     assert statuses[0].issues[0].code == "STATUS_PROBE_FAILED"
 
 
-def test_cloud_credential_is_configured_but_not_claimed_executable(monkeypatch):
+def test_cloud_credential_can_execute_before_optional_verification(monkeypatch):
     entry = ModelEntry(
         id="cloud-model",
         kind="cloud",
@@ -125,7 +125,7 @@ def test_cloud_credential_is_configured_but_not_claimed_executable(monkeypatch):
     status = ModelStatusResolver().resolve(entry)
 
     assert status.status == ModelState.CONFIGURED
-    assert status.executable is False
+    assert status.executable is True
     assert status.issues[0].code == "PROVIDER_UNVERIFIED"
 
 
@@ -210,7 +210,7 @@ def test_uv_runtime_dependency_install_targets_running_interpreter(monkeypatch):
 
     installer = ModelService._resolve_installer()
 
-    extras_cmd = installer["extras_cmd"](["kokoro"], "E:/Projects/AsmrHelper")
+    extras_cmd = installer["extras_cmd"](["funasr"], "E:/Projects/AsmrHelper")
     packages_cmd = installer["packages_cmd"](["soundfile>=0.12.0"])
     assert extras_cmd[:5] == ["uv.exe", "pip", "install", "--python", sys.executable]
     assert packages_cmd[:5] == ["uv.exe", "pip", "install", "--python", sys.executable]
@@ -218,14 +218,14 @@ def test_uv_runtime_dependency_install_targets_running_interpreter(monkeypatch):
 
 def test_package_install_with_progress_does_not_start_download(tmp_path, monkeypatch):
     entry = ModelEntry(
-        id="kokoro",
+        id="package-model",
         kind="local",
         category="tts",
-        provider="kokoro",
-        display_name="Kokoro",
+        provider="package-provider",
+        display_name="Package Model",
         description="test",
         install_root=str(tmp_path),
-        install_path="kokoro",
+        install_path="package-model",
         supports_install=True,
         install_strategy="package",
     )
@@ -449,6 +449,166 @@ def test_installed_assets_are_executable_when_runtime_requirements_are_ready(tmp
     assert status.issues == ()
 
 
+def test_fun_asr_status_requires_torchaudio_in_isolated_runtime(tmp_path):
+    runtime_python = tmp_path / ".runtimes" / "fun_asr" / "Scripts" / "python.exe"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.write_bytes(b"python")
+    install_dir = tmp_path / "funasr" / "nano"
+    install_dir.mkdir(parents=True)
+    (install_dir / "model.safetensors").write_bytes(b"model")
+    checked_modules: list[list[str]] = []
+
+    class RuntimeResolver:
+        def resolve(self, profile_id):
+            assert profile_id == "fun_asr"
+            return type(
+                "RuntimeProfile",
+                (),
+                {
+                    "id": "fun_asr",
+                    "isolated": True,
+                    "python_executable": runtime_python,
+                },
+            )()
+
+        def check_modules(self, profile_id, modules):
+            assert profile_id == "fun_asr"
+            checked_modules.append(list(modules))
+            return "torchaudio" not in modules
+
+    entry = ModelEntry(
+        id="fun-asr-nano-2512",
+        kind="local",
+        category="asr",
+        provider="fun_asr",
+        display_name="Fun-ASR Nano",
+        description="test",
+        install_root=str(tmp_path),
+        install_path="funasr/nano",
+        required_files=["model.safetensors"],
+        required_python_extras=["funasr"],
+        runtime_profile="fun_asr",
+    )
+    resolver = ModelStatusResolver(runtime_resolver=RuntimeResolver())
+
+    status = resolver.resolve(entry)
+
+    assert checked_modules == [
+        ["funasr", "torch", "torchaudio"],
+        ["funasr"],
+        ["torch"],
+        ["torchaudio"],
+    ]
+    assert status.status == ModelState.INSTALLED
+    assert status.executable is False
+    assert [(issue.code, issue.requirement) for issue in status.issues] == [
+        ("PYTHON_DEPENDENCY_MISSING", "torchaudio")
+    ]
+
+
+def test_ready_fun_asr_runtime_probes_all_modules_in_one_subprocess(tmp_path):
+    runtime_python = tmp_path / ".runtimes" / "fun_asr" / "Scripts" / "python.exe"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.write_bytes(b"python")
+    install_dir = tmp_path / "funasr" / "nano"
+    install_dir.mkdir(parents=True)
+    (install_dir / "model.safetensors").write_bytes(b"model")
+    probe_calls: list[list[str]] = []
+
+    class RuntimeResolver:
+        def resolve(self, _profile_id):
+            return type(
+                "RuntimeProfile",
+                (),
+                {
+                    "id": "fun_asr",
+                    "isolated": True,
+                    "python_executable": runtime_python,
+                },
+            )()
+
+        def check_modules(self, _profile_id, modules):
+            probe_calls.append(list(modules))
+            return True
+
+    entry = ModelEntry(
+        id="fun-asr-nano-2512",
+        kind="local",
+        category="asr",
+        provider="fun_asr",
+        display_name="Fun-ASR Nano",
+        description="test",
+        install_root=str(tmp_path),
+        install_path="funasr/nano",
+        required_files=["model.safetensors"],
+        required_python_extras=["funasr"],
+        runtime_profile="fun_asr",
+    )
+
+    status = ModelStatusResolver(runtime_resolver=RuntimeResolver()).resolve(entry)
+
+    assert status.executable is True
+    assert status.issues == ()
+    assert probe_calls == [["funasr", "torch", "torchaudio"]]
+
+
+def test_combined_runtime_import_failure_is_not_reported_executable(tmp_path):
+    runtime_python = tmp_path / ".runtimes" / "fun_asr" / "Scripts" / "python.exe"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.write_bytes(b"python")
+    install_dir = tmp_path / "funasr" / "nano"
+    install_dir.mkdir(parents=True)
+    (install_dir / "model.safetensors").write_bytes(b"model")
+    probe_calls: list[list[str]] = []
+
+    class RuntimeResolver:
+        def resolve(self, _profile_id):
+            return type(
+                "RuntimeProfile",
+                (),
+                {
+                    "id": "fun_asr",
+                    "isolated": True,
+                    "python_executable": runtime_python,
+                },
+            )()
+
+        def check_modules(self, _profile_id, modules):
+            current_modules = list(modules)
+            probe_calls.append(current_modules)
+            return len(current_modules) == 1
+
+    entry = ModelEntry(
+        id="fun-asr-nano-2512",
+        kind="local",
+        category="asr",
+        provider="fun_asr",
+        display_name="Fun-ASR Nano",
+        description="test",
+        install_root=str(tmp_path),
+        install_path="funasr/nano",
+        required_files=["model.safetensors"],
+        required_python_extras=["funasr"],
+        runtime_profile="fun_asr",
+    )
+
+    status = ModelStatusResolver(runtime_resolver=RuntimeResolver()).resolve(entry)
+
+    assert status.executable is False
+    assert [(issue.code, issue.requirement) for issue in status.issues] == [
+        (
+            "PYTHON_DEPENDENCY_INCOMPATIBLE",
+            "funasr,torch,torchaudio",
+        )
+    ]
+    assert probe_calls == [
+        ["funasr", "torch", "torchaudio"],
+        ["funasr"],
+        ["torch"],
+        ["torchaudio"],
+    ]
+
+
 def test_nested_file_does_not_satisfy_required_top_level_asset(tmp_path):
     install_dir = tmp_path / "qwen3tts" / "custom-voice"
     nested_dir = install_dir / "speech_tokenizer"
@@ -476,14 +636,14 @@ def test_nested_file_does_not_satisfy_required_top_level_asset(tmp_path):
 
 def test_system_tool_requirement_is_reported_separately(tmp_path):
     entry = ModelEntry(
-        id="kokoro",
+        id="tool-backed-model",
         kind="local",
         category="tts",
-        provider="kokoro",
-        display_name="Kokoro",
+        provider="tool-backed-provider",
+        display_name="Tool-backed Model",
         description="test",
         install_root=str(tmp_path),
-        install_path="kokoro",
+        install_path="tool-backed-model",
         install_strategy="package",
         required_system_tools=["espeak-ng"],
     )

@@ -13,7 +13,7 @@ ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、
 - **人声分离** - 基于 Demucs 从背景音中提取纯净人声
 - **语音识别** - Faster-Whisper / Fun-ASR / Qwen3-ASR 高精度日文 ASR
 - **翻译引擎** - DeepSeek / OpenAI API，批量翻译 + 质量检测
-- **语音合成** - Edge-TTS (免费) / Qwen3-TTS / Kokoro-TTS (高质量)
+- **语音合成** - Edge-TTS (免费) / Qwen3-TTS / VoxCPM2 (高质量)
 - **智能混音** - 时间轴对齐 + 音量平衡，输出原声+中文配音双轨
 - **HTTP API** - FastAPI RESTful API，支持完整流水线和单步操作
 - **任务中心** - 统一展示 Pipeline、音频工具、模型安装、音色和台本任务的阶段、错误与产物
@@ -70,7 +70,6 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Models -Mirror
 
 # 查看模型目录或只安装明确选择的模型
 .\.venv\Scripts\python.exe scripts\install_models.py --list
-.\.venv\Scripts\python.exe scripts\install_models.py --provider fun_asr
 .\.venv\Scripts\python.exe scripts\install_models.py --model qwen3-custom-voice
 
 # 默认 Faster-Whisper Base
@@ -163,7 +162,7 @@ cp config/config.example.json config/config.json
 | -------------------------- | ---------------------------------------- | ------------------------ |
 | `api.provider`           | 翻译服务 (deepseek/openai)               | `deepseek`             |
 | `api.deepseek_api_key`   | DeepSeek API Key                         |                          |
-| `tts.engine`             | TTS 引擎（当前默认 `edge`；另有 qwen3/kokoro/voxcpm2） | `edge`                 |
+| `tts.engine`             | TTS 引擎 (edge/qwen3)                    | `edge`                 |
 | `tts.voice`              | Edge-TTS 音色                            | `zh-CN-XiaoxiaoNeural` |
 | `processing.vocal_model` | 人声分离模型                             | `htdemucs`             |
 | `processing.asr_model`   | ASR 模型大小 (tiny/base/medium/large-v3) | `base`                 |
@@ -182,15 +181,14 @@ cp config/config.example.json config/config.json
 | 引擎      | 质量 | 速度 | GPU       | 说明                         |
 | --------- | ---- | ---- | --------- | ---------------------------- |
 | `edge`  | 一般 | 快   | 不需要    | 微软免费 TTS，适合快速体验   |
-| `qwen3` | 高   | 慢   | 需要 CUDA | Qwen3-TTS，支持音色设计/克隆；需隔离运行时 |
-| `kokoro` | 待验收 | 快   | 视系统工具 | 需要 `espeak-ng`，当前不作为默认组合 |
-| `voxcpm2` | 待验收 | 慢   | 需要 CUDA | 已接线，需按需安装和真实验收 |
+| `qwen3` | 高   | 慢   | 需要 CUDA | Qwen3-TTS，支持音色设计/克隆 |
 
 ## GUI 界面
 
 ### 主界面布局
 
 - **工作台** - 一个或多个输入分别创建独立 Pipeline Task
+- **批量处理** - 扫描目录并创建持久 BatchRun，支持总进度、整批取消和失败项重提
 - **任务中心** - 查看进度、失败阶段、结构化错误、取消、重提与产物
 - **字幕工坊** - 编辑、导出、后台翻译和台本转字幕
 - **音色实验室** - Qwen3-TTS 专属的设计、克隆、片段分析和试音
@@ -253,6 +251,8 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -DevOnly
 # 运行测试
 .\.venv\Scripts\python.exe -m pytest
 
+# 运行安装脚本集成测试
+.\.venv\Scripts\python.exe -m pytest tests/test_setup_integration.py -v
 
 # 运行环境验证
 .\.venv\Scripts\python.exe scripts/verify_env.py
@@ -274,23 +274,23 @@ MIT License
 ### 核心模块 (src/core)
 
 - `asr/` - ASR 语音识别，支持 Faster-Whisper、Fun-ASR、Qwen3-ASR
-- `engines/llm/` - LLM 翻译、缓存、质量检测和术语库
-- `tts/` - 语音合成，支持 Edge-TTS、Qwen3-TTS、Kokoro-TTS、VoxCPM2
+- `engines/llm/` - 翻译引擎，支持 DeepSeek/OpenAI，包含缓存和术语库
+- `tts/` - 语音合成，支持 Edge-TTS、Qwen3-TTS、VoxCPM2
 - `vocal_separator/` - Demucs 人声分离
 - `orchestration/` - 流水线编排，使用 PipelineExecutor 执行
-- `engines/` - Provider registry 与引擎运行时
-- `runtime/` - 隔离运行时与短生命周期 Worker
+- `engines/` - 引擎运行时，统一管理各引擎生命周期
 - `resources/` - 模型资源管理，支持模型安装和状态查询
 
 ### HTTP API (src/api/http)
 
 FastAPI RESTful API，提供以下端点：
-- `/api/v1/pipeline-runs` - 创建并提交 Pipeline Task
-- `/api/v1/tool-runs/tasks` - 创建并提交 Tool Task
-- `/api/v1/tasks/*` - 任务查询、控制、事件和结果
-- `/api/v1/artifacts/*` - 产物索引和文件服务
-- `/api/v1/models/*`、`/api/v1/voice/*`、`/api/v1/subtitles/*` - 资源、音色和字幕能力
-- `/api/v1/asr/*`、`/api/v1/llm/*`、`/api/v1/tts/*` - 底层诊断/Provider 验收接口
+- `/api/v1/pipeline/*` - 流水线执行
+- `/api/v1/asr/*` - 语音识别
+- `/api/v1/llm/*` - LLM 翻译
+- `/api/v1/tts/*` - 语音合成
+- `/api/v1/models/*` - 模型管理
+- `/api/v1/tasks/*` - 任务管理
+- `/api/v1/artifacts/*` - 产物管理
 
 ### 应用层 (src/app)
 
@@ -298,15 +298,13 @@ FastAPI RESTful API，提供以下端点：
 - `dto/` - 数据传输对象，定义 API 契约
 - `errors/` - 错误定义和处理
 
-### 当前待办（按实际需要推进）
+### 项目状态
 
-- 修复或重建失效的本地 `.venv`，再重新运行完整自动化验证。
-- 按需完成 OpenAI、Fun-ASR、Kokoro、VoxCPM2 的真实短样本验收。
-- 只有产品明确需要批次级查询、取消或恢复时，才设计 BatchRun 契约。
-- 根据真实用户反馈补充模型审阅能力；不为假想需求提前扩展架构。
+README 只保留安装、启动和使用入口，不再维护容易失真的 TODO/DONE 双清单。当前能力、验收范围与剩余边界统一记录在：
 
-## 已完成范围
-- PDF/TXT台本 转换为 时间轴字幕文件（通过接入Model解决）
-- 处理后输出翻译字幕
-- GUI 优化和增强
-- 添加音频音量预览功能
+- [总体进度状态](docs/roadmap/overall-progress-status.md)
+- [后端能力事实清单](docs/roadmap/backend-capability-baseline.md)
+- [当前源码基线](docs/roadmap/current-source-baseline.md)
+- [文档索引](docs/README.md)
+
+历史计划和已执行检查表已移入 `docs/archived/`，不再作为当前开发入口。

@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.core.config import config
+from src.core.resources.provider_verification import (
+    ProviderVerificationRegistry,
+    get_provider_verification_registry,
+)
 
 from ..errors import AppExecutionError, AppValidationError
 
@@ -26,9 +30,17 @@ class ProviderTestResult:
 class SettingsService:
     """Stable facade for configuration read/write and validation."""
 
-    def __init__(self, config_manager=None, provider_probe=None):
+    def __init__(
+        self,
+        config_manager=None,
+        provider_probe=None,
+        verification_registry: ProviderVerificationRegistry | None = None,
+    ):
         self.config = config_manager or config
         self._provider_probe = provider_probe or self._probe_openai_compatible
+        self._verification_registry = (
+            verification_registry or get_provider_verification_registry()
+        )
 
     def get_settings(self, masked: bool = True) -> dict[str, Any]:
         settings = self.config.to_dict()
@@ -94,17 +106,32 @@ class SettingsService:
         try:
             self._provider_probe(provider, api_key, base_url)
         except Exception as exc:
-            return ProviderTestResult(
+            result = ProviderTestResult(
                 provider=provider,
                 success=False,
                 error_code="PROVIDER_CONNECTION_FAILED",
                 message=self._safe_provider_error(exc, secrets=(api_key,)),
             )
-        return ProviderTestResult(
+            self._verification_registry.record_failure(
+                provider,
+                api_key,
+                base_url,
+                message=result.message,
+                error_code=result.error_code,
+            )
+            return result
+        result = ProviderTestResult(
             provider=provider,
             success=True,
             message=f"{provider} 连接与鉴权验证成功",
         )
+        self._verification_registry.record_success(
+            provider,
+            api_key,
+            base_url,
+            message=result.message,
+        )
+        return result
 
     @staticmethod
     def _probe_openai_compatible(provider: str, api_key: str, base_url: str) -> None:

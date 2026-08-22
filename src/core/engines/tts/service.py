@@ -113,16 +113,6 @@ class TtsEngineRuntime:
                 kwargs["proxy"] = proxy
             return kwargs
 
-        if engine_id == "kokoro":
-            return {
-                "voice": voice or "af_heart",
-                "speed": speed,
-                "lang_code": provider_options.get("lang_code"),
-                "repo_id": provider_options.get("repo_id"),
-                "split_pattern": provider_options.get("split_pattern", r"\n+"),
-                "sample_rate": int(provider_options.get("sample_rate", 24000)),
-            }
-
         if engine_id == "voxcpm2":
             model_id = str(profile.get("model") or "voxcpm2")
             model_reference = resolve_model_reference(model_id)
@@ -141,6 +131,7 @@ class TtsEngineRuntime:
             "voice": voice or "zh-CN-XiaoxiaoNeural",
             "speed": speed,
             "voice_profile_id": provider_options.get("voice_profile_id"),
+            "language": common_options.get("language", "auto"),
         }
         # Pass through all extra provider options (emotion, temperature, etc.)
         for key, value in provider_options.items():

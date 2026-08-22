@@ -1,6 +1,6 @@
 # 模型资产管理需求草案 V1
 
-> 状态说明（2026-07-23）：本文是模型资产的目标设计，不是当前安装脚本的逐条操作手册。当前运行环境已经将重型音频引擎拆分为 `audio` 可选组，且 Qwen TTS / Qwen ASR 存在互斥依赖；请使用 [当前源码基线](../roadmap/current-source-baseline.md) 的安装档说明，不要假设“安装全部 extra”总能成立。
+> 状态说明（2026-07-23）：本文是模型资产的目标设计，不是当前安装脚本的逐条操作手册。当前运行环境已经将重型音频引擎拆分为 `audio` 可选组，且 Qwen TTS / Qwen ASR 存在互斥依赖；请以 [当前源码基线](../roadmap/current-source-baseline.md) 和 [多引擎支持现状](../roadmap/multi-engine-status.md) 为准，不要假设“安装全部 extra”总能成立。
 
 ## 目标
 

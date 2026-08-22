@@ -11,6 +11,7 @@ class ModelSummaryResponse(BaseModel):
     category: str
     backend: str
     display_name: str
+    estimated_size_mb: int | None = None
     install_strategy: str = ""
     supports_install: bool = False
     supports_remove: bool = False
@@ -56,6 +57,7 @@ class ModelVerificationResponse(BaseModel):
     success: bool
     status: str
     detail: str
+    issues: list[ModelStatusIssueResponse] = Field(default_factory=list)
 
 
 class ModelInstallRequest(BaseModel):

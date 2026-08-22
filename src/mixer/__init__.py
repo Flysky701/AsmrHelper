@@ -68,7 +68,7 @@ class Mixer:
         output_path = Path(output_path)
         ensure_dir(output_path.parent)
 
-        print(f"[Mixer] 混音原音与配音...")
+        print("[Mixer] 混音原音与配音...")
         print(f"  原音: {original_path.name}")
         print(f"  配音: {tts_path.name}")
 
@@ -193,7 +193,7 @@ class Mixer:
         Returns:
             str: 输出文件路径
         """
-        print(f"[Mixer] 双语双轨混音...")
+        print("[Mixer] 双语双轨混音...")
 
         t0 = time.time()
 

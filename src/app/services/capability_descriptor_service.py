@@ -203,6 +203,14 @@ class CapabilityDescriptorService:
                 "common_option_schema": [
                     _option("voice", "string", required=False, default="Vivian", description="Preset voice or speaker"),
                     _option("speed", "number", required=False, default=1.0, description="Synthesis speed"),
+                    _option(
+                        "language",
+                        "string",
+                        required=False,
+                        default="auto",
+                        enum=["auto", "zh", "en", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"],
+                        description="Target synthesis language",
+                    ),
                 ],
                 "provider_option_schema": [
                     _option("voice_profile_id", "string", required=False, description="Custom profile identifier"),
@@ -214,31 +222,6 @@ class CapabilityDescriptorService:
                     "voice_clone": True,
                     "preview": True,
                     "streaming": False,
-                },
-            },
-            {
-                "category": "tts",
-                "provider": "kokoro",
-                "display_name": "Kokoro TTS",
-                "kind": "local",
-                "supported_models": ["kokoro-82m"],
-                "default_model": "kokoro-82m",
-                "common_option_schema": [
-                    _option("voice", "string", required=False, default="af_heart", description="Kokoro voice id"),
-                    _option("speed", "number", required=False, default=1.0, description="Synthesis speed"),
-                ],
-                "provider_option_schema": [
-                    _option("lang_code", "string", required=False, description="Optional Kokoro language code"),
-                    _option("repo_id", "string", required=False, description="Optional custom Hugging Face repo id"),
-                    _option("split_pattern", "string", required=False, default="\\n+", description="Chunk split regex"),
-                    _option("sample_rate", "integer", required=False, default=24000, description="Output sample rate"),
-                ],
-                "supports": {
-                    "voice_list": True,
-                    "voice_clone": False,
-                    "preview": False,
-                    "streaming": False,
-                    "lightweight_local": True,
                 },
             },
             {
@@ -280,10 +263,7 @@ class CapabilityDescriptorService:
                 "kind": "cloud",
                 "supported_models": llm_registry.list_models("deepseek"),
                 "default_model": llm_registry.default_model("deepseek"),
-                "common_option_schema": [
-                    _option("temperature", "number", required=False, default=0.2, description="Sampling temperature"),
-                    _option("max_tokens", "integer", required=False, description="Optional output token limit"),
-                ],
+                "common_option_schema": [],
                 "provider_option_schema": [],
                 "supports": {
                     "chat_completion": True,
@@ -299,10 +279,7 @@ class CapabilityDescriptorService:
                 "kind": "cloud",
                 "supported_models": llm_registry.list_models("openai"),
                 "default_model": llm_registry.default_model("openai"),
-                "common_option_schema": [
-                    _option("temperature", "number", required=False, default=0.2, description="Sampling temperature"),
-                    _option("max_tokens", "integer", required=False, description="Optional output token limit"),
-                ],
+                "common_option_schema": [],
                 "provider_option_schema": [],
                 "supports": {
                     "chat_completion": True,
@@ -406,8 +383,20 @@ class CapabilityDescriptorService:
                         description="Optional local Fun-ASR source model.py path",
                     ),
                     _option("hotwords", "array", required=False, description="Optional hotword list"),
-                    _option("vad_model", "string", required=False, description="Optional FunASR VAD model"),
-                    _option("vad_kwargs", "object", required=False, description="Optional VAD kwargs"),
+                    _option(
+                        "vad_model",
+                        "string",
+                        required=False,
+                        default="fun-asr-fsmn-vad",
+                        description="FunASR VAD model used to split long audio",
+                    ),
+                    _option(
+                        "vad_kwargs",
+                        "object",
+                        required=False,
+                        default={"max_single_segment_time": 30000},
+                        description="VAD settings; long speech chunks are capped at 30 seconds by default",
+                    ),
                 ],
                 "supports": {
                     "language_hint": True,
@@ -460,7 +449,8 @@ class CapabilityDescriptorService:
                         "forced_aligner",
                         "string",
                         required=False,
-                        description="Optional Qwen forced aligner model id or local path",
+                        default="qwen3-forced-aligner-0.6b",
+                        description="Qwen forced aligner model id or local path",
                     ),
                     _option(
                         "forced_aligner_kwargs",
@@ -472,8 +462,17 @@ class CapabilityDescriptorService:
                         "return_time_stamps",
                         "boolean",
                         required=False,
-                        default=False,
-                        description="Return alignment-based timestamps when supported",
+                        default=True,
+                        description="Return alignment-based timestamps",
+                    ),
+                    _option(
+                        "max_alignment_chunk_seconds",
+                        "number",
+                        required=False,
+                        default=15.0,
+                        min_value=1.0,
+                        max_value=180.0,
+                        description="Maximum audio chunk length used for forced alignment",
                     ),
                     _option("context", "string", required=False, description="Optional textual context prompt"),
                 ],

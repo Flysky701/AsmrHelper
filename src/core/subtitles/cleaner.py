@@ -59,7 +59,7 @@ class SoundEffectPatterns:
     # 语气词/感叹词（中文）
     CHINESE_INTERJECTIONS: Set[str] = {
         "嗯", "啊", "哦", "噢", "呀", "嘛", "呢", "吧", "啦", "哈",
-        "嘿", "哼", "唉", "哎", "咦", "哟", "哇", "呀", "呐",
+        "嘿", "哼", "唉", "哎", "咦", "哟", "哇", "呐",
         "嗯嗯", "啊啊啊", "哦哦", "噢噢", "呀呀", "嘿嘿", "哼哼",
         "啊啊", "哇哇", "诶", "诶诶", "哎哎", "呃", "呃呃",
         "呀~", "呀～", "哈~", "哈～",  # 带波浪号
@@ -206,7 +206,6 @@ class SubtitleCleaner:
         if not text or not text.strip():
             return ""
 
-        original = text
         changed = True
         iteration = 0
         max_iterations = 5  # 防止无限循环
@@ -299,7 +298,7 @@ class SubtitleCleaner:
         """删除说话人名字"""
         patterns = SoundEffectPatterns()
 
-        for name, pattern in patterns.SPEAKER_PATTERNS:
+        for _name, pattern in patterns.SPEAKER_PATTERNS:
             text = pattern.sub("", text)
 
         return text
@@ -317,7 +316,6 @@ class SubtitleCleaner:
         if patterns.SOUND_WORD_ONLY_PATTERN.match(text):
             # 进一步检查：只有当文本只由拟声词组成时才删除
             # 使用单词边界匹配，确保拟声词是完整词语
-            all_sound = True
             remaining = text
             for word in sorted(self._all_sound_words, key=len, reverse=True):
                 if len(word) <= 1:
@@ -475,7 +473,7 @@ class SubtitleCleaner:
             removed_sound_tags.append(match.group())
 
         # 记录被删除的说话人
-        for name, pattern in patterns.SPEAKER_PATTERNS:
+        for _name, pattern in patterns.SPEAKER_PATTERNS:
             for match in pattern.finditer(text):
                 removed_speakers.append(match.group())
 

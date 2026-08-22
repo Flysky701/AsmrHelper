@@ -51,11 +51,6 @@ class TtsRegistry:
             config_defaults={"voice": "tts.voice", "speed": "tts.speed"},
         )
         self.register(
-            "kokoro",
-            factory=self._make_kokoro_tts,
-            config_defaults={},
-        )
-        self.register(
             "voxcpm2",
             factory=self._make_voxcpm2_tts,
             config_defaults={},
@@ -81,7 +76,6 @@ class TtsRegistry:
         """Return available voices for a registered TTS provider."""
         if name not in self._providers:
             raise ValueError(f"unknown TTS provider: {name!r} (available: {self.available()})")
-        factory = self._providers[name].factory
         # The factory returns a TTSEngine wrapper; get the underlying engine class
         import src.core.tts as tts_module
         engine_map = {
@@ -91,10 +85,6 @@ class TtsRegistry:
         engine_cls = engine_map.get(name)
         if engine_cls and hasattr(engine_cls, "list_voices"):
             return engine_cls.list_voices()
-        # kokoro: return common voices from the engine class
-        if name == "kokoro":
-            from .kokoro import KokoroTtsEngine
-            return KokoroTtsEngine.list_voices()
         if name == "voxcpm2":
             from .voxcpm2 import VoxCPM2Engine
             return VoxCPM2Engine.list_voices()
@@ -166,11 +156,6 @@ class TtsRegistry:
     def _make_qwen3_tts(**kwargs: Any) -> Any:
         from src.core.tts import TTSEngine
         return TTSEngine(engine="qwen3", **kwargs)
-
-    @staticmethod
-    def _make_kokoro_tts(**kwargs: Any) -> Any:
-        from .kokoro import KokoroTtsEngine
-        return KokoroTtsEngine(**kwargs)
 
     @staticmethod
     def _make_voxcpm2_tts(**kwargs: Any) -> Any:

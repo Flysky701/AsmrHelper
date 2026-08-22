@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegui/multi-user-tailwind/refs/heads/main/src-tauri/schemas/desktop-schema.json",
+  "$schema": "https://schema.tauri.app/config/2.11.2",
   "productName": "ASMR Helper",
   "version": "0.1.0",
   "identifier": "com.asmrhelper.desktop",

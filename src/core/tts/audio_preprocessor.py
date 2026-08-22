@@ -182,7 +182,7 @@ class AudioPreprocessor:
                 f"{converted_info['channels']}ch", 20)
         else:
             self._report(progress_callback,
-                f"音频已是目标规格", 20)
+                "音频已是目标规格", 20)
 
         # ===== Step 3: 确定处理模式 =====
         subtitle_entries = []
@@ -260,7 +260,7 @@ class AudioPreprocessor:
                 except Exception as asr_err:
                     self._report(progress_callback, f"ASR 识别失败: {asr_err}", 30)
                     warnings.append(f"ASR 识别失败: {asr_err}")
-                    raise RuntimeError(f"无法获取音频文本内容: {asr_err}")
+                    raise RuntimeError(f"无法获取音频文本内容: {asr_err}") from asr_err
 
         # ===== Step 4: 切割音频 =====
         self._report(progress_callback, "切割音频为片段...", 45)
@@ -385,10 +385,10 @@ class AudioPreprocessor:
 
             return result
 
-        except ImportError:
-            raise RuntimeError("ASR 模块不可用，请确保 Faster-Whisper 已安装")
+        except ImportError as exc:
+            raise RuntimeError("ASR 模块不可用，请确保 Faster-Whisper 已安装") from exc
         except Exception as e:
-            raise RuntimeError(f"ASR 识别失败: {e}")
+            raise RuntimeError(f"ASR 识别失败: {e}") from e
 
     def _convert_to_clone_spec(self, audio_path: str, output_path: str) -> str:
         """
@@ -1065,7 +1065,7 @@ class AudioPreprocessor:
             except Exception as asr_err:
                 self._report(progress_callback, f"ASR 识别失败: {asr_err}", 30)
                 warnings.append(f"ASR 识别失败: {asr_err}")
-                raise RuntimeError(f"无法获取音频文本内容: {asr_err}")
+                raise RuntimeError(f"无法获取音频文本内容: {asr_err}") from asr_err
 
         # Step 4: 切割音频
         self._report(progress_callback, "切割音频为片段...", 55)

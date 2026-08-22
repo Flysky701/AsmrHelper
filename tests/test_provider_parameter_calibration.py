@@ -147,6 +147,23 @@ def test_edge_runtime_forwards_optional_proxy() -> None:
     assert kwargs["proxy"] == "http://127.0.0.1:7890"
 
 
+def test_qwen_runtime_forwards_target_language() -> None:
+    kwargs = TtsEngineRuntime._build_engine_kwargs(
+        "qwen3",
+        {
+            "common_options": {
+                "voice": "Ono_Anna",
+                "speed": 1.0,
+                "language": "ja",
+            },
+            "provider_options": {"voice_profile_id": "C1"},
+        },
+    )
+
+    assert kwargs["language"] == "ja"
+    assert kwargs["voice_profile_id"] == "C1"
+
+
 def test_voxcpm_runtime_prefers_managed_model_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -343,7 +360,7 @@ def test_generic_tts_provider_is_adapted_to_pipeline_segments(tmp_path) -> None:
 
     class Registry:
         def get(self, name, **kwargs):
-            assert name == "kokoro"
+            assert name == "text_only"
             return TextOnlyEngine()
 
     output_path = tmp_path / "tts.wav"
@@ -356,9 +373,9 @@ def test_generic_tts_provider_is_adapted_to_pipeline_segments(tmp_path) -> None:
         output_dir=str(tmp_path),
         output_path=str(output_path),
         profile={
-            "provider": "kokoro",
-            "model": "kokoro-82m",
-            "common_options": {"voice": "af_heart", "speed": 1.0},
+            "provider": "text_only",
+            "model": "text-only",
+            "common_options": {"voice": "default", "speed": 1.0},
             "provider_options": {},
         },
         reference_duration=0.5,

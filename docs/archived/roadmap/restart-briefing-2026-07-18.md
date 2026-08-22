@@ -4,7 +4,7 @@
 适用分支：`refactor/re-design`  
 盘点基线：`3bd5c4a`
 
-> 本文已归档，只保留 2026-07-18 的恢复判断，不代表当前接口状态。2026-07-24 起只支持 V1 新客户端；当前执行请优先阅读 [当前源码基线](../../roadmap/current-source-baseline.md)，历史背景见 [2026-07-23 架构与文档审计](current-architecture-and-doc-audit-2026-07-23.md)。
+> 本文已归档，只保留 2026-07-18 的恢复判断，不代表当前接口状态。2026-07-24 起只支持 V1 新客户端；当前执行请优先阅读 [总体进度状态](../../roadmap/overall-progress-status.md) 和 [当前源码基线](../../roadmap/current-source-baseline.md)。
 
 ## 结论
 
@@ -64,7 +64,7 @@ Workbench 选择输入与参数
 1. [当前源码基线](../../roadmap/current-source-baseline.md)：当前事实、验证限制与已知问题。
 2. [主链路契约 v1](../../contracts/mainline-v1.md) 与 [数据结构契约 v1](../../contracts/schemas-v1.md)：当前业务主链路和跨模块字段定义。
 3. [Provider 与设置契约 v1](../../contracts/provider-v1.md) 与 [兼容说明](../../contracts/compatibility.md)：能力边界和旧实现迁移规则。
-4. [Phase 2 后段收尾计划](phase-2-legacy-core-replacement.md)：各切片的具体范围和验收标准。
+4. [Phase 2 后段收尾计划](../plans/phase-2-legacy-core-replacement.md)：各切片的历史范围和验收标准。
 5. 按改动所属范围再读 `docs/domains/` 和 `docs/designs/`，归档目录只用于追溯历史。
 
 ## 本次验证与环境状态

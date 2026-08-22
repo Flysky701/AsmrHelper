@@ -90,6 +90,27 @@ class TaskService:
             lambda: self._registry.start_task(task_id, message=message, stage=stage)
         )
 
+    def start_task_if_capacity(
+        self, task_id: str, message: str = "", *, stage: str | None = "prepare"
+    ) -> TaskStatus | None:
+        """Atomically reserve one execution slot and transition a pending task."""
+        with self._lock:
+            try:
+                if self._registry.get_task(task_id).state != "pending":
+                    return None
+            except ValueError as exc:
+                raise AppValidationError(str(exc)) from exc
+            if not self._registry.can_start():
+                return None
+            return self._guard_locked(
+                task_id,
+                lambda: self._registry.start_task(
+                    task_id,
+                    message=message,
+                    stage=stage,
+                ),
+            )
+
     def update_progress(
         self,
         task_id: str,
@@ -218,36 +239,40 @@ class TaskService:
 
     def _guard(self, task_id: str, fn):
         with self._lock:
+            return self._guard_locked(task_id, fn)
+
+    def _guard_locked(self, task_id: str, fn):
+        """Apply one lifecycle mutation while ``self._lock`` is already held."""
+        try:
+            snapshot = self._registry.snapshot_task_state(task_id)
+            result = fn()
+        except ValueError as exc:
+            raise AppValidationError(str(exc)) from exc
+        if self._state_store is not None:
             try:
-                snapshot = self._registry.snapshot_task_state(task_id)
-                result = fn()
-            except ValueError as exc:
-                raise AppValidationError(str(exc)) from exc
-            if self._state_store is not None:
-                try:
-                    task_spec = self._registry.get_task_spec(result.task_id)
-                    self._state_store.save_task(task_spec, result)
-                except Exception as exc:
-                    self._registry.restore_task_state(*snapshot)
-                    restored = self._registry.get_task(result.task_id)
-                    if restored.state not in self._registry.TERMINAL_STATES:
-                        self._registry.fail_task(
-                            result.task_id,
-                            message="task state persistence failed",
-                            detail=str(exc),
-                            stage=restored.stage,
-                            error={
-                                "code": "TASK_STATE_PERSISTENCE_FAILED",
-                                "stage": restored.stage or "prepare",
-                                "message": "task state could not be persisted",
-                                "retryable": True,
-                                "detail": str(exc),
-                            },
-                        )
-                    raise AppExecutionError(
-                        f"failed to persist task state: {result.task_id}"
-                    ) from exc
-            return result
+                task_spec = self._registry.get_task_spec(result.task_id)
+                self._state_store.save_task(task_spec, result)
+            except Exception as exc:
+                self._registry.restore_task_state(*snapshot)
+                restored = self._registry.get_task(result.task_id)
+                if restored.state not in self._registry.TERMINAL_STATES:
+                    self._registry.fail_task(
+                        result.task_id,
+                        message="task state persistence failed",
+                        detail=str(exc),
+                        stage=restored.stage,
+                        error={
+                            "code": "TASK_STATE_PERSISTENCE_FAILED",
+                            "stage": restored.stage or "prepare",
+                            "message": "task state could not be persisted",
+                            "retryable": True,
+                            "detail": str(exc),
+                        },
+                    )
+                raise AppExecutionError(
+                    f"failed to persist task state: {result.task_id}"
+                ) from exc
+        return result
 
     def list_events(
         self,

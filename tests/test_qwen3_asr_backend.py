@@ -4,6 +4,8 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 
 def test_qwen3_asr_recognizer_falls_back_to_full_duration_segment(tmp_path, monkeypatch):
     captured: dict[str, object] = {}
@@ -57,7 +59,7 @@ def test_qwen3_asr_recognizer_falls_back_to_full_duration_segment(tmp_path, monk
     assert results == [{"start": 0.0, "end": 5.0, "text": "plain transcript"}]
 
 
-def test_qwen3_asr_recognizer_normalizes_timestamp_items(tmp_path, monkeypatch):
+def test_qwen3_asr_recognizer_normalizes_forced_aligner_items_into_sentences(tmp_path, monkeypatch):
     class FakeStamp:
         def __init__(self, text: str, start_time: int, end_time: int) -> None:
             self.text = text
@@ -66,12 +68,16 @@ def test_qwen3_asr_recognizer_normalizes_timestamp_items(tmp_path, monkeypatch):
 
     class FakeTranscription:
         def __init__(self) -> None:
-            self.language = "English"
-            self.text = "hello world"
-            self.time_stamps = [
-                FakeStamp("hello", 0, 900),
-                FakeStamp("world", 900, 1800),
-            ]
+            self.language = "Japanese"
+            self.text = "こんにちは。次です！"
+            self.time_stamps = SimpleNamespace(
+                items=[
+                    FakeStamp("こんにちは", 0, 900),
+                    FakeStamp("。", 900, 1000),
+                    FakeStamp("次です", 1200, 1800),
+                    FakeStamp("！", 1800, 1900),
+                ]
+            )
 
     class FakeQwenModel:
         def transcribe(self, **kwargs):
@@ -88,7 +94,7 @@ def test_qwen3_asr_recognizer_normalizes_timestamp_items(tmp_path, monkeypatch):
 
     recognizer = Qwen3AsrRecognizer(
         model_size="Qwen/Qwen3-ASR-0.6B",
-        language="en",
+        language="ja",
         device_map="cpu",
         return_time_stamps=True,
     )
@@ -98,9 +104,44 @@ def test_qwen3_asr_recognizer_normalizes_timestamp_items(tmp_path, monkeypatch):
     results = recognizer.recognize(str(audio_path))
 
     assert results == [
-        {"start": 0.0, "end": 0.9, "text": "hello"},
-        {"start": 0.9, "end": 1.8, "text": "world"},
+        {"start": 0.0, "end": 1.0, "text": "こんにちは。"},
+        {"start": 1.2, "end": 1.9, "text": "次です！"},
     ]
+
+
+def test_qwen3_asr_does_not_write_whole_file_cue_when_alignment_is_missing(
+    tmp_path, monkeypatch
+):
+    class FakeTranscription:
+        text = "plain transcript"
+        time_stamps = []
+
+    class FakeQwenModel:
+        def transcribe(self, **kwargs):
+            return [FakeTranscription()]
+
+    class FakeQwenFactory:
+        @staticmethod
+        def from_pretrained(model_name, **kwargs):
+            return FakeQwenModel()
+
+    monkeypatch.setitem(sys.modules, "qwen_asr", SimpleNamespace(Qwen3ASRModel=FakeQwenFactory))
+
+    from src.core.engines.asr.qwen3_asr import Qwen3AsrRecognizer
+
+    recognizer = Qwen3AsrRecognizer(
+        model_size="Qwen/Qwen3-ASR-0.6B",
+        forced_aligner="Qwen/Qwen3-ForcedAligner-0.6B",
+        return_time_stamps=True,
+    )
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"not-a-real-wave")
+    output_path = tmp_path / "out.txt"
+
+    with pytest.raises(RuntimeError, match="did not return alignment timestamps"):
+        recognizer.recognize(str(audio_path), str(output_path))
+
+    assert not output_path.exists()
 
 
 def test_execution_profile_builder_uses_qwen3_asr_default_model_when_settings_hold_whisper():
@@ -122,10 +163,14 @@ def test_execution_profile_builder_uses_qwen3_asr_default_model_when_settings_ho
 
     assert profile["provider"] == "qwen3_asr"
     assert profile["model"] == "qwen3-asr-0.6b"
+    assert profile["provider_options"]["forced_aligner"] == "qwen3-forced-aligner-0.6b"
+    assert profile["provider_options"]["return_time_stamps"] is True
+    assert profile["provider_options"]["max_alignment_chunk_seconds"] == 15.0
 
 
 def test_asr_runtime_passes_qwen3_asr_provider_options_to_registry(tmp_path):
     from src.core.engines.asr.service import AsrEngineRuntime
+    from src.core.resources.model_reference import resolve_model_reference
 
     registry = MagicMock()
     recognizer = MagicMock()
@@ -142,12 +187,13 @@ def test_asr_runtime_passes_qwen3_asr_provider_options_to_registry(tmp_path):
         profile={
             "provider": "qwen3_asr",
             "model": "Qwen/Qwen3-ASR-0.6B",
-            "common_options": {"language": "ja"},
+            "common_options": {"language": "ja", "timestamps": True},
             "provider_options": {
                 "device_map": "cpu",
                 "dtype": "float32",
                 "max_inference_batch_size": 8,
-                "return_time_stamps": True,
+                "return_time_stamps": False,
+                "max_alignment_chunk_seconds": 15.0,
                 "context": "anime dialogue",
             },
         },
@@ -161,5 +207,7 @@ def test_asr_runtime_passes_qwen3_asr_provider_options_to_registry(tmp_path):
         dtype="float32",
         max_inference_batch_size=8,
         return_time_stamps=True,
+        forced_aligner=resolve_model_reference("qwen3-forced-aligner-0.6b"),
+        max_alignment_chunk_seconds=15.0,
         context="anime dialogue",
     )

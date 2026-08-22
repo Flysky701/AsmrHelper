@@ -13,11 +13,13 @@ from src.core.orchestration import (
     PipelineExecutor,
     build_execution_plan,
 )
+from src.utils import sanitize_filename
 
 from ..dto import ArtifactSet, PipelineRequest, PipelineResult
 from ..errors import AppExecutionError, AppValidationError, ResourceValidationError
 from .artifact_service import ArtifactService, get_artifact_service
 from .input_catalog_service import InputCatalogService, get_input_catalog_service
+from .preset_catalog_service import get_preset_catalog_service
 from .resource_service import ResourceService, get_resource_service
 from .session_service import SessionService, get_session_service
 from .task_service import TaskService, get_task_service
@@ -46,15 +48,25 @@ def _build_pipeline_task_error(stage: str, detail: str) -> dict[str, object]:
         code = "PROVIDER_DEPENDENCY_MISSING"
     elif stage == "tts" and "no audio" in normalized:
         code = "PROVIDER_RESPONSE_INVALID"
+    elif stage == "translate":
+        code = "PROVIDER_EXECUTION_FAILED"
     else:
         code = "TASK_EXECUTION_FAILED"
-    return {
+    error: dict[str, object] = {
         "code": code,
         "stage": stage,
         "message": f"{stage} failed: {detail}",
         "retryable": True,
         "detail": detail,
     }
+    if code == "PROVIDER_EXECUTION_FAILED":
+        error.update(
+            {
+                "action": "settings",
+                "suggestion": "请在设置中主动验证服务连接，确认无误后重试任务",
+            }
+        )
+    return error
 
 
 class PipelineService:
@@ -149,7 +161,16 @@ class PipelineService:
                 input_path=input_asset.absolute_path,
             )
             workspace = self._resource_service.ensure_workspace()
-            output_dir = session.resolved_output_dir or str(workspace["output_dir"])
+            execution_profile = dict(task_spec.execution_profile)
+            output_dir = self._resolve_task_output_dir(
+                task_id=task_spec.task_id,
+                input_path=input_asset.absolute_path,
+                execution_profile=execution_profile,
+                session_output_root=session.resolved_output_dir,
+                workspace_output_root=str(workspace["output_dir"]),
+            )
+            if execution_profile.get("output_mode") == "batch":
+                execution_profile["batch_root_dir"] = output_dir
             self._task_service.update_progress(
                 task_spec.task_id,
                 progress=0.1,
@@ -157,7 +178,7 @@ class PipelineService:
             )
 
             source_lang, target_lang = self._resolve_profile_languages(
-                task_spec.execution_profile
+                execution_profile
             )
             if source_lang not in SUPPORTED_LANGUAGE_CODES:
                 raise AppValidationError(f"unsupported source_lang: {source_lang}")
@@ -172,7 +193,7 @@ class PipelineService:
                 source_lang=source_lang,
                 target_lang=target_lang,
                 companion_subtitle_path=companion_vtt_path,
-                execution_profile=dict(task_spec.execution_profile),
+                execution_profile=execution_profile,
             )
 
             def on_progress(message: str) -> None:
@@ -357,17 +378,8 @@ class PipelineService:
         )
 
     def list_presets(self) -> list[dict[str, Any]]:
-        """Load presets from config/presets.yaml."""
-        import yaml
-
-        from src.config import PROJECT_ROOT
-
-        presets_path = PROJECT_ROOT / "config" / "presets.yaml"
-        if not presets_path.exists():
-            return []
-        with open(presets_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        return data.get("presets", [])
+        """Compatibility facade for callers that still use PipelineService."""
+        return get_preset_catalog_service().list_presets()
 
     def build_plan(self, task_spec) -> PipelineExecutionPlan:
         """Build an execution plan from a task spec without running it.
@@ -377,10 +389,19 @@ class PipelineService:
         session = self._session_service.get_session(task_spec.session_id)
         input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
         workspace = self._resource_service.ensure_workspace()
-        output_dir = session.resolved_output_dir or str(workspace["output_dir"])
+        execution_profile = dict(task_spec.execution_profile)
+        output_dir = self._resolve_task_output_dir(
+            task_id=task_spec.task_id,
+            input_path=input_asset.absolute_path,
+            execution_profile=execution_profile,
+            session_output_root=session.resolved_output_dir,
+            workspace_output_root=str(workspace["output_dir"]),
+        )
+        if execution_profile.get("output_mode") == "batch":
+            execution_profile["batch_root_dir"] = output_dir
 
         source_lang, target_lang = self._resolve_profile_languages(
-            task_spec.execution_profile
+            execution_profile
         )
         companion_vtt_path = self._resolve_companion_subtitle_path(session.companion_asset_ids)
 
@@ -391,7 +412,7 @@ class PipelineService:
             source_lang=source_lang,
             target_lang=target_lang,
             companion_subtitle_path=companion_vtt_path,
-            execution_profile=dict(task_spec.execution_profile),
+            execution_profile=execution_profile,
         )
         return build_execution_plan(context)
 
@@ -418,7 +439,7 @@ class PipelineService:
             primary_input_asset_id=primary_asset.asset_id,
             companion_asset_ids=companion_asset_ids,
             output_policy={
-                "mode": "custom-dir" if request.output_dir else "workspace-default",
+                "mode": "task-scoped-root",
                 "custom_output_dir": request.output_dir or None,
             },
         )
@@ -432,6 +453,27 @@ class PipelineService:
             execution_profile=execution_profile,
         )
         return task_spec
+
+    @staticmethod
+    def _resolve_task_output_dir(
+        *,
+        task_id: str,
+        input_path: str,
+        execution_profile: dict[str, Any],
+        session_output_root: str,
+        workspace_output_root: str,
+    ) -> str:
+        """Return the non-overlapping TaskName/Filename output directory."""
+        if (
+            execution_profile.get("output_mode") == "batch"
+            and execution_profile.get("batch_root_dir")
+        ):
+            root = Path(str(execution_profile["batch_root_dir"]))
+        else:
+            root = Path(session_output_root or workspace_output_root)
+        safe_task_name = sanitize_filename(str(task_id).strip()) or "task"
+        safe_filename = sanitize_filename(Path(input_path).stem) or "input"
+        return str(root / safe_task_name / safe_filename)
 
     @staticmethod
     def _resolve_execution_profile(request: PipelineRequest) -> dict[str, Any]:

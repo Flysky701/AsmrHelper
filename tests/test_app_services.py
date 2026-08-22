@@ -295,6 +295,30 @@ class TestCapabilityOptionContract:
         assert descriptor["supported_models"] == registry.list_models("deepseek")
         assert Translator.MODELS is LLM_SUPPORTED_MODELS
 
+    @pytest.mark.parametrize("provider", ["deepseek", "openai"])
+    def test_llm_capability_does_not_advertise_ignored_generation_options(
+        self,
+        provider: str,
+    ):
+        from src.app.errors import AppValidationError
+        from src.app.services.capability_descriptor_service import (
+            CapabilityDescriptorService,
+        )
+
+        service = CapabilityDescriptorService()
+        descriptor = service.get_descriptor("llm", provider)
+
+        assert descriptor["common_option_schema"] == []
+        with pytest.raises(
+            AppValidationError,
+            match="unsupported options: max_tokens, temperature",
+        ):
+            service.validate_options(
+                category="llm",
+                provider=provider,
+                common_options={"temperature": 0.2, "max_tokens": 1024},
+            )
+
 
 class TestModelService:
     def test_list_models_normalizes_missing_install_strategy(self):
@@ -309,6 +333,7 @@ class TestModelService:
                 provider="deepseek",
                 engine=None,
                 display_name="DeepSeek API",
+                estimated_size_mb=None,
                 install_strategy=None,
                 capability_models=[],
                 supports_install=False,
@@ -354,6 +379,41 @@ class TestModelService:
         assert task.state == "failed"
         assert task.stage == "install"
         assert task.error["code"] == "TASK_EXECUTION_FAILED"
+
+    def test_local_model_verification_requires_executable_runtime(self):
+        from src.app.services.model_service import ModelService
+        from src.core.resources.model_status import (
+            ModelState,
+            ModelStatus,
+            ModelStatusIssue,
+        )
+
+        core_service = MagicMock()
+        core_service.get_model.return_value = SimpleNamespace(kind="local")
+        core_service.verify.return_value = {"fun-asr-nano-2512": True}
+        core_service.get_status.return_value = ModelStatus(
+            model_id="fun-asr-nano-2512",
+            status=ModelState.INSTALLED,
+            detail="Model is installed but runtime requirements are unavailable",
+            executable=False,
+            issues=(
+                ModelStatusIssue(
+                    code="PYTHON_DEPENDENCY_MISSING",
+                    requirement="torchaudio",
+                    message="Python dependency is unavailable: torchaudio",
+                ),
+            ),
+        )
+
+        result = ModelService(core_service=core_service).verify_models(
+            "fun-asr-nano-2512"
+        )[0]
+
+        assert result.success is False
+        assert result.status == ModelState.INSTALLED
+        assert [(issue.code, issue.requirement) for issue in result.issues] == [
+            ("PYTHON_DEPENDENCY_MISSING", "torchaudio")
+        ]
 
 
 class TestTaskService:
@@ -1175,6 +1235,28 @@ class TestPipelineServiceCallbacks:
         )
         assert result.mix_path == "/tmp/output/input_mix.wav"
 
+    def test_plan_uses_task_and_filename_scoped_output_directory(self):
+        service, _, _, task_spec = self._make_service()
+
+        plan = service.build_plan(task_spec)
+
+        assert Path(plan.output_dir).parts[-2:] == ("pipeline-1", "input")
+
+    def test_batch_plan_scopes_batch_root_under_task_and_filename(self):
+        service, _, _, task_spec = self._make_service()
+        task_spec.execution_profile = dict(task_spec.execution_profile)
+        task_spec.execution_profile["output_mode"] = "batch"
+        task_spec.execution_profile["batch_root_dir"] = "/tmp/batch"
+
+        plan = service.build_plan(task_spec)
+
+        assert Path(plan.batch_root_dir).parts[-4:] == (
+            "tmp",
+            "batch",
+            "pipeline-1",
+            "input",
+        )
+
     def test_prepare_rechecks_v1_readiness_and_fails_task(self):
         from src.app.errors import ResourceValidationError
 
@@ -1317,6 +1399,12 @@ class TestPipelineServiceCallbacks:
                 "PROVIDER_RESPONSE_INVALID",
                 "No audio was received. Please verify the parameters.",
             ),
+            (
+                {"translate": "authentication failed"},
+                "translate",
+                "PROVIDER_EXECUTION_FAILED",
+                "authentication failed",
+            ),
         ],
     )
     def test_first_stage_error_is_reported_with_stable_contract(
@@ -1340,6 +1428,9 @@ class TestPipelineServiceCallbacks:
         assert failure["error"]["code"] == expected_code
         assert failure["error"]["stage"] == expected_stage
         assert failure["error"]["retryable"] is True
+        if expected_code == "PROVIDER_EXECUTION_FAILED":
+            assert failure["error"]["action"] == "settings"
+            assert "验证服务连接" in failure["error"]["suggestion"]
 
 
 class TestBatchPipelineServiceCompanions:

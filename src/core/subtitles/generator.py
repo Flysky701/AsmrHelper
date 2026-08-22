@@ -71,7 +71,7 @@ class SubtitleGenerator:
         removed_parts = []
 
         result = text
-        for pattern_name, pattern in SubtitleGenerator.ACTION_PATTERNS.items():
+        for _pattern_name, pattern in SubtitleGenerator.ACTION_PATTERNS.items():
             matches = pattern.findall(result)
             if matches:
                 removed_parts.extend(matches)
@@ -200,7 +200,7 @@ class SubtitleGenerator:
                 # 用长空行作为分隔符
                 positions = [0] + [m.end() for m in gap_matches] + [len(full_text)]
                 titles = [f"脚本 {i+1}" for i in range(len(positions) - 1)]
-                boundaries = list(zip(positions[:-1], titles))
+                boundaries = list(zip(positions[:-1], titles, strict=True))
             elif len(page_texts) > 5:
                 # 多页 PDF 但无明确章节 -> 每几页一个脚本
                 pages_per_section = max(3, len(page_texts) // 3)
@@ -317,19 +317,21 @@ class SubtitleGenerator:
 
                     # 比较：选行均长度更合理的
                     if result_v.strip():
-                        lines_h = [l for l in result_h.splitlines() if l.strip()]
-                        lines_v = [l for l in result_v.splitlines() if l.strip()]
-                        avg_h = sum(len(l) for l in lines_h) / max(len(lines_h), 1)
-                        avg_v = sum(len(l) for l in lines_v) / max(len(lines_v), 1)
+                        lines_h = [line for line in result_h.splitlines() if line.strip()]
+                        lines_v = [line for line in result_v.splitlines() if line.strip()]
+                        avg_h = sum(len(line) for line in lines_h) / max(len(lines_h), 1)
+                        avg_v = sum(len(line) for line in lines_v) / max(len(lines_v), 1)
                         if avg_v > avg_h:
                             return result_v, pages_text_v
 
                 if result_h.strip():
                     return result_h, pages_text_h
-        except ImportError:
-            raise RuntimeError("需要安装 PDF 处理库。请运行: uv add pypdf 或 uv add pdfplumber")
+        except ImportError as exc:
+            raise RuntimeError(
+                "需要安装 PDF 处理库。请运行: uv add pypdf 或 uv add pdfplumber"
+            ) from exc
         except Exception as e:
-            raise RuntimeError(f"PDF 文本提取失败: {e}")
+            raise RuntimeError(f"PDF 文本提取失败: {e}") from e
 
         raise RuntimeError(f"无法从 PDF 中提取文本: {pdf_path}")
 
@@ -439,7 +441,7 @@ class SubtitleGenerator:
         """
         scripts = SubtitleGenerator.extract_pdf_scripts(pdf_path)
         if not scripts:
-            raise RuntimeError(f"PDF 中未能提取到任何脚本内容")
+            raise RuntimeError("PDF 中未能提取到任何脚本内容")
 
         if script_index >= len(scripts):
             script_index = 0
@@ -564,7 +566,7 @@ class SubtitleGenerator:
         # 窗口大小：限制每个句子最多向前看 N 个 ASR 片段
         window_size = max(5, len(norm_asr) // len(user_sentences) + 2)
 
-        for i, (sentence, norm_sent) in enumerate(zip(user_sentences, norm_user)):
+        for sentence, norm_sent in zip(user_sentences, norm_user, strict=True):
             best_match_idx = -1
             best_score = 0.0
             best_method = ""

@@ -88,7 +88,9 @@ class TestPipelineRoutes:
             {"id": "asmr_bilingual", "label": "ASMR Bilingual", "description": "Full pipeline", "stages": ["asr", "tts"]},
             {"id": "asr_only", "label": "ASR Only", "description": "ASR only", "stages": ["asr"]},
         ]
-        client.app.dependency_overrides[dependencies.pipeline_service] = _mock_dep(mock_svc)
+        client.app.dependency_overrides[dependencies.preset_catalog_service] = _mock_dep(
+            mock_svc
+        )
 
         resp = client.get("/api/v1/pipeline/presets")
         assert resp.status_code == 200
@@ -98,6 +100,24 @@ class TestPipelineRoutes:
         assert "asr_only" in ids
         assert data["presets"][0]["label"] == "ASMR Bilingual"
         mock_svc.list_presets.assert_called_once_with()
+
+    def test_list_presets_does_not_initialize_pipeline_runtime(self, client, monkeypatch):
+        def fail_pipeline_initialization():
+            raise AssertionError("preset catalog must not initialize pipeline runtime")
+
+        monkeypatch.setattr(
+            dependencies,
+            "get_pipeline_service",
+            fail_pipeline_initialization,
+        )
+
+        resp = client.get("/api/v1/pipeline/presets")
+
+        assert resp.status_code == 200
+        assert [preset["id"] for preset in resp.json()["presets"]] == [
+            "asmr_bilingual",
+            "asr_only",
+        ]
 
     def test_legacy_pipeline_routes_are_removed(self, client):
         assert client.post("/api/v1/pipeline/run", json={}).status_code == 404
@@ -373,18 +393,18 @@ class TestTtsRoutes:
         mock_svc.list_engines.return_value = [
             {
                 "category": "tts",
-                "provider": "kokoro",
-                "display_name": "Kokoro TTS",
-                "kind": "local",
+                "provider": "edge",
+                "display_name": "Edge TTS",
+                "kind": "cloud",
                 "supported_models": ["default"],
                 "default_model": "default",
                 "common_option_schema": [
-                    {"name": "voice", "type": "string", "required": False, "default": "af_heart", "description": ""},
+                    {"name": "voice", "type": "string", "required": False, "default": "zh-CN-XiaoxiaoNeural", "description": ""},
                 ],
                 "provider_option_schema": [
-                    {"name": "lang_code", "type": "string", "required": False, "default": None, "description": ""},
+                    {"name": "proxy", "type": "string", "required": False, "default": None, "description": ""},
                 ],
-                "supports": {"voice_list": True, "lightweight_local": True},
+                "supports": {"voice_list": True, "preview": True},
             }
         ]
         client.app.dependency_overrides[dependencies.tts_engine_service] = _mock_dep(mock_svc)
@@ -392,7 +412,7 @@ class TestTtsRoutes:
         resp = client.get("/api/v1/tts/engines")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["engines"][0]["provider"] == "kokoro"
+        assert data["engines"][0]["provider"] == "edge"
         assert data["engines"][0]["common_option_schema"][0]["name"] == "voice"
 
     def test_list_tts_voices(self, client):
@@ -424,8 +444,8 @@ class TestTtsRoutes:
     def test_synthesize_success(self, client, tmp_path):
         mock_svc = MagicMock()
         result_mock = MagicMock()
-        result_mock.engine = "kokoro"
-        result_mock.voice = "af_heart"
+        result_mock.engine = "edge"
+        result_mock.voice = "zh-CN-XiaoxiaoNeural"
         result_mock.output_path = "/test/output.wav"
         mock_svc.synthesize_text.return_value = result_mock
         client.app.dependency_overrides[dependencies.tts_engine_service] = _mock_dep(mock_svc)
@@ -439,24 +459,24 @@ class TestTtsRoutes:
             json={
                 "input_path": str(input_file),
                 "output_path": "/test/output.wav",
-                "engine": "kokoro",
+                "engine": "edge",
                 "model": "default",
-                "voice": "af_heart",
+                "voice": "zh-CN-XiaoxiaoNeural",
                 "speed": 1.1,
-                "provider_options": {"lang_code": "a"},
+                "provider_options": {"proxy": "http://127.0.0.1:7890"},
             },
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["engine"] == "kokoro"
+        assert data["engine"] == "edge"
         assert data["output_path"] == "/test/output.wav"
         mock_svc.synthesize_text.assert_called_once_with(
             text="hello world",
             output_path="/test/output.wav",
-            provider="kokoro",
+            provider="edge",
             model="default",
-            common_options={"voice": "af_heart", "speed": 1.1},
-            provider_options={"lang_code": "a"},
+            common_options={"voice": "zh-CN-XiaoxiaoNeural", "speed": 1.1},
+            provider_options={"proxy": "http://127.0.0.1:7890"},
         )
 
 
@@ -573,6 +593,7 @@ class TestModelRoutes:
                 category="asr",
                 backend="faster_whisper",
                 display_name="Whisper Base",
+                estimated_size_mb=148,
                 install_strategy="whisper",
             ),
         ]
@@ -584,6 +605,7 @@ class TestModelRoutes:
         assert len(data) == 1
         assert data[0]["model_id"] == "whisper-base"
         assert data[0]["install_strategy"] == "whisper"
+        assert data[0]["estimated_size_mb"] == 148
         assert data[0]["family_id"] is None
         assert data[0]["install_modes"] == []
 
@@ -676,6 +698,13 @@ class TestModelRoutes:
                 success=True,
                 status="installed",
                 detail="all files verified",
+                issues=[
+                    ModelStatusIssueView(
+                        code="MODEL_ASSET_VERIFIED",
+                        requirement="model.bin",
+                        message="Model asset verified",
+                    )
+                ],
             ),
         ]
         client.app.dependency_overrides[dependencies.model_service] = _mock_dep(mock_svc)
@@ -685,6 +714,7 @@ class TestModelRoutes:
         data = resp.json()
         assert len(data) == 1
         assert data[0]["success"] is True
+        assert data[0]["issues"][0]["requirement"] == "model.bin"
 
     def test_remove_model(self, client):
         mock_svc = MagicMock()

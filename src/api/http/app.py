@@ -9,6 +9,7 @@ from src.api.http.errors import register_error_handlers
 from src.api.http.routes import (
     artifacts,
     asr,
+    batch_runs,
     capabilities,
     inputs,
     llm,
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     api_prefix = "/api/v1"
     app.include_router(pipeline.router, prefix=api_prefix)
     app.include_router(pipeline_runs.router, prefix=api_prefix)
+    app.include_router(batch_runs.router, prefix=api_prefix)
     app.include_router(asr.router, prefix=api_prefix)
     app.include_router(llm.router, prefix=api_prefix)
     app.include_router(tts.router, prefix=api_prefix)

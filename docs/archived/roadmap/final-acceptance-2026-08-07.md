@@ -24,10 +24,10 @@
 | 字幕 | 短操作同步；字幕翻译和台本转换为后台 Task | 字幕翻译 Tool 和纯文本台本任务完成，自动输出与 Artifact 正确 |
 | 音频工具 | 分离、转换、切分、字幕翻译、音量预览统一 Tool Task | 五种工具连续真实 HTTP 验收完成；前四种登记独立 Artifact，音量预览返回分析结果 |
 | Voice | Design/Clone/Preview 为后台 Task；Analyze 为同步结构化查询 | 四项正式 API 均完成真实验收；参考音频、prompt cache、试听 WAV 和分析结果有效 |
-| 模型与运行时 | installed/executable/issues 分离；安装为统一后台 Task | main/qwen_tts/qwen_asr/fun_asr 环境使用项目 UV Python；Qwen ASR/TTS 实际推理通过 |
+| 模型与运行时 | installed/executable/issues 分离；安装为统一后台 Task | main/qwen_tts/qwen_asr/fun_asr 环境使用项目 UV Python；Qwen ASR/TTS 与 Fun-ASR Nano 独立推理通过 |
 | 批量与恢复 | 当前产品边界为多个独立 Task，不建设 BatchRun | `completed → failed(tts) → completed` 不互相阻塞；取消重提、Worker 异常清理和下载断点重试已验收 |
 
-Fun-ASR（缺模型资产）、Kokoro（缺 `espeak-ng`）、VoxCPM2（未安装）和 OpenAI（未配置凭据）是可选 Provider 的真实不可用状态，不属于默认产品组合，也不以“已接线”冒充已验收。
+Fun-ASR Nano 当前已安装且可执行，但只完成独立运行时转写，尚未完成 Pipeline 级产物验收。VoxCPM2（未安装）和 OpenAI（未配置凭据）仍是可选 Provider 的真实不可用状态，不属于默认产品组合，也不以“已接线”冒充已验收。
 
 ## 3. 桌面 APP 与环境
 

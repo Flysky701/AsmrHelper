@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { PresetItem } from '@/api/types'
 
-interface WorkbenchParams {
+export interface WorkbenchParams {
   sourceLang: string
   targetLang: string
   ttsEngine: string

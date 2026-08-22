@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -33,11 +34,21 @@ class FunAsrRecognizer:
     ) -> None:
         try:
             from funasr import AutoModel
+        except ModuleNotFoundError as exc:
+            missing_module = str(exc.name or "unknown")
+            if missing_module == "funasr":
+                message = (
+                    "Fun-ASR requires the optional 'funasr' dependency. "
+                    "Open 引擎与资源 and choose 修复依赖 for the selected Fun-ASR model."
+                )
+            else:
+                message = (
+                    f"Fun-ASR runtime dependency '{missing_module}' is missing. "
+                    "Open 引擎与资源 and choose 修复依赖 for the selected Fun-ASR model."
+                )
+            raise RuntimeError(message) from exc
         except ImportError as exc:
-            raise RuntimeError(
-                "Fun-ASR requires the optional 'funasr' dependency. "
-                "Install it with `uv sync --extra funasr` or `pip install funasr`."
-            ) from exc
+            raise RuntimeError(f"Fun-ASR runtime dependencies could not be imported: {exc}") from exc
 
         self._device = self._resolve_device(device)
         self._language = self.LANGUAGE_HINTS.get(language or "", language)
@@ -122,14 +133,20 @@ class FunAsrRecognizer:
                 continue
 
             sentence_info = item.get("sentence_info")
+            timestamp_segments: list[dict[str, Any]] = []
             if isinstance(sentence_info, list):
                 for sentence in sentence_info:
                     normalized = cls._normalize_sentence(sentence)
                     if normalized:
                         segments.append(normalized)
 
+            if not sentence_info:
+                timestamp_segments = cls._normalize_timestamp_segments(item)
+                if timestamp_segments:
+                    segments.extend(cls._group_timestamp_segments(timestamp_segments))
+
             normalized_item = cls._normalize_sentence(item)
-            if normalized_item and not sentence_info:
+            if normalized_item and not sentence_info and not timestamp_segments:
                 if normalized_item["start"] == 0.0 and normalized_item["end"] == 0.0 and duration_seconds > 0:
                     normalized_item["end"] = duration_seconds
                 segments.append(normalized_item)
@@ -145,6 +162,87 @@ class FunAsrRecognizer:
         if not combined:
             return []
         return [{"start": 0.0, "end": max(duration_seconds, 0.0), "text": combined}]
+
+    @classmethod
+    def _normalize_timestamp_segments(cls, item: dict[str, Any]) -> list[dict[str, Any]]:
+        values = item.get("timestamps") or item.get("timestamp")
+        if not isinstance(values, list) or not values:
+            return []
+        words = item.get("words")
+        normalized: list[dict[str, Any]] = []
+        for index, value in enumerate(values):
+            text = ""
+            if isinstance(value, dict):
+                text = str(value.get("text") or value.get("token") or "").strip()
+                start = cls._extract_time(value, "start")
+                end = cls._extract_time(value, "end")
+            elif isinstance(value, (list, tuple)) and len(value) >= 2:
+                if isinstance(words, list) and index < len(words):
+                    text = str(words[index]).strip()
+                start = cls._extract_time(value, "start")
+                end = cls._extract_time(value, "end")
+            else:
+                continue
+            if not text:
+                continue
+            normalized.append(
+                {"start": start, "end": max(start, end), "text": text}
+            )
+        return normalized
+
+    @classmethod
+    def _group_timestamp_segments(
+        cls,
+        items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        grouped: list[dict[str, Any]] = []
+        current: list[dict[str, Any]] = []
+        sentence_end = re.compile(r"[。！？!?…]+$")
+
+        def flush() -> None:
+            if not current:
+                return
+            text = cls._join_timestamp_text(str(part["text"]) for part in current)
+            if text:
+                grouped.append(
+                    {
+                        "start": float(current[0]["start"]),
+                        "end": float(current[-1]["end"]),
+                        "text": text,
+                    }
+                )
+            current.clear()
+
+        for index, item in enumerate(items):
+            current.append(item)
+            next_item = items[index + 1] if index + 1 < len(items) else None
+            duration = float(item["end"]) - float(current[0]["start"])
+            gap = (
+                max(0.0, float(next_item["start"]) - float(item["end"]))
+                if next_item is not None
+                else 0.0
+            )
+            if sentence_end.search(str(item["text"]).strip()) or gap >= 0.8 or duration >= 15.0:
+                flush()
+        flush()
+        return grouped
+
+    @staticmethod
+    def _join_timestamp_text(tokens) -> str:
+        result = ""
+        no_space_before = set("，。！？、；：,.!?;:%)]}」』】）》〉〕］…")
+        for raw in tokens:
+            token = str(raw).strip()
+            if not token:
+                continue
+            if not result:
+                result = token
+                continue
+            if token[0] in no_space_before or _is_cjk(result[-1]) or _is_cjk(token[0]):
+                result += token
+            else:
+                result += " " + token
+        return result.strip()
 
     @classmethod
     def _normalize_sentence(cls, item: Any) -> dict[str, Any] | None:
@@ -245,3 +343,10 @@ class FunAsrRecognizer:
             for index, item in enumerate(results, start=1):
                 handle.write(f"[{index}] {item['start']:.3f}s - {item['end']:.3f}s\n")
                 handle.write(f"{item['text']}\n\n")
+
+
+def _is_cjk(char: str) -> bool:
+    if not char:
+        return False
+    codepoint = ord(char[0])
+    return 0x3040 <= codepoint <= 0x30FF or 0x3400 <= codepoint <= 0x9FFF

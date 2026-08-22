@@ -17,6 +17,7 @@ from ..dto import (
 )
 from ..errors import AppExecutionError, AppValidationError
 from .task_service import TaskService, get_task_dispatcher
+from .settings_service import SettingsService, get_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,15 @@ logger = logging.getLogger(__name__)
 class ModelService:
     """Stable application-facing facade for model operations."""
 
-    def __init__(self, core_service=None, task_service=None, dispatcher=None):
+    def __init__(
+        self,
+        core_service=None,
+        task_service=None,
+        dispatcher=None,
+        settings_service: SettingsService | None = None,
+    ):
         self.core_service = core_service or get_core_model_service()
+        self._settings_service = settings_service or get_settings_service()
         self._task_service = task_service
         self._dispatcher = dispatcher
         if self._dispatcher is None and task_service is None:
@@ -50,6 +58,7 @@ class ModelService:
                 category=entry.category,
                 backend=entry.provider or entry.engine or "-",
                 display_name=entry.display_name,
+                estimated_size_mb=entry.estimated_size_mb,
                 install_strategy=entry.install_strategy or "",
                 capability_models=entry.capability_models or [entry.id],
                 supports_install=entry.supports_install,
@@ -216,15 +225,7 @@ class ModelService:
         if model_id:
             entry = self._get_model_entry(model_id)
             if getattr(entry, "kind", None) == "cloud":
-                status = self.get_model_status(model_id)
-                return [
-                    ModelVerificationResult(
-                        model_id=model_id,
-                        success=status.status == "configured",
-                        status=status.status,
-                        detail=status.detail,
-                    )
-                ]
+                return [self._verify_cloud_model(entry)]
 
         try:
             results = self.core_service.verify(model_id=model_id)
@@ -234,17 +235,63 @@ class ModelService:
             raise AppExecutionError(str(exc)) from exc
 
         verification_results: list[ModelVerificationResult] = []
-        for current_id, ok in results.items():
+        for current_id, asset_ok in results.items():
             status = self.get_model_status(current_id)
+            issues = list(status.issues)
+            if not asset_ok and not any(
+                issue.code.startswith("MODEL_ASSET_") for issue in issues
+            ):
+                issues.append(
+                    ModelStatusIssueView(
+                        code="MODEL_ASSET_VERIFICATION_FAILED",
+                        requirement=current_id,
+                        message="Model asset verification failed",
+                    )
+                )
             verification_results.append(
                 ModelVerificationResult(
                     model_id=current_id,
-                    success=bool(ok),
+                    success=bool(asset_ok and status.executable),
                     status=status.status,
-                    detail=status.detail,
+                    detail=(
+                        status.detail
+                        if asset_ok
+                        else "Model assets are missing or failed verification"
+                    ),
+                    issues=issues,
                 )
             )
+        if model_id is None:
+            try:
+                cloud_entries = self.core_service.list_models(kind="cloud")
+            except Exception as exc:
+                raise AppExecutionError(str(exc)) from exc
+            verification_results.extend(
+                self._verify_cloud_model(entry) for entry in cloud_entries
+            )
         return verification_results
+
+    def _verify_cloud_model(self, entry) -> ModelVerificationResult:
+        model_id = str(getattr(entry, "id", "") or "")
+        provider = getattr(entry, "provider", None) or getattr(entry, "engine", None)
+        if not provider:
+            raise AppValidationError(
+                f"model '{model_id}' has no provider, cannot verify"
+            )
+        provider_result = self._settings_service.test_provider(str(provider))
+        status = self.get_model_status(model_id)
+        success = bool(provider_result.success and status.executable)
+        return ModelVerificationResult(
+            model_id=model_id,
+            success=success,
+            status=status.status,
+            detail=(
+                status.detail
+                if provider_result.success
+                else provider_result.message or status.detail
+            ),
+            issues=list(status.issues),
+        )
 
     def remove_model(self, model_id: str) -> ModelOperationResult:
         return self._run_model_operation(

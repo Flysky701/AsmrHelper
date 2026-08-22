@@ -97,6 +97,7 @@ def clone_voice(
         audio_path=body.audio_path,
         name=body.name,
         ref_text=body.ref_text,
+        x_vector_only_mode=body.x_vector_only_mode,
     ))
     return TaskStatusResponse.from_task_status(task)
 
@@ -142,5 +143,6 @@ def preview_voice(
         profile_id=profile_id,
         text=body.text,
         speed=body.speed,
+        language=body.language,
     ))
     return TaskStatusResponse.from_task_status(task)

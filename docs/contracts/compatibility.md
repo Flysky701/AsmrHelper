@@ -30,9 +30,8 @@
 
 | 兼容项 | 当前真实用途 | 删除条件 |
 | --- | --- | --- |
+| Python core 旧入口 | `src.core.model_manager` 与 `src.core.translate` 已删除；翻译、字幕和模型服务分别由各领域 registry 提供 | 已完成；负向架构测试防止旧入口复活 |
 | 路径型 `primary_output/files` | 仅存在于内部执行器模型 | 内部执行器全面改用 ArtifactRecord 后删除 |
-
-2026-08-21 已删除零调用的 `src.core.model_manager`、`src.core.translate` 和 `src.core` 根包懒加载导出。个人桌面端、HTTP API 与仓库内脚本均不依赖这些兼容入口。
 
 ## 3. 迁移顺序
 
@@ -58,7 +57,7 @@
 
 2026-07-24 已完成 RuntimeEvent 收敛：任务生命周期生成单任务递增事件，`after_sequence` 支持续读，SSE 和 TaskCenter 日志消费统一结构；模型安装事件明确携带 `operation/model_id/state/progress`。同时移除 TTS 音频预处理对旧翻译包中字幕工具的反向依赖。全量测试 `160 passed`，桌面端构建通过。
 
-2026-07-24 已完成翻译核心迁移：Translator、翻译缓存、质量检测和术语库迁入 `core.engines.llm`；繁简映射迁入 `core.subtitles`。2026-08-21 进一步删除零调用的 `ModelManager`、`core.translate` 与 core 根导出兼容层。
+2026-07-24 已完成翻译核心迁移：Translator、翻译缓存、质量检测和术语库迁入 `core.engines.llm`；繁简映射迁入 `core.subtitles`。当时保留了 `ModelManager` 与 `core.translate` 弃用转发；2026-08-19 经仓库引用审计后两者均已删除。2026-08-21 进一步删除 `src.core` 根包懒加载导出，具体能力只从所属领域模块导入，并增加负向架构测试。
 
 2026-07-24 曾完成同步执行结果收敛：CLI、当时的 `POST /pipeline-runs/execute` 和 `POST /tool-runs` 都从权威 Artifact 索引返回或展示 TaskResult。两条同步 HTTP 执行入口已在 2026-08-07 删除；正式产品只保留创建即提交与结果查询。
 
