@@ -7,6 +7,10 @@
 3. 支持进度回调和试音
 """
 
+import json
+import shutil
+from datetime import datetime, timezone
+
 import torch
 import numpy as np
 import soundfile as sf
@@ -95,8 +99,7 @@ class VoiceDesigner:
         manager = get_voice_manager()
 
         # 生成唯一 ID (B 系列 = custom)
-        custom_ids = [int(p.id[1:]) for p in manager.get_all()
-                     if p.category == "custom"]
+        custom_ids = [int(p.id[1:]) for p in manager.get_all() if p.category == "custom"]
         new_id = f"B{max(custom_ids) + 1 if custom_ids else 1}"
 
         # 文件路径
@@ -110,7 +113,9 @@ class VoiceDesigner:
             vd_model = Qwen3ModelManager.get_voice_design_model()
 
             # ===== Step 2: 生成参考音频 =====
-            self._report_progress(progress_callback, f"生成参考音频 (描述: {description[:30]}...)", 10)
+            self._report_progress(
+                progress_callback, f"生成参考音频 (描述: {description[:30]}...)", 10
+            )
 
             # VoiceDesign API
             with torch.no_grad():
@@ -171,8 +176,12 @@ class VoiceDesigner:
             return profile
 
         except Exception as e:
+            for generated_path in (prompt_cache, ref_audio):
+                if generated_path.exists():
+                    generated_path.unlink()
             print(f"[VoiceDesigner] 音色设计失败: {e}")
             import traceback
+
             traceback.print_exc()
             raise
 
@@ -182,6 +191,7 @@ class VoiceDesigner:
         name: str,
         ref_text: str = "",
         x_vector_only_mode: bool = False,
+        clone_manifest: Optional[dict] = None,
         progress_callback: Optional[Callable[[str, int], None]] = None,
     ):
         """
@@ -198,6 +208,7 @@ class VoiceDesigner:
             name: 音色名称
             ref_text: ICL 模式下参考音频对应的准确文本
             x_vector_only_mode: 仅提取说话人向量，不使用参考文本和语音编码
+            clone_manifest: 可选的分析会话、候选切片和质量信息
             progress_callback: 进度回调 (msg, progress_percent)
 
         Returns:
@@ -209,25 +220,32 @@ class VoiceDesigner:
         manager = get_voice_manager()
 
         # 验证音频文件
-        audio_path = Path(audio_path)
-        if not audio_path.exists():
-            raise FileNotFoundError(f"参考音频不存在: {audio_path}")
+        source_audio_path = Path(audio_path)
+        if not source_audio_path.is_file():
+            raise FileNotFoundError(f"参考音频不存在: {source_audio_path}")
         ref_text = "" if x_vector_only_mode else (ref_text or "").strip()
         if not x_vector_only_mode and not ref_text:
             raise ValueError(
-                "ICL 音色克隆需要准确的参考文本；跨语言克隆请启用 "
-                "x_vector_only_mode"
+                "ICL 音色克隆需要准确的参考文本；无可靠文本时可启用 x_vector_only_mode 作为降级方案"
             )
 
         # 生成唯一 ID (C 系列 = clone)
-        clone_ids = [int(p.id[1:]) for p in manager.get_all()
-                    if p.category == "clone"]
+        clone_ids = [int(p.id[1:]) for p in manager.get_all() if p.category == "clone"]
         new_id = f"C{max(clone_ids) + 1 if clone_ids else 1}"
 
         # 文件路径
+        suffix = source_audio_path.suffix.lower() or ".wav"
+        ref_audio = self.output_dir / f"{new_id}_ref{suffix}"
         prompt_cache = self.output_dir / f"{new_id}_prompt.pt"
+        manifest_path = self.output_dir / f"{new_id}_clone_manifest.json"
 
         try:
+            # 候选切片来自分析临时目录，必须先物化为音色自己的持久参考文件。
+            if source_audio_path.resolve() != ref_audio.resolve():
+                shutil.copy2(source_audio_path, ref_audio)
+            else:
+                ref_audio = source_audio_path
+
             # ===== Step 1: 加载 Base 模型 =====
             self._report_progress(progress_callback, "加载 Base 模型...", 10)
             base_model = Qwen3ModelManager.get_base_model()
@@ -242,7 +260,7 @@ class VoiceDesigner:
 
             with torch.no_grad():
                 voice_clone_prompt = base_model.create_voice_clone_prompt(
-                    ref_audio=str(audio_path),
+                    ref_audio=str(ref_audio),
                     ref_text=ref_text or None,
                     x_vector_only_mode=x_vector_only_mode,
                 )
@@ -252,15 +270,36 @@ class VoiceDesigner:
             torch.save(voice_clone_prompt, str(prompt_cache))
             print(f"[VoiceDesigner] Clone Prompt 已保存: {prompt_cache}")
 
+            manifest = {
+                "version": 1,
+                "profile_id": new_id,
+                "name": name,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "clone_mode": "x_vector_only" if x_vector_only_mode else "icl",
+                "ref_audio_path": str(ref_audio),
+                "ref_text": ref_text,
+                # The submitted path may be task-owned staging and is deleted after
+                # the runtime returns. Keep this top-level provenance path durable;
+                # original source/candidate hashes live in the analysis metadata.
+                "source_audio_path": str(ref_audio),
+            }
+            if clone_manifest:
+                manifest["analysis"] = dict(clone_manifest)
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
             # ===== Step 3: 注册音色到管理器 =====
             profile = VoiceProfile(
                 id=new_id,
                 name=name,
                 category="clone",
                 engine="qwen3_clone",
-                description=f"克隆自: {audio_path.name} · {clone_mode}",
-                ref_audio=str(audio_path),
+                description=f"克隆自: {source_audio_path.name} · {clone_mode}",
+                ref_audio=str(ref_audio),
                 prompt_cache=str(prompt_cache),
+                clone_manifest=str(manifest_path),
                 generated=True,
             )
 
@@ -272,8 +311,13 @@ class VoiceDesigner:
             return profile
 
         except Exception as e:
+            # 未成功注册的音色不应遗留半成品。
+            for generated_path in (manifest_path, prompt_cache, ref_audio):
+                if generated_path != source_audio_path and generated_path.exists():
+                    generated_path.unlink()
             print(f"[VoiceDesigner] 音色克隆失败: {e}")
             import traceback
+
             traceback.print_exc()
             raise
 
@@ -305,7 +349,9 @@ class VoiceDesigner:
 
         try:
             # 统一使用 Qwen3TTSEngine 合成音频
-            print(f"[VoiceDesigner] 试听音色: {profile.name}, 文本: {text[:50]}... (长度: {len(text)})")
+            print(
+                f"[VoiceDesigner] 试听音色: {profile.name}, 文本: {text[:50]}... (长度: {len(text)})"
+            )
             engine = Qwen3TTSEngine(
                 voice_profile_id=profile.id,
                 speed=speed,
@@ -349,12 +395,12 @@ class VoiceDesigner:
         ref_text = "" if x_vector_only_mode else (ref_text or "").strip()
         if not x_vector_only_mode and not ref_text:
             raise ValueError(
-                "ICL 音色克隆需要准确的参考文本；跨语言克隆请启用 "
-                "x_vector_only_mode"
+                "ICL 音色克隆需要准确的参考文本；无可靠文本时可启用 x_vector_only_mode 作为降级方案"
             )
 
         if output_path is None:
             import tempfile
+
             temp_dir = Path(tempfile.gettempdir())
             output_path = temp_dir / "clone_preview.wav"
 

@@ -1,5 +1,10 @@
 import { create } from 'zustand'
 import type { PresetItem } from '@/api/types'
+import {
+  inputPathKey,
+  mergeInputItems,
+  type WorkbenchInputItem,
+} from '@/domain/workbenchInput'
 
 export interface WorkbenchParams {
   sourceLang: string
@@ -42,8 +47,13 @@ const DEFAULT_PARAMS: WorkbenchParams = {
 }
 
 interface WorkbenchStore {
-  selectedFiles: string[]
-  selectedFolder: string | null
+  inputItems: WorkbenchInputItem[]
+  selectedInputPaths: string[]
+  inputFolder: string | null
+  scanRecursive: boolean
+  outputDirectory: string
+  batchName: string
+  batchMaxParallel: number
   preset: string
   params: WorkbenchParams
   layer2Expanded: boolean
@@ -55,9 +65,16 @@ interface WorkbenchStore {
   presets: PresetItem[]
   capabilityOptions: Record<string, Record<string, unknown>>
 
-  setFiles: (files: string[]) => void
-  removeFile: (path: string) => void
-  setFolder: (folder: string | null) => void
+  addInputItems: (items: WorkbenchInputItem[]) => void
+  removeInputItem: (path: string) => void
+  toggleInputSelection: (path: string) => void
+  selectAllInputs: (selected: boolean) => void
+  clearInputItems: () => void
+  setInputFolder: (folder: string | null) => void
+  setScanRecursive: (recursive: boolean) => void
+  setOutputDirectory: (directory: string) => void
+  setBatchName: (name: string) => void
+  setBatchMaxParallel: (maxParallel: number) => void
   setPreset: (preset: string) => void
   setPresets: (presets: PresetItem[]) => void
   setPresetsLoading: (loading: boolean) => void
@@ -72,8 +89,13 @@ interface WorkbenchStore {
 }
 
 export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
-  selectedFiles: [],
-  selectedFolder: null,
+  inputItems: [],
+  selectedInputPaths: [],
+  inputFolder: null,
+  scanRecursive: true,
+  outputDirectory: '',
+  batchName: '',
+  batchMaxParallel: 1,
   preset: '',
   params: { ...DEFAULT_PARAMS },
   layer2Expanded: true,
@@ -85,12 +107,46 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
   presets: [],
   capabilityOptions: {},
 
-  setFiles: (files) => set({ selectedFiles: files }),
-  removeFile: (path) =>
-    set((s) => ({
-      selectedFiles: s.selectedFiles.filter((f) => f !== path),
-    })),
-  setFolder: (folder) => set({ selectedFolder: folder }),
+  addInputItems: (items) => set((state) => {
+    const merged = mergeInputItems(state.inputItems, items)
+    const existingKeys = new Set(state.inputItems.map((item) => inputPathKey(item.path)))
+    const selectedKeys = new Set(state.selectedInputPaths.map(inputPathKey))
+    items.forEach((item) => {
+      const key = inputPathKey(item.path)
+      if (!existingKeys.has(key)) selectedKeys.add(key)
+    })
+    return {
+      inputItems: merged,
+      selectedInputPaths: merged
+        .filter((item) => selectedKeys.has(inputPathKey(item.path)))
+        .map((item) => item.path),
+    }
+  }),
+  removeInputItem: (path) => set((state) => {
+    const removedKey = inputPathKey(path)
+    return {
+      inputItems: state.inputItems.filter((item) => inputPathKey(item.path) !== removedKey),
+      selectedInputPaths: state.selectedInputPaths.filter((item) => inputPathKey(item) !== removedKey),
+    }
+  }),
+  toggleInputSelection: (path) => set((state) => {
+    const pathKey = inputPathKey(path)
+    const selected = state.selectedInputPaths.some((item) => inputPathKey(item) === pathKey)
+    return {
+      selectedInputPaths: selected
+        ? state.selectedInputPaths.filter((item) => inputPathKey(item) !== pathKey)
+        : [...state.selectedInputPaths, path],
+    }
+  }),
+  selectAllInputs: (selected) => set((state) => ({
+    selectedInputPaths: selected ? state.inputItems.map((item) => item.path) : [],
+  })),
+  clearInputItems: () => set({ inputItems: [], selectedInputPaths: [], inputFolder: null, batchName: '' }),
+  setInputFolder: (inputFolder) => set({ inputFolder }),
+  setScanRecursive: (scanRecursive) => set({ scanRecursive }),
+  setOutputDirectory: (outputDirectory) => set({ outputDirectory }),
+  setBatchName: (batchName) => set({ batchName: batchName.slice(0, 100) }),
+  setBatchMaxParallel: (batchMaxParallel) => set({ batchMaxParallel }),
   setPreset: (preset) => set({ preset }),
   setPresets: (presets) => set({ presets }),
   setPresetsLoading: (loading) => set({ presetsLoading: loading }),
@@ -113,8 +169,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
   toggleAdv: () => set((s) => ({ advExpanded: !s.advExpanded })),
   reset: () =>
     set({
-      selectedFiles: [],
-      selectedFolder: null,
+      inputItems: [],
+      selectedInputPaths: [],
+      inputFolder: null,
+      scanRecursive: true,
+      outputDirectory: '',
+      batchName: '',
+      batchMaxParallel: 1,
       preset: '',
       params: { ...DEFAULT_PARAMS },
       capabilityOptions: {},

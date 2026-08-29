@@ -151,16 +151,17 @@ def cut_audio_by_subtitle(
 
     results = []
     for i, entry in enumerate(subtitle_entries):
-        start_sec = entry["start"]
-        end_sec = entry["end"]
+        start_sec = max(0.0, float(entry["start"]))
+        end_sec = max(start_sec, float(entry["end"]))
         text = entry.get("text", "")
 
         # 计算采样点
-        start_sample = int(start_sec * sr)
-        end_sample = int(end_sec * sr)
+        start_sample = max(0, min(int(start_sec * sr), len(data)))
+        end_sample = max(start_sample, min(int(end_sec * sr), len(data)))
 
-        # 确保不越界
-        end_sample = min(end_sample, len(data))
+        # 返回的时间轴也与实际采样范围保持一致。
+        start_sec = start_sample / sr
+        end_sec = end_sample / sr
 
         # 提取片段
         segment = data[start_sample:end_sample]
@@ -173,7 +174,7 @@ def cut_audio_by_subtitle(
         output_file = output_path / f"{prefix}_{i+1:03d}_{safe_text}.wav"
 
         # 保存片段
-        sf.write(str(output_file), segment, sr)
+        sf.write(str(output_file), segment, sr, subtype="PCM_16")
 
         results.append({
             "path": str(output_file),

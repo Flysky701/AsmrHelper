@@ -64,6 +64,11 @@ def _execute(request: dict[str, Any]) -> dict[str, Any]:
             name=str(payload.get("name") or ""),
             ref_text=str(payload.get("ref_text") or ""),
             x_vector_only_mode=bool(payload.get("x_vector_only_mode", False)),
+            clone_manifest=(
+                dict(payload["clone_manifest"])
+                if isinstance(payload.get("clone_manifest"), dict)
+                else None
+            ),
         )
         return _serialize_voice_profile(profile)
     elif operation == "voice.preview":
@@ -94,6 +99,11 @@ def _serialize_voice_profile(profile: Any) -> dict[str, Any]:
         "design_instruct": profile.design_instruct,
         "ref_audio_path": profile.get_ref_audio_path(),
         "prompt_cache_path": profile.get_prompt_cache_path(),
+        "clone_manifest_path": (
+            profile.get_clone_manifest_path()
+            if hasattr(profile, "get_clone_manifest_path")
+            else ""
+        ),
     }
 
 

@@ -10,6 +10,7 @@ from src.api.http.schemas.voice import (
     SegmentAnalyzeRequest,
     SegmentAnalyzeResponse,
     SegmentInfoResponse,
+    VoiceCloneCandidateResponse,
     VoiceCloneRequest,
     VoiceDesignRequest,
     VoicePreviewRequest,
@@ -80,11 +81,13 @@ def design_voice(
     body: VoiceDesignRequest,
     svc: VoiceService = Depends(voice_service),
 ):
-    task = svc.submit_design_voice(VoiceDesignDTO(
-        description=body.description,
-        name=body.name,
-        ref_text=body.ref_text,
-    ))
+    task = svc.submit_design_voice(
+        VoiceDesignDTO(
+            description=body.description,
+            name=body.name,
+            ref_text=body.ref_text,
+        )
+    )
     return TaskStatusResponse.from_task_status(task)
 
 
@@ -93,12 +96,17 @@ def clone_voice(
     body: VoiceCloneRequest,
     svc: VoiceService = Depends(voice_service),
 ):
-    task = svc.submit_clone_voice(VoiceCloneDTO(
-        audio_path=body.audio_path,
-        name=body.name,
-        ref_text=body.ref_text,
-        x_vector_only_mode=body.x_vector_only_mode,
-    ))
+    task = svc.submit_clone_voice(
+        VoiceCloneDTO(
+            audio_path=body.audio_path,
+            name=body.name,
+            ref_text=body.ref_text,
+            x_vector_only_mode=body.x_vector_only_mode,
+            analysis_id=body.analysis_id,
+            candidate_id=body.candidate_id,
+            confirmed_text=body.confirmed_text,
+        )
+    )
     return TaskStatusResponse.from_task_status(task)
 
 
@@ -107,11 +115,15 @@ def analyze_segments(
     body: SegmentAnalyzeRequest,
     svc: VoiceService = Depends(voice_service),
 ):
-    result = svc.analyze_segments(SegmentAnalyzeDTO(
-        audio_path=body.audio_path,
-        subtitle_path=body.subtitle_path,
-        audio_language=body.audio_language,
-    ))
+    result = svc.analyze_segments(
+        SegmentAnalyzeDTO(
+            audio_path=body.audio_path,
+            subtitle_path=body.subtitle_path,
+            audio_language=body.audio_language,
+            separate_vocals=body.separate_vocals,
+            x_vector_only_mode=body.x_vector_only_mode,
+        )
+    )
     return SegmentAnalyzeResponse(
         audio_path=result.audio_path,
         mode=result.mode,
@@ -124,12 +136,33 @@ def analyze_segments(
                 duration=s.duration,
                 score=s.score,
                 label=s.label,
+                eligible=s.eligible,
+                reasons=s.reasons,
                 details=s.details,
             )
             for s in result.segments
         ],
         recommended_indices=result.recommended_indices,
         warnings=result.warnings,
+        analysis_id=result.analysis_id,
+        source_fingerprint=result.source_fingerprint,
+        candidates=[
+            VoiceCloneCandidateResponse(
+                candidate_id=c.candidate_id,
+                source_variant=c.source_variant,
+                start=c.start,
+                end=c.end,
+                text=c.text,
+                score=c.score,
+                label=c.label,
+                eligible=c.eligible,
+                details=c.details,
+                reasons=c.reasons,
+                preview_audio_path=c.preview_audio_path,
+            )
+            for c in result.candidates
+        ],
+        recommended_candidate_id=result.recommended_candidate_id,
     )
 
 
@@ -139,10 +172,12 @@ def preview_voice(
     body: VoicePreviewRequest,
     svc: VoiceService = Depends(voice_service),
 ):
-    task = svc.submit_preview_voice(VoicePreviewDTO(
-        profile_id=profile_id,
-        text=body.text,
-        speed=body.speed,
-        language=body.language,
-    ))
+    task = svc.submit_preview_voice(
+        VoicePreviewDTO(
+            profile_id=profile_id,
+            text=body.text,
+            speed=body.speed,
+            language=body.language,
+        )
+    )
     return TaskStatusResponse.from_task_status(task)

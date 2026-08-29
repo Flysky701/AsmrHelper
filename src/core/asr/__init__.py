@@ -63,7 +63,7 @@ class ASRRecognizer:
             device: 计算设备 (cuda/cpu/auto)
             language: 语言代码 (ja/zh/en/auto)
             compute_type: 计算精度
-            vad_filter: 是否使用 Silero VAD 过滤非语音
+            vad_filter: 默认是否使用 Silero VAD 过滤非语音
             beam_size: 解码 Beam 大小
             initial_prompt: 可选识别上下文提示
             no_speech_threshold: 无语音概率阈值
@@ -88,7 +88,7 @@ class ASRRecognizer:
             raise ValueError("beam_size must be >= 1")
         if not 0.0 <= no_speech_threshold <= 1.0:
             raise ValueError("no_speech_threshold must be between 0 and 1")
-        self.vad_filter = vad_filter
+        self.vad_filter = bool(vad_filter)
         self.beam_size = beam_size
         self.initial_prompt = initial_prompt
         self.no_speech_threshold = no_speech_threshold
@@ -124,6 +124,7 @@ class ASRRecognizer:
         min_segment_duration: float = 0.5,
         progress_callback: Optional[Callable[[float, float, int], None]] = None,
         show_progress: bool = True,
+        vad_filter: Optional[bool] = None,
     ) -> List[dict]:
         """
         识别音频
@@ -135,6 +136,7 @@ class ASRRecognizer:
             min_segment_duration: 最小片段时长（秒）
             progress_callback: 进度回调函数 callback(current_time, duration, segments_count)
             show_progress: 是否显示进度条
+            vad_filter: 本次识别是否使用 Silero VAD；未指定时沿用初始化值
 
         Returns:
             List[dict]: 识别结果 [{start, end, text, words?, log_prob?}, ...]
@@ -143,16 +145,19 @@ class ASRRecognizer:
 
         print(f"[ASRRecognizer] 识别音频: {audio_path.name}")
         t0 = time.time()
+        effective_vad_filter = (
+            self.vad_filter if vad_filter is None else bool(vad_filter)
+        )
 
         # 运行识别
         segments, info = self.model.transcribe(
             str(audio_path),
             language=self.language,
-            vad_filter=self.vad_filter,
+            vad_filter=effective_vad_filter,
             vad_parameters=dict(
                 min_silence_duration_ms=500,
                 speech_pad_ms=200,
-            ) if self.vad_filter else None,
+            ) if effective_vad_filter else None,
             word_timestamps=True,  # 开启逐词时间戳（用于 TTS 对齐优化）
             beam_size=self.beam_size,
             best_of=5,
@@ -195,7 +200,14 @@ class ASRRecognizer:
             else:
                 # 如果没有 words，使用 no_speech_prob 的补数
                 # no_speech_prob 越高越可能是静音，取补数作为语音置信度
-                log_prob = -math.log(1.0 / (seg.no_speech_prob + 1e-10) - 1.0 + 1e-10) if seg.no_speech_prob < 0.99 else -1.0
+                speech_probability = 1.0 - float(seg.no_speech_prob)
+                speech_probability = min(
+                    1.0 - 1e-10,
+                    max(1e-10, speech_probability),
+                )
+                log_prob = math.log(
+                    speech_probability / (1.0 - speech_probability)
+                )
 
             result = {
                 "start": round(seg.start, 3),  # 毫秒级精度 (3位小数)

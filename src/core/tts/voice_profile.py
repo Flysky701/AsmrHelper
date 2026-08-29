@@ -29,6 +29,7 @@ class VoiceProfile:
     design_instruct: str = ""         # VoiceDesign 自然语言描述
     ref_audio: str = ""               # 克隆参考音频路径（支持相对路径 ${PROJECT_ROOT}）
     prompt_cache: str = ""            # voice_clone_prompt 缓存路径（支持相对路径 ${PROJECT_ROOT}）
+    clone_manifest: str = ""          # 克隆来源、切片与文本的可追溯记录
     generated: bool = False           # 是否已生成
 
     def _resolve_path(self, path: str) -> str:
@@ -90,6 +91,10 @@ class VoiceProfile:
         """获取解析后的 prompt 缓存路径"""
         return self._resolve_path(self.prompt_cache)
 
+    def get_clone_manifest_path(self) -> str:
+        """获取解析后的克隆 manifest 路径"""
+        return self._resolve_path(self.clone_manifest)
+
     def set_ref_audio_path(self, path: str):
         """设置参考音频路径（自动转换为相对路径）"""
         self.ref_audio = self._make_relative_path(path)
@@ -97,6 +102,10 @@ class VoiceProfile:
     def set_prompt_cache_path(self, path: str):
         """设置 prompt 缓存路径（自动转换为相对路径）"""
         self.prompt_cache = self._make_relative_path(path)
+
+    def set_clone_manifest_path(self, path: str):
+        """设置克隆 manifest 路径（自动转换为相对路径）"""
+        self.clone_manifest = self._make_relative_path(path)
 
     def is_available(self) -> bool:
         """检查音色是否可用"""
@@ -329,6 +338,13 @@ class VoiceProfileManager:
                 print(f"[VoiceProfileManager] 不能删除预设音色: {profile_id}")
                 return False
 
+            del self._profiles[profile_id]
+            try:
+                self.save()
+            except Exception:
+                self._profiles[profile_id] = profile
+                raise
+
             # 删除 prompt 文件（如果存在）
             prompt_path_str = profile.get_prompt_cache_path()
             if prompt_path_str:
@@ -337,20 +353,39 @@ class VoiceProfileManager:
                     prompt_path.unlink()
                     print(f"[VoiceProfileManager] 已删除 prompt: {prompt_path}")
 
-            # 删除参考音频（如果是 custom 类型自己生成的）
+            # 只删除由应用物化到音色目录的参考音频。
+            # 旧版克隆可能仍引用用户的原始文件，不能误删。
+            voice_dir = (PROJECT_ROOT / "models" / "voice_profiles").resolve()
             ref_path_str = profile.get_ref_audio_path()
-            if ref_path_str and profile.category == "custom":
+            if ref_path_str:
                 ref_path = Path(ref_path_str)
-                if ref_path.exists() and "_ref.wav" in str(ref_path):
+                try:
+                    is_managed_ref = (
+                        ref_path.resolve().is_relative_to(voice_dir)
+                        and ref_path.stem == f"{profile.id}_ref"
+                    )
+                except (OSError, ValueError):
+                    is_managed_ref = False
+                if ref_path.is_file() and is_managed_ref:
                     ref_path.unlink()
                     print(f"[VoiceProfileManager] 已删除参考音频: {ref_path}")
 
-            # 从字典移除
-            del self._profiles[profile_id]
+            manifest_path_str = profile.get_clone_manifest_path()
+            if manifest_path_str:
+                manifest_path = Path(manifest_path_str)
+                try:
+                    is_managed_manifest = (
+                        manifest_path.resolve().is_relative_to(voice_dir)
+                        and manifest_path.name == f"{profile.id}_clone_manifest.json"
+                    )
+                except (OSError, ValueError):
+                    is_managed_manifest = False
+                if manifest_path.is_file() and is_managed_manifest:
+                    manifest_path.unlink()
+                    print(f"[VoiceProfileManager] 已删除克隆 manifest: {manifest_path}")
 
-        self.save()
-        print(f"[VoiceProfileManager] 已删除音色: {profile_id}")
-        return True
+            print(f"[VoiceProfileManager] 已删除音色: {profile_id}")
+            return True
 
     def get_all(self) -> List[VoiceProfile]:
         """获取所有音色（线程安全，返回浅拷贝列表）"""
@@ -364,9 +399,18 @@ class VoiceProfileManager:
         Args:
             profile: VoiceProfile 实例
         """
+        missing = object()
         with self._profiles_lock:
+            previous = self._profiles.get(profile.id, missing)
             self._profiles[profile.id] = profile
-        self.save()
+            try:
+                self.save()
+            except Exception:
+                if previous is missing:
+                    self._profiles.pop(profile.id, None)
+                else:
+                    self._profiles[profile.id] = previous
+                raise
         print(f"[VoiceProfileManager] 已添加音色: {profile.name} ({profile.id})")
 
 

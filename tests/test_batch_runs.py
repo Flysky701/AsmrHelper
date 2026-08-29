@@ -117,6 +117,37 @@ def test_discover_audio_files_is_recursive_and_finds_companion(tmp_path):
     assert files[0]["companion_paths"] == [str(subtitle.resolve())]
 
 
+def test_batch_run_accepts_wma_input(tmp_path):
+    orchestrator = FakePipelineOrchestrator(["completed"])
+    service = BatchRunService(
+        orchestrator,
+        SqliteStateStore(tmp_path / "state.sqlite3"),
+    )
+    audio = tmp_path / "sample.wma"
+    audio.write_bytes(b"audio")
+
+    discovered = service.discover_audio_files(str(tmp_path))
+    assert [item["path"] for item in discovered] == [str(audio.resolve())]
+
+    created = service.create_batch(
+        name="wma batch",
+        inputs=[{"path": str(audio), "companion_paths": []}],
+        output_dir="",
+        execution_profile=_profile(),
+        max_parallel=1,
+    )
+    completed = _wait_for(
+        lambda: (
+            batch
+            if (batch := service.get_batch(created.batch_id)).state == "completed"
+            else None
+        )
+    )
+
+    assert completed.items[0].input_path == str(audio.resolve())
+    assert orchestrator.submissions[0][0].input_path == str(audio.resolve())
+
+
 def test_batch_run_has_stable_id_children_and_persists(tmp_path):
     store = SqliteStateStore(tmp_path / "state.sqlite3")
     orchestrator = FakePipelineOrchestrator(["completed", "completed"])
@@ -238,6 +269,39 @@ def test_unfinished_batch_is_marked_interrupted_after_restart(tmp_path):
     assert restored.items[0].error["code"] == "BATCH_INTERRUPTED"
 
 
+def test_completed_items_are_aggregated_during_restart_recovery(tmp_path):
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    record = BatchRunRecord(
+        batch_id="batch-finished-before-final-save",
+        name="finished before final save",
+        state="running",
+        progress=1.0,
+        created_at="2026-08-19T00:00:00+00:00",
+        updated_at="2026-08-19T00:00:01+00:00",
+        finished_at=None,
+        output_dir="",
+        execution_profile=_profile(),
+        max_parallel=1,
+        items=[
+            BatchRunItem(
+                item_id="item-1",
+                input_path="finished.wav",
+                state="completed",
+                progress=1.0,
+            )
+        ],
+    )
+    store.save_batch_run(record)
+
+    restored = BatchRunService(FakePipelineOrchestrator([]), store).get_batch(
+        record.batch_id
+    )
+
+    assert restored.state == "completed"
+    assert restored.finished_at is not None
+    assert restored.items[0].state == "completed"
+
+
 def test_batch_run_http_contract():
     record = BatchRunRecord(
         batch_id="batch-api",
@@ -254,7 +318,8 @@ def test_batch_run_http_contract():
     )
 
     class FakeBatchService:
-        def discover_audio_files(self, directory, *, recursive=True):
+        def discover_audio_files(self, directory, *, recursive=True, limit=None):
+            self.discovered = (directory, recursive, limit)
             return [{"path": "/input.wav", "name": "input.wav", "size_bytes": 5, "companion_paths": []}]
 
         def create_batch(self, **kwargs):
@@ -284,6 +349,12 @@ def test_batch_run_http_contract():
     )
     assert discovered.status_code == 200
     assert discovered.json()["files"][0]["name"] == "input.wav"
+    limited = client.post(
+        "/api/v1/batch-runs/discover",
+        json={"directory": "/input", "recursive": True, "limit": 500},
+    )
+    assert limited.status_code == 200
+    assert service.discovered == ("/input", True, 500)
 
     created = client.post(
         "/api/v1/batch-runs",

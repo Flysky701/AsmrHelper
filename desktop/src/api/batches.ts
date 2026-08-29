@@ -7,8 +7,8 @@ import type {
 } from './types'
 
 export const batchesApi = {
-  discover: (directory: string, recursive = true) =>
-    api.post<BatchDiscoverResponse>('/batch-runs/discover', { directory, recursive }),
+  discover: (directory: string, recursive = true, limit?: number) =>
+    api.post<BatchDiscoverResponse>('/batch-runs/discover', { directory, recursive, limit }),
 
   create: (body: BatchRunCreateRequest) =>
     api.post<BatchRunResponse>('/batch-runs', body),

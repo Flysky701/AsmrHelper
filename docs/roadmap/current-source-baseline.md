@@ -1,6 +1,6 @@
 # AsmrHelper 当前源码基线
 
-日期：2026-08-22
+日期：2026-08-30
 
 ## 1. 本文定位
 
@@ -17,7 +17,7 @@
 ## 2. 当前版本边界
 
 - 当前分支：`master`。
-- 本轮整理前的 Git 基线提交：`0484cac`（`优化：补齐功能页面响应式布局`）。工作区原本包含一组尚未提交的死代码删除和兼容层删除；本页把这些当前工作树事实一并纳入核对范围。
+- 本页按当前工作树编写；工作区可能包含尚未提交的用户修改，实施和验证时必须保留并避开无关改动。
 - 正式产品入口是 `GUIRun.bat` 启动的 Tauri 桌面端；后端是本机 FastAPI HTTP API；CLI 和 `scripts/` 下脚本是兼容或排障入口，不是 GUI 能力事实源。
 - 项目要求 Python `>=3.11,<3.13`。`setup.ps1` 使用项目内 UV Python，并把项目虚拟环境放在 `.venv`；`.runtimes/` 保存 UV Python 和按 Provider 划分的隔离运行时。
 
@@ -41,7 +41,8 @@ src/core/subtitles/               字幕、台本、清洗、解析、导出和�
 ### 桌面端主路径
 
 ```text
-desktop/src/pages/                Workbench、BatchProcessing、TaskCenter、AudioTools、字幕工坊、VoiceLab、资源和设置
+desktop/src/pages/                Workbench、TaskCenter、AudioTools、字幕工坊、VoiceLab、资源和设置
+desktop/src/components/           页面布局、任务中心批次面板和复用展示组件
 desktop/src/api/                  页面实际使用的按领域 HTTP 封装
 desktop/src/hooks/                任务和音频状态轮询
 desktop/src/stores/               页面导航、任务、日志、工作台和播放器状态
@@ -61,7 +62,10 @@ src/gui/
 src/core/script_to_subtitle/
 src/core/subtitle_generator.py
 src/core/script_processor.py
+desktop/src/pages/BatchProcessing.tsx
 ```
+
+桌面 PageId `batch-processing` 及其导航、页面映射也已删除；BatchRun 后端契约继续保留。
 
 `src/core/__init__.py` 现在只保留包说明，不再维护一套根包懒加载公共 API。具体能力应从所属模块导入，例如 `src.core.engines.llm`、`src.core.subtitles`、`src.core.tasks` 或 `src.core.resources`。
 
@@ -78,6 +82,8 @@ src/core/script_processor.py
 | 任务查询 | `GET /api/v1/tasks/{task_id}` | TaskStatus 是状态事实源 |
 | 结果查询 | `GET /api/v1/tasks/{task_id}/result` 或 `/preview` | 使用 `primary_artifact_id + artifacts` |
 
+Workbench 统一整理文件选择和目录递归扫描得到的输入清单，并复用同一份 ExecutionProfile 构建逻辑。恰好一个选中输入时提交 `/pipeline-runs`；多于一个输入时先明确提示“本次将创建批次”，再提交 `/batch-runs`。独立的桌面“批量处理”页面和导航入口已删除，后端 BatchRun API、持久记录及兼容 CLI 不受影响。
+
 `/api/v1/asr/transcribe`、`/llm/translate`、`/llm/operations/run` 和 `/tts/synthesize` 是同步诊断/Provider 验收面，不是桌面长任务入口。桌面端长任务必须通过 Pipeline、Tool 或 Voice Task 提交。
 
 任务审阅的规范入口是 `PATCH /api/v1/tasks/{task_id}/review`；`POST /review-status`、`PUT/POST /review-note` 仍作为现存兼容别名，不能描述为已删除路由。
@@ -89,7 +95,7 @@ src/core/script_processor.py
 - 取消是协作请求，执行器退出后才写入最终 `cancelled`；重试创建新 Task，并用 `retry_of_task_id` 关联原任务。
 - Artifact 按 `task_id` 登记，公共结果使用 `primary_artifact_id`、`artifacts` 和 `warnings`，不再把 `files/primary_output` 作为公共响应契约。
 - SQLite 保存终态历史和 Artifact 索引；重启时清理未完成任务，不恢复中断执行；恢复的历史任务只读。
-- BatchRun 持久记录批次输入、子任务和聚合状态，但不成为第二套执行器；每个文件仍创建普通 Pipeline Task。APP 重启后中断批次标记为 `interrupted`，只能显式重提失败项，不伪装成断点续跑。
+- BatchRun 持久记录批次输入、子任务和聚合状态，但不成为第二套执行器；每个文件仍创建普通 Pipeline Task。批次历史、总进度、整批取消和失败项重提统一由 TaskCenter 的批次视图管理；进入该视图时加载历史，之后只轮询当前选中的活动批次，不在常驻页面持续拉取全部历史明细。APP 重启后中断批次标记为 `interrupted`，只能显式重提失败项，不伪装成断点续跑。
 - 当前不引入持久化执行队列或分布式调度；旧同步 `POST /api/v1/pipeline/batch` 不作为桌面产品入口。
 
 ## 7. Provider 和运行时事实
@@ -105,7 +111,7 @@ src/core/script_processor.py
 
 Qwen3-TTS、Qwen3-ASR 和 Fun-ASR 使用按需隔离运行时；ASR/TTS 可通过短生命周期 Worker 执行。Fun-ASR Nano 已完成独立运行时短音频转写，Pipeline 级验收仍待完成。模型已安装、当前解释器可导入、readiness 通过和真实主链路验收是四个不同状态，界面必须分别展示。
 
-## 8. 本轮验证状态
+## 8. 最近一次完整验证记录（2026-08-22）
 
 - 已完成源码引用审计：当前页面没有引用已删除的桌面组件，仓库内没有活跃代码导入 `src.core.model_manager` 或 `src.core.translate`。
 - 已确认 `git diff --check` 无空白错误。

@@ -394,12 +394,17 @@ export interface VoiceCloneRequest {
   name: string
   ref_text?: string
   x_vector_only_mode?: boolean
+  analysis_id?: string
+  candidate_id?: string
+  confirmed_text?: string
 }
 
 export interface SegmentAnalyzeRequest {
   audio_path: string
   subtitle_path?: string
   audio_language?: string
+  separate_vocals?: boolean
+  x_vector_only_mode?: boolean
 }
 
 export interface SegmentInfo {
@@ -413,12 +418,32 @@ export interface SegmentInfo {
   details: Record<string, unknown>
 }
 
+export interface VoiceCloneCandidate {
+  candidate_id: string
+  source_variant: string
+  start: number
+  end: number
+  text: string
+  score: number
+  label: string
+  details: Record<string, unknown>
+  eligible: boolean
+  reasons: string[]
+  preview_audio_path: string
+}
+
 export interface SegmentAnalyzeResponse {
-  audio_path: string
-  mode: string
-  segments: SegmentInfo[]
-  recommended_indices: number[]
-  warnings: string[]
+  analysis_id?: string
+  source_fingerprint?: string
+  candidates?: VoiceCloneCandidate[]
+  recommended_candidate_id?: string | null
+  warnings?: string[]
+
+  // Legacy response fields kept while older backends are still in circulation.
+  audio_path?: string
+  mode?: string
+  segments?: SegmentInfo[]
+  recommended_indices?: number[]
 }
 
 export interface VoicePreviewRequest {

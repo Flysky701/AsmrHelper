@@ -59,6 +59,7 @@ class BatchRunService:
         directory: str,
         *,
         recursive: bool = True,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         root = Path(directory).expanduser()
         if not root.exists():
@@ -75,6 +76,8 @@ class BatchRunService:
             ),
             key=lambda path: str(path).casefold(),
         )
+        if limit is not None:
+            paths = paths[:limit]
         return [
             {
                 "path": str(path),
@@ -396,6 +399,20 @@ class BatchRunService:
 
     def _restore_record(self, record: BatchRunRecord) -> None:
         if record.state in BATCH_TERMINAL_STATES:
+            return
+        if self._all_items_terminal(record):
+            if record.state == "cancelling":
+                record.state = "cancelled"
+            elif any(
+                item.state in {"failed", "cancelled"} for item in record.items
+            ):
+                record.state = "completed_with_errors"
+            else:
+                record.state = "completed"
+            record.progress = 1.0
+            record.updated_at = _now()
+            record.finished_at = record.finished_at or record.updated_at
+            self._state_store.save_batch_run(record)
             return
         for item in record.items:
             if item.state not in ITEM_TERMINAL_STATES:

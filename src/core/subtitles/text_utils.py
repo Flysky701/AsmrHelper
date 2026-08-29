@@ -12,43 +12,97 @@ from typing import List
 from .tw_zh_trad_map import TRADITIONAL_CHARS, TRAD_TO_SIMP_MAP
 
 
+def normalize_language_code(language: str | None) -> str:
+    """Normalize supported language names and locale codes.
+
+    Chinese locale variants intentionally collapse to ``zh`` for capability
+    matching. The detector may still return ``zh_CN``/``zh_TW`` so callers
+    that care about the script variant do not lose that information.
+    """
+    value = str(language or "").strip().lower().replace("-", "_")
+    if not value:
+        return "unknown"
+
+    aliases = {
+        "c": "zh",
+        "chinese": "zh",
+        "cmn": "zh",
+        "z": "zh",
+        "zh": "zh",
+        "zh_cn": "zh",
+        "zh_hans": "zh",
+        "zh_hant": "zh",
+        "zh_tw": "zh",
+        "e": "en",
+        "eng": "en",
+        "english": "en",
+        "en": "en",
+        "j": "ja",
+        "jp": "ja",
+        "jpn": "ja",
+        "japanese": "ja",
+        "ja": "ja",
+    }
+    if value in aliases:
+        return aliases[value]
+    if value.startswith("zh_"):
+        return "zh"
+    if value.startswith("en_"):
+        return "en"
+    if value.startswith("ja_"):
+        return "ja"
+    return value
+
+
 def detect_language(translations: List[str]) -> str:
     """Detect the primary language of subtitle text.
 
     Logic:
-    - Pure Chinese: no kana, CJK ratio > 30%
-    - Pure Japanese: has kana, no CJK
-    - Mixed: both present
+    - Japanese: contains kana (kanji is allowed and expected)
+    - Chinese/English: choose the dominant script
+    - Mixed: Chinese and Latin scripts have no clear majority
     - Unknown: cannot determine
 
-    Returns: "zh_CN" | "zh_TW" | "ja" | "mixed" | "unknown"
+    Returns: "zh_CN" | "zh_TW" | "ja" | "en" | "mixed" | "unknown"
     """
     zh_chars = 0
     ja_kana = 0
+    latin_chars = 0
     trad_chars = 0
-    total = 0
 
     for text in translations:
         if not text.strip():
             continue
         zh_chars += len(re.findall(r"[一-鿿]", text))
         ja_kana += len(re.findall(r"[぀-ゟ゠-ヿ]", text))
+        latin_chars += len(re.findall(r"[A-Za-z]", text))
         for char in text:
             if char in TRADITIONAL_CHARS:
                 trad_chars += 1
-        total += len(text.strip())
 
-    if total == 0:
+    meaningful_chars = zh_chars + ja_kana + latin_chars
+    if meaningful_chars == 0:
         return "unknown"
 
-    if ja_kana == 0 and zh_chars / total > 0.3:
-        if trad_chars / total > 0.05:
+    # Japanese commonly mixes kana and kanji. Treating any kanji as Chinese
+    # made almost every natural Japanese subtitle appear as ``mixed``.
+    if ja_kana > 0:
+        return "ja"
+
+    if zh_chars > 0 and latin_chars > 0:
+        zh_ratio = zh_chars / (zh_chars + latin_chars)
+        if 0.4 <= zh_ratio <= 0.6:
+            return "mixed"
+        if zh_ratio < 0.4:
+            return "en"
+
+    if zh_chars > 0:
+        if trad_chars / zh_chars > 0.05:
             return "zh_TW"
         return "zh_CN"
-    if ja_kana > 0 and zh_chars == 0:
-        return "ja"
-    if ja_kana > 0 and zh_chars > 0:
-        return "mixed"
+
+    if latin_chars > 0:
+        return "en"
 
     return "unknown"
 

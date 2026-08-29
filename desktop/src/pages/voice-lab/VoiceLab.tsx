@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { voiceApi } from '@/api/voice'
-import type { VoiceProfileSummaryResponse, VoiceProfileResponse, SegmentInfo } from '@/api/types'
+import type { VoiceProfileSummaryResponse, VoiceProfileResponse, VoiceCloneCandidate } from '@/api/types'
 import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
 import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
+import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 import type { TaskStatus } from '@/stores/taskStore'
 
 // ── Types ────────────────────────────────────────────
@@ -232,12 +233,36 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function candidateSourceLabel(sourceVariant: string): string {
+  if (sourceVariant === 'separated' || sourceVariant === 'vocals' || sourceVariant === 'separated_vocals') return '分离人声'
+  if (sourceVariant === 'original') return '原始音频'
+  return sourceVariant || '未知来源'
+}
+
+function detailValue(value: unknown): string {
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2)
+  if (typeof value === 'string' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value) ?? String(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function candidateDetails(details: Record<string, unknown>): string {
+  return Object.entries(details)
+    .map(([key, value]) => `${key}: ${detailValue(value)}`)
+    .join(' · ')
+}
+
 // ── Component ────────────────────────────────────────
 export default function VoiceLab() {
   const { selectFiles } = useFileSelector()
   const setPage = useNavStore((state) => state.setPage)
   const addTask = useTaskStore((state) => state.addTask)
   const updateTask = useTaskStore((state) => state.updateTask)
+  const showAudio = useAudioPlayerStore((state) => state.show)
+  const seekAudio = useAudioPlayerStore((state) => state.seek)
   const [profiles, setProfiles] = useState<VoiceProfileSummaryResponse[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<VoiceProfileResponse | null>(null)
@@ -255,6 +280,7 @@ export default function VoiceLab() {
   const [cloneSubtitlePath, setCloneSubtitlePath] = useState('')
   const [cloneAudioLanguage, setCloneAudioLanguage] = useState('ja')
   const [cloneMode, setCloneMode] = useState<CloneMode>('icl')
+  const [separateVocals, setSeparateVocals] = useState(false)
 
   // Preview state
   const [previewText, setPreviewText] = useState('哥哥，今天给你做个特别的按摩哦，先从肩膀开始，放松一下吧。')
@@ -265,8 +291,11 @@ export default function VoiceLab() {
   const [instructValue, setInstructValue] = useState('')
 
   // Segment analysis
-  const [segments, setSegments] = useState<SegmentInfo[]>([])
-  const [recommendedIndices, setRecommendedIndices] = useState<number[]>([])
+  const [analysisId, setAnalysisId] = useState('')
+  const [sourceFingerprint, setSourceFingerprint] = useState('')
+  const [candidates, setCandidates] = useState<VoiceCloneCandidate[]>([])
+  const [recommendedCandidateId, setRecommendedCandidateId] = useState<string | null>(null)
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
   const [analysisWarnings, setAnalysisWarnings] = useState<string[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const analysisRequestId = useRef(0)
@@ -293,8 +322,12 @@ export default function VoiceLab() {
 
   const invalidateAnalysis = useCallback(() => {
     analysisRequestId.current += 1
-    setSegments([])
-    setRecommendedIndices([])
+    setAnalysisId('')
+    setSourceFingerprint('')
+    setCandidates([])
+    setRecommendedCandidateId(null)
+    setSelectedCandidateId(null)
+    setCloneRefText('')
     setAnalysisWarnings([])
     setAnalyzing(false)
   }, [])
@@ -418,8 +451,12 @@ export default function VoiceLab() {
     if (!cloneAudioPath) return
     const requestId = ++analysisRequestId.current
     setActionError('')
-    setSegments([])
-    setRecommendedIndices([])
+    setAnalysisId('')
+    setSourceFingerprint('')
+    setCandidates([])
+    setRecommendedCandidateId(null)
+    setSelectedCandidateId(null)
+    setCloneRefText('')
     setAnalysisWarnings([])
     setAnalyzing(true)
     try {
@@ -427,28 +464,71 @@ export default function VoiceLab() {
         audio_path: cloneAudioPath,
         subtitle_path: cloneSubtitlePath || undefined,
         audio_language: cloneAudioLanguage,
+        separate_vocals: separateVocals,
+        x_vector_only_mode: cloneMode === 'x-vector',
       })
       if (requestId !== analysisRequestId.current) return
-      setSegments(res.segments)
-      setRecommendedIndices(res.recommended_indices)
-      setAnalysisWarnings(res.warnings)
+      const nextCandidates = res.candidates ?? []
+      const recommendedId = nextCandidates.some((candidate) => candidate.eligible && candidate.candidate_id === res.recommended_candidate_id)
+        ? res.recommended_candidate_id ?? null
+        : null
+      const recommendedCandidate = recommendedId
+        ? nextCandidates.find((candidate) => candidate.candidate_id === recommendedId) ?? null
+        : null
+      setAnalysisId(res.analysis_id ?? '')
+      setSourceFingerprint(res.source_fingerprint ?? '')
+      setCandidates(nextCandidates)
+      setRecommendedCandidateId(recommendedId)
+      setSelectedCandidateId(recommendedId)
+      setCloneRefText(recommendedCandidate?.text ?? '')
+      setAnalysisWarnings(res.warnings ?? [])
     } catch (error) {
       if (requestId !== analysisRequestId.current) return
       setActionError(`音频分析失败：${errorMessage(error)}`)
     } finally {
       if (requestId === analysisRequestId.current) setAnalyzing(false)
     }
-  }, [cloneAudioLanguage, cloneAudioPath, cloneSubtitlePath])
+  }, [cloneAudioLanguage, cloneAudioPath, cloneMode, cloneSubtitlePath, separateVocals])
+
+  const handleSelectCandidate = useCallback((candidate: VoiceCloneCandidate) => {
+    if (!candidate.eligible) {
+      setActionError('该候选未通过克隆质量门槛，可试听核对但不能用于克隆')
+      return
+    }
+    setSelectedCandidateId(candidate.candidate_id)
+    setCloneRefText(candidate.text)
+    setActionError('')
+  }, [])
+
+  const handlePreviewCandidate = useCallback((candidate: VoiceCloneCandidate) => {
+    const previewPath = candidate.preview_audio_path || cloneAudioPath
+    if (!previewPath) return
+    showAudio(previewPath, `克隆候选 · ${candidateSourceLabel(candidate.source_variant)} · ${candidate.start.toFixed(1)}-${candidate.end.toFixed(1)}s`)
+    if (!candidate.preview_audio_path) seekAudio(candidate.start)
+    if (!useAudioPlayerStore.getState().isPlaying) {
+      useAudioPlayerStore.getState().togglePlay()
+    }
+  }, [cloneAudioPath, seekAudio, showAudio])
 
   const handleClone = useCallback(async () => {
     const name = cloneName.trim()
     if (!cloneAudioPath || !name) return
+    const selectedCandidate = candidates.find((candidate) => candidate.candidate_id === selectedCandidateId)
+    if (!analysisId || !selectedCandidate) {
+      setActionError('请先完成素材分析并选择一个候选片段')
+      return
+    }
+    if (!selectedCandidate.eligible) {
+      setActionError('所选候选未通过克隆质量门槛，请重新分析并选择合格片段')
+      return
+    }
     const xVectorOnly = cloneMode === 'x-vector'
     const refText = cloneRefText.trim()
     if (!xVectorOnly && !refText) {
-      setActionError('高保真 ICL 模式需要填写与参考音频完全一致的文本')
+      setActionError('高保真 ICL 模式需要确认与候选片段完全一致的文本')
       return
     }
+    const confirmedText = xVectorOnly ? '' : refText
     setActionError('')
     setCloning(true)
     const cloneParams = {
@@ -456,6 +536,9 @@ export default function VoiceLab() {
       name,
       ref_text: xVectorOnly ? undefined : (refText || undefined),
       x_vector_only_mode: xVectorOnly,
+      analysis_id: analysisId,
+      candidate_id: selectedCandidate.candidate_id,
+      confirmed_text: confirmedText,
     }
     const localTaskId = addTask({
       jobType: 'voice-clone',
@@ -481,7 +564,7 @@ export default function VoiceLab() {
     } finally {
       setCloning(false)
     }
-  }, [addTask, cloneAudioPath, cloneMode, cloneName, cloneRefText, setPage, updateTask])
+  }, [addTask, analysisId, candidates, cloneAudioPath, cloneMode, cloneName, cloneRefText, selectedCandidateId, setPage, updateTask])
 
   const handleDelete = useCallback(async () => {
     if (!selectedId || detail?.id !== selectedId) {
@@ -515,6 +598,7 @@ export default function VoiceLab() {
     if (files.length > 0) {
       invalidateAnalysis()
       setCloneAudioPath(files[0]!)
+      setCloneSubtitlePath('')
       setActionError('')
     }
   }, [invalidateAnalysis, selectFiles])
@@ -542,7 +626,7 @@ export default function VoiceLab() {
       setDesignName(''); setDesignDesc(''); setDesignRefText('')
       setPanel('design-create')
     } else {
-      setCloneName(''); setCloneRefText(''); setCloneAudioPath(''); setCloneSubtitlePath(''); setCloneAudioLanguage('ja'); setCloneMode('icl')
+      setCloneName(''); setCloneRefText(''); setCloneAudioPath(''); setCloneSubtitlePath(''); setCloneAudioLanguage('ja'); setCloneMode('icl'); setSeparateVocals(false)
       setPanel('clone-create')
     }
   }
@@ -741,28 +825,41 @@ export default function VoiceLab() {
                 </div>
                 <div style={S.formField}>
                   <label style={S.formLabel}>克隆模式</label>
-                  <select style={S.input} value={cloneMode} onChange={event => setCloneMode(event.target.value as CloneMode)}>
+                  <select
+                    style={S.input}
+                    value={cloneMode}
+                    onChange={event => {
+                      invalidateAnalysis()
+                      setActionError('')
+                      setCloneMode(event.target.value as CloneMode)
+                    }}
+                  >
                     <option value="icl">高保真 ICL</option>
-                    <option value="x-vector">跨语言 x-vector</option>
+                    <option value="x-vector">仅说话人向量 (x-vector)</option>
                   </select>
                   <span style={S.hint}>
                     {cloneMode === 'icl'
                       ? '结合语音与准确文本，音色还原更好'
-                      : '仅提取说话人特征，降低参考语言干扰，但还原度可能下降'}
+                      : '无可靠逐字文本时的降级模式；只提取说话人特征，还原度通常较低，跨语言并不要求使用此模式'}
                   </span>
                 </div>
                 <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
                   <label style={S.formLabel}>
-                    参考文本 {cloneMode === 'icl' ? '*' : '(x-vector 模式不使用)'}
+                    候选确认文本 {cloneMode === 'icl' ? '*' : '(x-vector 模式不使用)'}
                   </label>
                   <input
-                    style={{ ...S.input, background: cloneMode === 'x-vector' ? 'var(--bg)' : 'var(--surface)' }}
+                    style={{ ...S.input, background: cloneMode === 'x-vector' || !selectedCandidateId ? 'var(--bg)' : 'var(--surface)' }}
                     type="text"
                     value={cloneRefText}
                     onChange={event => setCloneRefText(event.target.value)}
-                    placeholder="请逐字填写参考音频中实际说出的内容"
-                    disabled={cloneMode === 'x-vector'}
+                    placeholder={selectedCandidateId ? '请逐字确认候选片段中实际说出的内容' : '分析并选择候选片段后自动填入'}
+                    disabled={cloneMode === 'x-vector' || !selectedCandidateId}
                   />
+                  <span style={S.hint}>
+                    {cloneMode === 'icl'
+                      ? '选择候选后会自动填入识别文本；请在提交前修正为与片段完全一致的内容。'
+                      : 'x-vector 仅使用说话人特征，确认文本不可编辑。'}
+                  </span>
                 </div>
                 <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
                   <label style={S.formLabel}>参考音频 *</label>
@@ -775,18 +872,33 @@ export default function VoiceLab() {
                   >
                     <UploadIcon />
                     <div>{cloneAudioPath || '点击选择参考音频文件 (.wav / .mp3)'}</div>
-                    <div style={{ fontSize: 11, marginTop: 4 }}>建议 5-30 秒清晰人声，无背景音</div>
+                    <div style={{ fontSize: 11, marginTop: 4 }}>可选择包含多句的音频；分析后从切分候选中选择克隆片段</div>
                   </button>
                 </div>
                 <div style={S.formField}>
-                  <label style={S.formLabel}>参考字幕 (仅用于质量检查)</label>
-                  <button style={S.btnSm} type="button" onClick={handleSelectCloneSubtitle}>
-                    {cloneSubtitlePath ? '更换字幕' : '选择字幕'}
-                  </button>
+                  <label style={S.formLabel}>参考字幕</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button style={S.btnSm} type="button" onClick={handleSelectCloneSubtitle}>
+                      {cloneSubtitlePath ? '更换字幕' : '选择字幕'}
+                    </button>
+                    {cloneSubtitlePath && (
+                      <button
+                        style={S.btnSm}
+                        type="button"
+                        onClick={() => {
+                          invalidateAnalysis()
+                          setCloneSubtitlePath('')
+                          setActionError('')
+                        }}
+                      >
+                        移除字幕
+                      </button>
+                    )}
+                  </div>
                   <span style={S.hint}>{cloneSubtitlePath || '未提供时使用 ASR 识别音频文本'}</span>
                 </div>
                 <div style={S.formField}>
-                  <label style={S.formLabel}>参考音频语言 (仅用于质量检查)</label>
+                  <label style={S.formLabel}>参考音频语言</label>
                   <select
                     style={S.input}
                     value={cloneAudioLanguage}
@@ -801,66 +913,161 @@ export default function VoiceLab() {
                     <option value="en">英语</option>
                   </select>
                 </div>
+                <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
+                  <label style={{ ...S.formLabel, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={separateVocals}
+                      onChange={event => {
+                        invalidateAnalysis()
+                        setActionError('')
+                        setSeparateVocals(event.target.checked)
+                      }}
+                    />
+                    分析前分离人声
+                  </label>
+                  <span style={S.hint}>默认关闭。仅在背景音乐明显时启用；候选会标明使用原始音频还是分离人声。</span>
+                </div>
               </div>
 
               {/* Segment analysis */}
-              {segments.length > 0 && (
+              {candidates.length > 0 && (
                 <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                    片段分析结果
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      克隆候选片段
+                    </div>
+                    {sourceFingerprint && (
+                      <span style={{ ...S.hint, marginLeft: 'auto', fontFamily: 'var(--font-mono)' }}>
+                        素材指纹 {sourceFingerprint.replace(/^sha256:/, '').slice(0, 12)}
+                      </span>
+                    )}
                   </div>
                   <div className="voice-lab-table-scroll">
                     <table style={S.segmentTable}>
                       <thead>
                         <tr>
-                          <th style={S.segTh}>#</th>
+                          <th style={S.segTh}>选择</th>
                           <th style={S.segTh}>时间</th>
-                          <th style={S.segTh}>文本</th>
+                          <th style={S.segTh}>来源</th>
+                          <th style={S.segTh}>文本 / 评分详情</th>
                           <th style={S.segTh}>评分</th>
-                          <th style={S.segTh}>标签</th>
+                          <th style={S.segTh}>状态</th>
+                          <th style={S.segTh}>试听</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {segments.map((seg) => (
-                          <tr key={seg.index} style={recommendedIndices.includes(seg.index) ? { background: 'oklch(97% 0.01 145)' } : undefined}>
-                            <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{seg.index}</td>
-                            <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{seg.start.toFixed(1)} – {seg.end.toFixed(1)}s</td>
-                            <td style={S.segTd}>{seg.text}</td>
-                            <td style={S.segTd}>
-                              <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 11, color: seg.score >= 80 ? 'var(--success)' : 'var(--warning)' }}>
-                                {seg.score}
-                              </span>
-                            </td>
-                            <td style={S.segTd}>
-                              {recommendedIndices.includes(seg.index)
-                                ? <span style={S.tag('ready')}>推荐</span>
-                                : (seg.label || '—')}
-                            </td>
-                          </tr>
-                        ))}
+                        {candidates.map((candidate) => {
+                          const isRecommended = candidate.candidate_id === recommendedCandidateId
+                          const isSelected = candidate.candidate_id === selectedCandidateId
+                          const isEligible = candidate.eligible
+                          const detailsText = candidateDetails(candidate.details)
+                          return (
+                            <tr
+                              key={candidate.candidate_id}
+                              onClick={() => {
+                                if (isEligible) handleSelectCandidate(candidate)
+                              }}
+                              style={{
+                                cursor: isEligible ? 'pointer' : 'default',
+                                opacity: isEligible ? 1 : 0.68,
+                                background: isSelected
+                                  ? 'oklch(95% 0.025 255)'
+                                  : isRecommended
+                                    ? 'oklch(97% 0.01 145)'
+                                    : undefined,
+                              }}
+                            >
+                              <td style={S.segTd}>
+                                <input
+                                  type="radio"
+                                  name="voice-clone-candidate"
+                                  checked={isSelected}
+                                  onChange={() => handleSelectCandidate(candidate)}
+                                  disabled={!isEligible}
+                                  aria-label={`选择 ${candidate.start.toFixed(1)} 到 ${candidate.end.toFixed(1)} 秒的候选片段`}
+                                />
+                              </td>
+                              <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                                {candidate.start.toFixed(1)} – {candidate.end.toFixed(1)}s
+                              </td>
+                              <td style={{ ...S.segTd, whiteSpace: 'nowrap' }}>{candidateSourceLabel(candidate.source_variant)}</td>
+                              <td style={{ ...S.segTd, minWidth: 260 }}>
+                                <div>{candidate.text || '（无识别文本）'}</div>
+                                {detailsText && <div style={{ ...S.hint, marginTop: 4 }}>{detailsText}</div>}
+                                {candidate.reasons.length > 0 && (
+                                  <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 4 }}>
+                                    {candidate.reasons.join('；')}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={S.segTd}>
+                                <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 11, color: candidate.score >= 80 ? 'var(--success)' : 'var(--warning)' }}>
+                                  {candidate.score}
+                                </span>
+                              </td>
+                              <td style={{ ...S.segTd, whiteSpace: 'nowrap' }}>
+                                {isRecommended && <span style={S.tag('ready')}>推荐</span>}
+                                {!isEligible && <span style={S.tag('unavail')}>不合格</span>}
+                                {isEligible && !isRecommended && (candidate.label || '—')}
+                              </td>
+                              <td style={S.segTd}>
+                                <button
+                                  style={S.btnSm}
+                                  type="button"
+                                  onClick={event => {
+                                    event.stopPropagation()
+                                    handlePreviewCandidate(candidate)
+                                  }}
+                                >
+                                  <PlayIcon /> 试听
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
-                  {analysisWarnings.length > 0 && (
-                    <div style={{ ...S.hint, marginTop: 8 }}>
-                      {analysisWarnings.join('；')}
-                    </div>
-                  )}
                 </div>
               )}
 
-              <div style={{ ...S.hint, marginTop: 12 }}>
-                片段分析仅用于检查素材质量，不会自动裁剪或替换克隆输入；开始克隆时仍使用上方选择的完整参考音频。
-              </div>
+              {analysisWarnings.length > 0 && (
+                <div style={{ ...S.hint, marginTop: 8, color: 'var(--warning)' }}>
+                  {analysisWarnings.join('；')}
+                </div>
+              )}
+
+              {analysisId && candidates.length === 0 && (
+                <div style={{ ...S.hint, marginTop: 12 }}>分析完成，但没有可用于克隆的候选片段。</div>
+              )}
+
+              {analysisId && candidates.length > 0 && !candidates.some((candidate) => candidate.eligible) && (
+                <div style={{ ...S.hint, marginTop: 12, color: 'var(--warning)' }}>
+                  当前片段均未通过质量门槛；仍可试听检查，但不能用于克隆。
+                </div>
+              )}
+
+              {!analysisId && candidates.length > 0 && (
+                <div style={{ ...S.hint, marginTop: 12, color: 'var(--warning)' }}>
+                  当前后端返回了旧版分析结果，无法安全绑定候选片段；请升级后端后重新分析。
+                </div>
+              )}
+
+              {selectedCandidateId && analysisId && (
+                <div style={{ ...S.hint, marginTop: 12 }}>
+                  克隆将使用当前单选候选；切换音频、字幕、语言、模式或人声分离设置后需要重新分析。
+                </div>
+              )}
 
               <div className="voice-lab-actions-row" style={S.actionsRow}>
                 <button style={S.btnSm} onClick={handleAnalyze} disabled={analyzing || !cloneAudioPath}>
-                  {analyzing ? '分析中...' : '检查素材质量'}
+                  {analyzing ? '分析中...' : '分析并生成候选'}
                 </button>
                 <button
                   style={S.btnPrimarySm}
                   onClick={handleClone}
-                  disabled={cloning || !cloneName.trim() || !cloneAudioPath || (cloneMode === 'icl' && !cloneRefText.trim())}
+                  disabled={cloning || !cloneName.trim() || !cloneAudioPath || !analysisId || !candidates.some((candidate) => candidate.candidate_id === selectedCandidateId && candidate.eligible) || (cloneMode === 'icl' && !cloneRefText.trim())}
                 >
                   {cloning ? '克隆中...' : '开始克隆'}
                 </button>

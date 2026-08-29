@@ -51,7 +51,6 @@ def test_faster_whisper_runtime_forwards_advertised_options() -> None:
     assert Path(kwargs.pop("model_size")).name == "base"
     assert kwargs == {
         "language": "auto",
-        "vad_filter": True,
         "beam_size": 3,
         "initial_prompt": "quiet speech",
         "no_speech_threshold": 0.8,
@@ -64,14 +63,14 @@ def test_faster_whisper_recognizer_passes_calibrated_options(
 ) -> None:
     import src.core.asr as asr_module
 
-    captured: dict = {}
+    captured: list[dict] = []
 
     class FakeWhisperModel:
         def __init__(self, *args, **kwargs):
             pass
 
         def transcribe(self, audio_path, **kwargs):
-            captured.update(kwargs)
+            captured.append(kwargs)
             return iter(()), SimpleNamespace(duration=0.0)
 
     monkeypatch.setattr(asr_module, "WhisperModel", FakeWhisperModel)
@@ -88,16 +87,92 @@ def test_faster_whisper_recognizer_passes_calibrated_options(
         no_speech_threshold=0.8,
     )
     recognizer.recognize(str(input_path), show_progress=False)
+    recognizer.recognize(str(input_path), show_progress=False, vad_filter=False)
 
-    assert captured["language"] is None
-    assert captured["vad_filter"] is True
-    assert captured["vad_parameters"] == {
+    assert captured[0]["language"] is None
+    assert captured[0]["vad_filter"] is True
+    assert captured[0]["vad_parameters"] == {
         "min_silence_duration_ms": 500,
         "speech_pad_ms": 200,
     }
-    assert captured["beam_size"] == 3
-    assert captured["initial_prompt"] == "quiet speech"
-    assert captured["no_speech_threshold"] == 0.8
+    assert captured[0]["beam_size"] == 3
+    assert captured[0]["initial_prompt"] == "quiet speech"
+    assert captured[0]["no_speech_threshold"] == 0.8
+    assert captured[1]["vad_filter"] is False
+    assert captured[1]["vad_parameters"] is None
+
+
+def test_faster_whisper_runtime_reuses_model_when_vad_changes(tmp_path) -> None:
+    from src.core.engines.asr.registry import AsrRegistry
+
+    created_with: list[dict] = []
+    vad_calls: list[bool] = []
+
+    class Recognizer:
+        def recognize(self, *_args, vad_filter=False, **_kwargs):
+            vad_calls.append(vad_filter)
+            return []
+
+    def factory(**kwargs):
+        created_with.append(kwargs)
+        return Recognizer()
+
+    registry = AsrRegistry()
+    registry.register(
+        "faster_whisper",
+        factory=factory,
+    )
+    runtime = AsrEngineRuntime(registry=registry)
+    input_path = tmp_path / "input.wav"
+    input_path.write_bytes(b"fake")
+
+    for vad_filter in (True, False):
+        runtime.transcribe_file(
+            input_path=str(input_path),
+            output_path=None,
+            profile={
+                "provider": "faster_whisper",
+                "model": "base",
+                "common_options": {"language": "en"},
+                "provider_options": {"vad_filter": vad_filter},
+            },
+        )
+
+    assert len(created_with) == 1
+    assert "vad_filter" not in created_with[0]
+    assert vad_calls == [True, False]
+
+
+def test_faster_whisper_no_word_confidence_complements_no_speech_probability(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    import src.core.asr as asr_module
+    from src.core.engines.asr.service import _entry_confidence
+
+    class FakeWhisperModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def transcribe(self, _audio_path, **_kwargs):
+            segment = SimpleNamespace(
+                start=0.0,
+                end=1.0,
+                text="quiet",
+                words=[],
+                no_speech_prob=0.9,
+            )
+            return iter((segment,)), SimpleNamespace(duration=1.0)
+
+    monkeypatch.setattr(asr_module, "WhisperModel", FakeWhisperModel)
+    input_path = tmp_path / "input.wav"
+    input_path.write_bytes(b"fake")
+    recognizer = asr_module.ASRRecognizer(model_size="base", device="cpu")
+    recognizer.postprocessor = SimpleNamespace(process=lambda entries: entries)
+
+    entries = recognizer.recognize(str(input_path), show_progress=False)
+
+    assert _entry_confidence(entries[0]) == pytest.approx(0.1)
 
 
 @pytest.mark.parametrize(

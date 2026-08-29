@@ -43,7 +43,19 @@ class VoiceCloneRequest(BaseModel):
     )
     x_vector_only_mode: bool = Field(
         False,
-        description="Use only the speaker embedding for cross-language cloning",
+        description="Use only the speaker embedding when no reliable transcript is available",
+    )
+    analysis_id: str = Field(
+        "",
+        description="Analysis session containing the selected reference candidate",
+    )
+    candidate_id: str = Field(
+        "",
+        description="Candidate selected from the analysis session",
+    )
+    confirmed_text: str = Field(
+        "",
+        description="User-confirmed transcript for the selected ICL candidate",
     )
 
 
@@ -51,6 +63,14 @@ class SegmentAnalyzeRequest(BaseModel):
     audio_path: str = Field(..., description="Path to audio file")
     subtitle_path: str | None = Field(None, description="Optional subtitle file")
     audio_language: str = Field("ja", description="Audio language code")
+    separate_vocals: bool = Field(
+        False,
+        description="Analyze a separated vocal stem instead of the original mix",
+    )
+    x_vector_only_mode: bool = Field(
+        False,
+        description="Prepare candidates for speaker-embedding-only cloning",
+    )
 
 
 class SegmentInfoResponse(BaseModel):
@@ -61,7 +81,23 @@ class SegmentInfoResponse(BaseModel):
     duration: float
     score: int = 0
     label: str = ""
+    eligible: bool = False
+    reasons: list[str] = Field(default_factory=list)
     details: dict = Field(default_factory=dict)
+
+
+class VoiceCloneCandidateResponse(BaseModel):
+    candidate_id: str
+    source_variant: str
+    start: float
+    end: float
+    text: str
+    score: int = 0
+    label: str = ""
+    eligible: bool = False
+    details: dict = Field(default_factory=dict)
+    reasons: list[str] = Field(default_factory=list)
+    preview_audio_path: str = ""
 
 
 class SegmentAnalyzeResponse(BaseModel):
@@ -70,6 +106,10 @@ class SegmentAnalyzeResponse(BaseModel):
     segments: list[SegmentInfoResponse] = Field(default_factory=list)
     recommended_indices: list[int] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    analysis_id: str = ""
+    source_fingerprint: str = ""
+    candidates: list[VoiceCloneCandidateResponse] = Field(default_factory=list)
+    recommended_candidate_id: str | None = None
 
 
 # Generation routes reuse the shared task-status response schema.

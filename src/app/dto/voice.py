@@ -54,6 +54,9 @@ class VoiceCloneRequest:
     name: str
     ref_text: str = ""
     x_vector_only_mode: bool = False
+    analysis_id: str = ""
+    candidate_id: str = ""
+    confirmed_text: str = ""
 
 
 @dataclass(slots=True)
@@ -71,6 +74,8 @@ class SegmentAnalyzeRequest:
     audio_path: str
     subtitle_path: Optional[str] = None
     audio_language: str = "ja"
+    separate_vocals: bool = False
+    x_vector_only_mode: bool = False
 
 
 @dataclass(slots=True)
@@ -82,7 +87,24 @@ class SegmentInfo:
     duration: float
     score: int = 0
     label: str = ""
+    eligible: bool = False
+    reasons: list[str] = field(default_factory=list)
     details: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class VoiceCloneCandidate:
+    candidate_id: str
+    source_variant: str
+    start: float
+    end: float
+    text: str
+    score: int = 0
+    label: str = ""
+    eligible: bool = False
+    details: dict[str, Any] = field(default_factory=dict)
+    reasons: list[str] = field(default_factory=list)
+    preview_audio_path: str = ""
 
 
 @dataclass(slots=True)
@@ -92,6 +114,10 @@ class SegmentAnalyzeResult:
     segments: list[SegmentInfo] = field(default_factory=list)
     recommended_indices: list[int] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    analysis_id: str = ""
+    source_fingerprint: str = ""
+    candidates: list[VoiceCloneCandidate] = field(default_factory=list)
+    recommended_candidate_id: str | None = None
 
 
 @dataclass(slots=True)

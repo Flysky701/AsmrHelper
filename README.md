@@ -16,7 +16,8 @@ ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、
 - **语音合成** - Edge-TTS (免费) / Qwen3-TTS / VoxCPM2 (高质量)
 - **智能混音** - 时间轴对齐 + 音量平衡，输出原声+中文配音双轨
 - **HTTP API** - FastAPI RESTful API，支持完整流水线和单步操作
-- **任务中心** - 统一展示 Pipeline、音频工具、模型安装、音色和台本任务的阶段、错误与产物
+- **工作台** - 统一添加文件或递归扫描目录；单文件创建 Pipeline Task，多文件创建持久 BatchRun
+- **任务中心** - 统一展示 Pipeline、BatchRun、音频工具、模型安装、音色和台本任务的阶段、错误、控制与产物
 - **音频工具** - 人声分离、格式转换、按字幕切分、字幕翻译、音量分析
 - **字幕工坊** - 字幕编辑、导出、后台翻译和台本转字幕
 
@@ -108,7 +109,7 @@ $env:DEEPSEEK_API_KEY = "your-deepseek-api-key"
 # 或命令行处理单文件
 .\.venv\Scripts\python.exe scripts\asmr_bilingual.py --input "path/to/audio.wav"
 
-# 批量处理
+# 兼容 CLI 批量处理；桌面端请从工作台统一添加文件或目录
 .\.venv\Scripts\python.exe scripts\batch_process.py --input-dir "D:/ASMR"
 ```
 
@@ -123,6 +124,7 @@ AsmrHelper/
 │   │   ├── engines/              # ASR/TTS/LLM/Separator 引擎
 │   │   ├── orchestration/        # Pipeline 与工具编排
 │   │   ├── tasks/                # Task Registry、Dispatcher 与状态机
+│   │   ├── batches/              # BatchRun 聚合状态与批次控制
 │   │   ├── runtime/              # 隔离运行时与短生命周期 Worker
 │   │   ├── artifacts/            # 任务产物索引
 │   │   ├── subtitles/            # 字幕、台本处理领域
@@ -187,9 +189,8 @@ cp config/config.example.json config/config.json
 
 ### 主界面布局
 
-- **工作台** - 一个或多个输入分别创建独立 Pipeline Task
-- **批量处理** - 扫描目录并创建持久 BatchRun，支持总进度、整批取消和失败项重提
-- **任务中心** - 查看进度、失败阶段、结构化错误、取消、重提与产物
+- **工作台** - 统一管理文件与目录输入、递归扫描、去重、全选和伴随字幕；单文件提交到 `/pipeline-runs`，多文件明确提示后提交到 `/batch-runs`
+- **任务中心** - 查看普通任务的进度、失败阶段、结构化错误与产物，并在批次视图中查看 BatchRun 历史、总进度、整批取消和失败项重提
 - **字幕工坊** - 编辑、导出、后台翻译和台本转字幕
 - **音色实验室** - Qwen3-TTS 专属的设计、克隆、片段分析和试音
 - **音频工具** - 五项独立 Tool Task
@@ -218,7 +219,7 @@ cp config/config.example.json config/config.json
 ## 核心处理流程
 
 ```
-输入音频 (.wav/.mp3/.flac)
+输入音频 (.wav/.mp3/.flac/.m4a/.ogg/.aac/.wma)
     |
     v
 [1] VTT 字幕检测 (有则跳过人声分离)
@@ -251,8 +252,8 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -DevOnly
 # 运行测试
 .\.venv\Scripts\python.exe -m pytest
 
-# 运行安装脚本集成测试
-.\.venv\Scripts\python.exe -m pytest tests/test_setup_integration.py -v
+# 运行任务与批次契约测试
+.\.venv\Scripts\python.exe -m pytest tests/test_task_execution_contract.py tests/test_batch_runs.py -v
 
 # 运行环境验证
 .\.venv\Scripts\python.exe scripts/verify_env.py
@@ -284,7 +285,8 @@ MIT License
 ### HTTP API (src/api/http)
 
 FastAPI RESTful API，提供以下端点：
-- `/api/v1/pipeline/*` - 流水线执行
+- `/api/v1/pipeline-runs` - 创建单文件 Pipeline Task
+- `/api/v1/batch-runs` 及其子路径 - 创建、查询和控制持久 BatchRun
 - `/api/v1/asr/*` - 语音识别
 - `/api/v1/llm/*` - LLM 翻译
 - `/api/v1/tts/*` - 语音合成
@@ -302,7 +304,6 @@ FastAPI RESTful API，提供以下端点：
 
 README 只保留安装、启动和使用入口，不再维护容易失真的 TODO/DONE 双清单。当前能力、验收范围与剩余边界统一记录在：
 
-- [总体进度状态](docs/roadmap/overall-progress-status.md)
 - [后端能力事实清单](docs/roadmap/backend-capability-baseline.md)
 - [当前源码基线](docs/roadmap/current-source-baseline.md)
 - [文档索引](docs/README.md)

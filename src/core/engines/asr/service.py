@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,36 @@ def _resolve_model_name(provider: str, model_id: str) -> str:
         return model_id[len(prefix) :] if model_id.startswith(prefix) else model_id
 
     return model_id
+
+
+def _entry_confidence(entry: dict[str, Any]) -> float:
+    """Normalize provider confidence to 0..1 for downstream quality ranking."""
+    raw_confidence = entry.get("confidence")
+    if raw_confidence is not None:
+        try:
+            confidence = float(raw_confidence)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(confidence):
+            return 0.0
+        return max(0.0, min(1.0, confidence))
+
+    raw_log_prob = entry.get("log_prob")
+    if raw_log_prob is None:
+        return 0.0
+    try:
+        log_prob = float(raw_log_prob)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(log_prob):
+        return 0.0
+
+    # The legacy Faster-Whisper adapter stores a logit-like score. Use a
+    # numerically stable sigmoid so SubtitleSegment exposes a 0..1 value.
+    if log_prob >= 0.0:
+        return 1.0 / (1.0 + math.exp(-log_prob))
+    exp_value = math.exp(log_prob)
+    return exp_value / (1.0 + exp_value)
 
 
 class AsrEngineRuntime:
@@ -80,12 +111,23 @@ class AsrEngineRuntime:
                 provider_options=provider_options,
             ),
         )
-        entries = recognizer.recognize(str(source_path), output_path)
+        recognize_kwargs: dict[str, Any] = {}
+        if provider == "faster_whisper" and "vad_filter" in provider_options:
+            # VAD changes transcription for one input, not model construction.
+            # Keeping it out of the registry key lets a quiet-audio retry reuse
+            # the already loaded Faster-Whisper model.
+            recognize_kwargs["vad_filter"] = bool(provider_options["vad_filter"])
+        entries = recognizer.recognize(
+            str(source_path),
+            output_path,
+            **recognize_kwargs,
+        )
         segments = [
             SubtitleSegment(
                 start=float(entry.get("start", 0.0)),
                 end=float(entry.get("end", 0.0)),
                 text=str(entry.get("text", "")),
+                confidence=_entry_confidence(entry),
             )
             for entry in entries
         ]
@@ -107,7 +149,7 @@ class AsrEngineRuntime:
                 end=float(item.get("end", 0.0)),
                 text=str(item.get("text", "")),
                 language=str(item.get("language", "")),
-                confidence=float(item.get("confidence", 0.0)),
+                confidence=_entry_confidence(item),
             )
             for item in payload.get("segments", [])
             if isinstance(item, dict)
@@ -135,7 +177,6 @@ class AsrEngineRuntime:
 
         if provider == "faster_whisper":
             supported = (
-                "vad_filter",
                 "beam_size",
                 "initial_prompt",
                 "no_speech_threshold",

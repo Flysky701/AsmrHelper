@@ -60,6 +60,23 @@ def test_terminal_status_is_immutable_and_retry_is_a_new_task():
     assert service.get_task(failed_spec.task_id).state == "failed"
 
 
+def test_voice_clone_retry_chain_cannot_branch_from_the_same_failed_task():
+    service = TaskService()
+    failed_spec, _ = _create(service, "voice.clone")
+    service.start_task(failed_spec.task_id)
+    service.fail_task(failed_spec.task_id, message="failed", stage="clone")
+
+    first_retry = service.retry_task(failed_spec.task_id)
+
+    with pytest.raises(AppValidationError, match="voice clone retry already exists"):
+        service.retry_task(failed_spec.task_id)
+
+    service.start_task(first_retry.task_id)
+    service.fail_task(first_retry.task_id, message="failed again", stage="clone")
+    second_retry = service.retry_task(first_retry.task_id)
+    assert second_retry.retry_of_task_id == first_retry.task_id
+
+
 def test_dispatcher_starts_one_task_once_and_finalizes_after_executor_exit():
     service = TaskService()
     dispatcher = TaskDispatcher(service.registry, task_service=service)

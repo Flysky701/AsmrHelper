@@ -16,11 +16,11 @@
 
 ## 2. 桌面端主链路
 
-1. 桌面端提交 `POST /api/v1/pipeline-runs`。
-2. 后端完成轻量参数校验，创建任务并返回 `202 Accepted`。
-3. 桌面端通过 `GET /api/v1/tasks/{task_id}` 获取事实状态。
-4. 任务完成后，通过 `GET /api/v1/tasks/{task_id}/result` 获取产物。
-5. 取消、重试均以任务为操作对象。
+1. 桌面工作台选中一个输入时提交 `POST /api/v1/pipeline-runs`；选中多个输入时提交 `POST /api/v1/batch-runs`，其中每个批次条目仍创建普通 Pipeline Task。
+2. 后端完成轻量参数校验，创建任务或持久 BatchRun，并返回 `202 Accepted`。
+3. 普通任务通过 `GET /api/v1/tasks/{task_id}` 获取事实状态；批次通过 `GET /api/v1/batch-runs/{batch_id}` 获取聚合事实。
+4. 普通任务完成后，通过 `GET /api/v1/tasks/{task_id}/result` 获取产物；批次条目继续按各自 `task_id` 保留产物归属。
+5. 普通任务按任务取消、重试；BatchRun 额外提供整批取消和失败项重提，但不成为第二套执行器。
 
 桌面端不得依赖后端进程标准输出判断任务状态，也不得自行拼接内部工具命令。
 

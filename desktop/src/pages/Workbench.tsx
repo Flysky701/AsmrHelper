@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, ReactNode } from 'react'
 
+import { batchesApi } from '@/api/batches'
+import { inputsApi } from '@/api/inputs'
 import { pipelineApi } from '@/api/pipeline'
 import { capabilitiesApi } from '@/api/engines'
 import { resourcesApi } from '@/api/resources'
@@ -26,6 +28,15 @@ import {
   buildPipelineStageFlags,
   capabilityScope,
 } from '@/domain/pipelineExecutionProfile'
+import {
+  MAX_WORKBENCH_INPUTS,
+  discoveredFileToInput,
+  fileName,
+  inputPathKey,
+  mergeInputItems,
+  pathToInput,
+  type WorkbenchInputItem,
+} from '@/domain/workbenchInput'
 import { useLogStore } from '@/stores/logStore'
 import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
@@ -286,6 +297,10 @@ const WORKBENCH_LAYOUT_STYLES = `
     .workbench-section-actions > button {
       width: 100%;
     }
+
+    .workbench-input-options {
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
   }
 `
 
@@ -323,14 +338,6 @@ const ChevronIcon = ({ open }: { open: boolean }) => (
   </svg>
 )
 
-function mergeUniquePaths(current: string[], incoming: string[]) {
-  return Array.from(new Set([...current, ...incoming]))
-}
-
-function fileName(path: string) {
-  return path.split(/[/\\]/).pop() ?? path
-}
-
 const WORKBENCH_AUDIO_EXTENSIONS = new Set(
   FILE_FILTERS.audio.extensions.map((extension) => extension.toLowerCase()),
 )
@@ -358,6 +365,51 @@ function unsupportedAudioMessage(paths: string[]) {
   const remainder = paths.length > 3 ? ` 等 ${paths.length} 个文件` : ''
   const formats = FILE_FILTERS.audio.extensions.map((extension) => extension.toUpperCase()).join('、')
   return `只接受 ${formats} 音频；已忽略 ${examples}${remainder}`
+}
+
+function formatInputSize(bytes: number) {
+  if (!bytes) return '大小未知'
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+async function mapWithConcurrency<Input, Output>(
+  inputs: Input[],
+  maxParallel: number,
+  worker: (input: Input) => Promise<Output>,
+) {
+  const results = new Array<Output>(inputs.length)
+  let nextIndex = 0
+  let firstError: unknown
+  let failed = false
+  const runners = Array.from(
+    { length: Math.min(maxParallel, inputs.length) },
+    async () => {
+      while (nextIndex < inputs.length && !failed) {
+        const index = nextIndex
+        nextIndex += 1
+        const input = inputs[index]
+        if (input === undefined) continue
+        try {
+          results[index] = await worker(input)
+        } catch (error) {
+          if (!failed) firstError = error
+          failed = true
+        }
+      }
+    },
+  )
+  await Promise.all(runners)
+  if (failed) throw firstError
+  return results
+}
+
+function uniqueReadinessIssues(issues: TaskReadinessIssueResponse[]) {
+  return Array.from(new Map(issues.map((issue) => [
+    [issue.stage, issue.code, issue.requirement, issue.provider, issue.model, issue.message].join('\u0000'),
+    issue,
+  ])).values())
 }
 
 function optionLabel(options: Option[], value: string) {
@@ -773,7 +825,13 @@ export default function Workbench() {
   useTaskPolling(3000)
 
   const {
-    selectedFiles,
+    inputItems,
+    selectedInputPaths,
+    inputFolder,
+    scanRecursive,
+    outputDirectory,
+    batchName,
+    batchMaxParallel,
     preset,
     presets,
     presetsLoading,
@@ -782,8 +840,16 @@ export default function Workbench() {
     commonExpanded,
     modelExpanded,
     advExpanded,
-    setFiles,
-    removeFile,
+    addInputItems,
+    removeInputItem,
+    toggleInputSelection,
+    selectAllInputs,
+    clearInputItems,
+    setInputFolder,
+    setScanRecursive,
+    setOutputDirectory,
+    setBatchName,
+    setBatchMaxParallel,
     setPreset,
     setPresets,
     setPresetsLoading,
@@ -799,9 +865,11 @@ export default function Workbench() {
   const tasks = useTaskStore((state) => state.tasks)
   const addLog = useLogStore((state) => state.addLog)
   const setPage = useNavStore((state) => state.setPage)
-  const { selectFiles } = useFileSelector()
+  const openTaskCenter = useNavStore((state) => state.openTaskCenter)
+  const { selectFiles, selectFolder } = useFileSelector()
 
   const [dragOver, setDragOver] = useState(false)
+  const [discoveringInputs, setDiscoveringInputs] = useState(false)
   const [fileSelectionError, setFileSelectionError] = useState('')
   const [capabilities, setCapabilities] = useState<CapabilityDescriptorResponse[]>([])
   const [capabilityError, setCapabilityError] = useState('')
@@ -811,12 +879,31 @@ export default function Workbench() {
   const [readinessIssues, setReadinessIssues] = useState<TaskReadinessIssueResponse[]>([])
   const [checkingReadiness, setCheckingReadiness] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [submissionError, setSubmissionError] = useState('')
   const [presetError, setPresetError] = useState('')
   const [presetReloadToken, setPresetReloadToken] = useState(0)
   const submitLockRef = useRef(false)
+  const inputOperationRef = useRef(0)
+  const inputOwnerActiveRef = useRef(true)
   const currentPreset = presets.find((item) => item.id === preset) ?? null
   const activePresetStages = normalizePresetStages(currentPreset?.stages ?? [])
   const stageFlags = buildPipelineStageFlags(activePresetStages, params)
+  const selectedInputKeys = useMemo(
+    () => new Set(selectedInputPaths.map(inputPathKey)),
+    [selectedInputPaths],
+  )
+  const selectedInputs = useMemo(
+    () => inputItems.filter((item) => selectedInputKeys.has(inputPathKey(item.path))),
+    [inputItems, selectedInputKeys],
+  )
+
+  useEffect(() => {
+    inputOwnerActiveRef.current = true
+    return () => {
+      inputOwnerActiveRef.current = false
+      inputOperationRef.current += 1
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -942,30 +1029,154 @@ export default function Workbench() {
 
   useEffect(() => {
     setReadinessIssues([])
-  }, [preset, params, capabilityOptions, selectedFiles])
+    setSubmissionError('')
+  }, [preset, params, capabilityOptions, selectedInputPaths])
 
   const runningCount = tasks.filter((task) => task.status === 'running').length
   const pendingCount = tasks.filter((task) => task.status === 'pending').length
   const completedCount = tasks.filter((task) => task.status === 'completed').length
   const recentTasks = tasks.slice(-5).reverse()
 
-  const appendFiles = useCallback((files: string[]) => {
-    if (files.length === 0) return
-    const currentFiles = useWorkbenchStore.getState().selectedFiles
-    setFiles(mergeUniquePaths(currentFiles, files))
-  }, [setFiles])
+  const appendInputItems = useCallback((items: WorkbenchInputItem[]) => {
+    if (items.length === 0) return
+    const currentItems = useWorkbenchStore.getState().inputItems
+    const currentKeys = new Set(currentItems.map((item) => inputPathKey(item.path)))
+    const normalizedIncoming = mergeInputItems([], items)
+    const existingUpdates = normalizedIncoming.filter((item) => currentKeys.has(inputPathKey(item.path)))
+    const newItems = normalizedIncoming.filter((item) => !currentKeys.has(inputPathKey(item.path)))
+    const availableSlots = Math.max(0, MAX_WORKBENCH_INPUTS - currentItems.length)
+    const acceptedNewItems = newItems.slice(0, availableSlots)
+    const omitted = newItems.length - acceptedNewItems.length
+    addInputItems([...existingUpdates, ...acceptedNewItems])
+    if (omitted > 0) {
+      setFileSelectionError((current) => [
+        current,
+        `工作台最多接收 ${MAX_WORKBENCH_INPUTS} 个输入，已忽略其余 ${omitted} 个文件。`,
+      ].filter(Boolean).join(' '))
+    }
+  }, [addInputItems])
+
+  const appendAudioPaths = useCallback(async (paths: string[]) => {
+    if (paths.length === 0 || !inputOwnerActiveRef.current) return
+    const currentItems = useWorkbenchStore.getState().inputItems
+    const existingKeys = new Set(currentItems.map((item) => inputPathKey(item.path)))
+    const uniquePaths = Array.from(new Map(
+      paths.map((path) => [inputPathKey(path), path]),
+    ).values())
+    const availableSlots = Math.max(0, MAX_WORKBENCH_INPUTS - currentItems.length)
+    let acceptedNewCount = 0
+    let omitted = 0
+    const acceptedPaths = uniquePaths.filter((path) => {
+      if (existingKeys.has(inputPathKey(path))) return true
+      if (acceptedNewCount < availableSlots) {
+        acceptedNewCount += 1
+        return true
+      }
+      omitted += 1
+      return false
+    })
+    if (omitted > 0) {
+      setFileSelectionError((current) => [
+        current,
+        `工作台最多接收 ${MAX_WORKBENCH_INPUTS} 个输入，已忽略其余 ${omitted} 个文件。`,
+      ].filter(Boolean).join(' '))
+    }
+    if (acceptedPaths.length === 0) return
+
+    const operationId = inputOperationRef.current + 1
+    inputOperationRef.current = operationId
+    setDiscoveringInputs(true)
+    try {
+      const resolved = await inputsApi.resolveItems(acceptedPaths)
+      if (!inputOwnerActiveRef.current || inputOperationRef.current !== operationId) return
+      appendInputItems(resolved.items)
+      if (resolved.warnings.length > 0) {
+        setFileSelectionError((current) => [
+          current,
+          resolved.warnings.join(' '),
+        ].filter(Boolean).join(' '))
+      }
+    } catch (error) {
+      if (!inputOwnerActiveRef.current || inputOperationRef.current !== operationId) return
+      const existingKeys = new Set(
+        useWorkbenchStore.getState().inputItems.map((item) => inputPathKey(item.path)),
+      )
+      appendInputItems(
+        acceptedPaths
+          .filter((path) => !existingKeys.has(inputPathKey(path)))
+          .map(pathToInput),
+      )
+      setFileSelectionError((current) => [
+        current,
+        `读取文件信息或伴随字幕失败，已按路径加入：${error instanceof Error ? error.message : String(error)}`,
+      ].filter(Boolean).join(' '))
+    } finally {
+      if (inputOwnerActiveRef.current && inputOperationRef.current === operationId) {
+        setDiscoveringInputs(false)
+      }
+    }
+  }, [appendInputItems])
 
   const handleSelectFiles = useCallback(async () => {
     setFileSelectionError('')
     const files = await selectFiles({ filters: [FILE_FILTERS.audio] })
     const { accepted, rejected } = partitionAudioPaths(files)
     setFileSelectionError(unsupportedAudioMessage(rejected))
-    appendFiles(accepted)
-  }, [appendFiles, selectFiles])
+    await appendAudioPaths(accepted)
+  }, [appendAudioPaths, selectFiles])
 
-  const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+  const scanInputFolder = useCallback(async (directory: string) => {
+    if (!directory || !inputOwnerActiveRef.current) return
+    const operationId = inputOperationRef.current + 1
+    inputOperationRef.current = operationId
+    setDiscoveringInputs(true)
+    setFileSelectionError('')
+    try {
+      const response = await batchesApi.discover(directory, scanRecursive, MAX_WORKBENCH_INPUTS + 1)
+      if (!inputOwnerActiveRef.current || inputOperationRef.current !== operationId) return
+      const discoveredFiles = response.files.slice(0, MAX_WORKBENCH_INPUTS)
+      appendInputItems(discoveredFiles.map(discoveredFileToInput))
+      if (response.files.length > MAX_WORKBENCH_INPUTS) {
+        setFileSelectionError(
+          `目录匹配项超过 ${MAX_WORKBENCH_INPUTS} 个，已仅载入排序后的前 ${MAX_WORKBENCH_INPUTS} 个文件。`,
+        )
+      }
+      if (!useWorkbenchStore.getState().batchName.trim()) {
+        setBatchName(`批量处理 · ${fileName(directory)}`)
+      }
+    } catch (error) {
+      if (!inputOwnerActiveRef.current || inputOperationRef.current !== operationId) return
+      setFileSelectionError(`扫描目录失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      if (inputOwnerActiveRef.current && inputOperationRef.current === operationId) {
+        setDiscoveringInputs(false)
+      }
+    }
+  }, [appendInputItems, scanRecursive, setBatchName])
+
+  const handleClearInputs = useCallback(() => {
+    inputOperationRef.current += 1
+    setDiscoveringInputs(false)
+    setFileSelectionError('')
+    clearInputItems()
+  }, [clearInputItems])
+
+  const handleSelectFolder = useCallback(async () => {
+    const directory = await selectFolder()
+    if (!directory) return
+    setInputFolder(directory)
+    await scanInputFolder(directory)
+  }, [scanInputFolder, selectFolder, setInputFolder])
+
+  const handleSelectOutputDirectory = useCallback(async () => {
+    const directory = await selectFolder()
+    if (directory) setOutputDirectory(directory)
+  }, [selectFolder, setOutputDirectory])
+
+  const handleDrop = useCallback(async (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setDragOver(false)
+    if (discoveringInputs || submitting) return
 
     const dropped = Array.from(event.dataTransfer.files)
     if (dropped.length === 0) return
@@ -978,7 +1189,7 @@ export default function Workbench() {
     const missingFullPath = accepted.some((path) => !path.includes('/') && !path.includes('\\'))
 
     if (!missingFullPath) {
-      appendFiles(accepted)
+      await appendAudioPaths(accepted)
       return
     }
 
@@ -994,73 +1205,105 @@ export default function Workbench() {
     const fullPaths = accepted.map((path) => (
       path.includes('/') || path.includes('\\') ? path : `${dir}${sep}${path}`
     ))
-    appendFiles(fullPaths)
-  }, [appendFiles])
+    await appendAudioPaths(fullPaths)
+  }, [appendAudioPaths, discoveringInputs, submitting])
 
   const handleExecute = async () => {
-    if (selectedFiles.length === 0 || !currentPreset || submitLockRef.current) return
+    if (
+      selectedInputs.length === 0 ||
+      !currentPreset ||
+      discoveringInputs ||
+      submitLockRef.current
+    ) return
 
     submitLockRef.current = true
     setSubmitting(true)
+    setSubmissionError('')
     try {
+      const executionProfile = buildPipelineExecutionProfile({
+        params,
+        stageFlags,
+        capabilities,
+        capabilityOptions,
+      })
 
-    const executionProfile = buildPipelineExecutionProfile({
-      params,
-      stageFlags,
-      capabilities,
-      capabilityOptions,
-    })
-
-    setCheckingReadiness(true)
-    setReadinessIssues([])
-    try {
-      const issues: TaskReadinessIssueResponse[] = []
-      for (const filePath of selectedFiles) {
-        const readiness = await resourcesApi.checkTaskReadiness(
-          'pipeline',
-          executionProfile,
-          filePath,
+      setCheckingReadiness(true)
+      setReadinessIssues([])
+      try {
+        const readinessResults = await mapWithConcurrency(
+          selectedInputs,
+          6,
+          (item) => resourcesApi.checkTaskReadiness(
+            'pipeline',
+            executionProfile,
+            item.path,
+          ),
         )
-        if (!readiness.ready) {
-          issues.push(...readiness.issues)
+        const issues = uniqueReadinessIssues(
+          readinessResults.flatMap((readiness) => readiness.ready ? [] : readiness.issues),
+        )
+        if (issues.length > 0) {
+          setReadinessIssues(issues)
+          return
         }
+      } catch (error) {
+        setReadinessIssues([{
+          stage: 'prepare',
+          category: 'runtime',
+          provider: '',
+          model: null,
+          code: 'READINESS_CHECK_FAILED',
+          requirement: 'runtime readiness',
+          message: error instanceof Error ? error.message : String(error),
+          action: 'engines',
+        }])
+        return
+      } finally {
+        setCheckingReadiness(false)
       }
-      if (issues.length > 0) {
-        setReadinessIssues(issues)
+
+      if (selectedInputs.length > 1) {
+        try {
+          const created = await batchesApi.create({
+            name: batchName.trim() || `批量任务 · ${new Date().toLocaleString()}`,
+            inputs: selectedInputs.map((item) => ({
+              path: item.path,
+              companion_paths: item.companionPaths,
+            })),
+            output: { directory: outputDirectory || undefined },
+            execution_profile: executionProfile,
+            max_parallel: batchMaxParallel,
+          })
+          addLog({
+            level: 'info',
+            content: `批次已创建：${created.name}（${created.total_count} 个文件，${created.batch_id}）`,
+          })
+          openTaskCenter('batches')
+        } catch (error) {
+          setSubmissionError(`创建批次失败：${error instanceof Error ? error.message : String(error)}`)
+        }
         return
       }
-    } catch (error) {
-      setReadinessIssues([{
-        stage: 'prepare',
-        category: 'runtime',
-        provider: '',
-        model: null,
-        code: 'READINESS_CHECK_FAILED',
-        requirement: 'runtime readiness',
-        message: error instanceof Error ? error.message : String(error),
-        action: 'engines',
-      }])
-      return
-    } finally {
-      setCheckingReadiness(false)
-    }
 
-    for (const filePath of selectedFiles) {
+      const input = selectedInputs[0]
+      if (!input) return
       const request: PipelineRunRequest = {
         input: {
-          path: filePath,
-          companion_paths: [],
+          path: input.path,
+          companion_paths: input.companionPaths,
         },
-        output: {},
+        output: { directory: outputDirectory || undefined },
         execution_profile: executionProfile,
       }
 
       const taskId = addTask({
         jobType: 'pipeline',
-        sourceName: fileName(filePath),
-        sourcePath: filePath,
+        sourceName: input.name,
+        sourcePath: input.path,
         params: {
-          input_path: filePath,
+          input_path: input.path,
+          companion_paths: input.companionPaths,
+          output_directory: outputDirectory,
           preset_id: currentPreset.id,
           source_lang: params.sourceLang,
           target_lang: params.targetLang,
@@ -1081,7 +1324,7 @@ export default function Workbench() {
       })
 
       updateTask(taskId, { message: '正在创建后端任务', progress: 0 })
-      addLog({ level: 'info', content: `任务已创建：${filePath}`, taskId })
+      addLog({ level: 'info', content: `任务已创建：${input.path}`, taskId })
 
       try {
         const created = await pipelineApi.createTask(request)
@@ -1103,9 +1346,8 @@ export default function Workbench() {
           })
           addLog({ level: 'error', content: `任务异常：${String(error)}`, taskId })
       }
-    }
 
-    setPage('task-center')
+      openTaskCenter('tasks')
     } finally {
       submitLockRef.current = false
       setSubmitting(false)
@@ -1224,7 +1466,16 @@ export default function Workbench() {
     ...(stageFlags.separate ? ['分离人声中间产物'] : []),
   ]
   const confirmationSummary = [
-    { label: '输入文件', value: selectedFiles.length === 0 ? '尚未选择' : `${selectedFiles.length} 个音频` },
+    { label: '输入文件', value: selectedInputs.length === 0 ? '尚未选择' : `${selectedInputs.length} / ${inputItems.length} 个音频` },
+    {
+      label: '提交方式',
+      value: selectedInputs.length === 0
+        ? '等待选择输入'
+        : selectedInputs.length > 1
+          ? '创建一个可恢复管理的批次'
+          : '创建一个普通 Pipeline 任务',
+    },
+    { label: '输出目录', value: outputDirectory || '使用工作区默认目录' },
     {
       label: '执行阶段',
       value: stageSummary.filter((stage) => stage.enabled).map((stage) => stage.title).join(' → ') || '没有可执行阶段',
@@ -1282,16 +1533,20 @@ export default function Workbench() {
               ))}
             </select>
           </div>
-          <ActionButton variant="ghost" disabled={selectedFiles.length === 0 || submitting} onClick={() => setFiles([])}>
+          <ActionButton variant="ghost" disabled={inputItems.length === 0 || submitting || discoveringInputs} onClick={handleClearInputs}>
             清空列表
           </ActionButton>
           <ActionButton
             variant="primary"
-            disabled={selectedFiles.length === 0 || submitting || !!capabilityError || !currentPreset}
+            disabled={selectedInputs.length === 0 || submitting || discoveringInputs || !!capabilityError || !currentPreset}
             onClick={handleExecute}
           >
             <PlayIcon />
-            {checkingReadiness ? '检查运行条件...' : submitting ? '正在创建任务...' : '创建并执行'}
+            {checkingReadiness
+              ? '检查运行条件...'
+              : submitting
+                ? selectedInputs.length > 1 ? '正在创建批次...' : '正在创建任务...'
+                : selectedInputs.length > 1 ? `创建批次（${selectedInputs.length}）` : '创建并执行'}
           </ActionButton>
         </div>
 
@@ -1321,10 +1576,20 @@ export default function Workbench() {
         <div className="workbench-main-column" inert={submitting} aria-busy={submitting}>
           <Section
             title="文件队列"
-            caption={selectedFiles.length === 0 ? '点击下方区域选择音频，也可以直接拖入' : `本次将处理 ${selectedFiles.length} 个音频文件`}
+            caption={inputItems.length === 0
+              ? '选择音频、递归扫描目录，或直接拖入文件'
+              : `已选择 ${selectedInputs.length} / ${inputItems.length} 个音频文件`}
             actions={
-              selectedFiles.length > 0 ? (
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{selectedFiles.length} items</span>
+              inputItems.length > 0 ? (
+                <label style={{ display: 'inline-flex', gap: 7, alignItems: 'center', fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedInputs.length === inputItems.length}
+                    disabled={submitting || discoveringInputs}
+                    onChange={() => selectAllInputs(selectedInputs.length !== inputItems.length)}
+                  />
+                  全选
+                </label>
               ) : null
             }
           >
@@ -1345,6 +1610,34 @@ export default function Workbench() {
                 {fileSelectionError}
               </div>
             ) : null}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <ActionButton variant="ghost" disabled={submitting || discoveringInputs} onClick={handleSelectFiles}>
+                <UploadIcon />
+                添加音频
+              </ActionButton>
+              <ActionButton variant="ghost" disabled={submitting || discoveringInputs} onClick={handleSelectFolder}>
+                {discoveringInputs ? '正在发现输入...' : '选择目录'}
+              </ActionButton>
+              {inputFolder ? (
+                <ActionButton variant="ghost" disabled={submitting || discoveringInputs} onClick={() => scanInputFolder(inputFolder)}>
+                  重新扫描
+                </ActionButton>
+              ) : null}
+              <label style={{ display: 'inline-flex', gap: 7, alignItems: 'center', minHeight: 36, fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={scanRecursive}
+                  disabled={submitting || discoveringInputs}
+                  onChange={(event) => setScanRecursive(event.target.checked)}
+                />
+                扫描子目录
+              </label>
+            </div>
+            {inputFolder ? (
+              <div className="workbench-break-anywhere" style={{ margin: '-3px 0 12px', fontSize: 11, color: 'var(--muted)' }}>
+                当前目录：{inputFolder}
+              </div>
+            ) : null}
             <div
               onDragOver={(event) => {
                 event.preventDefault()
@@ -1356,27 +1649,11 @@ export default function Workbench() {
                 borderRadius: 'var(--radius-card)',
                 border: `1px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
                 background: dragOver ? 'var(--accent-soft)' : 'var(--panel-muted)',
-                padding: selectedFiles.length === 0 ? 0 : '14px',
+                padding: inputItems.length === 0 ? '30px 24px' : '14px',
               }}
             >
-              {selectedFiles.length === 0 ? (
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={handleSelectFiles}
-                  aria-label="选择要处理的音频文件"
-                  style={{
-                    width: '100%',
-                    padding: '36px 24px',
-                    border: 0,
-                    borderRadius: 'inherit',
-                    background: 'transparent',
-                    color: 'inherit',
-                    font: 'inherit',
-                    textAlign: 'center',
-                    cursor: submitting ? 'default' : 'pointer',
-                  }}
-                >
+              {inputItems.length === 0 ? (
+                <div style={{ textAlign: 'center' }}>
                   <div
                     style={{
                       width: 52,
@@ -1394,76 +1671,128 @@ export default function Workbench() {
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 700 }}>先添加这次要处理的音频</div>
                   <div style={{ marginTop: 8, fontSize: 13, color: 'var(--muted)' }}>
-                    点击选择文件，或把音频拖到这里。
+                    文件与目录共用同一份清单；同名 VTT、SRT 或 LRC 会自动成为伴随字幕。
                   </div>
-                </button>
+                </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {selectedFiles.map((path) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 380, overflow: 'auto' }}>
+                  {inputItems.map((item) => {
+                    const selected = selectedInputKeys.has(inputPathKey(item.path))
+                    return (
                     <div
-                      key={path}
+                      key={item.path}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: 'minmax(0, 1fr) auto',
+                        gridTemplateColumns: 'auto minmax(0, 1fr) auto',
                         gap: 12,
                         alignItems: 'center',
                         padding: '12px 14px',
                         borderRadius: 'var(--radius-sm)',
-                        background: 'var(--surface)',
-                        border: '1px solid var(--border)',
+                        background: selected ? 'var(--surface)' : 'var(--panel-muted)',
+                        border: selected ? '1px solid var(--border)' : '1px solid transparent',
+                        opacity: selected ? 1 : 0.68,
                       }}
                     >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        disabled={submitting || discoveringInputs}
+                        onChange={() => toggleInputSelection(item.path)}
+                        aria-label={`选择 ${item.name}`}
+                      />
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {fileName(path)}
+                          {item.name}
                         </div>
                         <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {path}
+                          {item.path}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 10, color: 'var(--muted)' }}>
+                          {formatInputSize(item.size)}{item.companionPaths.length > 0 ? ` · 已发现字幕 ${fileName(item.companionPaths[0] ?? '')}` : ' · 无伴随字幕'}
                         </div>
                       </div>
                       <button
                         type="button"
-                        onClick={() => removeFile(path)}
+                        disabled={submitting || discoveringInputs}
+                        onClick={() => removeInputItem(item.path)}
                         style={{
                           padding: '6px 10px',
                           borderRadius: 'var(--radius-sm)',
                           border: '1px solid var(--border)',
                           background: 'transparent',
                           color: 'var(--muted)',
-                          cursor: 'pointer',
+                          cursor: submitting || discoveringInputs ? 'default' : 'pointer',
+                          opacity: submitting || discoveringInputs ? 0.55 : 1,
                         }}
                       >
                         移除
                       </button>
                     </div>
-                  ))}
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={handleSelectFiles}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      width: '100%',
-                      padding: '10px 14px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px dashed var(--border)',
-                      background: 'transparent',
-                      color: 'var(--accent)',
-                      font: 'inherit',
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: submitting ? 'default' : 'pointer',
-                    }}
-                  >
-                    <UploadIcon />
-                    继续添加音频
-                  </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
+
+            <div className="workbench-input-options" style={{ marginTop: 14, display: 'grid', gridTemplateColumns: selectedInputs.length > 1 ? 'minmax(0, 1fr) minmax(150px, 0.55fr) 130px' : 'minmax(0, 1fr)', gap: 12 }}>
+              <label style={{ minWidth: 0 }}>
+                <span style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', fontSize: 12, fontWeight: 650 }}>
+                  输出目录
+                  {outputDirectory ? (
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => setOutputDirectory('')}
+                      style={{ border: 'none', padding: 0, background: 'transparent', color: 'var(--accent)', font: 'inherit', fontSize: 11, cursor: submitting ? 'default' : 'pointer' }}
+                    >
+                      恢复默认
+                    </button>
+                  ) : null}
+                </span>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={handleSelectOutputDirectory}
+                  className="workbench-break-anywhere"
+                  style={{ width: '100%', minHeight: 40, marginTop: 6, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', color: outputDirectory ? 'var(--fg)' : 'var(--muted)', textAlign: 'left', cursor: submitting ? 'default' : 'pointer' }}
+                >
+                  {outputDirectory || '使用工作区默认目录'}
+                </button>
+              </label>
+              {selectedInputs.length > 1 ? (
+                <label style={{ minWidth: 0 }}>
+                  <span style={{ fontSize: 12, fontWeight: 650 }}>批次名称</span>
+                  <input
+                    value={batchName}
+                    maxLength={100}
+                    onChange={(event) => setBatchName(event.target.value)}
+                    placeholder="自动生成"
+                    style={{ width: '100%', minHeight: 40, marginTop: 6, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', color: 'var(--fg)', font: 'inherit' }}
+                  />
+                </label>
+              ) : null}
+              {selectedInputs.length > 1 ? (
+                <label>
+                  <span style={{ fontSize: 12, fontWeight: 650 }}>并行文件数</span>
+                  <select
+                    value={batchMaxParallel}
+                    onChange={(event) => setBatchMaxParallel(Number(event.target.value))}
+                    style={{ width: '100%', minHeight: 40, marginTop: 6, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', color: 'var(--fg)', font: 'inherit' }}
+                  >
+                    <option value={1}>1（推荐）</option>
+                    <option value={2}>2</option>
+                    <option value={3}>3</option>
+                    <option value={4}>4</option>
+                  </select>
+                </label>
+              ) : null}
+            </div>
+
+            {selectedInputs.length > 1 ? (
+              <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--accent)', background: 'var(--accent-soft)', color: 'var(--fg)', fontSize: 12 }}>
+                本次将创建一个包含 {selectedInputs.length} 项的 BatchRun；可在任务中心整批取消、查看历史或重提失败项。
+              </div>
+            ) : null}
           </Section>
 
           <Section title="流水线预览" caption="预览、运行条件检查和实际任务使用同一套阶段配置">
@@ -1730,12 +2059,19 @@ export default function Workbench() {
                   {capabilityError}
                 </div>
               ) : null}
+              {submissionError ? (
+                <div role="alert" className="workbench-break-anywhere" style={{ padding: '12px 14px', border: '1px solid var(--error)', borderRadius: 8, background: 'var(--error-soft)', color: 'var(--error)', fontSize: 12 }}>
+                  {submissionError}
+                </div>
+              ) : null}
               {readinessIssues.length > 0 ? (
                 <div style={{ padding: '12px 14px', border: '1px solid var(--warning)', borderRadius: 8, background: 'var(--warning-soft)', fontSize: 12 }}>
                   <div style={{ fontWeight: 700, color: 'var(--fg)' }}>当前配置暂不可执行</div>
                   {readinessIssues.map((issue, index) => (
                     <div className="workbench-break-anywhere" key={`${issue.stage}-${issue.code}-${index}`} style={{ marginTop: 6, color: 'var(--muted-strong)' }}>
-                      {issue.stage}：{issue.message}
+                      {issue.category === 'input'
+                        ? `${issue.requirement}：${issue.message}`
+                        : `${issue.stage}：${issue.message}`}
                     </div>
                   ))}
                   {readinessIssues.some((issue) => issue.action !== 'workbench') ? (

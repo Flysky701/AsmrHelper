@@ -27,6 +27,7 @@ class BatchDiscoverRequest(BaseModel):
 
     directory: str = Field(..., min_length=1)
     recursive: bool = True
+    limit: int | None = Field(None, ge=1, le=501)
 
 
 class BatchDiscoveredFileResponse(BaseModel):

@@ -23,7 +23,10 @@ def discover_batch_inputs(
     body: BatchDiscoverRequest,
     svc: BatchRunService = Depends(batch_run_service),
 ):
-    files = svc.discover_audio_files(body.directory, recursive=body.recursive)
+    options = {"recursive": body.recursive}
+    if body.limit is not None:
+        options["limit"] = body.limit
+    files = svc.discover_audio_files(body.directory, **options)
     return BatchDiscoverResponse(directory=body.directory, files=files)
 
 

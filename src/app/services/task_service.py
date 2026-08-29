@@ -190,6 +190,14 @@ class TaskService:
                     "historical tasks cannot be retried after restart; submit a new task"
                 )
             try:
+                task_spec = self._registry.get_task_spec(task_id)
+                if task_spec.task_type == "voice.clone" and any(
+                    task.retry_of_task_id == task_id
+                    for task in self._registry.list_tasks()
+                ):
+                    raise AppValidationError(
+                        "voice clone retry already exists; retry the latest failed task instead"
+                    )
                 result = self._registry.retry_task(task_id, message=message)
             except ValueError as exc:
                 raise AppValidationError(str(exc)) from exc

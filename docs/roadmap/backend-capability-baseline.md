@@ -1,6 +1,6 @@
 # AsmrHelper 后端能力事实清单
 
-> 更新时间：2026-08-18
+> 更新时间：2026-08-30
 >
 > 事实优先级：当前源码与运行探测 > 自动测试 > 真实手动验收 > 设计文档。
 > 本文只说明后端现在能做什么、当前机器是否具备条件，以及哪些接口仍只是接线或兼容入口。
@@ -42,7 +42,7 @@ Tauri / React
 | Input | 可检查输入路径、媒体类型和伴随字幕 | 已实现、自动测试 | 不保存媒体内容，只保存资产描述 |
 | Session | Pipeline/Tool 创建时生成会话并记录输入及输出策略 | 已实现、自动测试 | 当前主要是执行上下文，不是可编辑项目文档 |
 | 单文件 Pipeline | StageProfile V1、readiness、后台执行、阶段进度、错误与产物已统一 | 默认 Edge 链路和 Qwen3-TTS 单文件链路真实验收 | 仅进程内线程，不提供跨重启续跑 |
-| 批量 Pipeline | 持久化 BatchRun 记录稳定 batch_id、子任务、聚合进度、整批取消和失败项重提；每个输入仍是独立 Pipeline task | BatchRun 生命周期、持久化、取消、重提与 HTTP 契约自动测试通过；桌面生产构建通过 | 重启后未完成批次标记 interrupted，由用户显式重提失败项；不续跑中断任务 |
+| 批量 Pipeline | Workbench 的多文件输入创建持久 BatchRun，记录稳定 batch_id、子任务、聚合进度、整批取消和失败项重提；每个输入仍是独立 Pipeline task，批次历史与控制统一进入 TaskCenter | BatchRun/Task 契约、桌面生产构建与本地浏览器真实渲染已通过；Tauri 原生文件选择与正式窗口交互仍需在具备 Cargo 的环境验收 | 重启后未完成批次标记 interrupted，由用户显式重提失败项；不续跑中断任务 |
 | Task | pending/running/completed/failed/cancelled/skipped、SSE RuntimeEvent、取消、重提、审核字段 | 已实现、自动测试 | Pipeline retry 创建新 task；重启后的历史任务只读 |
 | Queue | 可查看队列快照和 running count | 已实现 | 只是进程内低并发状态，不是持久化调度器 |
 | Persistence | SQLite 保存终态 TaskSpec、TaskStatus 和 Artifact | 已实现、重启测试通过 | 启动时删除未完成任务及其 Artifact，不恢复执行 |
@@ -138,9 +138,10 @@ Fun-ASR、Qwen3-ASR、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均属于可
 
 ## 7. GUI 必须遵守的后端边界
 
-- Workbench 可以使用：能力目录、StageProfile V1、readiness、单文件后台任务、取消、活动任务重提和 Artifact 结果。
-- Workbench 的多文件提交仍是若干独立任务；正式批次管理由“批量处理”页面和 `/batch-runs` 契约负责。批次支持整批取消与失败项重提，但不宣称跨重启续跑。
-- TaskCenter 可以展示终态历史和活动任务；历史任务不能原地重试，只能重新提交。
+- Workbench 可以使用：能力目录、StageProfile V1、readiness、统一文件/目录输入清单、单文件后台任务、持久 BatchRun、取消、活动任务重提和 Artifact 结果。显式文件通过输入目录 API 检查元数据和同名伴随字幕，目录支持递归扫描；合并后的清单统一执行路径去重、勾选/全选，并复用同一份 ExecutionProfile 构建逻辑。
+- Workbench 恰好选中一个输入时提交 `/pipeline-runs`；选中多个输入时必须明确提示“本次将创建批次”，再提交 `/batch-runs`。提交前的逐文件检查使用有限并发，不能让最多 500 个输入串行等待，也不能绕过后端权威 readiness 门禁。
+- TaskCenter 可以展示终态历史和活动任务；历史任务不能原地重试，只能重新提交。批次历史、总进度、整批取消和失败项重提也统一进入 TaskCenter 的批次视图。
+- TaskCenter 只在进入批次视图时加载批次历史，之后只轮询当前选中的活动批次；常驻任务视图不得每隔固定时间重复拉取全部批次及全部条目。
 - TaskCenter 已按 Task V1 修正重试语义：本会话失败任务重试时创建新任务并保留 `retry_of_task_id`，旧任务不再被新 ID 覆盖；页面不再提供后端不存在的“清理/移出任务”操作。非 Pipeline 任务显示自身后端阶段，失败详情直接消费结构化错误，历史参数通过 TaskSpec 补读。
 - EnginesResources 可以展示模型与 `installed/executable` 事实；异步安装提交后进入 TaskCenter，统一展示进度、取消、错误和重试，不再由资源页维护另一套任务轮询状态。
 - SubtitleWorkshop 已有后端支撑，可在契约范围内整理，不需要重新设计后端。
@@ -148,7 +149,7 @@ Fun-ASR、Qwen3-ASR、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均属于可
 - VoiceLab 的片段分析按后端契约提交 `subtitle_path/audio_language`，并消费 `score/recommended_indices/warnings`；它是克隆表单的同步结构化查询。设计档案的 `custom` 分类和内置预设不可删除边界已对齐。
 - AudioTools 已消费后端工具目录和任务创建接口；工具目录读取失败或未声明某项能力时，页面会禁用提交，不把客户端常量当成可用事实。
 - SubtitleWorkshop 的字幕翻译已复用 `tool.translate_subtitle`；台本转字幕使用 `subtitle.script_to_vtt` 后台任务，提交后统一到 TaskCenter 查看阶段、错误与产物。完整模式缺少音频、已有字幕模式缺少字幕时会在客户端先拦截。
-- “批量处理”页面支持目录递归扫描、文件清单、同名字幕发现、输出目录、批次并行度、总进度、整批取消和失败项重提；配置复用工作台当前预设与引擎参数。
+- 独立的桌面“批量处理”导航和页面已删除。目录递归扫描、文件清单、同名字幕发现、自定义输出目录和批次并行度归入 Workbench；BatchRun 总进度、整批取消、失败项重提与恢复后的历史事实归入 TaskCenter。
 - 旧同步 `pipelineApi.batch` 不再作为产品入口；新桌面端只消费持久化 `/batch-runs`，每个子项的状态和产物继续按 task_id 隔离。
 
 ## 8. 后续维护边界

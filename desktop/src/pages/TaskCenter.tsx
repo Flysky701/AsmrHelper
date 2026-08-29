@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from 'react'
 
 import { tasksApi } from '@/api/tasks'
 import { apiUrl } from '@/api/client'
+import BatchRunsPanel from '@/components/tasks/BatchRunsPanel'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 import { useLogStore } from '@/stores/logStore'
@@ -259,11 +260,13 @@ function ToolbarButton({
   children,
   onClick,
   disabled,
+  pressed,
   variant = 'secondary',
 }: {
   children: ReactNode
   onClick?: () => void
   disabled?: boolean
+  pressed?: boolean
   variant?: 'primary' | 'secondary' | 'ghost'
 }) {
   const variants: Record<string, CSSProperties> = {
@@ -291,6 +294,7 @@ function ToolbarButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-pressed={pressed}
       style={{
         minHeight: 36,
         padding: '0 14px',
@@ -467,7 +471,9 @@ function PipelineTimeline({ task }: { task: Task }) {
 }
 
 export default function TaskCenter() {
-  useTaskPolling(3000)
+  const taskCenterView = useNavStore((state) => state.taskCenterView)
+  const setTaskCenterView = useNavStore((state) => state.setTaskCenterView)
+  useTaskPolling(3000, taskCenterView === 'tasks')
 
   const tasks = useTaskStore((state) => state.tasks)
   const filter = useTaskStore((state) => state.filter)
@@ -502,14 +508,16 @@ export default function TaskCenter() {
   const artifacts = selectedTask?.artifacts?.items ?? []
 
   useEffect(() => {
+    if (taskCenterView !== 'tasks') return
     if (!selectedTask?.serverTaskId) return
     return tasksApi.subscribeEvents(
       selectedTask.serverTaskId,
       (event) => addRuntimeEvent(event, selectedTask.id),
     )
-  }, [addRuntimeEvent, selectedTask?.id, selectedTask?.serverTaskId])
+  }, [addRuntimeEvent, selectedTask?.id, selectedTask?.serverTaskId, taskCenterView])
 
   useEffect(() => {
+    if (taskCenterView !== 'tasks') return
     if (!selectedTask?.serverTaskId) return
     if (selectedTask.specLoaded) return
 
@@ -535,9 +543,10 @@ export default function TaskCenter() {
     return () => {
       cancelled = true
     }
-  }, [addLog, selectedTask?.id, selectedTask?.serverTaskId, selectedTask?.specLoaded, updateTask])
+  }, [addLog, selectedTask?.id, selectedTask?.serverTaskId, selectedTask?.specLoaded, taskCenterView, updateTask])
 
   useEffect(() => {
+    if (taskCenterView !== 'tasks') return
     if (!selectedTask?.serverTaskId) return
     if (selectedTask.status === 'pending' || selectedTask.status === 'running') return
     if (selectedTask.artifacts) return
@@ -581,6 +590,7 @@ export default function TaskCenter() {
     selectedTask?.id,
     selectedTask?.serverTaskId,
     selectedTask?.status,
+    taskCenterView,
     updateTask,
   ])
 
@@ -682,34 +692,51 @@ export default function TaskCenter() {
             任务中心
           </h1>
           <p style={{ marginTop: 8, color: 'var(--muted)', maxWidth: 560 }}>
-            这里负责跟踪阶段、查看产物、处理失败任务。日志保留，但退到详情区。
+            {taskCenterView === 'tasks'
+              ? '这里负责跟踪阶段、查看产物、处理失败任务。日志保留，但退到详情区。'
+              : '批次视图聚合多文件执行事实，只持续刷新当前选中的活动批次。'}
           </p>
         </div>
 
         <div className="task-center-toolbar">
-          <ToolbarButton variant="secondary" onClick={handleRetryFailedTasks} disabled={retryableFailedTasks.length === 0}>
-            重试失败任务
+          <ToolbarButton pressed={taskCenterView === 'tasks'} variant={taskCenterView === 'tasks' ? 'primary' : 'secondary'} onClick={() => setTaskCenterView('tasks')}>
+            单项任务
           </ToolbarButton>
-          <ToolbarButton variant="secondary" onClick={handleCancelRunningTasks} disabled={runningTasks.length === 0}>
-            取消运行中
+          <ToolbarButton pressed={taskCenterView === 'batches'} variant={taskCenterView === 'batches' ? 'primary' : 'secondary'} onClick={() => setTaskCenterView('batches')}>
+            批次
           </ToolbarButton>
+          {taskCenterView === 'tasks' ? (
+            <>
+              <ToolbarButton variant="secondary" onClick={handleRetryFailedTasks} disabled={retryableFailedTasks.length === 0}>
+                重试失败任务
+              </ToolbarButton>
+              <ToolbarButton variant="secondary" onClick={handleCancelRunningTasks} disabled={runningTasks.length === 0}>
+                取消运行中
+              </ToolbarButton>
+            </>
+          ) : null}
         </div>
 
-        <div className="task-center-stats">
-          {[
-            { label: '运行中', value: runningTasks.length, background: 'var(--accent-soft)', color: 'var(--accent)' },
-            { label: '排队中', value: pendingTasks.length, background: 'var(--panel-muted)', color: 'var(--muted-strong)' },
-            { label: '失败', value: failedTasks.length, background: 'var(--error-soft)', color: 'var(--error)' },
-            { label: '已完成', value: completedTasks.length, background: 'var(--success-soft)', color: 'var(--success)' },
-          ].map((item) => (
-            <div key={item.label} style={{ ...SURFACE_STYLE, padding: '14px 16px' }}>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.label}</div>
-              <div style={{ marginTop: 6, fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
-            </div>
-          ))}
-        </div>
+        {taskCenterView === 'tasks' ? (
+          <div className="task-center-stats">
+            {[
+              { label: '运行中', value: runningTasks.length, background: 'var(--accent-soft)', color: 'var(--accent)' },
+              { label: '排队中', value: pendingTasks.length, background: 'var(--panel-muted)', color: 'var(--muted-strong)' },
+              { label: '失败', value: failedTasks.length, background: 'var(--error-soft)', color: 'var(--error)' },
+              { label: '已完成', value: completedTasks.length, background: 'var(--success-soft)', color: 'var(--success)' },
+            ].map((item) => (
+              <div key={item.label} style={{ ...SURFACE_STYLE, padding: '14px 16px' }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.label}</div>
+                <div style={{ marginTop: 6, fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </header>
 
+      {taskCenterView === 'batches' ? (
+        <BatchRunsPanel />
+      ) : (
       <div className="task-center-content">
         <section className="task-center-list-panel" style={SURFACE_STYLE}>
           <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid var(--border)' }}>
@@ -1081,6 +1108,7 @@ export default function TaskCenter() {
           )}
         </section>
       </div>
+      )}
     </div>
   )
 }
