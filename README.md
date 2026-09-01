@@ -1,3 +1,5 @@
+
+
 # ASMR Helper
 
 ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、语音合成和智能混音，输出双语双轨音频。
@@ -23,7 +25,7 @@ ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、
 ## 系统要求
 
 - **OS**: Windows 10/11
-- **Python**: 项目内 UV Python 3.12（默认位于 `.runtimes/python`）
+- **Python**: Python 3.11/3.12（默认使用项目内 UV Python 3.12，位于 `.runtimes/python`）
 - **GPU**: NVIDIA (可选，Qwen3-TTS 需要 CUDA)
 - **包管理器**: [uv](https://docs.astral.sh/uv/)
 
