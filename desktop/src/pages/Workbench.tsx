@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, ReactNode } from 'react'
 
 import { pipelineApi } from '@/api/pipeline'
-import { capabilitiesApi } from '@/api/engines'
+import { capabilitiesApi } from '@/api/capabilities'
 import { resourcesApi } from '@/api/resources'
 import { ttsApi } from '@/api/tts'
 import { voiceApi } from '@/api/voice'

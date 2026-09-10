@@ -71,8 +71,6 @@ class CapabilityDescriptorService:
             descriptors = [item for item in descriptors if item["provider"] == provider]
         return deepcopy(descriptors)
 
-    def list_categories(self) -> list[str]:
-        return sorted({item["category"] for item in self._descriptors})
 
     def get_descriptor(self, category: str, provider: str) -> dict[str, Any]:
         for item in self._descriptors:

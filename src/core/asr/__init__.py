@@ -25,7 +25,6 @@ from faster_whisper import WhisperModel
 
 from .postprocess import ASRPostProcessor, PostProcessConfig
 from src.config import PROJECT_ROOT  # 统一使用项目根目录
-from src.utils import format_timestamp
 
 
 class ASRRecognizer:
@@ -253,91 +252,6 @@ class ASRRecognizer:
                 f.write(f"{r['text']}\n")
                 f.write("\n")
 
-    def save_as_srt(self, results: List[dict], output_path: str):
-        """
-        保存为 SRT 格式（SubRip 字幕）
-
-        Args:
-            results: 识别结果
-            output_path: 输出文件路径
-        """
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            for i, r in enumerate(results, 1):
-                # SRT 时间格式: HH:MM:SS,mmm
-                start = self._format_srt_time(r["start"])
-                end = self._format_srt_time(r["end"])
-
-                f.write(f"{i}\n")
-                f.write(f"{start} --> {end}\n")
-                f.write(f"{r['text']}\n")
-                f.write("\n")
-
-        print(f"[ASRRecognizer] 已保存 SRT: {output_path}")
-
-    def save_as_lrc(
-        self,
-        results: List[dict],
-        output_path: str,
-        offset_ms: int = 0,
-        include_metadata: bool = True,
-    ):
-        """
-        保存为 LRC 格式（歌词时间戳）
-
-        Args:
-            results: 识别结果
-            output_path: 输出文件路径
-            offset_ms: 整体时间偏移（毫秒）
-            include_metadata: 是否包含元数据行
-        """
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            # 元数据
-            if include_metadata:
-                f.write("[ti:ASMR Transcription]\n")
-                f.write("[by:AsmrHelper]\n")
-                f.write(f"[offset:{offset_ms}]\n")
-
-            # 歌词行
-            for r in results:
-                # LRC 时间格式: [MM:SS.xx]
-                start = self._format_lrc_time(r["start"] + offset_ms / 1000.0)
-                f.write(f"{start}{r['text']}\n")
-
-        print(f"[ASRRecognizer] 已保存 LRC: {output_path}")
-
-    def _format_srt_time(self, seconds: float) -> str:
-        """将秒数格式化为 SRT 时间 (HH:MM:SS,mmm)"""
-        return format_timestamp(seconds, fmt="srt")
-
-    def _format_lrc_time(self, seconds: float) -> str:
-        """将秒数格式化为 LRC 时间 [MM:SS.xx]"""
-        return format_timestamp(seconds, fmt="lrc")
-
-    def recognize_to_text(self, audio_path: str, output_path: str) -> str:
-        """
-        识别音频并保存为纯文本
-
-        Args:
-            audio_path: 音频文件路径
-            output_path: 输出文本文件路径
-
-        Returns:
-            str: 识别的文本
-        """
-        results = self.recognize(audio_path)
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        text = "\n".join(r["text"] for r in results)
-        output_path.write_text(text, encoding="utf-8")
-
-        return text
 
     def unload(self):
         """

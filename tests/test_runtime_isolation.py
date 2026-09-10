@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,7 +25,8 @@ def test_runtime_profiles_resolve_project_relative_interpreters(tmp_path):
     assert main.isolated is False
     assert qwen_tts.isolated is True
     assert qwen_tts.environment_dir == tmp_path / ".runtimes" / "qwen_tts"
-    assert qwen_tts.python_executable == qwen_tts.environment_dir / "Scripts" / "python.exe"
+    executable = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+    assert qwen_tts.python_executable == qwen_tts.environment_dir / executable
     assert fun_asr.isolated is True
     assert fun_asr.environment_dir == tmp_path / ".runtimes" / "fun_asr"
     assert fun_asr.project_extra == "funasr"

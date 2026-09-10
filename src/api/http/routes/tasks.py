@@ -35,7 +35,6 @@ from src.app.services import ArtifactService, PipelineTaskOrchestrator, TaskServ
 from src.core.tasks import TaskDispatcher
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-queue_router = APIRouter(tags=["tasks"])
 
 
 @router.post("/{task_id}/cancel", response_model=TaskStatusResponse)
@@ -80,28 +79,8 @@ def set_review_state(
     return TaskStatusResponse.from_task_status(task)
 
 
-@router.post("/{task_id}/review-status", response_model=TaskStatusResponse)
-def set_review_status(
-    task_id: str,
-    body: ReviewUpdateRequest,
-    svc: TaskService = Depends(task_service),
-):
-    task = svc.set_review_state(task_id, body.review_state)
-    return TaskStatusResponse.from_task_status(task)
-
-
 @router.put("/{task_id}/review-note", response_model=TaskStatusResponse)
 def set_review_note(
-    task_id: str,
-    body: ReviewNoteUpdateRequest,
-    svc: TaskService = Depends(task_service),
-):
-    task = svc.set_review_note(task_id, body.review_note)
-    return TaskStatusResponse.from_task_status(task)
-
-
-@router.post("/{task_id}/review-note", response_model=TaskStatusResponse)
-def post_review_note(
     task_id: str,
     body: ReviewNoteUpdateRequest,
     svc: TaskService = Depends(task_service),
@@ -185,7 +164,6 @@ def get_running_count(
 
 
 @router.get("/queue", response_model=TaskQueueSnapshotResponse)
-@queue_router.get("/task-queue", response_model=TaskQueueSnapshotResponse)
 def get_task_queue(
     svc: TaskService = Depends(task_service),
 ):

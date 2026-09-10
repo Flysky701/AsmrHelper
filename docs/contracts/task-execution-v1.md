@@ -22,11 +22,11 @@
 
 批量产品入口为 `POST /api/v1/batch-runs`。`BatchRun` 只拥有稳定 `batch_id`、输入项、子任务 ID、聚合进度和批次控制状态，不成为第二种 Pipeline 执行器。每个文件仍创建普通 `pipeline` Task，沿用原有 readiness、取消、错误和 Artifact 归属。批量并行度只决定同时提交多少个子任务，实际执行容量仍由共享 Dispatcher 限制。
 
-Tool 领域入口 `POST /api/v1/tool-runs/tasks` 同样是“创建并提交”：响应返回 Task 快照，执行在后台继续。旧 `POST /api/v1/tool-runs` 同步执行入口已删除，避免已提交任务被再次接管。
+Tool 领域入口 `POST /api/v1/tool-runs` 同样是“创建并提交”：响应返回 Task 快照，执行在后台继续。该入口只创建并提交后台任务，不同步执行，也不接管已有任务。
 
 模型安装的默认 `POST /api/v1/models/{model_id}/install` 返回标准 TaskStatus `201`，资源页提交后进入 TaskCenter，由统一查询、取消和重试契约管理。显式 `sync=true` 只作为诊断兼容入口，仍会阻塞请求且不属于桌面产品主路径。
 
-字幕工坊的长耗时台本处理使用 `POST /api/v1/subtitles/script-to-vtt/tasks`。未显式指定输出时，后端根据台本路径生成 `_cleaned.txt` 或 `_aligned.<fmt>`；进度阶段、取消、错误和 Artifact 归属均由 Task V1 管理。字幕翻译页面直接复用 `tool.translate_subtitle`，不再通过同步字幕接口伪装为后台任务。
+字幕工坊的长耗时台本处理使用 `POST /api/v1/subtitles/script-to-subtitle/tasks`。未显式指定输出时，后端根据台本路径生成 `_cleaned.txt` 或 `_aligned.<fmt>`；进度阶段、取消、错误和 Artifact 归属均由 Task V1 管理。字幕翻译页面直接复用 `tool.translate_subtitle`，不再通过同步字幕接口伪装为后台任务。
 
 Voice Design、Clone 与 Preview 的正式 HTTP 入口也返回 TaskStatus `201`，不等待 Qwen Worker 完成。桌面端提交后进入 TaskCenter；生成的参考音频、prompt cache 和试听 WAV 通过统一 TaskResult 获取。片段分析仍是克隆表单的同步结构化查询，不伪装成可取消后台任务。
 

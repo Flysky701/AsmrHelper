@@ -24,11 +24,13 @@ dependencies = [
     "httpx>=0.25.0",
     "soundfile>=0.12.0",
     "numpy>=1.24.0",
+    "scipy>=1.11.0",
     # 工具
     "click>=8.1.0",
     "pyyaml>=6.0.0",
     # HTTP API
     "fastapi>=0.115.0",
+    "pydantic>=2.0.0,<3.0.0",
     "uvicorn>=0.34.0",
     "pypdf>=6.10.0",
     "pdfplumber>=0.11.9",
@@ -70,7 +72,6 @@ voxcpm2 = [
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
-    "black>=23.0.0",
     "ruff>=0.1.0",
 ]
 
@@ -84,15 +85,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
-[dependency-groups]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-
-[tool.black]
-line-length = 100
-target-version = ["py311"]
 
 [tool.ruff]
 line-length = 100

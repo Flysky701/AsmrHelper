@@ -216,7 +216,6 @@ def test_cancelled_task_can_be_resubmitted_as_new_task_with_new_artifacts(tmp_pa
     orchestrator = PipelineTaskOrchestrator(
         pipeline_service=Pipeline(),
         task_service=task_service,
-        artifact_service=artifact_service,
     )
     from src.app.dto import PipelineRequest
 

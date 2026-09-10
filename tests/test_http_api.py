@@ -254,17 +254,6 @@ class TestPipelineRunRoutes:
         assert profile["stages"]["separate"]["provider"] == "demucs"
         assert profile["stages"]["separate"]["model"] == "htdemucs"
 
-    @pytest.mark.parametrize(
-        "path",
-        [
-            "/api/v1/pipeline-runs/start",
-            "/api/v1/pipeline-runs/execute",
-            "/api/v1/tool-runs",
-        ],
-    )
-    def test_replaced_manual_execution_routes_are_unavailable(self, client, path):
-        resp = client.post(path, json={"task_id": "obsolete-task"})
-        assert resp.status_code in {404, 405}
 
     def test_create_tool_task_uses_task_driven_contract(self, client):
         mock_svc = MagicMock()
@@ -277,7 +266,7 @@ class TestPipelineRunRoutes:
         client.app.dependency_overrides[dependencies.tool_registry] = _mock_dep(mock_svc)
 
         resp = client.post(
-            "/api/v1/tool-runs/tasks",
+            "/api/v1/tool-runs",
             json={
                 "task_type": "tool.convert",
                 "input_path": "/test/input.wav",
@@ -769,7 +758,7 @@ class TestVoiceTaskRoutes:
 
 
 class TestSubtitleRoutes:
-    def test_create_script_to_vtt_task_submits_background_work(self, client):
+    def test_create_script_to_subtitle_task_submits_background_work(self, client):
         mock_svc = MagicMock()
         mock_svc.create_task.return_value = TaskStatus(
             task_id="subtitle.script_to_vtt-1",
@@ -783,7 +772,7 @@ class TestSubtitleRoutes:
         client.app.dependency_overrides[dependencies.script_subtitle_service] = _mock_dep(mock_svc)
 
         response = client.post(
-            "/api/v1/subtitles/script-to-vtt/tasks",
+            "/api/v1/subtitles/script-to-subtitle/tasks",
             json={"script_path": "script.txt", "fmt": "vtt"},
         )
 

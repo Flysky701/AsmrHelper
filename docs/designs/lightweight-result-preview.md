@@ -198,13 +198,13 @@ V1 可先定义这几个轻量接口：
 
 用途：
 
-- 更新人工轻量确认状态；`POST /review-status` 是当前保留的兼容别名
+- 更新人工轻量确认状态
 
 ### `PUT /api/v1/tasks/{task_id}/review-note`
 
 用途：
 
-- 更新人工备注；`POST /review-note` 是当前保留的兼容别名
+- 更新人工备注
 
 ## 明确当前不做的内容
 

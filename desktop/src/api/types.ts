@@ -1,9 +1,4 @@
 // ── Health ─────────────────────────────────────────────
-export interface HealthResponse {
-  status: string
-  version: string
-}
-
 // ── Tasks ──────────────────────────────────────────────
 export type TaskState =
   | 'pending'
@@ -259,14 +254,6 @@ export interface ModelStatusResponse {
   }>
 }
 
-export interface ModelOperationResponse {
-  action: string
-  model_id: string
-  success: boolean
-  status: string
-  detail: string
-}
-
 export interface ModelInstallRequest {
   mirror?: string
   force?: boolean
@@ -315,7 +302,7 @@ export interface SubtitleExportResponse {
   segment_count: number
 }
 
-export interface ScriptToVttRequest {
+export interface ScriptToSubtitleRequest {
   script_path: string
   output_path?: string
   audio_path?: string | null
@@ -327,13 +314,6 @@ export interface ScriptToVttRequest {
   track_index?: number | null
   vertical_mode?: string
   debug_dir?: string | null
-}
-
-export interface ScriptToVttResponse {
-  mode: string
-  output_path: string | null
-  text: string
-  line_count: number
 }
 
 // ── Resources ──────────────────────────────────────────
@@ -495,20 +475,3 @@ export interface ToolListResponse {
 }
 
 // ── Subtitle translation ───────────────────────────────
-export interface SubtitleTranslationRequest {
-  input_path: string
-  output_path?: string
-  provider?: string
-  source_lang?: string
-  target_lang?: string
-  bilingual?: boolean
-}
-
-export interface SubtitleTranslationResponse {
-  input_path: string
-  output_path: string | null
-  total_segments: number
-  provider: string
-  source_lang: string
-  target_lang: string
-}

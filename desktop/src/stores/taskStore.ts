@@ -8,7 +8,7 @@ export type JobType =
   | 'convert'
   | 'split'
   | 'translate-subtitle'
-  | 'script-to-vtt'
+  | 'script-to-subtitle'
   | 'volume-preview'
   | 'model-install'
   | 'voice-design'
@@ -113,7 +113,7 @@ function jobTypeFromServer(taskType?: string): JobType {
     'tool.split': 'split',
     'tool.translate_subtitle': 'translate-subtitle',
     'tool.volume_preview': 'volume-preview',
-    'subtitle.script_to_vtt': 'script-to-vtt',
+    'subtitle.script_to_vtt': 'script-to-subtitle',
     model_install: 'model-install',
     'voice.design': 'voice-design',
     'voice.clone': 'voice-clone',

@@ -613,35 +613,6 @@ class Translator:
 
         return results
 
-    def translate_segments(
-        self,
-        segments: List[dict],
-        source_lang: str = "日文",
-        target_lang: str = "中文",
-    ) -> List[dict]:
-        """
-        翻译 ASR 识别结果段落
-
-        Args:
-            segments: ASR 识别结果 [{start, end, text}, ...]
-            source_lang: 源语言
-            target_lang: 目标语言
-
-        Returns:
-            List[dict]: 带翻译结果的段落 [{start, end, text, translation}, ...]
-        """
-        texts = [seg["text"] for seg in segments]
-        translations = self.translate_batch(texts, source_lang, target_lang)
-
-        # 合并结果
-        results = []
-        for segment, translation in zip(segments, translations, strict=True):
-            translated_segment = segment.copy()
-            translated_segment["translation"] = translation
-            results.append(translated_segment)
-
-        return results
-
 
 def translate_batch(
     texts: List[str],
@@ -652,4 +623,3 @@ def translate_batch(
     """快速批量翻译"""
     translator = Translator(provider=provider)
     return translator.translate_batch(texts, source_lang, target_lang)
-

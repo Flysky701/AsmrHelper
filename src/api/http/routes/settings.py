@@ -25,13 +25,6 @@ def get_settings(
     return SettingsResponse(settings=svc.get_settings(masked=True))
 
 
-@router.get("/effective", response_model=SettingsResponse)
-def get_effective_settings(
-    svc: SettingsService = Depends(settings_service),
-):
-    return SettingsResponse(settings=svc.get_effective_settings(masked=True))
-
-
 @router.put("", response_model=SettingsResponse)
 def update_settings(
     body: SettingsUpdateRequest,

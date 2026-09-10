@@ -75,9 +75,3 @@ class TaskPreviewResponse(TaskResultResponse):
             preview_modes=list(view.get("preview_modes", [])),
             artifact_count=int(view.get("artifact_count", len(result.artifacts))),
         )
-
-
-# Compatibility names for routes that still expose the historical artifact index.
-ArtifactRecordResponse = ArtifactResponse
-ArtifactSetResponse = TaskResultResponse
-TaskResultViewResponse = TaskResultResponse

@@ -713,7 +713,6 @@ class TestPipelineTaskOrchestrator:
         service = PipelineTaskOrchestrator(
             pipeline_service=BlockingPipelineService(),
             task_service=task_service,
-            artifact_service=MagicMock(),
         )
 
         accepted = service.submit_task(PipelineRequest(input_path="/tmp/input.wav"))
@@ -759,7 +758,6 @@ class TestPipelineTaskOrchestrator:
         service = PipelineTaskOrchestrator(
             pipeline_service=CancellablePipelineService(),
             task_service=task_service,
-            artifact_service=MagicMock(),
         )
         accepted = service.submit_task(PipelineRequest(input_path="/tmp/input.wav"))
         assert started.wait(timeout=1)

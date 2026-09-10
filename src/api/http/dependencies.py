@@ -7,7 +7,6 @@ from src.app.services import (
     get_artifact_service,
     get_audio_tool_service,
     get_batch_run_service,
-    get_batch_pipeline_service,
     get_capability_descriptor_service,
     get_execution_profile_builder,
     get_input_catalog_service,
@@ -79,10 +78,6 @@ def resource_service():
 
 def audio_tool_service():
     return get_audio_tool_service()
-
-
-def batch_pipeline_service():
-    return get_batch_pipeline_service()
 
 
 def batch_run_service():

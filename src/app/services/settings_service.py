@@ -7,7 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from src.core.config import config
+from src.config import config
 from src.core.resources.provider_verification import (
     ProviderVerificationRegistry,
     get_provider_verification_registry,
@@ -46,8 +46,6 @@ class SettingsService:
         settings = self.config.to_dict()
         return self._to_public_settings(settings) if masked else settings
 
-    def get_effective_settings(self, masked: bool = True) -> dict[str, Any]:
-        return self.get_settings(masked=masked)
 
     def update_settings(self, updates: dict[str, Any]) -> dict[str, Any]:
         internal_updates = self._to_internal_updates(updates)

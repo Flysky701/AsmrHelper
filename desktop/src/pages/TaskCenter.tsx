@@ -373,7 +373,7 @@ function jobTypeLabel(jobType: JobType) {
     convert: '转换',
     split: '切分',
     'translate-subtitle': '字幕翻译',
-    'script-to-vtt': 'Script 转 VTT',
+    'script-to-subtitle': 'Script 转 VTT',
     'volume-preview': '音量预览',
     'model-install': '模型安装',
     'voice-design': '音色设计',

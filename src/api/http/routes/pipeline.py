@@ -4,16 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from src.api.http.dependencies import batch_pipeline_service, preset_catalog_service
+from src.api.http.dependencies import preset_catalog_service
 from src.api.http.schemas.pipeline import (
-    BatchPipelineRequest,
-    BatchPipelineResponse,
-    BatchItemResultResponse,
     PipelinePresetsResponse,
     PresetItem,
 )
-from src.app.dto import BatchPipelineRequest as BatchPipelineDTO
-from src.app.services import BatchPipelineService, PresetCatalogService
+from src.app.services import PresetCatalogService
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
@@ -33,51 +29,4 @@ def list_presets(
             )
             for p in raw
         ]
-    )
-
-
-@router.post("/batch", response_model=BatchPipelineResponse)
-def run_batch(
-    body: BatchPipelineRequest,
-    svc: BatchPipelineService = Depends(batch_pipeline_service),
-):
-    request = BatchPipelineDTO(
-        input_files=body.input_files,
-        input_dir=body.input_dir,
-        output_base_dir=body.output_base_dir,
-        source_lang=body.source_lang,
-        target_lang=body.target_lang,
-        use_vocal_separator=body.use_vocal_separator,
-        tts_engine=body.tts_engine,
-        tts_voice=body.tts_voice,
-        vocal_model=body.vocal_model,
-        asr_model=body.asr_model,
-        translate_provider=body.translate_provider,
-        tts_speed=body.tts_speed,
-        original_volume=body.original_volume,
-        tts_volume_ratio=body.tts_volume_ratio,
-        tts_delay=body.tts_delay,
-        skip_existing=body.skip_existing,
-        max_workers=body.max_workers,
-        use_batch_output_structure=body.use_batch_output_structure,
-        voice_profile_id=body.voice_profile_id,
-    )
-    result = svc.run_batch(request)
-    return BatchPipelineResponse(
-        items=[
-            BatchItemResultResponse(
-                file=item.file,
-                status=item.status,
-                task_id=item.task_id,
-                output=item.output,
-                error=item.error,
-                duration=item.duration,
-            )
-            for item in result.items
-        ],
-        total_count=result.total_count,
-        success_count=result.success_count,
-        skipped_count=result.skipped_count,
-        failed_count=result.failed_count,
-        total_duration=result.total_duration,
     )
