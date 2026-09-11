@@ -41,9 +41,6 @@ class LlmCapabilityService:
         descriptor = self.get_provider(provider_id)
         return descriptor.get("default_model", "")
 
-    def provider_supports(self, provider_id: str, feature: str) -> bool:
-        descriptor = self.get_provider(provider_id)
-        return bool(descriptor.get("supports", {}).get(feature, False))
 
     def translate_texts(
         self,

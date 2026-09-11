@@ -122,8 +122,10 @@ Fun-ASR、Qwen3-ASR、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均属于可
 
 - `src/core/model_manager.py`：仓库运行时无引用，已删除；模型服务使用各领域 Registry。
 - `src/core/translate`：实现已迁到 `core.engines.llm` 和 `core.subtitles`，弃用转发已删除。
-- `src/core/__init__.py` 只保留包说明，不再维护根包懒加载导出；具体能力从所属领域模块导入，负向架构测试防止第二套公共入口复活。
-- `/tasks/{id}/review-status`、POST `/review-note`、`/task-queue`：与当前 PATCH/PUT 或 `/tasks/queue` 重复，属于兼容别名候选。
+- `src/core/__init__.py` 只保留包说明，不再维护根包懒加载导出；具体能力从所属领域模块导入，旧入口的负向架构测试已删除；维护现有功能行为测试。
+- `/tasks/{id}/review-status`、POST `/review-note`、`/task-queue` 已删除；使用 PATCH `/tasks/{id}/review`、PUT `/tasks/{id}/review-note` 和 GET `/tasks/queue`。
+- 重复的 Pipeline/Tool/Artifact 任务结果查询和 `/settings/effective` 已删除；结果由 `/tasks/{id}/result` 查询，设置由 `/settings` 查询。
+- 工具目录为 GET `/tools`，创建并提交工具任务为 POST `/tool-runs`。台本 HTTP 接口统一使用 `script-to-subtitle`，内部持久化 TaskType 保留 `subtitle.script_to_vtt`。
 - Pipeline 与 Tool 的旧手动启动/同步执行 HTTP 入口已删除；创建接口是唯一正式执行入口，结果由 GET 查询。
 
 ### 现在不能删除
@@ -192,7 +194,7 @@ Voice 正式路由随后改为后台提交。使用内置 A1 与固定非敏感�
 
 ## 10. Tool 任务与桌面入口验收（2026-08-07）
 
-- `POST /api/v1/tool-runs/tasks` 已收口为创建即提交，桌面端只需一次请求即可获得后台 Task，不再依赖第二次同步执行调用。
+- 当时的 `POST /api/v1/tool-runs/tasks` 已收口为创建即提交，桌面端只需一次请求即可获得后台 Task。2026-09-10 路径统一为 `POST /api/v1/tool-runs`，后台执行语义不变。
 - 使用非敏感合成音频/字幕连续提交分离、格式转换、字幕切分、字幕翻译和音量预览五项任务，全部到达 `completed`；前四项 Artifact 分别归属各自 task_id，音量预览按设计只返回分析结果。
 - 分离工具此前忽略自定义输出目录，现已按 `custom-dir` session policy 生成到指定目录并真实复测通过。
 - 桌面新增 AudioTools 页面，工具目录是可用性事实源；每次操作创建独立 Task，提交后转到 TaskCenter 查看阶段、错误和产物。生产构建与当前 Tauri 页面点击均已通过，原生文件选择调用已确认进入系统模态对话框。

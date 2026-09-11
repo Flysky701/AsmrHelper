@@ -65,8 +65,6 @@ class TaskDispatcher:
     def resolve_executor(self, task_type: str) -> Callable[..., Any] | None:
         return self._executor_registry.resolve(task_type)
 
-    def can_dispatch(self) -> bool:
-        return self._lifecycle().can_start() and bool(self._get_next_pending())
 
     def dispatch_next(self) -> TaskStatus | None:
         if not self._lifecycle().can_start():

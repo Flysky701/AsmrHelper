@@ -271,11 +271,6 @@ class ASRPostProcessor:
 
         return merged
 
-    def normalize_text_only(self, text: str) -> str:
-        """仅规范化文本（不涉及时间戳）"""
-        seg = Segment(start=0, end=0, text=text)
-        result = self._normalize_segment(seg)
-        return result.text
 
     @staticmethod
     def _is_meaningless_text(text: str) -> bool:
@@ -294,5 +289,3 @@ class ASRPostProcessor:
         if ASRPostProcessor._MEANINGFUL_CHAR_RE.search(s):
             return False
         return True
-
-

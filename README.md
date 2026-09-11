@@ -251,9 +251,6 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -DevOnly
 # 运行测试
 .\.venv\Scripts\python.exe -m pytest
 
-# 运行安装脚本集成测试
-.\.venv\Scripts\python.exe -m pytest tests/test_setup_integration.py -v
-
 # 运行环境验证
 .\.venv\Scripts\python.exe scripts/verify_env.py
 
@@ -302,9 +299,8 @@ FastAPI RESTful API，提供以下端点：
 
 README 只保留安装、启动和使用入口，不再维护容易失真的 TODO/DONE 双清单。当前能力、验收范围与剩余边界统一记录在：
 
-- [总体进度状态](docs/roadmap/overall-progress-status.md)
 - [后端能力事实清单](docs/roadmap/backend-capability-baseline.md)
 - [当前源码基线](docs/roadmap/current-source-baseline.md)
 - [文档索引](docs/README.md)
 
-历史计划和已执行检查表已移入 `docs/archived/`，不再作为当前开发入口。
+历史计划和已执行检查表已删除，可通过 Git 历史追溯。

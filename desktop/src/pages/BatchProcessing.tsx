@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 
 import { batchesApi } from '@/api/batches'
-import { capabilitiesApi } from '@/api/engines'
+import { capabilitiesApi } from '@/api/capabilities'
 import { pipelineApi } from '@/api/pipeline'
 import type {
   BatchDiscoveredFileResponse,

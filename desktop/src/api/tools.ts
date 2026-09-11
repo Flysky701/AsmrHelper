@@ -3,15 +3,12 @@ import type {
   TaskStatusResponse,
   ToolListResponse,
   ToolTaskCreateRequest,
-  TaskResultResponse,
 } from './types'
 
 export const toolsApi = {
-  list: () => api.get<ToolListResponse>('/tool-runs'),
+  list: () => api.get<ToolListResponse>('/tools'),
 
   create: (body: ToolTaskCreateRequest) =>
-    api.post<TaskStatusResponse>('/tool-runs/tasks', body),
+    api.post<TaskStatusResponse>('/tool-runs', body),
 
-  result: (taskId: string) =>
-    api.get<TaskResultResponse>(`/tool-runs/${taskId}`),
 }

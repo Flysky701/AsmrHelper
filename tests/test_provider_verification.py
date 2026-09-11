@@ -694,7 +694,7 @@ def test_default_http_model_verify_records_status_without_status_probe(monkeypat
     import src.app.services.settings_service as settings_module
     import src.core.resources.model_service as core_model_module
     import src.core.resources.provider_verification as verification_module
-    from src.core.config import config as global_config
+    from src.config import config as global_config
 
     config = _Config()
     registry = ProviderVerificationRegistry()

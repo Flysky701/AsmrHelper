@@ -268,43 +268,6 @@ class ThreeLayerTerminologyDB:
             f"\n{gpt_dict_hint}"
         )
 
-    def add_term(
-        self,
-        source: str,
-        target: str,
-        layer: str = "gpt",
-        save: bool = True,
-    ):
-        """
-        添加术语
-
-        Args:
-            source: 原文
-            target: 译文
-            layer: 术语层 (pre/gpt/post)
-            save: 是否持久化
-        """
-        if layer == "pre":
-            self._pre_terms[source] = target
-        elif layer == "post":
-            self._post_terms[source] = target
-        else:
-            self._gpt_terms[source] = target
-
-        if save:
-            self.save()
-
-    def remove_term(self, source: str, layer: str = "gpt", save: bool = True):
-        """移除术语"""
-        if layer == "pre":
-            self._pre_terms.pop(source, None)
-        elif layer == "post":
-            self._post_terms.pop(source, None)
-        else:
-            self._gpt_terms.pop(source, None)
-
-        if save:
-            self.save()
 
     # ========== 属性 ==========
 

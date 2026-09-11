@@ -30,24 +30,12 @@ ASR、TTS、LLM 等能力统一按 Provider 类别扩展，不再分别维护重
 - [多引擎支持现状](roadmap/multi-engine-status.md)
 - [运行环境隔离进度](roadmap/runtime-environment-isolation-todo.md)
 
-2026-08-21 已将阶段性计划、旧进度快照、旧架构审计、旧验收矩阵和根目录重构草案移入历史归档；状态快照位于 [历史路线图](archived/roadmap/)，计划和架构草案位于 [已执行计划](archived/plans/)。它们只用于追溯，不再参与当前执行顺序。
+已完成计划、历史快照和旧设计已从工作树删除，需要追溯时查看 Git 历史。
 
 ## 设计草案
 
-- [桌面端 UI 重设计蓝图](designs/desktop-ui-redesign-blueprint.md)
 - [模型资产管理需求草案](designs/model-asset-management-requirements.md)
 - [模型资产元数据与安装契约草案](designs/model-asset-schema-design.md)
 - [轻量结果预览方案](designs/lightweight-result-preview.md)
 
 设计草案用于讨论后续能力，不自动代表已经实现；草案中的 API 和字段必须以当前契约和源码为准。
-
-## 历史归档
-
-- [归档说明](archived/README.md)
-- [历史契约](archived/contracts/)
-- [历史领域文档](archived/domains/)
-- [历史路线图](archived/roadmap/)
-- [已执行计划](archived/plans/)
-- [历史排查日志](archived/logs/)
-
-归档内容只用于追溯，不再作为当前开发入口。

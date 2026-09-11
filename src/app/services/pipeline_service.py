@@ -110,7 +110,6 @@ class PipelineService:
         orchestrator = PipelineTaskOrchestrator(
             pipeline_service=self,
             task_service=self._task_service,
-            artifact_service=self._artifact_service,
         )
         return orchestrator.run_task(
             task_spec.task_id,

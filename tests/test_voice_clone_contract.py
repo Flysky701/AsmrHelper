@@ -465,7 +465,7 @@ def test_qwen_capability_and_http_synthesis_preserve_target_language(
 
     class Settings:
         @staticmethod
-        def get_effective_settings(*, masked=False):
+        def get_settings(*, masked=False):
             assert masked is False
             return {"tts": {"engine": "qwen3"}}
 
