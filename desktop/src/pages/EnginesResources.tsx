@@ -8,6 +8,12 @@ import type { TaskStatus } from '@/stores/taskStore'
 
 type CategoryTab = 'llm' | 'asr' | 'tts' | 'other'
 
+const RESOURCE_LABELS: Record<string, string> = {
+  project_root: '项目目录',
+  output_dir: '输出目录',
+  models_dir: '模型目录',
+}
+
 const CATEGORY_LABELS: Record<CategoryTab, string> = {
   llm: 'LLM',
   asr: 'ASR',
@@ -264,21 +270,29 @@ export default function EnginesResources() {
             fontSize: '11px', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase',
             letterSpacing: '0.05em', marginBottom: '12px',
           }}>
-            运行时状态
+            工作目录
           </div>
           <div className="engines-runtime-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
             {resources.map(res => (
               <div className="engines-runtime-card" key={res.name} style={{
-                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px',
+                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px', minWidth: 0,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                   <div style={{
-                    width: '8px', height: '8px', borderRadius: '50%',
+                    width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
                     background: res.available ? 'oklch(60% 0.16 145)' : 'oklch(55% 0.18 25)',
                   }} />
-                  <span style={{ fontSize: '13px', fontWeight: 500 }}>{res.name}</span>
+                  <span style={{ fontSize: '13px', fontWeight: 600 }}>{RESOURCE_LABELS[res.name] ?? res.name}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                    {res.available ? '可用' : '不可用'}
+                  </span>
                 </div>
-                <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{res.detail}</div>
+                <div
+                  title={typeof res.metadata.path === 'string' ? res.metadata.path : undefined}
+                  style={{ fontSize: '12px', lineHeight: 1.6, color: 'var(--muted)', overflowWrap: 'anywhere', userSelect: 'text' }}
+                >
+                  {typeof res.metadata.path === 'string' ? res.metadata.path : '路径未提供'}
+                </div>
               </div>
             ))}
             {resources.length === 0 && (
