@@ -503,7 +503,6 @@ export default function TaskCenter() {
   const selectTask = useTaskStore((state) => state.selectTask)
   const addTask = useTaskStore((state) => state.addTask)
   const updateTask = useTaskStore((state) => state.updateTask)
-  const setPage = useNavStore((state) => state.setPage)
   const selectedJobType = tasks.find((task) => task.id === selectedTaskId)?.jobType
   const [category, setCategory] = useState<TaskCategory>(() => selectedJobType ? taskCategory(selectedJobType) : 'processing')
   const [categoryFilters, setCategoryFilters] = useState<Record<TaskCategory, FilterValue>>({ processing: 'all', models: 'all', tools: 'all' })
@@ -978,8 +977,8 @@ export default function TaskCenter() {
                         <span style={{ fontSize: 12, color: 'var(--muted)', flex: '1 1 280px' }}>
                           任务已经实际尝试执行。请主动验证服务连接或检查配置，然后再重试。
                         </span>
-                        <ToolbarButton variant="secondary" onClick={() => setPage('settings')}>
-                          去设置验证连接
+                        <ToolbarButton variant="secondary" onClick={() => useNavStore.getState().openEngines('external')}>
+                          配置外部服务
                         </ToolbarButton>
                       </div>
                     ) : null}

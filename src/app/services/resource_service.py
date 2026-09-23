@@ -286,7 +286,7 @@ class ResourceService:
                                     else "CONFIGURATION_MISSING"
                                 ),
                                 requirement=f"external_tts.{key}",
-                                message=f"请在设置中填写外部 TTS 的{label}",
+                                message=f"请在引擎与资源的外部服务中填写 TTS 的{label}",
                                 action="settings",
                             )
                         )

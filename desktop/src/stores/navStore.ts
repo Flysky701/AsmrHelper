@@ -10,6 +10,7 @@ export type PageId =
   | 'settings'
 
 export type TaskCenterView = 'tasks' | 'batches'
+export type EnginesView = 'local' | 'external'
 
 export const PAGE_LABELS: Record<PageId, string> = {
   workbench: '工作台',
@@ -34,6 +35,9 @@ export const PAGE_ORDER: PageId[] = [
 interface NavStore {
   activePage: PageId
   setPage: (page: PageId) => void
+  enginesView: EnginesView
+  setEnginesView: (view: EnginesView) => void
+  openEngines: (view?: EnginesView) => void
   taskCenterView: TaskCenterView
   setTaskCenterView: (view: TaskCenterView) => void
   openTaskCenter: (view?: TaskCenterView) => void
@@ -52,6 +56,13 @@ export const useNavStore = create<NavStore>((set, get) => ({
       : { activePage: page })
   },
   taskCenterView: 'tasks',
+  enginesView: 'local',
+  setEnginesView: (enginesView) => set({ enginesView }),
+  openEngines: (enginesView = 'local') => {
+    const state = get()
+    if (state.activePage !== 'engines' && !state.confirmLeaveCurrentPage()) return
+    set({ activePage: 'engines', enginesView })
+  },
   setTaskCenterView: (taskCenterView) => set({ taskCenterView }),
   openTaskCenter: (taskCenterView = 'tasks') => {
     const state = get()

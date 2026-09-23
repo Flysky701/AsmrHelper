@@ -63,7 +63,7 @@ def _build_pipeline_task_error(stage: str, detail: str) -> dict[str, object]:
         error.update(
             {
                 "action": "settings",
-                "suggestion": "请在设置中主动验证服务连接，确认无误后重试任务",
+                "suggestion": "请在引擎与资源的外部服务中检查配置并验证服务连接，确认无误后重试任务",
             }
         )
     return error

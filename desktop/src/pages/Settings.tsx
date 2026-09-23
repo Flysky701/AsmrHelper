@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import { pipelineApi } from '@/api/pipeline'
-import type { ConnectionProfile, SettingsUpdate, SettingsView } from '@/api/settings'
+import type { SettingsUpdate, SettingsView } from '@/api/settings'
 import type { PresetItem } from '@/api/types'
 import { useFileSelector } from '@/hooks/useFileSelector'
-import { useWorkbenchStore } from '@/stores/workbenchStore'
 
-type SettingsTab = 'api' | 'presets' | 'paths'
+type SettingsTab = 'presets' | 'paths'
 
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: 'api', label: 'API 配置' },
   { id: 'presets', label: '内置预设' },
   { id: 'paths', label: '路径配置' },
 ]
@@ -29,7 +27,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
-  const [activeTab, setActiveTab] = useState<SettingsTab>('api')
+  const [activeTab, setActiveTab] = useState<SettingsTab>('presets')
   const [presets, setPresets] = useState<PresetItem[]>([])
   const [settingsLoadError, setSettingsLoadError] = useState('')
   const [presetsLoadError, setPresetsLoadError] = useState('')
@@ -37,24 +35,7 @@ export default function Settings() {
   const loadGenerationRef = useRef(0)
   const presetGenerationRef = useRef(0)
 
-  // API test state
-  const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null)
-  const [testing, setTesting] = useState(false)
-  const [externalTts, setExternalTts] = useState({ id: '', name: '', base_url: '', credential: '', credential_configured: false })
-  const [llmProfile, setLlmProfile] = useState({ id: '', name: '', credential_configured: false })
-
-  const [models, setModels] = useState<string[]>([])
-  const modelGenerationRef = useRef(0)
-
-  // Draft state
   const [draft, setDraft] = useState({
-    provider: 'deepseek',
-    deepseekKey: '',
-    openaiKey: '',
-    deepseekBaseUrl: 'https://api.deepseek.com',
-    openaiBaseUrl: 'https://api.openai.com/v1',
-    deepseekModel: '',
-    openaiModel: '',
     outputDir: '',
     vttDir: '',
     modelCacheDir: '',
@@ -66,45 +47,12 @@ export default function Settings() {
     return () => {
       loadGenerationRef.current += 1
       presetGenerationRef.current += 1
-      modelGenerationRef.current += 1
     }
   }, [])
-
-  const hydrateLlm = (profile: ConnectionProfile) => {
-    resetModelDiscovery()
-    setLlmProfile({ id: profile.id, name: profile.name, credential_configured: profile.credential_configured })
-    setDraft(current => ({ ...current, provider: profile.provider,
-      deepseekKey: '', openaiKey: '',
-      deepseekBaseUrl: profile.provider === 'deepseek' ? profile.base_url : 'https://api.deepseek.com',
-      openaiBaseUrl: profile.provider === 'openai' ? profile.base_url : '',
-      deepseekModel: profile.provider === 'deepseek' ? profile.model || '' : '',
-      openaiModel: profile.provider === 'openai' ? profile.model || '' : '',
-    }))
-  }
-
-  const hydrateTts = (profile: ConnectionProfile) => {
-    setExternalTts({ id: profile.id, name: profile.name, base_url: profile.base_url,
-      credential: '', credential_configured: profile.credential_configured })
-  }
-
-  const syncWorkbench = (current: SettingsView) => {
-    const workbench = useWorkbenchStore.getState()
-    const selected = current.providers.default_llm === 'deepseek' ? 'deepseek' : 'openai'
-    workbench.updateParam('translateProvider', selected)
-    workbench.updateParam('translateModel', current.providers[selected].model)
-    if (workbench.params.ttsEngine === 'openai_compatible') {
-      workbench.updateParam('ttsVoice', current.external_tts.voice || '')
-      if (current.external_tts.api_format === 'mimo_chat') workbench.updateParam('ttsSpeed', 1)
-    }
-  }
 
   const loadData = async () => {
     const generation = ++loadGenerationRef.current
     const presetGeneration = ++presetGenerationRef.current
-    modelGenerationRef.current += 1
-    setTesting(false)
-    setModels([])
-    setTestResult(null)
     setLoading(true)
     setPresetsLoading(true)
     setMessage('')
@@ -121,23 +69,11 @@ export default function Settings() {
         const current = settingsResult.value.settings
         setSettings(current)
         setDraft({
-          provider: current.providers.default_llm || 'deepseek',
-          deepseekKey: '',
-          openaiKey: '',
-          deepseekBaseUrl: current.providers.deepseek.base_url || 'https://api.deepseek.com',
-          openaiBaseUrl: current.providers.openai.base_url || 'https://api.openai.com/v1',
-          deepseekModel: current.providers.deepseek.model || '',
-          openaiModel: current.providers.openai.model || '',
           outputDir: current.paths.output_dir || '',
           vttDir: current.paths.vtt_dir || '',
           modelCacheDir: current.paths.model_cache_dir || '',
           tempDir: current.paths.temp_dir || '',
         })
-        const profiles = current.connection_profiles
-        const llm = profiles.llm.find(item => item.id === profiles.active_llm)
-        const tts = profiles.tts.find(item => item.id === profiles.active_tts)
-        if (llm) hydrateLlm(llm)
-        if (tts) hydrateTts(tts)
       } else {
         setSettings(null)
         setSettingsLoadError(
@@ -200,90 +136,6 @@ export default function Settings() {
       setMessage(`保存失败: ${err}`)
     } finally {
       setSaving(false)
-    }
-  }
-
-  const provider = draft.provider === 'deepseek' ? 'deepseek' : 'openai'
-  const providerLabel = provider === 'deepseek' ? 'DeepSeek' : 'OpenAI / 兼容接口'
-  const keyField = provider === 'deepseek' ? 'deepseekKey' : 'openaiKey'
-  const urlField = provider === 'deepseek' ? 'deepseekBaseUrl' : 'openaiBaseUrl'
-  const modelField = provider === 'deepseek' ? 'deepseekModel' : 'openaiModel'
-  const selectedModel = draft[modelField]
-
-  const resetModelDiscovery = () => {
-    modelGenerationRef.current += 1
-    setTesting(false)
-    setModels([])
-    setTestResult(null)
-  }
-
-  const llmCandidate = (): SettingsUpdate => ({ connection_profile: {
-    kind: 'llm', ...(llmProfile.id ? { id: llmProfile.id } : {}),
-    name: llmProfile.name.trim() || '未命名翻译配置', provider,
-    base_url: draft[urlField], model: selectedModel,
-    ...(draft[keyField] ? { credential: draft[keyField] } : {}),
-  } })
-
-  const saveProfile = async (kind: 'llm' | 'tts') => {
-    if (!(kind === 'llm' ? llmProfile.name : externalTts.name).trim()) {
-      setMessage('保存失败：请填写配置名称')
-      return
-    }
-    if (kind === 'llm' && !selectedModel.trim()) {
-      setMessage('保存失败：请获取并选择模型，或按服务商文档手动填写模型')
-      return
-    }
-    setSaving(true)
-    setMessage('')
-    resetModelDiscovery()
-    try {
-      const updates: SettingsUpdate = kind === 'llm' ? llmCandidate() : { connection_profile: {
-        kind: 'tts', ...(externalTts.id ? { id: externalTts.id } : {}),
-        name: externalTts.name.trim(), provider: 'openai_compatible', base_url: externalTts.base_url,
-        ...(externalTts.credential ? { credential: externalTts.credential } : {}),
-      } }
-      const result = await settingsApi.update(updates)
-      setSettings(result.settings)
-      const profiles = result.settings.connection_profiles
-      const profile = profiles[kind].find(item => item.id === (kind === 'llm' ? profiles.active_llm : profiles.active_tts))
-      if (profile) kind === 'llm' ? hydrateLlm(profile) : hydrateTts(profile)
-      syncWorkbench(result.settings)
-      setMessage('配置已保存并启用')
-    } catch (error) {
-      setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally { setSaving(false) }
-  }
-
-  const selectProfile = (kind: 'llm' | 'tts', id: string) => {
-    const profile = settings?.connection_profiles[kind].find(item => item.id === id)
-    if (!profile) return
-    if (kind === 'llm') hydrateLlm(profile)
-    else hydrateTts(profile)
-    setMessage('已载入配置，保存并启用后用于新任务')
-  }
-
-  const handleDiscoverModels = async () => {
-    const generation = ++modelGenerationRef.current
-    setTesting(true)
-    setTestResult(null)
-    setModels([])
-    try {
-      const candidate = llmCandidate()
-      const result = await settingsApi.listModels(provider, candidate)
-      if (generation !== modelGenerationRef.current) return
-      const available = [...new Set(result.models)]
-      setModels(available)
-      setTestResult({
-        success: available.length > 0,
-        msg: available.length > 0
-          ? `已获取 ${available.length} 个模型，请选择用于翻译的模型。`
-          : '服务未返回可选模型。可重试，或根据服务商文档手动填写。',
-      })
-    } catch (error) {
-      if (generation !== modelGenerationRef.current) return
-      setTestResult({ success: false, msg: `获取模型失败：${error instanceof Error ? error.message : String(error)}。可检查连接信息后重试，或根据服务商文档手动填写。` })
-    } finally {
-      if (generation === modelGenerationRef.current) setTesting(false)
     }
   }
 
@@ -394,135 +246,6 @@ export default function Settings() {
               }} />
               {message}
             </div>
-          )}
-
-          {/* Panel: API 配置 */}
-          {activeTab === 'api' && (
-            <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-              <details className="settings-service-section" open>
-                <summary className="settings-service-heading">
-                  <span className="settings-service-tag">LLM</span>
-                  <h2 className="settings-section-title">翻译服务</h2>
-                  <span className="settings-service-toggle" aria-hidden="true" />
-                </summary>
-                <div className="settings-service-body">
-                <label className="settings-field">
-                  已保存的配置
-                  <select value={llmProfile.id} disabled={saving} onChange={event => void selectProfile('llm', event.target.value)}>
-                    {!llmProfile.id && <option value="" disabled>新建配置</option>}
-                    {settings.connection_profiles.llm.map(profile => <option key={profile.id} value={profile.id}>{profile.name}{profile.id === settings.connection_profiles.active_llm ? '（已启用）' : ''}</option>)}
-                  </select>
-                </label>
-                <button className="settings-secondary-button" disabled={saving} onClick={() => {
-                  hydrateLlm({ id: '', name: '', provider: 'deepseek', base_url: 'https://api.deepseek.com', model: '', credential_configured: false })
-                  setMessage('填写新配置后保存并启用')
-                }}>新建翻译配置</button>
-                <label className="settings-field" style={{ marginTop: 16 }}>
-                  配置名称
-                  <input value={llmProfile.name} maxLength={100} onChange={event => setLlmProfile({ ...llmProfile, name: event.target.value })} placeholder="例如：日常翻译" />
-                </label>
-                <label className="settings-field">
-                  服务提供商
-                  <select value={provider} disabled={!!llmProfile.id || saving} onChange={event => {
-                    resetModelDiscovery()
-                    setDraft({ ...draft, provider: event.target.value, deepseekKey: '', openaiKey: '',
-                      deepseekBaseUrl: 'https://api.deepseek.com', openaiBaseUrl: '', deepseekModel: '', openaiModel: '' })
-                  }}>
-                    <option value="deepseek">DeepSeek</option>
-                    <option value="openai">OpenAI / 兼容接口</option>
-                  </select>
-                </label>
-                <label className="settings-field">
-                  {providerLabel} API 地址
-                  <input value={draft[urlField]} onChange={event => {
-                    resetModelDiscovery()
-                    setDraft({ ...draft, [urlField]: event.target.value })
-                  }} />
-                </label>
-                <label className="settings-field">
-                  API 密钥
-                  <input type="password" autoComplete="off" value={draft[keyField]} onChange={event => {
-                    resetModelDiscovery()
-                    setDraft({ ...draft, [keyField]: event.target.value })
-                  }} placeholder={llmProfile.credential_configured ? '已配置；留空保持此配置的密钥' : '输入 API 密钥'} />
-                </label>
-                <button className="settings-secondary-button" onClick={() => void handleDiscoverModels()} disabled={testing || saving}>
-                  {testing ? '正在获取模型...' : '检测连接并获取模型'}
-                </button>
-                {testResult && (
-                  <p role="status" style={{ fontSize: 12, lineHeight: 1.6, color: testResult.success ? 'var(--muted)' : 'oklch(40% 0.12 25)' }}>
-                    {testResult.msg}
-                  </p>
-                )}
-                <label className="settings-field" style={{ marginTop: 16 }}>
-                  翻译模型
-                  <select value={selectedModel} disabled={!selectedModel && models.length === 0} onChange={event => setDraft({ ...draft, [modelField]: event.target.value })}>
-                    <option value="">{models.length > 0 ? '选择模型' : '获取模型后选择'}</option>
-                    {selectedModel && !models.includes(selectedModel) && (
-                      <option value={selectedModel}>{selectedModel}（当前配置，未核验）</option>
-                    )}
-                    {models.map(model => <option key={model} value={model}>{model}</option>)}
-                  </select>
-                </label>
-                <details key={`${llmProfile.id}-${provider}`} style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  <summary style={{ cursor: 'pointer' }}>手动填写模型</summary>
-                  <label className="settings-field" style={{ marginTop: 12 }}>
-                    服务商文档中的模型 ID
-                    <input value={selectedModel} onChange={event => setDraft({ ...draft, [modelField]: event.target.value })} placeholder="填写文档中支持翻译的模型 ID" />
-                  </label>
-                </details>
-                <button className="settings-secondary-button" style={{ marginTop: 16 }} disabled={saving} onClick={() => void saveProfile('llm')}>
-                  保存并启用翻译配置
-                </button>
-                </div>
-              </details>
-              <details className="settings-service-section">
-                <summary className="settings-service-heading">
-                  <span className="settings-service-tag">TTS</span>
-                  <h2 className="settings-section-title">外部语音合成</h2>
-                  <span className="settings-service-toggle" aria-hidden="true" />
-                </summary>
-                <div className="settings-service-body">
-                <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>OpenAI 兼容语音接口</p>
-                <label className="settings-field">
-                  已保存的配置
-                  <select value={externalTts.id} disabled={saving} onChange={event => void selectProfile('tts', event.target.value)}>
-                    {!externalTts.id && <option value="" disabled>新建配置</option>}
-                    {settings.connection_profiles.tts.map(profile => <option key={profile.id} value={profile.id}>{profile.name}{profile.id === settings.connection_profiles.active_tts ? '（已启用）' : ''}</option>)}
-                  </select>
-                </label>
-                <button className="settings-secondary-button" disabled={saving} onClick={() => {
-                  hydrateTts({ id: '', name: '', provider: 'openai_compatible', base_url: '', credential_configured: false })
-                  setMessage('填写新配置后保存并启用')
-                }}>新建语音配置</button>
-                <label className="settings-field" style={{ marginTop: 16 }}>
-                  配置名称
-                  <input value={externalTts.name} maxLength={100} onChange={event => setExternalTts({ ...externalTts, name: event.target.value })} placeholder="例如：旁白语音" />
-                </label>
-                {([
-                  { key: 'base_url', label: 'API 地址', placeholder: '填写服务商提供的 API 基础地址' },
-                  { key: 'credential', label: 'API 密钥', placeholder: externalTts.credential_configured ? '已配置；留空保持此配置的密钥' : '输入 API 密钥' },
-                ] as const).map(field => (
-                  <label key={field.key} className="settings-field">
-                    {field.label}
-                    <input
-                      type={field.key === 'credential' ? 'password' : 'text'}
-                      autoComplete={field.key === 'credential' ? 'off' : undefined}
-                      value={externalTts[field.key]}
-                      onChange={event => setExternalTts({ ...externalTts, [field.key]: event.target.value })}
-                      placeholder={field.placeholder}
-                    />
-                  </label>
-                ))}
-                <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-                  目前仅配置连接信息；模型与音色选项待依据服务商文档或接口探测接入。
-                </p>
-                <button className="settings-secondary-button" disabled={saving} onClick={() => void saveProfile('tts')}>
-                  保存并启用语音配置
-                </button>
-                </div>
-              </details>
-            </fieldset>
           )}
 
           {/* Panel: 内置预设 */}
@@ -682,102 +405,6 @@ export default function Settings() {
       </div>
 
       <style>{`
-        .settings-service-section {
-          border: 1px solid var(--border);
-          border-radius: 10px;
-          background: var(--surface);
-          margin-bottom: 16px;
-        }
-
-        .settings-service-heading {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 18px 20px;
-          cursor: pointer;
-          list-style: none;
-          border-radius: 10px;
-          background: var(--panel-muted);
-        }
-
-        .settings-service-heading::-webkit-details-marker { display: none; }
-        .settings-service-heading:hover { background: var(--accent-soft); }
-        .settings-service-section[open] > .settings-service-heading {
-          border-bottom: 1px solid var(--border);
-          border-radius: 10px 10px 0 0;
-        }
-
-        .settings-section-title {
-          margin: 0;
-          font-family: var(--font-display);
-          font-size: 20px;
-          font-weight: 700;
-          line-height: 1.4;
-          color: var(--fg);
-        }
-
-        .settings-service-tag {
-          flex-shrink: 0;
-          padding: 4px 7px;
-          border-radius: 5px;
-          background: var(--accent-soft);
-          color: var(--accent);
-          font-size: 12px;
-          font-weight: 700;
-        }
-
-        .settings-service-toggle {
-          margin-left: auto;
-          font-size: 12px;
-          color: var(--muted);
-          flex-shrink: 0;
-        }
-        .settings-service-toggle::before { content: '展开 ＋'; }
-        .settings-service-section[open] > summary .settings-service-toggle::before { content: '收起 −'; }
-        .settings-service-body { padding: 20px; }
-
-        @media (max-width: 600px) {
-          .settings-service-heading { gap: 8px; padding: 14px 12px; }
-          .settings-section-title { font-size: 18px; }
-          .settings-service-body { padding: 16px 12px; }
-        }
-
-        .settings-field {
-          display: grid;
-          gap: 6px;
-          font-size: 12px;
-          margin-bottom: 16px;
-        }
-
-        .settings-field input,
-        .settings-field select {
-          width: 100%;
-          min-width: 0;
-          font-family: var(--font-body);
-          font-size: 13px;
-          padding: 8px 10px;
-          border-radius: 6px;
-          border: 1px solid var(--border);
-          background: var(--surface);
-          color: var(--fg);
-        }
-
-        .settings-secondary-button {
-          font-family: var(--font-body);
-          font-size: 13px;
-          padding: 8px 14px;
-          border-radius: 6px;
-          border: 1px solid var(--border);
-          background: var(--surface);
-          color: var(--fg);
-          cursor: pointer;
-        }
-
-        .settings-secondary-button:disabled {
-          opacity: 0.6;
-          cursor: wait;
-        }
-
         .settings-page,
         .settings-layout,
         .settings-panel,

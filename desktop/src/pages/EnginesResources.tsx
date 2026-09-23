@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { modelsApi } from '@/api/models'
 import { resourcesApi } from '@/api/resources'
+import ExternalServices from '@/components/ExternalServices'
 import type { ModelSummaryResponse, ModelStatusResponse, ResourceStatusResponse } from '@/api/types'
 import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
@@ -55,6 +56,36 @@ function formatEstimatedSize(sizeMb?: number | null): string {
 }
 
 export default function EnginesResources() {
+  const view = useNavStore(state => state.enginesView)
+  const setView = useNavStore(state => state.setEnginesView)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <header style={{ padding: '16px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 14px' }}>引擎与资源</h1>
+        <div role="tablist" aria-label="资源类型" style={{ display: 'flex', gap: 8 }}>
+          {([{ id: 'local', label: '本地模型' }, { id: 'external', label: '外部服务' }] as const).map(tab => (
+            <button key={tab.id} id={`engines-tab-${tab.id}`} role="tab" aria-selected={view === tab.id}
+              aria-controls={`engines-panel-${tab.id}`} onClick={() => setView(tab.id)}
+              style={{ padding: '9px 20px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer',
+                background: view === tab.id ? 'var(--accent)' : 'var(--surface)',
+                color: view === tab.id ? 'white' : 'var(--muted)', fontWeight: 600 }}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </header>
+      <div role="tabpanel" id="engines-panel-local" aria-labelledby="engines-tab-local" hidden={view !== 'local'} style={{ flex: 1, minHeight: 0 }}>
+        <LocalResources />
+      </div>
+      <div role="tabpanel" id="engines-panel-external" aria-labelledby="engines-tab-external" hidden={view !== 'external'} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 24 }}>
+        <ExternalServices />
+      </div>
+    </div>
+  )
+}
+
+function LocalResources() {
   const setPage = useNavStore((state) => state.setPage)
   const addTask = useTaskStore((state) => state.addTask)
   const updateTask = useTaskStore((state) => state.updateTask)
@@ -63,7 +94,7 @@ export default function EnginesResources() {
   const [modelStatuses, setModelStatuses] = useState<ModelStatusResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [statusLoading, setStatusLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<CategoryTab>('llm')
+  const [activeTab, setActiveTab] = useState<CategoryTab>('asr')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [installing, setInstalling] = useState<Record<string, { active: boolean; message?: string; progress?: number }>>({})
   const [error, setError] = useState('')
@@ -169,7 +200,7 @@ export default function EnginesResources() {
 
   // Pure dependency assets stay available for status/installation, but are not
   // independently selectable models. Assets with standalone features stay visible.
-  const visibleModels = useMemo(() => models.filter(model => !model.is_auxiliary), [models])
+  const visibleModels = useMemo(() => models.filter(model => !model.is_auxiliary && model.kind !== 'cloud'), [models])
 
   // Group models by category, then by family/backend
   const grouped = useMemo(() => {
@@ -235,9 +266,6 @@ export default function EnginesResources() {
         background: 'var(--surface)', borderBottom: '1px solid var(--border)',
         padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '12px',
       }}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '15px', fontWeight: 600, letterSpacing: '-0.02em', marginRight: '16px' }}>
-          引擎与资源
-        </h1>
         <button onClick={() => void loadData()} disabled={loading || statusLoading} style={{
           fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
           borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
@@ -315,7 +343,7 @@ export default function EnginesResources() {
             display: 'flex', gap: '2px', background: 'var(--bg)', border: '1px solid var(--border)',
             borderRadius: '8px', padding: '3px', marginBottom: '16px',
           }}>
-            {(Object.keys(CATEGORY_LABELS) as CategoryTab[]).map(tab => (
+            {(Object.keys(CATEGORY_LABELS) as CategoryTab[]).filter(tab => tab !== 'llm' || counts.llm > 0).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -495,24 +523,6 @@ export default function EnginesResources() {
                                 }}>
                                   {isInstalling ? '安装中...' : statusLoading ? '检测中...' : '状态不可用'}
                                 </button>
-                              ) : model.kind === 'cloud' ? (
-                                status.status === 'unconfigured' ? (
-                                  <button onClick={() => setPage('settings')} style={{
-                                    fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
-                                    borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
-                                    color: 'white', cursor: 'pointer',
-                                  }}>
-                                    去配置
-                                  </button>
-                                ) : (
-                                  <button onClick={() => handleVerify(model.model_id)} style={{
-                                    fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
-                                    borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                                    color: 'var(--fg)', cursor: 'pointer',
-                                  }}>
-                                    验证连接
-                                  </button>
-                                )
                               ) : (
                                 <>
                                   {needsInstall && model.supports_install ? (

@@ -2009,7 +2009,7 @@ export default function Workbench() {
                     }}
                   />
                   {params.ttsEngine === 'openai_compatible' ? (
-                    <SelectField title="语音连接配置" hint="在设置中添加或修改" disabled={submitting || switchingConnection}
+                    <SelectField title="语音连接配置" hint="在引擎与资源的外部服务中管理" disabled={submitting || switchingConnection}
                       value={connections?.active_tts || ''}
                       options={connections?.tts.map(item => ({ value: item.id, label: item.name })) || []}
                       onChange={value => void selectConnection('tts', value)} />
@@ -2059,7 +2059,7 @@ export default function Workbench() {
               ) : null}
               {stageFlags.translate ? (
                 <>
-                  {connections ? <SelectField title="翻译连接配置" hint="在设置中添加或修改" disabled={submitting || switchingConnection}
+                  {connections ? <SelectField title="翻译连接配置" hint="在引擎与资源的外部服务中管理" disabled={submitting || switchingConnection}
                     value={connections.active_llm}
                     options={connections.llm.map(item => ({ value: item.id, label: item.name }))}
                     onChange={value => void selectConnection('llm', value)} /> : <SelectField
@@ -2160,7 +2160,7 @@ export default function Workbench() {
                   {readinessIssues.some((issue) => issue.action !== 'workbench') ? (
                     <button
                       type="button"
-                      onClick={() => setPage(readinessIssues.some((issue) => issue.action === 'settings') ? 'settings' : 'engines')}
+                      onClick={() => useNavStore.getState().openEngines(readinessIssues.some((issue) => issue.action === 'settings') ? 'external' : 'local')}
                       style={{ marginTop: 10, border: 'none', background: 'transparent', color: 'var(--accent)', padding: 0, cursor: 'pointer', fontWeight: 700 }}
                     >
                       前往处理
