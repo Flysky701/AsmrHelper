@@ -69,7 +69,36 @@ class CapabilityDescriptorService:
             descriptors = [item for item in descriptors if item["category"] == category]
         if provider is not None:
             descriptors = [item for item in descriptors if item["provider"] == provider]
-        return deepcopy(descriptors)
+        return [self._with_model_defaults(item) for item in descriptors]
+
+    @staticmethod
+    def _with_model_defaults(item: dict[str, Any]) -> dict[str, Any]:
+        result = deepcopy(item)
+        if result["category"] == "tts" and result["provider"] == "openai_compatible":
+            from src.core.config import config
+
+            result["default_model"] = config.get("external_tts.model") or "default"
+            result["supported_models"] = [result["default_model"]]
+            for option in result["common_option_schema"]:
+                if option["name"] == "voice":
+                    option["default"] = config.get("external_tts.voice") or ""
+                if (
+                    option["name"] == "speed"
+                    and config.get("external_tts.api_format") == "mimo_chat"
+                ):
+                    option.update(
+                        {"min": 1.0, "max": 1.0, "description": "MiMo 使用语音指令控制语速"}
+                    )
+        if result["category"] == "llm":
+            from src.core.config import config
+
+            model = config.get(f"api.{result['provider']}_model")
+            if isinstance(model, str) and model.strip():
+                result["default_model"] = model.strip()
+                result["supported_models"] = list(
+                    dict.fromkeys([model.strip(), *result["supported_models"]])
+                )
+        return result
 
     def list_categories(self) -> list[str]:
         return sorted({item["category"] for item in self._descriptors})
@@ -77,7 +106,7 @@ class CapabilityDescriptorService:
     def get_descriptor(self, category: str, provider: str) -> dict[str, Any]:
         for item in self._descriptors:
             if item["category"] == category and item["provider"] == provider:
-                return deepcopy(item)
+                return self._with_model_defaults(item)
         raise AppValidationError(f"capability descriptor not found: {category}/{provider}")
 
     def validate_options(
@@ -115,9 +144,7 @@ class CapabilityDescriptorService:
         entries = {entry["name"]: entry for entry in schema}
         unknown = sorted(set(values) - set(entries))
         if unknown and not allow_unknown:
-            raise AppValidationError(
-                f"{label} contains unsupported options: {', '.join(unknown)}"
-            )
+            raise AppValidationError(f"{label} contains unsupported options: {', '.join(unknown)}")
 
         for name, entry in entries.items():
             if name not in values:
@@ -127,24 +154,16 @@ class CapabilityDescriptorService:
 
             value = values[name]
             if not _matches_option_type(str(entry["type"]), value):
-                raise AppValidationError(
-                    f"{label}.{name} must be {entry['type']}"
-                )
+                raise AppValidationError(f"{label}.{name} must be {entry['type']}")
             enum = list(entry.get("enum") or [])
             if enum and value not in enum:
-                raise AppValidationError(
-                    f"{label}.{name} must be one of {enum}"
-                )
+                raise AppValidationError(f"{label}.{name} must be one of {enum}")
             min_value = entry.get("min")
             max_value = entry.get("max")
             if min_value is not None and value < min_value:
-                raise AppValidationError(
-                    f"{label}.{name} must be >= {min_value}"
-                )
+                raise AppValidationError(f"{label}.{name} must be >= {min_value}")
             if max_value is not None and value > max_value:
-                raise AppValidationError(
-                    f"{label}.{name} must be <= {max_value}"
-                )
+                raise AppValidationError(f"{label}.{name} must be <= {max_value}")
 
     def _build_descriptors(self) -> list[dict[str, Any]]:
         from src.core.engines.llm import get_llm_registry
@@ -153,13 +172,34 @@ class CapabilityDescriptorService:
         descriptors = [
             {
                 "category": "tts",
+                "provider": "openai_compatible",
+                "display_name": "外部 TTS / OpenAI 兼容",
+                "kind": "cloud",
+                "supported_models": ["default"],
+                "default_model": "default",
+                "common_option_schema": [
+                    _option("voice", "string", default=""),
+                    _option("speed", "number", default=1.0, min_value=0.25, max_value=4.0),
+                    _option("language", "string", default="auto"),
+                ],
+                "provider_option_schema": [],
+                "supports": {"synthesize": True, "voice_clone": False},
+            },
+            {
+                "category": "tts",
                 "provider": "edge",
                 "display_name": "Edge TTS",
                 "kind": "cloud",
                 "supported_models": ["default"],
                 "default_model": "default",
                 "common_option_schema": [
-                    _option("voice", "string", required=True, default="zh-CN-XiaoxiaoNeural", description="TTS voice"),
+                    _option(
+                        "voice",
+                        "string",
+                        required=True,
+                        default="zh-CN-XiaoxiaoNeural",
+                        description="TTS voice",
+                    ),
                     _option(
                         "speed",
                         "number",
@@ -201,8 +241,20 @@ class CapabilityDescriptorService:
                 ],
                 "default_model": "qwen3-custom-voice",
                 "common_option_schema": [
-                    _option("voice", "string", required=False, default="Vivian", description="Preset voice or speaker"),
-                    _option("speed", "number", required=False, default=1.0, description="Synthesis speed"),
+                    _option(
+                        "voice",
+                        "string",
+                        required=False,
+                        default="Vivian",
+                        description="Preset voice or speaker",
+                    ),
+                    _option(
+                        "speed",
+                        "number",
+                        required=False,
+                        default=1.0,
+                        description="Synthesis speed",
+                    ),
                     _option(
                         "language",
                         "string",
@@ -213,9 +265,24 @@ class CapabilityDescriptorService:
                     ),
                 ],
                 "provider_option_schema": [
-                    _option("voice_profile_id", "string", required=False, description="Custom profile identifier"),
-                    _option("emotion", "string", required=False, description="Optional synthesis emotion"),
-                    _option("temperature", "number", required=False, description="Optional model temperature"),
+                    _option(
+                        "voice_profile_id",
+                        "string",
+                        required=False,
+                        description="Custom profile identifier",
+                    ),
+                    _option(
+                        "emotion",
+                        "string",
+                        required=False,
+                        description="Optional synthesis emotion",
+                    ),
+                    _option(
+                        "temperature",
+                        "number",
+                        required=False,
+                        description="Optional model temperature",
+                    ),
                 ],
                 "supports": {
                     "voice_list": True,
@@ -232,17 +299,67 @@ class CapabilityDescriptorService:
                 "supported_models": ["voxcpm2"],
                 "default_model": "voxcpm2",
                 "common_option_schema": [
-                    _option("voice", "string", required=False, default="default", description="Voice mode: default / voice_design / voice_clone"),
+                    _option(
+                        "voice",
+                        "string",
+                        required=False,
+                        default="default",
+                        description="Voice mode: default / voice_design / voice_clone",
+                    ),
                 ],
                 "provider_option_schema": [
-                    _option("model_dir", "string", required=False, description="Local model directory or HuggingFace repo id (default: openbmb/VoxCPM2)"),
-                    _option("cfg_value", "number", required=False, default=2.0, description="Classifier-free guidance scale"),
-                    _option("inference_timesteps", "integer", required=False, default=10, description="Diffusion inference steps (10=fast, 20=quality)"),
-                    _option("load_denoiser", "boolean", required=False, default=True, description="Load denoiser for higher quality output"),
-                    _option("device_map", "string", required=False, default="auto", description="Device map for model loading"),
-                    _option("reference_wav_path", "string", required=False, description="Reference audio path for voice cloning"),
-                    _option("prompt_wav_path", "string", required=False, description="Prompt audio path for ultimate cloning (same as reference for max fidelity)"),
-                    _option("prompt_text", "string", required=False, description="Transcript of prompt audio for ultimate cloning"),
+                    _option(
+                        "model_dir",
+                        "string",
+                        required=False,
+                        description="Local model directory or HuggingFace repo id (default: openbmb/VoxCPM2)",
+                    ),
+                    _option(
+                        "cfg_value",
+                        "number",
+                        required=False,
+                        default=2.0,
+                        description="Classifier-free guidance scale",
+                    ),
+                    _option(
+                        "inference_timesteps",
+                        "integer",
+                        required=False,
+                        default=10,
+                        description="Diffusion inference steps (10=fast, 20=quality)",
+                    ),
+                    _option(
+                        "load_denoiser",
+                        "boolean",
+                        required=False,
+                        default=True,
+                        description="Load denoiser for higher quality output",
+                    ),
+                    _option(
+                        "device_map",
+                        "string",
+                        required=False,
+                        default="auto",
+                        description="Device map for model loading",
+                    ),
+                    _option(
+                        "reference_wav_path",
+                        "string",
+                        required=False,
+                        description="Reference audio path for voice cloning",
+                    ),
+                    _option(
+                        "prompt_wav_path",
+                        "string",
+                        required=False,
+                        description="Prompt audio path for ultimate cloning (same as reference for max fidelity)",
+                    ),
+                    _option(
+                        "prompt_text",
+                        "string",
+                        required=False,
+                        description="Transcript of prompt audio for ultimate cloning",
+                    ),
                 ],
                 "supports": {
                     "voice_list": True,
@@ -302,7 +419,13 @@ class CapabilityDescriptorService:
                 ],
                 "default_model": "faster-whisper-base",
                 "common_option_schema": [
-                    _option("language", "string", required=False, default="ja", description="Language hint"),
+                    _option(
+                        "language",
+                        "string",
+                        required=False,
+                        default="ja",
+                        description="Language hint",
+                    ),
                 ],
                 "provider_option_schema": [
                     _option(
@@ -356,12 +479,36 @@ class CapabilityDescriptorService:
                 ],
                 "default_model": "fun-asr-nano-2512",
                 "common_option_schema": [
-                    _option("language", "string", required=False, default="ja", description="Language hint"),
+                    _option(
+                        "language",
+                        "string",
+                        required=False,
+                        default="ja",
+                        description="Language hint",
+                    ),
                 ],
                 "provider_option_schema": [
-                    _option("hub", "string", required=False, default="hf", description="Model hub id (hf/ms)"),
-                    _option("device", "string", required=False, default="auto", description="Inference device"),
-                    _option("batch_size", "integer", required=False, default=1, description="Batch size for generate"),
+                    _option(
+                        "hub",
+                        "string",
+                        required=False,
+                        default="hf",
+                        description="Model hub id (hf/ms)",
+                    ),
+                    _option(
+                        "device",
+                        "string",
+                        required=False,
+                        default="auto",
+                        description="Inference device",
+                    ),
+                    _option(
+                        "batch_size",
+                        "integer",
+                        required=False,
+                        default=1,
+                        description="Batch size for generate",
+                    ),
                     _option(
                         "sentence_timestamp",
                         "boolean",
@@ -382,7 +529,9 @@ class CapabilityDescriptorService:
                         required=False,
                         description="Optional local Fun-ASR source model.py path",
                     ),
-                    _option("hotwords", "array", required=False, description="Optional hotword list"),
+                    _option(
+                        "hotwords", "array", required=False, description="Optional hotword list"
+                    ),
                     _option(
                         "vad_model",
                         "string",
@@ -420,11 +569,29 @@ class CapabilityDescriptorService:
                 ],
                 "default_model": "qwen3-asr-0.6b",
                 "common_option_schema": [
-                    _option("language", "string", required=False, default="ja", description="Language hint"),
+                    _option(
+                        "language",
+                        "string",
+                        required=False,
+                        default="ja",
+                        description="Language hint",
+                    ),
                 ],
                 "provider_option_schema": [
-                    _option("device_map", "string", required=False, default="cpu", description="Transformers device map"),
-                    _option("dtype", "string", required=False, default="bfloat16", description="Model dtype hint"),
+                    _option(
+                        "device_map",
+                        "string",
+                        required=False,
+                        default="cpu",
+                        description="Transformers device map",
+                    ),
+                    _option(
+                        "dtype",
+                        "string",
+                        required=False,
+                        default="bfloat16",
+                        description="Model dtype hint",
+                    ),
                     _option(
                         "attn_implementation",
                         "string",
@@ -474,7 +641,12 @@ class CapabilityDescriptorService:
                         max_value=180.0,
                         description="Maximum audio chunk length used for forced alignment",
                     ),
-                    _option("context", "string", required=False, description="Optional textual context prompt"),
+                    _option(
+                        "context",
+                        "string",
+                        required=False,
+                        description="Optional textual context prompt",
+                    ),
                 ],
                 "supports": {
                     "language_hint": True,

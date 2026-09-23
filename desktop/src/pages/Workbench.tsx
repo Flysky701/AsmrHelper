@@ -5,6 +5,9 @@ import { batchesApi } from '@/api/batches'
 import { inputsApi } from '@/api/inputs'
 import { pipelineApi } from '@/api/pipeline'
 import { capabilitiesApi } from '@/api/engines'
+import { settingsApi } from '@/api/settings'
+import type { SettingsView } from '@/api/settings'
+import RemoteModelSelect from '@/components/RemoteModelSelect'
 import { resourcesApi } from '@/api/resources'
 import { ttsApi } from '@/api/tts'
 import { voiceApi } from '@/api/voice'
@@ -562,18 +565,21 @@ function SelectField({
   value,
   options,
   onChange,
+  disabled = false,
 }: {
   title: string
   hint?: string
   value: string
   options: Option[]
   onChange: (value: string) => void
+  disabled?: boolean
 }) {
   return (
     <div>
       <FieldLabel title={title} hint={hint} />
       <select
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         style={{
           width: '100%',
@@ -873,6 +879,34 @@ export default function Workbench() {
   const [fileSelectionError, setFileSelectionError] = useState('')
   const [capabilities, setCapabilities] = useState<CapabilityDescriptorResponse[]>([])
   const [capabilityError, setCapabilityError] = useState('')
+  const [connections, setConnections] = useState<SettingsView['connection_profiles'] | null>(null)
+  const [switchingConnection, setSwitchingConnection] = useState(false)
+  const connectionSwitchRef = useRef(false)
+
+  const selectConnection = async (kind: 'llm' | 'tts', id: string) => {
+    if (connectionSwitchRef.current || submitting) return
+    connectionSwitchRef.current = true
+    setSwitchingConnection(true)
+    try {
+      const { settings } = await settingsApi.update({ active_connections: { [kind]: id } })
+      setConnections(settings.connection_profiles)
+      if (kind === 'llm') {
+        const provider = settings.providers.default_llm
+        updateParam('translateProvider', provider)
+        updateParam('translateModel', provider === 'openai' ? settings.providers.openai.model : settings.providers.deepseek.model)
+      } else {
+        updateParam('ttsVoice', settings.external_tts.voice || '')
+        updateParam('ttsSpeed', 1)
+      }
+      setCapabilities(await capabilitiesApi.list())
+      setCapabilityError('')
+    } catch (error) {
+      setCapabilityError(`连接配置切换失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      connectionSwitchRef.current = false
+      setSwitchingConnection(false)
+    }
+  }
   const [ttsVoices, setTtsVoices] = useState<TtsVoiceItemResponse[]>([])
   const [ttsVoiceError, setTtsVoiceError] = useState('')
   const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfileSummaryResponse[]>([])
@@ -942,8 +976,16 @@ export default function Workbench() {
     let retryTimer: number | undefined
 
     const loadCapabilities = () => {
-      capabilitiesApi.list().then((items) => {
+      Promise.all([capabilitiesApi.list(), settingsApi.get()]).then(([items, { settings }]) => {
         if (cancelled) return
+        const store = useWorkbenchStore.getState()
+        setConnections(settings.connection_profiles)
+        if (settings.connection_profiles || !store.llmSelectionInitialized) {
+          const provider = settings.providers.default_llm
+          const model = provider === 'openai' ? settings.providers.openai.model : settings.providers.deepseek.model
+          store.updateParam('translateProvider', provider)
+          store.updateParam('translateModel', model || items.find(item => item.category === 'llm' && item.provider === provider)?.default_model || '')
+        }
         setCapabilities(items)
         setCapabilityError('')
       }).catch((error) => {
@@ -1213,6 +1255,7 @@ export default function Workbench() {
       selectedInputs.length === 0 ||
       !currentPreset ||
       discoveringInputs ||
+      connectionSwitchRef.current ||
       submitLockRef.current
     ) return
 
@@ -1380,7 +1423,9 @@ export default function Workbench() {
 
   const ttsEngineOptions = providerOptions('tts', TTS_ENGINE_OPTIONS)
   const translateProviderOptions = providerOptions('llm', TRANSLATE_PROVIDER_OPTIONS)
-  const translateModelOptions = modelsFor('llm', params.translateProvider, [])
+  const ttsSpeedOption = capabilities.find(item => item.category === 'tts' && item.provider === params.ttsEngine)
+    ?.common_option_schema.find(option => option.name === 'speed')
+  const ttsFixedSpeed = ttsSpeedOption?.min === 1 && ttsSpeedOption?.max === 1
   const asrProviderOptions = providerOptions('asr', [{ value: 'faster_whisper', label: 'faster-whisper' }])
   const asrModelOptions = modelsFor('asr', params.asrProvider, ASR_MODEL_OPTIONS)
   const vocalProviderOptions = providerOptions('separator', [{ value: 'demucs', label: 'Demucs' }])
@@ -1441,6 +1486,7 @@ export default function Workbench() {
       ? (params.useVocalSeparator ? `模型：${params.vocalModel}` : '已由参数关闭')
       : '当前预设不执行',
     asr: stageFlags.asr ? `模型：${params.asrModel}` : '当前预设不执行',
+    align: stageFlags.align ? 'Qwen3-ForcedAligner-0.6B' : '未启用',
     translate: activePresetStages.has('translate')
       ? (stageFlags.translate
           ? `${optionLabel(LANG_OPTIONS, params.sourceLang)} → ${optionLabel(LANG_OPTIONS, params.targetLang)}`
@@ -1462,6 +1508,7 @@ export default function Workbench() {
   const outputSummary = [
     ...(stageFlags.mix ? ['混音成品音频'] : []),
     ...(stageFlags.export ? ['SRT 字幕与识别文本'] : []),
+    ...(stageFlags.align ? ['原始时间轴、校准字幕与逐字时间戳'] : []),
     ...(stageFlags.tts ? ['语音合成中间音轨'] : []),
     ...(stageFlags.separate ? ['分离人声中间产物'] : []),
   ]
@@ -1496,15 +1543,9 @@ export default function Workbench() {
       <style>{WORKBENCH_LAYOUT_STYLES}</style>
       <header className="workbench-header">
         <div className="workbench-header-copy">
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            Mainline Workspace
-          </div>
           <h1 style={{ marginTop: 8, fontSize: 26, lineHeight: 1.15, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
             工作台
           </h1>
-          <p style={{ marginTop: 8, color: 'var(--muted)', maxWidth: 520 }}>
-            先选择输入，再确认流水线和关键参数，最后把任务交给 TaskCenter 跟踪。
-          </p>
         </div>
 
         <div className="workbench-header-actions">
@@ -1538,7 +1579,7 @@ export default function Workbench() {
           </ActionButton>
           <ActionButton
             variant="primary"
-            disabled={selectedInputs.length === 0 || submitting || discoveringInputs || !!capabilityError || !currentPreset}
+            disabled={selectedInputs.length === 0 || submitting || switchingConnection || discoveringInputs || !!capabilityError || !currentPreset}
             onClick={handleExecute}
           >
             <PlayIcon />
@@ -1795,7 +1836,7 @@ export default function Workbench() {
             ) : null}
           </Section>
 
-          <Section title="流水线预览" caption="预览、运行条件检查和实际任务使用同一套阶段配置">
+          <Section title="流水线预览">
             <div className="workbench-pipeline-scroll">
               <div className="workbench-pipeline-track">
               {stageSummary.map((stage, index) => (
@@ -1841,7 +1882,7 @@ export default function Workbench() {
             </div>
           </Section>
 
-          <Section title="基础参数" caption="直接影响本次处理结果的常用设置" open={commonExpanded} onToggle={toggleCommon}>
+          <Section title="基础参数" open={commonExpanded} onToggle={toggleCommon}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
               <SelectField
                 title="源语言"
@@ -1871,7 +1912,15 @@ export default function Workbench() {
                 checked={params.skipExisting}
                 onChange={(value) => updateParam('skipExisting', value)}
               />
-              {stageFlags.tts ? (
+              {stageFlags.asr ? <ToggleField
+                title="校准字幕时间轴"
+                hint="使用 Qwen3-ForcedAligner-0.6B 对齐原音频与文字，需先安装模型"
+                checked={params.alignSubtitles}
+                onChange={(value) => updateParam('alignSubtitles', value)}
+              /> : null}
+              {stageFlags.tts && ttsFixedSpeed ? (
+                <div style={{ fontSize: 13, color: 'var(--muted)' }}>语速：在设置的语音指令中调整</div>
+              ) : stageFlags.tts ? (
                 <RangeField
                   title="语速"
                   value={params.ttsSpeed}
@@ -1916,7 +1965,7 @@ export default function Workbench() {
             </div>
           </Section>
 
-          <Section title="模型与引擎" caption="这些设置决定流水线每一阶段由谁来执行" open={modelExpanded} onToggle={toggleModel}>
+          <Section title="模型与引擎" open={modelExpanded} onToggle={toggleModel}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
               {stageFlags.tts ? (
                 <>
@@ -1926,16 +1975,27 @@ export default function Workbench() {
                     options={ttsEngineOptions}
                     onChange={(value) => {
                       updateParam('ttsEngine', value)
+                      if (value === 'openai_compatible') {
+                        updateParam('ttsSpeed', 1.0)
+                        const voice = capabilities.find(item => item.category === 'tts' && item.provider === value)
+                          ?.common_option_schema.find(option => option.name === 'voice')?.default
+                        updateParam('ttsVoice', typeof voice === 'string' ? voice : '')
+                      }
                       updateParam('voiceProfileId', null)
                     }}
                   />
-                  <SelectField
+                  {params.ttsEngine === 'openai_compatible' ? (
+                    <SelectField title="语音连接配置" hint="在设置中添加或修改" disabled={submitting || switchingConnection}
+                      value={connections?.active_tts || ''}
+                      options={connections?.tts.map(item => ({ value: item.id, label: item.name })) || []}
+                      onChange={value => void selectConnection('tts', value)} />
+                  ) : <SelectField
                     title="TTS 声线"
                     hint={ttsVoiceError || '由当前语音合成引擎提供'}
                     value={params.ttsVoice}
                     options={ttsVoiceOptions}
                     onChange={(value) => updateParam('ttsVoice', value)}
-                  />
+                  />}
                   {params.ttsEngine === 'qwen3' ? (
                     <SelectField
                       title="音色档案"
@@ -1975,7 +2035,10 @@ export default function Workbench() {
               ) : null}
               {stageFlags.translate ? (
                 <>
-                  <SelectField
+                  {connections ? <SelectField title="翻译连接配置" hint="在设置中添加或修改" disabled={submitting || switchingConnection}
+                    value={connections.active_llm}
+                    options={connections.llm.map(item => ({ value: item.id, label: item.name }))}
+                    onChange={value => void selectConnection('llm', value)} /> : <SelectField
                     title="翻译提供方"
                     value={params.translateProvider}
                     options={translateProviderOptions}
@@ -1984,13 +2047,9 @@ export default function Workbench() {
                       const defaultModel = defaultModelFor('llm', value)
                       if (defaultModel) updateParam('translateModel', defaultModel)
                     }}
-                  />
-                  <SelectField
-                    title="翻译模型"
-                    value={params.translateModel}
-                    options={translateModelOptions}
-                    onChange={(value) => updateParam('translateModel', value)}
-                  />
+                  />}
+                  <RemoteModelSelect key={`${connections?.active_llm}:${switchingConnection}`} provider={params.translateProvider} value={params.translateModel}
+                    onChange={value => updateParam('translateModel', value)} />
                 </>
               ) : null}
               {stageFlags.separate ? (
@@ -2017,7 +2076,7 @@ export default function Workbench() {
           </Section>
 
           {dynamicCapabilityOptions.length > 0 ? (
-            <Section title="高级参数" caption="保留，但不让它们占住主操作空间" open={advExpanded} onToggle={toggleAdv}>
+            <Section title="高级参数" open={advExpanded} onToggle={toggleAdv}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 18 }}>
                 {dynamicCapabilityOptions.map(({ descriptor, option, scope }) => (
                   <CapabilityOptionField
@@ -2034,7 +2093,7 @@ export default function Workbench() {
         </div>
 
         <aside className="workbench-side-column">
-          <Section title="执行前确认" caption="点击执行前，先确认这次任务会发生什么">
+          <Section title="执行前确认">
             <div style={{ display: 'grid', gap: 14 }}>
               {presetError ? (
                 <div
@@ -2122,7 +2181,7 @@ export default function Workbench() {
             </div>
           </Section>
 
-          <Section title="预计输出" caption="主链路优先保证成品、字幕和可预览产物">
+          <Section title="预计输出">
             <div style={{ display: 'grid', gap: 10 }}>
               {outputSummary.map((item) => (
                 <div
@@ -2143,7 +2202,6 @@ export default function Workbench() {
 
           <Section
             title="最近任务"
-            caption="如果已经开始跑任务，去 TaskCenter 跟踪阶段和产物"
             actions={
               <ActionButton variant="ghost" onClick={() => setPage('task-center')}>
                 查看任务中心

@@ -108,9 +108,7 @@ class ResourceService:
         if task_type == "pipeline":
             issues.extend(self._check_pipeline_profile(profile, input_path=input_path))
 
-        missing = list(
-            dict.fromkeys(str(issue["requirement"]) for issue in issues)
-        )
+        missing = list(dict.fromkeys(str(issue["requirement"]) for issue in issues))
         return {
             "task_type": task_type,
             "ready": not issues,
@@ -141,6 +139,19 @@ class ResourceService:
 
         issues: list[dict[str, object]] = []
         models = self._model_service.list_models()
+        alignment = stages.get("align") or {}
+        if alignment.get("enabled", False):
+            model_id = "qwen3-forced-aligner-0.6b"
+            if alignment.get("provider") != "qwen3_forced_aligner" or alignment.get("model") not in (None, model_id):
+                issues.append(self._issue(stage="align", category="alignment", provider=str(alignment.get("provider", "")),
+                    model=model_id, code="MODEL_UNSUPPORTED", requirement=model_id,
+                    message="字幕对齐仅支持 Qwen3-ForcedAligner-0.6B"))
+            else:
+                status = self._model_service.get_model_status(model_id)
+                if not status.executable:
+                    issues.append(self._issue(stage="align", category="alignment", provider="qwen3_forced_aligner",
+                        model=model_id, code="MODEL_NOT_EXECUTABLE", requirement=model_id,
+                        message=status.detail or "请先安装对齐模型及运行环境", action="engines"))
         for stage_name, category in self._STAGE_CATEGORIES.items():
             stage = stages.get(stage_name)
             if not isinstance(stage, dict) or not bool(stage.get("enabled", True)):
@@ -227,7 +238,16 @@ class ResourceService:
             if not resolved_model or resolved_model == "default":
                 resolved_model = descriptor.get("default_model")
             supported = list(descriptor.get("supported_models") or [])
-            if resolved_model and supported and resolved_model not in supported:
+            remote_models = category == "llm" or (category, provider) == (
+                "tts",
+                "openai_compatible",
+            )
+            if (
+                not remote_models
+                and resolved_model
+                and supported
+                and resolved_model not in supported
+            ):
                 issues.append(
                     self._issue(
                         stage=stage_name,
@@ -241,6 +261,37 @@ class ResourceService:
                 )
                 continue
 
+            if category == "tts" and provider == "openai_compatible":
+                from src.core.config import config
+
+                for key, label in (
+                    ("base_url", "API 地址"),
+                    ("api_key", "API Key"),
+                    ("model", "模型 ID"),
+                    ("voice", "音色 ID"),
+                ):
+                    value = common_options.get("voice") if key == "voice" else None
+                    if key == "model" and requested_model not in (None, "default"):
+                        value = requested_model
+                    if not str(value or config.get(f"external_tts.{key}") or "").strip():
+                        issues.append(
+                            self._issue(
+                                stage=stage_name,
+                                category=category,
+                                provider=provider,
+                                model=resolved_model,
+                                code=(
+                                    "CREDENTIAL_MISSING"
+                                    if key == "api_key"
+                                    else "CONFIGURATION_MISSING"
+                                ),
+                                requirement=f"external_tts.{key}",
+                                message=f"请在设置中填写外部 TTS 的{label}",
+                                action="settings",
+                            )
+                        )
+                continue
+
             candidates = [
                 model
                 for model in models
@@ -250,8 +301,7 @@ class ResourceService:
                 (
                     model
                     for model in candidates
-                    if resolved_model == model.model_id
-                    or resolved_model in model.capability_models
+                    if resolved_model == model.model_id or resolved_model in model.capability_models
                 ),
                 None,
             )
@@ -272,9 +322,9 @@ class ResourceService:
                         code=model_issue.code,
                         requirement=model_issue.requirement,
                         message=model_issue.message,
-                        action="settings"
-                        if model_issue.code == "CREDENTIAL_MISSING"
-                        else "engines",
+                        action=(
+                            "settings" if model_issue.code == "CREDENTIAL_MISSING" else "engines"
+                        ),
                     )
                 )
             if not status.issues:

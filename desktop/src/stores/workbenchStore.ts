@@ -15,6 +15,7 @@ export interface WorkbenchParams {
   vocalModel: string
   asrProvider: string
   asrModel: string
+  alignSubtitles: boolean
   translateProvider: string
   translateModel: string
   ttsSpeed: number
@@ -35,6 +36,7 @@ const DEFAULT_PARAMS: WorkbenchParams = {
   vocalModel: 'htdemucs',
   asrProvider: 'faster_whisper',
   asrModel: 'faster-whisper-base',
+  alignSubtitles: false,
   translateProvider: 'deepseek',
   translateModel: 'deepseek-chat',
   ttsSpeed: 1.0,
@@ -56,6 +58,7 @@ interface WorkbenchStore {
   batchMaxParallel: number
   preset: string
   params: WorkbenchParams
+  llmSelectionInitialized: boolean
   layer2Expanded: boolean
   layer3Expanded: boolean
   commonExpanded: boolean
@@ -98,6 +101,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
   batchMaxParallel: 1,
   preset: '',
   params: { ...DEFAULT_PARAMS },
+  llmSelectionInitialized: false,
   layer2Expanded: true,
   layer3Expanded: false,
   commonExpanded: true,
@@ -151,7 +155,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
   setPresets: (presets) => set({ presets }),
   setPresetsLoading: (loading) => set({ presetsLoading: loading }),
   updateParam: (key, value) =>
-    set((s) => ({ params: { ...s.params, [key]: value } })),
+    set((s) => ({
+      params: { ...s.params, [key]: value },
+      llmSelectionInitialized: s.llmSelectionInitialized || key === 'translateProvider' || key === 'translateModel',
+    })),
   updateCapabilityOption: (scope, name, value) =>
     set((s) => ({
       capabilityOptions: {
@@ -178,6 +185,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
       batchMaxParallel: 1,
       preset: '',
       params: { ...DEFAULT_PARAMS },
+      llmSelectionInitialized: false,
       capabilityOptions: {},
       layer2Expanded: true,
       layer3Expanded: false,

@@ -30,6 +30,11 @@ class ProviderTestRequest(BaseModel):
     settings: dict[str, Any] = Field(default_factory=dict, description="Optional override settings")
 
 
+class ProviderModelsResponse(BaseModel):
+    provider: str
+    models: list[str]
+
+
 class ProviderTestResponse(BaseModel):
     provider: str
     success: bool

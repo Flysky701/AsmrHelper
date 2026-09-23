@@ -18,6 +18,7 @@ class PipelineMode(str, Enum):
 class StageKind(str, Enum):
     SEPARATION = "separation"
     ASR = "asr"
+    ALIGN = "align"
     TRANSLATION = "translation"
     TTS = "tts"
     MIX = "mix"
@@ -89,6 +90,9 @@ class PipelineExecutionPlan:
     translation: StageBinding = field(default_factory=lambda: StageBinding(
         kind=StageKind.TRANSLATION, provider="deepseek", model="default",
     ))
+    alignment: StageBinding = field(default_factory=lambda: StageBinding(
+        kind=StageKind.ALIGN, provider="qwen3_forced_aligner", model="qwen3-forced-aligner-0.6b", enabled=False,
+    ))
     tts: StageBinding = field(default_factory=lambda: StageBinding(
         kind=StageKind.TTS, provider="edge", model="default",
     ))
@@ -105,6 +109,8 @@ class PipelineExecutionPlan:
             stages.append(StageKind.SEPARATION)
         if self.asr.enabled:
             stages.append(StageKind.ASR)
+        if self.alignment.enabled:
+            stages.append(StageKind.ALIGN)
         if self.translation.enabled:
             stages.append(StageKind.TRANSLATION)
         if self.tts.enabled:

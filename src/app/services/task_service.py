@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+from copy import deepcopy
+from src.task_connection_context import capture_connections, connection_context
 from src.core.tasks import ExecutorRegistry, RuntimeEvent, TaskRegistry, TaskSpec, TaskStatus
 from ..errors import AppExecutionError, AppValidationError
 from ..persistence import SqliteStateStore, get_state_store
@@ -24,7 +26,14 @@ class TaskService:
         self._lock = threading.Lock()
         self._state_store = state_store
         self._restored_task_ids: set[str] = set()
+        self._connection_snapshots: dict[str, dict] = {}
+        self._connection_records: dict[str, dict] = {}
+        self.recovery_store = None
         if self._state_store is not None:
+            if isinstance(self._state_store, SqliteStateStore):
+                from ..persistence.recovery_store import RecoveryStore
+                self.recovery_store = RecoveryStore(self._state_store)
+                self.recovery_store.retain_interrupted()
             self._state_store.purge_unfinished()
             for task_spec, task_status in self._state_store.load_terminal_tasks():
                 self._registry.restore_task(task_spec, task_status)
@@ -44,6 +53,12 @@ class TaskService:
         retry_of_task_id: str | None = None,
     ) -> tuple[TaskSpec, TaskStatus]:
         with self._lock:
+            from src.config import config
+
+            settings = config.to_dict()
+            connections = capture_connections(settings)
+            from src.recovery_connections import capture_recovery_connections
+            connection_record = capture_recovery_connections(settings, connections)
             try:
                 result = self._registry.create_task_spec(
                     task_type=task_type,
@@ -66,6 +81,9 @@ class TaskService:
                     raise AppExecutionError(
                         f"failed to persist task creation: {result[0].task_id}"
                     ) from exc
+            # A deduplicated submission must keep the first task's connections.
+            self._connection_snapshots.setdefault(result[0].task_id, connections)
+            self._connection_records.setdefault(result[0].task_id, connection_record)
             return result
 
     def get_task(self, task_id: str) -> TaskStatus:
@@ -204,13 +222,104 @@ class TaskService:
             if self._state_store is not None:
                 try:
                     task_spec = self._registry.get_task_spec(result.task_id)
-                    self._state_store.save_task(task_spec, result)
+                    manifest = self.recovery_store.manifest(task_id) if self.recovery_store else None
+                    if manifest:
+                        manifest["resume_of_task_id"] = None
+                        self._state_store.save_task(task_spec, result, recovery_manifest=manifest)
+                    else:
+                        self._state_store.save_task(task_spec, result)
                 except Exception as exc:
                     self._registry.discard_task(result.task_id)
                     raise AppExecutionError(
                         f"failed to persist task retry: {result.task_id}"
                     ) from exc
+            self._connection_snapshots[result.task_id] = deepcopy(
+                self._connection_snapshots.get(task_id, {})
+            )
+            if task_id in self._connection_records:
+                self._connection_records[result.task_id] = deepcopy(self._connection_records[task_id])
             return result
+
+    def connection_context(self, task_id: str):
+        """Bind private connections for this task without exposing its secrets."""
+        with self._lock:
+            snapshot = deepcopy(self._connection_snapshots.get(task_id))
+        return connection_context(snapshot)
+
+    def save_pipeline_manifest(self, task_id: str, *, input_path: str,
+                               companion_paths: list[str], output_root: str) -> None:
+        """Persist enough facts to reconstruct sessions after process restart."""
+        if self.recovery_store is None:
+            return
+        with self._lock:
+            self.recovery_store.save_manifest(task_id, {
+                "version": 1, "input_path": input_path,
+                "companion_paths": list(companion_paths), "output_root": output_root,
+                "connections": self._connection_records[task_id],
+                "resume_of_task_id": None,
+            })
+
+    def recovery_info(self, task_id: str) -> dict:
+        task = self.get_task(task_id)
+        manifest = self.recovery_store.manifest(task_id) if self.recovery_store else None
+        reason = None
+        stages = []
+        if task.task_type != "pipeline" or not manifest:
+            reason = "此任务没有可恢复的执行清单"
+        elif task.state not in {"failed", "cancelled"}:
+            reason = "仅失败、取消或中断的任务可以继续"
+        elif any(t.retry_of_task_id == task_id and t.state in {"pending", "running"}
+                 for t in self.list_tasks()):
+            reason = "该任务已有正在执行的恢复尝试"
+        else:
+            from src.config import config
+            from src.recovery_connections import restore_recovery_connections
+            from pathlib import Path
+            try:
+                restore_recovery_connections(manifest["connections"], config.to_dict())
+                for path in [manifest["input_path"], *manifest["companion_paths"]]:
+                    if not Path(path).is_file():
+                        raise ValueError("原始输入文件已不存在")
+            except (ValueError, KeyError) as exc:
+                reason = str(exc)
+        if manifest:
+            stages = [stage for stage in ("separate", "asr", "align", "translate", "tts", "mix", "export")
+                      if self.recovery_store.checkpoint(task_id, stage)]
+        return {"can_resume": reason is None, "reason": reason, "completed_stages": stages}
+
+    def resume_pipeline_task(self, task_id: str, *, session_id: str,
+                             input_asset_id: str, companion_asset_ids: list[str]) -> TaskStatus:
+        from src.config import config
+        from src.recovery_connections import restore_recovery_connections
+        info = self.recovery_info(task_id)
+        if not info["can_resume"]:
+            raise AppValidationError(info["reason"])
+        with self._lock:
+            if any(t.retry_of_task_id == task_id and t.state in {"pending", "running"}
+                   for t in self._registry.list_tasks()):
+                raise AppValidationError("该任务已有正在执行的恢复尝试")
+            previous = self._registry.get_task_spec(task_id)
+            manifest = self.recovery_store.manifest(task_id)
+            try:
+                connections = restore_recovery_connections(manifest["connections"], config.to_dict())
+            except ValueError as exc:
+                raise AppValidationError(str(exc)) from exc
+            spec, status = self._registry.create_task_spec(
+                task_type="pipeline", task_source=f"resume:{task_id}",
+                session_id=session_id, input_asset_id=input_asset_id,
+                companion_asset_ids=companion_asset_ids,
+                execution_profile=deepcopy(previous.execution_profile),
+                priority=previous.priority, retry_of_task_id=task_id)
+            manifest = deepcopy(manifest)
+            manifest["resume_of_task_id"] = task_id
+            try:
+                self._state_store.save_task(spec, status, recovery_manifest=manifest)
+            except Exception as exc:
+                self._registry.discard_task(spec.task_id)
+                raise AppExecutionError("failed to persist resumed task") from exc
+            self._connection_snapshots[spec.task_id] = connections
+            self._connection_records[spec.task_id] = deepcopy(manifest["connections"])
+            return status
 
     @property
     def registry(self) -> TaskRegistry:

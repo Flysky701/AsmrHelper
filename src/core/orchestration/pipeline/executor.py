@@ -7,7 +7,9 @@ through the corresponding EngineRuntime.
 from __future__ import annotations
 
 import time
+import json
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -28,6 +30,7 @@ class PipelineExecutor:
         *,
         separator=None,
         asr=None,
+        aligner=None,
         llm=None,
         tts=None,
         mixer_factory=None,
@@ -45,6 +48,7 @@ class PipelineExecutor:
         """
         self._separator = separator
         self._asr = asr
+        self._aligner = aligner
         self._llm = llm
         self._tts = tts
         self._mixer_factory = mixer_factory
@@ -57,6 +61,7 @@ class PipelineExecutor:
         progress_callback: Callable[[str], None] | None = None,
         stage_callback: Callable[[str, float, str], None] | None = None,
         cancel_event: threading.Event | None = None,
+        recovery=None,
     ) -> dict[str, Any]:
         """Run all enabled stages and return normalized results.
 
@@ -67,6 +72,8 @@ class PipelineExecutor:
         Returns:
             Normalized result dictionary compatible with ArtifactResultMapper output
         """
+        if recovery is not None:
+            plan = replace(plan, skip_existing=False)
         results: dict[str, Any] = {
             "input": plan.input_path,
             "output_dir": plan.output_dir,
@@ -107,53 +114,74 @@ class PipelineExecutor:
         tts_audio_path = by_product_dir / "tts_output.wav"
         results["output_dir"] = str(by_product_dir)
 
+        def _run(stage, operation):
+            if recovery is None:
+                return operation()
+            def checked_operation():
+                value = operation()
+                _check_cancel()
+                return value
+            return recovery.run(stage, checked_operation, results, timestamped_segments,
+                                translations, by_product_dir, mix_path)
+
         try:
             # === SEPARATION ===
             if plan.separation.enabled:
                 _check_cancel()
                 current_step += 1
                 _report("separate", f"[{current_step}/{total_steps}] 人声分离...")
-                vocal_path = self._execute_separation(plan, by_product_dir, results)
+                vocal_path = _run("separate", lambda: self._execute_separation(plan, by_product_dir, results))
 
             # === ASR ===
             if plan.asr.enabled:
                 _check_cancel()
                 current_step += 1
                 _report("asr", f"[{current_step}/{total_steps}] ASR 语音识别...")
-                timestamped_segments = self._execute_asr(plan, vocal_path, by_product_dir, results)
+                timestamped_segments = _run("asr", lambda: self._execute_asr(plan, vocal_path, by_product_dir, results))
+
+            # === ALIGNMENT ===
+            if plan.alignment.enabled:
+                _check_cancel()
+                current_step += 1
+                _report("align", f"[{current_step}/{total_steps}] 校准字幕时间轴...")
+                timestamped_segments = _run("align", lambda: self._execute_alignment(
+                    plan, timestamped_segments, by_product_dir, results
+                ))
+                _check_cancel()
 
             # === TRANSLATION ===
             if plan.translation.enabled:
                 _check_cancel()
                 current_step += 1
                 _report("translate", f"[{current_step}/{total_steps}] 文本翻译...")
-                translations = self._execute_translation(
+                translations = _run("translate", lambda: self._execute_translation(
                     plan, timestamped_segments, by_product_dir, results
-                )
+                ))
 
             # === TTS ===
             if plan.tts.enabled:
                 _check_cancel()
                 current_step += 1
                 _report("tts", f"[{current_step}/{total_steps}] TTS 语音合成...")
-                tts_audio_path = self._execute_tts(
+                tts_audio_path = _run("tts", lambda: self._execute_tts(
                     plan, timestamped_segments, by_product_dir, results
-                )
+                ))
 
             # === MIX ===
             if plan.mix.enabled:
                 _check_cancel()
                 current_step += 1
                 _report("mix", f"[{current_step}/{total_steps}] 混合音频...")
-                self._execute_mix(plan, vocal_path, tts_audio_path, mix_path, results)
+                _run("mix", lambda: self._execute_mix(plan, vocal_path, tts_audio_path, mix_path, results))
 
             # === SUBTITLE EXPORT ===
             if plan.subtitle.enabled:
+                _check_cancel()
                 current_step += 1
                 _report("export", f"[{current_step}/{total_steps}] 导出字幕...")
-                exported_subtitle = self._export_subtitles(
+                exported_subtitle = _run("export", lambda: self._export_subtitles(
                     plan, timestamped_segments, translations, by_product_dir
-                )
+                ))
                 if exported_subtitle:
                     results["exported_subtitle"] = exported_subtitle
 
@@ -261,6 +289,36 @@ class PipelineExecutor:
             self._try_clear_gpu()
 
         return segments
+
+    def _execute_alignment(self, plan, segments, by_product_dir, results):
+        from src.core.engines.alignment import AlignmentRuntime
+        from src.core.subtitles import SubtitleExporter, load_subtitle_with_timestamps
+
+        if plan.companion_subtitle_path:
+            source = Path(plan.companion_subtitle_path)
+            if source.suffix.lower() == ".txt":
+                segments = [{"text": source.read_text(encoding="utf-8").strip()}]
+            else:
+                segments = load_subtitle_with_timestamps(str(source))
+        original = by_product_dir / "alignment_original.json"
+        original.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
+        started = time.time()
+        if self._asr is None:
+            from src.core.engines.asr import get_asr_registry
+            get_asr_registry().unload_all()
+            self._try_clear_gpu()
+        runtime = self._aligner or AlignmentRuntime()
+        aligned = runtime.align_file(input_path=plan.input_path, segments=segments, language=plan.source_lang)
+        output = by_product_dir / "alignment_result.json"
+        output.write_text(json.dumps(aligned, ensure_ascii=False, indent=2), encoding="utf-8")
+        subtitle = by_product_dir / "aligned.vtt"
+        SubtitleExporter().export_bilingual_subtitle(aligned["segments"], str(subtitle), bilingual=False)
+        results["alignment_path"] = str(output)
+        results["aligned_subtitle_path"] = str(subtitle)
+        results["alignment_original_path"] = str(original)
+        results["steps"]["align"] = {"duration": time.time() - started, "output": str(output),
+            "segments": len(aligned["segments"]), "warnings": aligned.get("warnings", [])}
+        return aligned["segments"]
 
     def _execute_translation(
         self,

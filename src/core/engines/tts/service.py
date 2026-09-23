@@ -13,7 +13,9 @@ from .registry import get_tts_registry
 class TtsEngineRuntime:
     """Execute TTS synthesis against the legacy engine implementation."""
 
-    def __init__(self, registry=None, *, runtime_router=None, enable_runtime_routing: bool = True) -> None:
+    def __init__(
+        self, registry=None, *, runtime_router=None, enable_runtime_routing: bool = True
+    ) -> None:
         self._registry = registry or get_tts_registry()
         self._runtime_router = runtime_router
         if enable_runtime_routing and self._runtime_router is None:
@@ -102,6 +104,15 @@ class TtsEngineRuntime:
 
         voice = str(common_options.get("voice", "")).strip()
         speed = float(common_options.get("speed", 1.0))
+
+        if engine_id == "openai_compatible":
+            kwargs = {"speed": speed}
+            if voice:
+                kwargs["voice"] = voice
+            model = str(profile.get("model") or "").strip()
+            if model and model != "default":
+                kwargs["model"] = model
+            return kwargs
 
         if engine_id == "edge":
             kwargs = {

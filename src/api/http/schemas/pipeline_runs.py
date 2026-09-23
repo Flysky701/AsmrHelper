@@ -39,6 +39,10 @@ class StageProfileRequest(BaseModel):
 class PipelineStagesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    align: StageProfileRequest = Field(default_factory=lambda: StageProfileRequest(
+        enabled=False, provider="qwen3_forced_aligner", model="qwen3-forced-aligner-0.6b",
+    ))
+
     separate: StageProfileRequest = Field(
         default_factory=lambda: StageProfileRequest(
             provider="demucs",

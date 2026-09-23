@@ -93,7 +93,7 @@ class SqliteStateStore:
                 """
             )
 
-    def save_task(self, task_spec: TaskSpec, task_status: TaskStatus) -> None:
+    def save_task(self, task_spec: TaskSpec, task_status: TaskStatus, *, recovery_manifest: dict | None = None) -> None:
         with self._lock, self._connect() as connection:
             connection.execute(
                 """
@@ -120,6 +120,13 @@ class SqliteStateStore:
                     json.dumps(asdict(task_status), ensure_ascii=False),
                 ),
             )
+
+            if recovery_manifest is not None:
+                connection.execute(
+                    "INSERT INTO recovery_manifests VALUES (?, ?) "
+                    "ON CONFLICT(task_id) DO UPDATE SET record_json=excluded.record_json",
+                    (task_spec.task_id, json.dumps(recovery_manifest, ensure_ascii=False)),
+                )
 
     def purge_unfinished(self) -> int:
         placeholders = ", ".join("?" for _ in TERMINAL_STATES)

@@ -8,6 +8,12 @@ import type {
   TaskStatusResponse,
 } from './types'
 
+export interface TaskRecoveryResponse {
+  can_resume: boolean
+  reason?: string | null
+  completed_stages: string[]
+}
+
 export const tasksApi = {
   list: () => api.get<TaskListResponse>('/tasks'),
 
@@ -22,6 +28,12 @@ export const tasksApi = {
 
   retry: (taskId: string) =>
     api.post<TaskStatusResponse>(`/tasks/${taskId}/retry`),
+
+  recovery: (taskId: string) =>
+    api.get<TaskRecoveryResponse>(`/tasks/${encodeURIComponent(taskId)}/recovery`),
+
+  resume: (taskId: string) =>
+    api.post<TaskStatusResponse>(`/tasks/${encodeURIComponent(taskId)}/resume`),
 
   artifacts: (taskId: string) =>
     api.get<TaskArtifactsResponse>(`/tasks/${taskId}/artifacts`),

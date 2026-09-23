@@ -205,7 +205,13 @@ class TestPipelineRunRoutes:
         assert request.input_path == "/test/input.wav"
         assert request.output_dir == "/test/output"
         assert request.companion_paths == ["/test/input.vtt"]
-        assert request.execution_profile == profile
+        resolved = dict(request.execution_profile)
+        resolved_stages = dict(resolved["stages"])
+        alignment = resolved_stages.pop("align")
+        assert alignment["enabled"] is False
+        assert alignment["model"] == "qwen3-forced-aligner-0.6b"
+        resolved["stages"] = resolved_stages
+        assert resolved == profile
         assert "profiles" not in request.execution_profile
 
     def test_submit_pipeline_run_rejects_legacy_flat_request(self, client):

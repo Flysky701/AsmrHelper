@@ -41,6 +41,14 @@ class TtsRegistry:
 
     def _register_builtins(self) -> None:
         self.register(
+            "openai_compatible",
+            factory=self._make_openai_compatible_tts,
+            config_defaults={
+                key: f"external_tts.{key}"
+                for key in ("base_url", "api_key", "model", "voice", "api_format", "instructions")
+            },
+        )
+        self.register(
             "edge",
             factory=self._make_edge_tts,
             config_defaults={"voice": "tts.voice"},
@@ -76,8 +84,14 @@ class TtsRegistry:
         """Return available voices for a registered TTS provider."""
         if name not in self._providers:
             raise ValueError(f"unknown TTS provider: {name!r} (available: {self.available()})")
+        if name == "openai_compatible":
+            from src.config import Config
+
+            voice = str(Config().get("external_tts.voice") or "").strip()
+            return [{"id": voice, "name": voice, "language": ""}] if voice else []
         # The factory returns a TTSEngine wrapper; get the underlying engine class
         import src.core.tts as tts_module
+
         engine_map = {
             "edge": tts_module.EdgeTTSEngine,
             "qwen3": tts_module.Qwen3TTSEngine,
@@ -87,6 +101,7 @@ class TtsRegistry:
             return engine_cls.list_voices()
         if name == "voxcpm2":
             from .voxcpm2 import VoxCPM2Engine
+
             return VoxCPM2Engine.list_voices()
         return []
 
@@ -136,6 +151,7 @@ class TtsRegistry:
     @staticmethod
     def _resolve_defaults(config_defaults: dict[str, str]) -> dict[str, Any]:
         from src.config import Config
+
         config = Config()
         resolved = {}
         for param_name, config_path in config_defaults.items():
@@ -148,18 +164,27 @@ class TtsRegistry:
         return f"tts/{name}|{normalized}"
 
     @staticmethod
+    def _make_openai_compatible_tts(**kwargs: Any) -> Any:
+        from .openai_compatible import OpenAICompatibleTtsEngine
+
+        return OpenAICompatibleTtsEngine(**kwargs)
+
+    @staticmethod
     def _make_edge_tts(**kwargs: Any) -> Any:
         from src.core.tts import TTSEngine
+
         return TTSEngine(engine="edge", **kwargs)
 
     @staticmethod
     def _make_qwen3_tts(**kwargs: Any) -> Any:
         from src.core.tts import TTSEngine
+
         return TTSEngine(engine="qwen3", **kwargs)
 
     @staticmethod
     def _make_voxcpm2_tts(**kwargs: Any) -> Any:
         from .voxcpm2 import VoxCPM2Engine
+
         return VoxCPM2Engine(**kwargs)
 
 

@@ -9,6 +9,7 @@ actual pipeline/model/tool work and artifact registration.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import nullcontext
 import inspect
 import logging
 import threading
@@ -223,7 +224,9 @@ class TaskDispatcher:
             ),
         )
         try:
-            record.result = self._invoke_executor(executor, task_spec, context)
+            bind_connections = getattr(self._task_service, "connection_context", None)
+            with bind_connections(task_id) if bind_connections else nullcontext():
+                record.result = self._invoke_executor(executor, task_spec, context)
             current = self._lifecycle().get_task(task_id)
             if current.state in self._registry.TERMINAL_STATES:
                 return

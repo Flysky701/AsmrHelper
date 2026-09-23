@@ -74,27 +74,21 @@ export default function LeftNav() {
   return (
     <nav className="app-nav" aria-label="主导航">
       <div className="app-nav__brand">
-        <div className="app-nav__brand-eyebrow">
-          AsmrHelper
-        </div>
         <div className="app-nav__brand-title">
-          Production Desk
-        </div>
-        <div className="app-nav__brand-description">
-          把输入、任务、产物和预览串在同一条主链路里。
+          ASMR Helper
         </div>
       </div>
 
       <div className="app-nav__scroller">
         <div className="app-nav__group">
-          <div className="app-nav__group-label">Workflow</div>
+          <div className="app-nav__group-label">工具</div>
           <div className="app-nav__items">
             {TOP_PAGES.map(renderItem)}
           </div>
         </div>
 
         <div className="app-nav__group app-nav__group--control">
-          <div className="app-nav__group-label">Control</div>
+          <div className="app-nav__group-label">配置</div>
           <div className="app-nav__items">
             {BOTTOM_PAGES.map(renderItem)}
           </div>

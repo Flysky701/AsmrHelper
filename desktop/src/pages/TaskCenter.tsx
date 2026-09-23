@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { tasksApi } from '@/api/tasks'
 import { apiUrl } from '@/api/client'
 import BatchRunsPanel from '@/components/tasks/BatchRunsPanel'
+import TaskRecoveryAction from '@/components/tasks/TaskRecoveryAction'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 import { useLogStore } from '@/stores/logStore'
@@ -11,6 +12,7 @@ import type { LogLevel } from '@/stores/logStore'
 import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
 import type { JobType, Task, TaskStatus } from '@/stores/taskStore'
+import type { TaskStatusResponse } from '@/api/types'
 
 const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; bg: string; color: string }> = {
   running: { label: '运行中', dot: 'var(--accent)', bg: 'var(--accent-soft)', color: 'var(--accent)' },
@@ -21,15 +23,20 @@ const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; bg: string
   skipped: { label: '已跳过', dot: 'var(--warning)', bg: 'var(--warning-soft)', color: 'var(--warning)' },
 }
 
-const PIPELINE_STAGES = ['准备', '人声分离', 'ASR 识别', '字幕翻译', 'TTS 合成', '混音输出', '导出产物'] as const
-const PIPELINE_STAGE_INDEX: Record<string, number> = {
-  prepare: 0,
-  separate: 1,
-  asr: 2,
-  translate: 3,
-  tts: 4,
-  mix: 5,
-  export: 6,
+const PIPELINE_STAGES = [
+  { id: 'prepare', label: '准备' },
+  { id: 'separate', label: '人声分离' },
+  { id: 'asr', label: 'ASR 识别' },
+  { id: 'align', label: '字幕对齐' },
+  { id: 'translate', label: '字幕翻译' },
+  { id: 'tts', label: 'TTS 合成' },
+  { id: 'mix', label: '混音输出' },
+  { id: 'export', label: '导出产物' },
+]
+
+function pipelineStages(task: Task) {
+  const stages = task.params.stages as Record<string, { enabled?: boolean }> | undefined
+  return PIPELINE_STAGES.filter(({ id }) => id !== 'align' || stages?.align?.enabled || task.stage === 'align')
 }
 
 const SURFACE_STYLE: CSSProperties = {
@@ -340,8 +347,10 @@ function formatDuration(durationMs?: number) {
 }
 
 function pipelineStageIndex(task: Task): number {
-  if (task.stage && task.stage in PIPELINE_STAGE_INDEX) return PIPELINE_STAGE_INDEX[task.stage] ?? 0
-  if (task.status === 'completed') return PIPELINE_STAGES.length - 1
+  const stages = pipelineStages(task)
+  const index = stages.findIndex(({ id }) => id === task.stage)
+  if (index >= 0) return index
+  if (task.status === 'completed') return stages.length - 1
   return 0
 }
 
@@ -353,6 +362,7 @@ function shouldSuggestProviderVerification(task: Task): boolean {
 }
 
 function stageLabel(task: Task) {
+  if (task.error?.code === 'TASK_INTERRUPTED') return '任务已中断'
   if (task.jobType !== 'pipeline') {
     if (task.status === 'completed') return '任务已完成'
     if (task.status === 'failed') return `任务在“${task.stage || '执行'}”阶段失败`
@@ -361,7 +371,7 @@ function stageLabel(task: Task) {
     return task.stage || '等待执行'
   }
   if (task.status === 'completed') return '成品已产出'
-  const currentStage = PIPELINE_STAGES[pipelineStageIndex(task)] ?? '准备'
+  const currentStage = pipelineStages(task)[pipelineStageIndex(task)]?.label ?? '准备'
   if (task.status === 'failed') return `任务在“${currentStage}”阶段失败`
   if (task.status === 'cancelled') return '任务已取消'
   if (task.status === 'skipped') return '任务被跳过'
@@ -433,13 +443,13 @@ function PipelineTimeline({ task }: { task: Task }) {
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      {PIPELINE_STAGES.map((stage, index) => {
+      {pipelineStages(task).map((stage, index) => {
         const completed = task.status === 'completed' || index < activeIndex
         const active = task.status === 'running' && index === activeIndex
         const failed = isFailed && index === activeIndex
 
         return (
-          <div key={stage} style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr)', gap: 12 }}>
+          <div key={stage.id} style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr)', gap: 12 }}>
             <div
               style={{
                 width: 26,
@@ -458,7 +468,7 @@ function PipelineTimeline({ task }: { task: Task }) {
               {index + 1}
             </div>
             <div style={{ paddingTop: 2 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{stage}</div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{stage.label}</div>
               <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
                 {completed ? '阶段已完成' : active ? '当前进行中' : failed ? '在这里失败' : '等待执行'}
               </div>
@@ -670,6 +680,29 @@ export default function TaskCenter() {
     }
   }
 
+  const handleResumed = (task: Task, response: TaskStatusResponse) => {
+    const newTaskId = addTask({
+      serverTaskId: response.task_id,
+      jobType: task.jobType,
+      sourceName: task.sourceName,
+      sourcePath: task.sourcePath,
+      stage: response.stage ?? undefined,
+      retryOfTaskId: response.retry_of_task_id ?? task.serverTaskId,
+      historical: false,
+      params: { ...task.params },
+    })
+    updateTask(newTaskId, {
+      status: response.state as TaskStatus,
+      progress: Math.round(response.progress * 100),
+      message: response.message || '任务已继续',
+      detail: response.detail,
+      createdAt: Date.parse(response.created_at) || Date.now(),
+    })
+    setFilter('all')
+    selectTask(newTaskId)
+    addLog({ level: 'info', content: `已创建恢复任务：${response.task_id}`, taskId: newTaskId })
+  }
+
   const handleCancelRunningTasks = async () => {
     for (const task of runningTasks) {
       await handleCancel(task.id)
@@ -685,17 +718,9 @@ export default function TaskCenter() {
       <style>{TASK_CENTER_LAYOUT_STYLES}</style>
       <header className="task-center-header">
         <div className="task-center-header-copy">
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            Task Cockpit
-          </div>
           <h1 style={{ marginTop: 8, fontSize: 26, lineHeight: 1.15, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
             任务中心
           </h1>
-          <p style={{ marginTop: 8, color: 'var(--muted)', maxWidth: 560 }}>
-            {taskCenterView === 'tasks'
-              ? '这里负责跟踪阶段、查看产物、处理失败任务。日志保留，但退到详情区。'
-              : '批次视图聚合多文件执行事实，只持续刷新当前选中的活动批次。'}
-          </p>
         </div>
 
         <div className="task-center-toolbar">
@@ -885,6 +910,14 @@ export default function TaskCenter() {
                   </div>
                 </div>
 
+                {selectedTask.serverTaskId && (selectedTask.status === 'failed' || selectedTask.status === 'cancelled') ? (
+                  <TaskRecoveryAction
+                    key={selectedTask.serverTaskId}
+                    taskId={selectedTask.serverTaskId}
+                    onResumed={(response) => handleResumed(selectedTask, response)}
+                  />
+                ) : null}
+
                 {selectedTask.status === 'failed' && selectedTask.errorMessage ? (
                   <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--error-soft)', border: '1px solid color-mix(in oklch, var(--error) 24%, transparent)' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--error)' }}>
@@ -917,7 +950,7 @@ export default function TaskCenter() {
                     { label: '当前阶段', value: stageLabel(selectedTask) },
                     { label: '任务 ID', value: selectedTask.serverTaskId || selectedTask.id },
                     ...(selectedTask.retryOfTaskId
-                      ? [{ label: '重试自任务', value: selectedTask.retryOfTaskId }]
+                      ? [{ label: '来源任务', value: selectedTask.retryOfTaskId }]
                       : []),
                     { label: '耗时', value: formatDuration((selectedTask.finishedAt ?? Date.now()) - (selectedTask.startedAt ?? selectedTask.createdAt)) },
                     { label: '源文件', value: selectedTask.sourcePath },

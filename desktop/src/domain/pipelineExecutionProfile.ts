@@ -44,6 +44,7 @@ export function buildPipelineStageFlags(
   return {
     separate: activeStages.has('separate') && params.useVocalSeparator,
     asr: activeStages.has('asr'),
+    align: (activeStages.has('asr') || activeStages.has('align')) && Boolean(params.alignSubtitles),
     translate: activeStages.has('translate') && params.sourceLang !== params.targetLang,
     tts: activeStages.has('tts'),
     mix: activeStages.has('mix'),
@@ -110,10 +111,17 @@ export function buildPipelineExecutionProfile({
         },
         provider_options: asrProviderOptions,
       },
+      align: {
+        enabled: stageFlags.align,
+        provider: 'qwen3_forced_aligner',
+        model: 'qwen3-forced-aligner-0.6b',
+        options: {},
+        provider_options: {},
+      },
       translate: {
         enabled: stageFlags.translate,
         provider: params.translateProvider,
-        model: params.translateModel || llmDescriptor?.default_model || null,
+        model: params.translateModel.trim() || llmDescriptor?.default_model || null,
         options: {
           source_lang: params.sourceLang,
           target_lang: params.targetLang,

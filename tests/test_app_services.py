@@ -63,6 +63,41 @@ class _FakeConfig:
 
 
 class TestSettingsService:
+    def test_custom_llm_model_roundtrip_and_execution(self):
+        from src.app.services.settings_service import SettingsService
+        from src.app.services.execution_profile_builder import ExecutionProfileBuilder
+        from src.core.engines.llm.service import LlmOperationRuntime
+
+        config = _FakeConfig()
+        settings = SettingsService(config_manager=config)
+        result = settings.update_settings({"providers": {
+            "default_llm": "openai",
+            "openai": {"model": " vendor/custom-model ", "base_url": "https://gateway.invalid/v1"},
+        }})
+        assert result["providers"]["openai"]["model"] == "vendor/custom-model"
+        assert config.data["api"]["deepseek_api_key"] == "secret-deepseek"
+        builder = ExecutionProfileBuilder(settings_service=settings)
+        for model in (None, "default", " "):
+            profile = builder.build(category="llm", model=model)
+            assert profile["provider"] == "openai"
+            assert profile["model"] == "vendor/custom-model"
+        profile = builder.build(category="llm", provider="openai", model=" another/model ")
+        registry = MagicMock()
+        LlmOperationRuntime(registry=registry)._get_translator(profile)
+        registry.get.assert_called_once_with("openai", model="another/model", base_url=None)
+
+    @pytest.mark.parametrize("model", ["", "  ", None, 42])
+    def test_invalid_model_setting_does_not_persist(self, model):
+        from src.app.services.settings_service import SettingsService
+        from src.app.errors import AppValidationError
+
+        config = _FakeConfig()
+        with pytest.raises(AppValidationError, match="模型 ID"):
+            SettingsService(config_manager=config).update_settings({
+                "providers": {"openai": {"model": model}},
+            })
+        assert config.persisted is None
+
     def test_public_view_never_returns_secret_or_placeholder(self):
         from src.app.services.settings_service import SettingsService
 

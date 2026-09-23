@@ -55,6 +55,9 @@ class RuntimeRouter:
         result = self._run_worker("tts.synthesize_text", payload, self.tts_profile(str(payload["profile"]["provider"])))
         return str(result["output_path"])
 
+    def align_file(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._run_worker("alignment.align_file", payload, "qwen_asr")
+
     def synthesize_segments(self, payload: dict[str, Any]) -> str:
         result = self._run_worker(
             "tts.synthesize_segments",

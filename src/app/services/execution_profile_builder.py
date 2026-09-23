@@ -7,7 +7,10 @@ from copy import deepcopy
 from typing import Any
 
 from ..errors import AppValidationError
-from .capability_descriptor_service import CapabilityDescriptorService, get_capability_descriptor_service
+from .capability_descriptor_service import (
+    CapabilityDescriptorService,
+    get_capability_descriptor_service,
+)
 from .settings_service import SettingsService, get_settings_service
 
 
@@ -39,7 +42,7 @@ class ExecutionProfileBuilder:
         descriptor = self.descriptor_service.get_descriptor(category, resolved_provider)
 
         # Re-resolve model against descriptor if it was not explicitly provided.
-        if not model:
+        if not model or str(model).strip().lower() in ("", "default"):
             resolved_model = self._default_model(category, settings, descriptor)
 
         # Normalize 'default' alias to descriptor's actual default_model
@@ -71,7 +74,10 @@ class ExecutionProfileBuilder:
         }
 
     def _default_provider(
-        self, category: str, settings: dict[str, Any], model: str | None = None,
+        self,
+        category: str,
+        settings: dict[str, Any],
+        model: str | None = None,
     ) -> str:
         if category == "asr" and model:
             if model.startswith("faster-whisper-"):
@@ -97,8 +103,17 @@ class ExecutionProfileBuilder:
         descriptor: dict[str, Any] | None = None,
     ) -> str:
         fallback = descriptor["default_model"] if descriptor else None
+        if category == "llm":
+            provider = (
+                descriptor["provider"]
+                if descriptor
+                else settings.get("api", {}).get("provider", "deepseek")
+            )
+            return str(settings.get("api", {}).get(f"{provider}_model") or fallback or "default")
         if category == "asr":
-            candidate = str(settings.get("processing", {}).get("asr_model", fallback or "faster-whisper-base"))
+            candidate = str(
+                settings.get("processing", {}).get("asr_model", fallback or "faster-whisper-base")
+            )
             if descriptor:
                 supported = descriptor.get("supported_models", [])
                 if supported and candidate not in supported:
@@ -127,6 +142,12 @@ class ExecutionProfileBuilder:
         return resolved
 
     def _validate_supported_model(self, descriptor: dict[str, Any], model: str):
+        # Remote endpoints own their model catalog; built-in names are suggestions.
+        if descriptor["category"] == "llm" or (descriptor["category"], descriptor["provider"]) == (
+            "tts",
+            "openai_compatible",
+        ):
+            return
         supported = descriptor.get("supported_models", [])
         if supported and model not in supported:
             raise AppValidationError(
@@ -138,7 +159,7 @@ class ExecutionProfileBuilder:
         """Normalize 'default' / empty to the descriptor's default_model."""
         if not model or str(model).strip().lower() in ("", "default"):
             return str(descriptor.get("default_model", "default"))
-        return str(model)
+        return str(model).strip()
 
 
 _service: ExecutionProfileBuilder | None = None

@@ -104,6 +104,7 @@ export interface PipelineExecutionProfileRequest {
   stages: {
     separate: StageProfileRequest
     asr: StageProfileRequest
+    align?: StageProfileRequest
     translate: StageProfileRequest
     tts: StageProfileRequest
     mix: StageProfileRequest

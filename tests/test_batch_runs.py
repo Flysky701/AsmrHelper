@@ -368,7 +368,14 @@ def test_batch_run_http_contract():
     )
     assert created.status_code == 202
     assert created.json()["batch_id"] == "batch-api"
-    assert service.created["execution_profile"] == _profile()
+    resolved = dict(service.created["execution_profile"])
+    resolved_stages = dict(resolved["stages"])
+    alignment = resolved_stages.pop("align")
+    assert alignment["enabled"] is False
+    assert alignment["provider"] == "qwen3_forced_aligner"
+    assert alignment["model"] == "qwen3-forced-aligner-0.6b"
+    resolved["stages"] = resolved_stages
+    assert resolved == _profile()
     assert client.get("/api/v1/batch-runs").json()["batches"][0]["total_count"] == 1
     assert client.post("/api/v1/batch-runs/batch-api/cancel").status_code == 200
     assert client.post("/api/v1/batch-runs/batch-api/retry-failed").status_code == 200

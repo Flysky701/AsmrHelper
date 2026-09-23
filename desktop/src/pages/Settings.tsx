@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import { pipelineApi } from '@/api/pipeline'
-import type { SettingsUpdate, SettingsView } from '@/api/settings'
+import type { ConnectionProfile, SettingsUpdate, SettingsView } from '@/api/settings'
 import type { PresetItem } from '@/api/types'
 import { useFileSelector } from '@/hooks/useFileSelector'
+import { useWorkbenchStore } from '@/stores/workbenchStore'
 
 type SettingsTab = 'api' | 'presets' | 'paths'
 
@@ -39,9 +40,11 @@ export default function Settings() {
   // API test state
   const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null)
   const [testing, setTesting] = useState(false)
+  const [externalTts, setExternalTts] = useState({ id: '', name: '', base_url: '', credential: '', credential_configured: false })
+  const [llmProfile, setLlmProfile] = useState({ id: '', name: '', credential_configured: false })
 
-  // Validation state
-  const [validation, setValidation] = useState<{ valid: boolean; errors: string[] } | null>(null)
+  const [models, setModels] = useState<string[]>([])
+  const modelGenerationRef = useRef(0)
 
   // Draft state
   const [draft, setDraft] = useState({
@@ -50,6 +53,8 @@ export default function Settings() {
     openaiKey: '',
     deepseekBaseUrl: 'https://api.deepseek.com',
     openaiBaseUrl: 'https://api.openai.com/v1',
+    deepseekModel: '',
+    openaiModel: '',
     outputDir: '',
     vttDir: '',
     modelCacheDir: '',
@@ -61,12 +66,45 @@ export default function Settings() {
     return () => {
       loadGenerationRef.current += 1
       presetGenerationRef.current += 1
+      modelGenerationRef.current += 1
     }
   }, [])
+
+  const hydrateLlm = (profile: ConnectionProfile) => {
+    resetModelDiscovery()
+    setLlmProfile({ id: profile.id, name: profile.name, credential_configured: profile.credential_configured })
+    setDraft(current => ({ ...current, provider: profile.provider,
+      deepseekKey: '', openaiKey: '',
+      deepseekBaseUrl: profile.provider === 'deepseek' ? profile.base_url : 'https://api.deepseek.com',
+      openaiBaseUrl: profile.provider === 'openai' ? profile.base_url : '',
+      deepseekModel: profile.provider === 'deepseek' ? profile.model || '' : '',
+      openaiModel: profile.provider === 'openai' ? profile.model || '' : '',
+    }))
+  }
+
+  const hydrateTts = (profile: ConnectionProfile) => {
+    setExternalTts({ id: profile.id, name: profile.name, base_url: profile.base_url,
+      credential: '', credential_configured: profile.credential_configured })
+  }
+
+  const syncWorkbench = (current: SettingsView) => {
+    const workbench = useWorkbenchStore.getState()
+    const selected = current.providers.default_llm === 'deepseek' ? 'deepseek' : 'openai'
+    workbench.updateParam('translateProvider', selected)
+    workbench.updateParam('translateModel', current.providers[selected].model)
+    if (workbench.params.ttsEngine === 'openai_compatible') {
+      workbench.updateParam('ttsVoice', current.external_tts.voice || '')
+      if (current.external_tts.api_format === 'mimo_chat') workbench.updateParam('ttsSpeed', 1)
+    }
+  }
 
   const loadData = async () => {
     const generation = ++loadGenerationRef.current
     const presetGeneration = ++presetGenerationRef.current
+    modelGenerationRef.current += 1
+    setTesting(false)
+    setModels([])
+    setTestResult(null)
     setLoading(true)
     setPresetsLoading(true)
     setMessage('')
@@ -88,11 +126,18 @@ export default function Settings() {
           openaiKey: '',
           deepseekBaseUrl: current.providers.deepseek.base_url || 'https://api.deepseek.com',
           openaiBaseUrl: current.providers.openai.base_url || 'https://api.openai.com/v1',
+          deepseekModel: current.providers.deepseek.model || '',
+          openaiModel: current.providers.openai.model || '',
           outputDir: current.paths.output_dir || '',
           vttDir: current.paths.vtt_dir || '',
           modelCacheDir: current.paths.model_cache_dir || '',
           tempDir: current.paths.temp_dir || '',
         })
+        const profiles = current.connection_profiles
+        const llm = profiles.llm.find(item => item.id === profiles.active_llm)
+        const tts = profiles.tts.find(item => item.id === profiles.active_tts)
+        if (llm) hydrateLlm(llm)
+        if (tts) hydrateTts(tts)
       } else {
         setSettings(null)
         setSettingsLoadError(
@@ -137,17 +182,6 @@ export default function Settings() {
     setMessage('')
     try {
       const updates: SettingsUpdate = {
-        providers: {
-          default_llm: draft.provider,
-          deepseek: {
-            base_url: draft.deepseekBaseUrl,
-            ...(draft.deepseekKey ? { credential: draft.deepseekKey } : {}),
-          },
-          openai: {
-            base_url: draft.openaiBaseUrl,
-            ...(draft.openaiKey ? { credential: draft.openaiKey } : {}),
-          },
-        },
         paths: {
           output_dir: draft.outputDir,
           vtt_dir: draft.vttDir,
@@ -158,13 +192,10 @@ export default function Settings() {
       const result = await settingsApi.validate(updates)
       if (!result.valid) {
         setMessage(`验证失败: ${result.errors.join('; ')}`)
-        setValidation({ valid: false, errors: result.errors })
         return
       }
       await settingsApi.update(updates)
-      setValidation({ valid: true, errors: [] })
-      setMessage('设置已保存')
-      void loadData()
+      setMessage('路径已保存')
     } catch (err) {
       setMessage(`保存失败: ${err}`)
     } finally {
@@ -172,45 +203,87 @@ export default function Settings() {
     }
   }
 
-  const handleTestProvider = async (provider: string) => {
-    setTesting(true)
+  const provider = draft.provider === 'deepseek' ? 'deepseek' : 'openai'
+  const providerLabel = provider === 'deepseek' ? 'DeepSeek' : 'OpenAI / 兼容接口'
+  const keyField = provider === 'deepseek' ? 'deepseekKey' : 'openaiKey'
+  const urlField = provider === 'deepseek' ? 'deepseekBaseUrl' : 'openaiBaseUrl'
+  const modelField = provider === 'deepseek' ? 'deepseekModel' : 'openaiModel'
+  const selectedModel = draft[modelField]
+
+  const resetModelDiscovery = () => {
+    modelGenerationRef.current += 1
+    setTesting(false)
+    setModels([])
     setTestResult(null)
-    try {
-      const providerUpdate: SettingsUpdate = provider === 'deepseek'
-        ? {
-            providers: {
-              deepseek: {
-                base_url: draft.deepseekBaseUrl,
-                ...(draft.deepseekKey ? { credential: draft.deepseekKey } : {}),
-              },
-            },
-          }
-        : {
-            providers: {
-              openai: {
-                base_url: draft.openaiBaseUrl,
-                ...(draft.openaiKey ? { credential: draft.openaiKey } : {}),
-              },
-            },
-          }
-      const result = await settingsApi.testProvider(provider, providerUpdate)
-      setTestResult({ success: result.success, msg: result.message || result.errors.join('; ') })
-    } catch (err) {
-      setTestResult({ success: false, msg: `测试失败: ${err}` })
-    } finally {
-      setTesting(false)
-    }
   }
 
-  const handleValidate = async () => {
+  const llmCandidate = (): SettingsUpdate => ({ connection_profile: {
+    kind: 'llm', ...(llmProfile.id ? { id: llmProfile.id } : {}),
+    name: llmProfile.name.trim() || '未命名翻译配置', provider,
+    base_url: draft[urlField], model: selectedModel,
+    ...(draft[keyField] ? { credential: draft[keyField] } : {}),
+  } })
+
+  const saveProfile = async (kind: 'llm' | 'tts') => {
+    if (!(kind === 'llm' ? llmProfile.name : externalTts.name).trim()) {
+      setMessage('保存失败：请填写配置名称')
+      return
+    }
+    if (kind === 'llm' && !selectedModel.trim()) {
+      setMessage('保存失败：请获取并选择模型，或按服务商文档手动填写模型')
+      return
+    }
+    setSaving(true)
+    setMessage('')
+    resetModelDiscovery()
     try {
-      const result = await settingsApi.validate()
-      setValidation({ valid: result.valid, errors: result.errors })
+      const updates: SettingsUpdate = kind === 'llm' ? llmCandidate() : { connection_profile: {
+        kind: 'tts', ...(externalTts.id ? { id: externalTts.id } : {}),
+        name: externalTts.name.trim(), provider: 'openai_compatible', base_url: externalTts.base_url,
+        ...(externalTts.credential ? { credential: externalTts.credential } : {}),
+      } }
+      const result = await settingsApi.update(updates)
+      setSettings(result.settings)
+      const profiles = result.settings.connection_profiles
+      const profile = profiles[kind].find(item => item.id === (kind === 'llm' ? profiles.active_llm : profiles.active_tts))
+      if (profile) kind === 'llm' ? hydrateLlm(profile) : hydrateTts(profile)
+      syncWorkbench(result.settings)
+      setMessage('配置已保存并启用')
     } catch (error) {
-      setValidation({
-        valid: false,
-        errors: [`验证请求失败: ${error instanceof Error ? error.message : String(error)}`],
+      setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally { setSaving(false) }
+  }
+
+  const selectProfile = (kind: 'llm' | 'tts', id: string) => {
+    const profile = settings?.connection_profiles[kind].find(item => item.id === id)
+    if (!profile) return
+    if (kind === 'llm') hydrateLlm(profile)
+    else hydrateTts(profile)
+    setMessage('已载入配置，保存并启用后用于新任务')
+  }
+
+  const handleDiscoverModels = async () => {
+    const generation = ++modelGenerationRef.current
+    setTesting(true)
+    setTestResult(null)
+    setModels([])
+    try {
+      const candidate = llmCandidate()
+      const result = await settingsApi.listModels(provider, candidate)
+      if (generation !== modelGenerationRef.current) return
+      const available = [...new Set(result.models)]
+      setModels(available)
+      setTestResult({
+        success: available.length > 0,
+        msg: available.length > 0
+          ? `已获取 ${available.length} 个模型，请选择用于翻译的模型。`
+          : '服务未返回可选模型。可重试，或根据服务商文档手动填写。',
       })
+    } catch (error) {
+      if (generation !== modelGenerationRef.current) return
+      setTestResult({ success: false, msg: `获取模型失败：${error instanceof Error ? error.message : String(error)}。可检查连接信息后重试，或根据服务商文档手动填写。` })
+    } finally {
+      if (generation === modelGenerationRef.current) setTesting(false)
     }
   }
 
@@ -270,15 +343,8 @@ export default function Settings() {
           }}>
             内置流程 · 无需保存
           </span>
-        ) : (
+        ) : activeTab === 'paths' ? (
           <>
-            <button onClick={handleValidate} style={{
-              fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
-              borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-              color: 'var(--fg)', cursor: 'pointer',
-            }}>
-              验证配置
-            </button>
             <button onClick={handleSave} disabled={saving} style={{
               fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
               borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
@@ -287,7 +353,7 @@ export default function Settings() {
               {saving ? '保存中...' : '保存'}
             </button>
           </>
-        )}
+        ) : null}
       </div>
 
       {/* Content: nav + panel */}
@@ -316,7 +382,7 @@ export default function Settings() {
 
           {/* Status message */}
           {message && (
-            <div className="settings-message" style={{
+            <div className="settings-message" role="status" style={{
               display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px',
               borderRadius: '6px', fontSize: '12px', marginBottom: '16px',
               background: message.includes('失败') ? 'oklch(95% 0.03 25)' : 'oklch(95% 0.03 145)',
@@ -330,151 +396,121 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Validation bar */}
-          {validation && (
-            <div className="settings-message" style={{
-              display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px',
-              borderRadius: '6px', fontSize: '12px', marginBottom: '16px',
-              background: validation.valid ? 'oklch(95% 0.03 145)' : 'oklch(95% 0.03 25)',
-              color: validation.valid ? 'oklch(35% 0.1 145)' : 'oklch(40% 0.12 25)',
-            }}>
-              <span style={{
-                width: '6px', height: '6px', borderRadius: '50%',
-                background: validation.valid ? 'oklch(60% 0.16 145)' : 'oklch(55% 0.18 25)',
-              }} />
-              {validation.valid ? '配置验证通过 · 所有必填项已配置' : `验证失败 · ${validation.errors.join('; ')}`}
-            </div>
-          )}
-
           {/* Panel: API 配置 */}
           {activeTab === 'api' && (
-            <div>
-              <div style={{ marginBottom: '32px' }}>
-                <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '16px', fontWeight: 600, letterSpacing: '-0.02em', marginBottom: '4px' }}>
-                  翻译服务
-                </h2>
-                <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '16px' }}>
-                  LLM 翻译服务的 API 密钥和端点。环境变量优先级高于此处配置。
-                </div>
-
-                {/* Provider select */}
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>服务提供商</label>
-                  <select
-                    value={draft.provider}
-                    onChange={e => setDraft({ ...draft, provider: e.target.value })}
-                    style={{
-                      fontFamily: 'var(--font-body)', fontSize: '13px', padding: '8px 10px',
-                      borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                      color: 'var(--fg)', width: '100%',
-                    }}
-                  >
-                    <option value="deepseek">DeepSeek</option>
-                    <option value="openai">OpenAI</option>
+            <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+              <section style={{ marginBottom: 32 }}>
+                <h2 style={{ fontSize: 16, marginBottom: 16 }}>翻译服务</h2>
+                <label className="settings-field">
+                  已保存的配置
+                  <select value={llmProfile.id} disabled={saving} onChange={event => void selectProfile('llm', event.target.value)}>
+                    {!llmProfile.id && <option value="" disabled>新建配置</option>}
+                    {settings.connection_profiles.llm.map(profile => <option key={profile.id} value={profile.id}>{profile.name}{profile.id === settings.connection_profiles.active_llm ? '（已启用）' : ''}</option>)}
                   </select>
-                </div>
-
-                {/* DeepSeek API Key */}
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>DeepSeek API Key</label>
-                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
-                    <input
-                      type="password"
-                      value={draft.deepseekKey}
-                      onChange={e => setDraft({ ...draft, deepseekKey: e.target.value })}
-                      placeholder={settings?.providers.deepseek.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
-                      style={{
-                        fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
-                        borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                        color: 'var(--fg)', flex: 1, minWidth: 0, height: '36px', letterSpacing: '0.05em',
-                      }}
-                    />
-                    <button type="button" onClick={() => handleTestProvider('deepseek')} disabled={testing} style={{
-                      fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
-                      borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                      color: 'var(--fg)', cursor: 'pointer', whiteSpace: 'nowrap', minHeight: '36px', flexShrink: 0,
-                    }}>
-                      测试连通
-                    </button>
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>环境变量: DEEPSEEK_API_KEY 优先</div>
-                </div>
-
-                {/* DeepSeek Base URL */}
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>DeepSeek Base URL</label>
-                  <input
-                    type="text"
-                    value={draft.deepseekBaseUrl}
-                    onChange={e => setDraft({ ...draft, deepseekBaseUrl: e.target.value })}
-                    placeholder="https://api.deepseek.com"
-                    style={{
-                      fontFamily: 'var(--font-body)', fontSize: '13px', padding: '8px 10px',
-                      borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                      color: 'var(--fg)', width: '100%',
-                    }}
-                  />
-                </div>
-
-                {/* OpenAI API Key */}
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>OpenAI API Key</label>
-                  <div className="settings-provider-row" style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
-                    <input
-                      type="password"
-                      value={draft.openaiKey}
-                      onChange={e => setDraft({ ...draft, openaiKey: e.target.value })}
-                      placeholder={settings?.providers.openai.credential_configured ? '已配置；留空则保持不变' : 'sk-...'}
-                      style={{
-                        fontFamily: 'var(--font-mono)', fontSize: '13px', padding: '8px 10px',
-                        borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                        color: 'var(--fg)', flex: 1, minWidth: 0, height: '36px', letterSpacing: '0.05em',
-                      }}
-                    />
-                    <button type="button" onClick={() => handleTestProvider('openai')} disabled={testing} style={{
-                      fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
-                      borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                      color: 'var(--fg)', cursor: 'pointer', whiteSpace: 'nowrap', minHeight: '36px', flexShrink: 0,
-                    }}>
-                      测试连通
-                    </button>
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>环境变量: OPENAI_API_KEY 优先</div>
-                </div>
-
-                {/* OpenAI Base URL */}
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, marginBottom: '4px' }}>OpenAI Base URL</label>
-                  <input
-                    type="text"
-                    value={draft.openaiBaseUrl}
-                    onChange={e => setDraft({ ...draft, openaiBaseUrl: e.target.value })}
-                    placeholder="https://api.openai.com/v1"
-                    style={{
-                      fontFamily: 'var(--font-body)', fontSize: '13px', padding: '8px 10px',
-                      borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                      color: 'var(--fg)', width: '100%',
-                    }}
-                  />
-                </div>
-
-                {/* Test result */}
-                {testResult && (
-                  <div className="settings-message" style={{
-                    display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px',
-                    borderRadius: '6px', fontSize: '12px', marginTop: '8px',
-                    background: testResult.success ? 'oklch(95% 0.03 145)' : 'oklch(95% 0.03 25)',
-                    color: testResult.success ? 'oklch(35% 0.1 145)' : 'oklch(40% 0.12 25)',
+                </label>
+                <button className="settings-secondary-button" disabled={saving} onClick={() => {
+                  hydrateLlm({ id: '', name: '', provider: 'deepseek', base_url: 'https://api.deepseek.com', model: '', credential_configured: false })
+                  setMessage('填写新配置后保存并启用')
+                }}>新建翻译配置</button>
+                <label className="settings-field" style={{ marginTop: 16 }}>
+                  配置名称
+                  <input value={llmProfile.name} maxLength={100} onChange={event => setLlmProfile({ ...llmProfile, name: event.target.value })} placeholder="例如：日常翻译" />
+                </label>
+                <label className="settings-field">
+                  服务提供商
+                  <select value={provider} disabled={!!llmProfile.id || saving} onChange={event => {
+                    resetModelDiscovery()
+                    setDraft({ ...draft, provider: event.target.value, deepseekKey: '', openaiKey: '',
+                      deepseekBaseUrl: 'https://api.deepseek.com', openaiBaseUrl: '', deepseekModel: '', openaiModel: '' })
                   }}>
-                    <span style={{
-                      width: '6px', height: '6px', borderRadius: '50%',
-                      background: testResult.success ? 'oklch(60% 0.16 145)' : 'oklch(55% 0.18 25)',
-                    }} />
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="openai">OpenAI / 兼容接口</option>
+                  </select>
+                </label>
+                <label className="settings-field">
+                  {providerLabel} API 地址
+                  <input value={draft[urlField]} onChange={event => {
+                    resetModelDiscovery()
+                    setDraft({ ...draft, [urlField]: event.target.value })
+                  }} />
+                </label>
+                <label className="settings-field">
+                  API 密钥
+                  <input type="password" autoComplete="off" value={draft[keyField]} onChange={event => {
+                    resetModelDiscovery()
+                    setDraft({ ...draft, [keyField]: event.target.value })
+                  }} placeholder={llmProfile.credential_configured ? '已配置；留空保持此配置的密钥' : '输入 API 密钥'} />
+                </label>
+                <button className="settings-secondary-button" onClick={() => void handleDiscoverModels()} disabled={testing || saving}>
+                  {testing ? '正在获取模型...' : '检测连接并获取模型'}
+                </button>
+                {testResult && (
+                  <p role="status" style={{ fontSize: 12, lineHeight: 1.6, color: testResult.success ? 'var(--muted)' : 'oklch(40% 0.12 25)' }}>
                     {testResult.msg}
-                  </div>
+                  </p>
                 )}
-              </div>
-            </div>
+                <label className="settings-field" style={{ marginTop: 16 }}>
+                  翻译模型
+                  <select value={selectedModel} disabled={!selectedModel && models.length === 0} onChange={event => setDraft({ ...draft, [modelField]: event.target.value })}>
+                    <option value="">{models.length > 0 ? '选择模型' : '获取模型后选择'}</option>
+                    {selectedModel && !models.includes(selectedModel) && (
+                      <option value={selectedModel}>{selectedModel}（当前配置，未核验）</option>
+                    )}
+                    {models.map(model => <option key={model} value={model}>{model}</option>)}
+                  </select>
+                </label>
+                <details key={`${llmProfile.id}-${provider}`} style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  <summary style={{ cursor: 'pointer' }}>手动填写模型</summary>
+                  <label className="settings-field" style={{ marginTop: 12 }}>
+                    服务商文档中的模型 ID
+                    <input value={selectedModel} onChange={event => setDraft({ ...draft, [modelField]: event.target.value })} placeholder="填写文档中支持翻译的模型 ID" />
+                  </label>
+                </details>
+                <button className="settings-secondary-button" style={{ marginTop: 16 }} disabled={saving} onClick={() => void saveProfile('llm')}>
+                  保存并启用翻译配置
+                </button>
+              </section>
+              <section>
+                <h2 style={{ fontSize: 16, marginBottom: 8 }}>外部语音合成</h2>
+                <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>OpenAI 兼容语音接口</p>
+                <label className="settings-field">
+                  已保存的配置
+                  <select value={externalTts.id} disabled={saving} onChange={event => void selectProfile('tts', event.target.value)}>
+                    {!externalTts.id && <option value="" disabled>新建配置</option>}
+                    {settings.connection_profiles.tts.map(profile => <option key={profile.id} value={profile.id}>{profile.name}{profile.id === settings.connection_profiles.active_tts ? '（已启用）' : ''}</option>)}
+                  </select>
+                </label>
+                <button className="settings-secondary-button" disabled={saving} onClick={() => {
+                  hydrateTts({ id: '', name: '', provider: 'openai_compatible', base_url: '', credential_configured: false })
+                  setMessage('填写新配置后保存并启用')
+                }}>新建语音配置</button>
+                <label className="settings-field" style={{ marginTop: 16 }}>
+                  配置名称
+                  <input value={externalTts.name} maxLength={100} onChange={event => setExternalTts({ ...externalTts, name: event.target.value })} placeholder="例如：旁白语音" />
+                </label>
+                {([
+                  { key: 'base_url', label: 'API 地址', placeholder: '填写服务商提供的 API 基础地址' },
+                  { key: 'credential', label: 'API 密钥', placeholder: externalTts.credential_configured ? '已配置；留空保持此配置的密钥' : '输入 API 密钥' },
+                ] as const).map(field => (
+                  <label key={field.key} className="settings-field">
+                    {field.label}
+                    <input
+                      type={field.key === 'credential' ? 'password' : 'text'}
+                      autoComplete={field.key === 'credential' ? 'off' : undefined}
+                      value={externalTts[field.key]}
+                      onChange={event => setExternalTts({ ...externalTts, [field.key]: event.target.value })}
+                      placeholder={field.placeholder}
+                    />
+                  </label>
+                ))}
+                <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                  目前仅配置连接信息；模型与音色选项待依据服务商文档或接口探测接入。
+                </p>
+                <button className="settings-secondary-button" disabled={saving} onClick={() => void saveProfile('tts')}>
+                  保存并启用语音配置
+                </button>
+              </section>
+            </fieldset>
           )}
 
           {/* Panel: 内置预设 */}
@@ -634,6 +670,42 @@ export default function Settings() {
       </div>
 
       <style>{`
+        .settings-field {
+          display: grid;
+          gap: 6px;
+          font-size: 12px;
+          margin-bottom: 16px;
+        }
+
+        .settings-field input,
+        .settings-field select {
+          width: 100%;
+          min-width: 0;
+          font-family: var(--font-body);
+          font-size: 13px;
+          padding: 8px 10px;
+          border-radius: 6px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--fg);
+        }
+
+        .settings-secondary-button {
+          font-family: var(--font-body);
+          font-size: 13px;
+          padding: 8px 14px;
+          border-radius: 6px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--fg);
+          cursor: pointer;
+        }
+
+        .settings-secondary-button:disabled {
+          opacity: 0.6;
+          cursor: wait;
+        }
+
         .settings-page,
         .settings-layout,
         .settings-panel,

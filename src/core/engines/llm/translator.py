@@ -8,7 +8,6 @@ LLM 翻译实现 - 支持 DeepSeek / OpenAI
 - Phase 2: 翻译缓存层 + 三层字典扩展
 """
 
-import os
 import time
 import json
 import re
@@ -134,12 +133,12 @@ class Translator:
     @property
     def api_key(self) -> str:
         """每次读取最新配置（支持 GUI 热更新）"""
-        if self._api_key_override:
+        if self._api_key_override is not None:
             return self._api_key_override
         if self.provider == "deepseek":
-            return config.deepseek_api_key or os.environ.get("DEEPSEEK_API_KEY", "")
+            return config.deepseek_api_key
         elif self.provider == "openai":
-            return config.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
+            return config.openai_api_key
         return ""
 
     def get_client(self) -> OpenAI:

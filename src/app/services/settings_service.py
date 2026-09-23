@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import threading
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
 from src.core.config import config
+from src.provider_profiles import public_profiles, update_profiles
+from src.core.engines.llm.registry import LLM_DEFAULT_MODELS
 from src.core.resources.provider_verification import (
     ProviderVerificationRegistry,
     get_provider_verification_registry,
@@ -27,6 +30,15 @@ class ProviderTestResult:
     message: str = ""
 
 
+class ProviderModelsError(AppExecutionError):
+    """A safe, stable error from model discovery (never includes upstream text)."""
+
+    def __init__(self, code: str, message: str, status_code: int = 502):
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+
+
 class SettingsService:
     """Stable facade for configuration read/write and validation."""
 
@@ -35,12 +47,12 @@ class SettingsService:
         config_manager=None,
         provider_probe=None,
         verification_registry: ProviderVerificationRegistry | None = None,
+        model_probe=None,
     ):
         self.config = config_manager or config
         self._provider_probe = provider_probe or self._probe_openai_compatible
-        self._verification_registry = (
-            verification_registry or get_provider_verification_registry()
-        )
+        self._model_probe = model_probe or self._list_openai_compatible_models
+        self._verification_registry = verification_registry or get_provider_verification_registry()
 
     def get_settings(self, masked: bool = True) -> dict[str, Any]:
         settings = self.config.to_dict()
@@ -50,9 +62,15 @@ class SettingsService:
         return self.get_settings(masked=masked)
 
     def update_settings(self, updates: dict[str, Any]) -> dict[str, Any]:
+        with getattr(self.config, "_state_lock", nullcontext()):
+            return self._update_settings_locked(updates)
+
+    def _update_settings_locked(self, updates: dict[str, Any]) -> dict[str, Any]:
         internal_updates = self._to_internal_updates(updates)
         candidate = self.config.build_effective_config(config_override=internal_updates)
         valid, errors = self.config.validate(candidate)
+        errors = list(errors) + self._profile_validation_errors(candidate)
+        valid = valid and not errors
         if not valid:
             raise AppValidationError("; ".join(errors))
 
@@ -63,7 +81,9 @@ class SettingsService:
 
         return self.get_settings(masked=True)
 
-    def validate_settings(self, updates: dict[str, Any] | None = None) -> tuple[bool, list[str], dict[str, Any]]:
+    def validate_settings(
+        self, updates: dict[str, Any] | None = None
+    ) -> tuple[bool, list[str], dict[str, Any]]:
         internal_updates = self._to_internal_updates(updates or {})
         candidate = (
             self.config.build_effective_config(config_override=deepcopy(internal_updates))
@@ -71,7 +91,17 @@ class SettingsService:
             else self.config.to_dict()
         )
         valid, errors = self.config.validate(candidate)
+        errors = list(errors) + self._profile_validation_errors(candidate)
+        valid = valid and not errors
         return valid, errors, self._to_public_settings(candidate)
+
+    @staticmethod
+    def _profile_validation_errors(candidate):
+        profiles = candidate.get("connection_profiles", {})
+        selected = next((p for p in profiles.get("llm", []) if p["id"] == profiles.get("active_llm")), None)
+        if selected and not selected["id"].startswith("legacy-") and not str(selected.get("model") or "").strip():
+            return ["请探测并选择模型，或手动填写模型 ID"]
+        return []
 
     def test_provider(
         self,
@@ -133,6 +163,70 @@ class SettingsService:
         )
         return result
 
+    def discover_models(
+        self, provider: str, settings: dict[str, Any] | None = None,
+    ) -> list[str]:
+        """Read model IDs from a draft connection without saving any settings."""
+        from urllib.parse import urlsplit
+
+        if provider not in _SUPPORTED_PROVIDERS:
+            raise ProviderModelsError("PROVIDER_NOT_FOUND", "不支持的服务提供商", 400)
+        updates = self._to_internal_updates(settings or {})
+        candidate = self.config.build_effective_config(config_override=deepcopy(updates))
+        if settings and ("connection_profile" in settings or "active_connections" in settings):
+            if candidate.get("api", {}).get("provider") != provider:
+                raise ProviderModelsError("PROVIDER_MISMATCH", "所选配置与服务提供商不一致", 400)
+        api = candidate.get("api", {})
+        api_key = api.get(f"{provider}_api_key")
+        base_url = api.get(f"{provider}_base_url")
+        if not isinstance(api_key, str) or not api_key.strip():
+            raise ProviderModelsError("PROVIDER_CREDENTIAL_MISSING", "请先填写 API Key", 400)
+        try:
+            url = urlsplit(base_url) if isinstance(base_url, str) else None
+            valid_url = bool(
+                url and url.scheme in ("http", "https") and url.hostname
+                and not url.username and not url.password and not url.query and not url.fragment
+            )
+        except ValueError:
+            valid_url = False
+        if not valid_url:
+            raise ProviderModelsError("PROVIDER_URL_INVALID", "请填写有效的 HTTP(S) 基础地址", 400)
+        try:
+            ids = self._model_probe(provider, api_key.strip(), base_url.strip())
+        except Exception as exc:
+            from openai import APITimeoutError
+
+            status = getattr(exc, "status_code", None)
+            if isinstance(exc, (APITimeoutError, TimeoutError)):
+                raise ProviderModelsError("PROVIDER_TIMEOUT", "获取模型超时，请稍后重试", 504) from exc
+            if status in (401, 403):
+                raise ProviderModelsError("PROVIDER_AUTH_FAILED", "鉴权失败，请检查 API Key 与访问权限") from exc
+            if status in (404, 405, 501):
+                raise ProviderModelsError("PROVIDER_MODELS_UNSUPPORTED", "该地址不支持模型列表，请检查服务文档与基础地址") from exc
+            if status == 429:
+                raise ProviderModelsError("PROVIDER_RATE_LIMITED", "服务请求受限，请稍后重试") from exc
+            raise ProviderModelsError("PROVIDER_CONNECTION_FAILED", "无法获取模型，请检查连接信息及服务状态") from exc
+        if not isinstance(ids, list) or len(ids) > 10000 or any(
+            not isinstance(model, str) or not model or len(model) > 512
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in model)
+            for model in ids
+        ):
+            raise ProviderModelsError("PROVIDER_MODELS_INVALID", "服务返回的模型列表格式无效")
+        return sorted(set(ids))
+
+    @staticmethod
+    def _list_openai_compatible_models(
+        provider: str, api_key: str, base_url: str,
+    ) -> list[Any] | None:
+        from openai import OpenAI
+
+        with OpenAI(api_key=api_key, base_url=base_url, timeout=10.0, max_retries=0) as client:
+            page = client.models.list()
+            # Reading data avoids the SDK's automatic pagination iterator.
+            if not isinstance(page.data, list):
+                return None
+            return [getattr(model, "id", None) for model in page.data]
+
     @staticmethod
     def _probe_openai_compatible(provider: str, api_key: str, base_url: str) -> None:
         """Perform a real, low-cost connectivity/authentication request."""
@@ -169,8 +263,16 @@ class SettingsService:
         for provider in _SUPPORTED_PROVIDERS:
             public["providers"][provider] = {
                 "base_url": api.get(f"{provider}_base_url", ""),
+                "model": api.get(f"{provider}_model") or LLM_DEFAULT_MODELS[provider],
                 "credential_configured": bool(api.get(f"{provider}_api_key")),
             }
+        external = settings.get("external_tts", {})
+        public["external_tts"] = {
+            key: external.get(key, "") for key in ("base_url", "model", "voice", "instructions")
+        }
+        public["external_tts"]["api_format"] = external.get("api_format", "speech")
+        public["external_tts"]["credential_configured"] = bool(external.get("api_key"))
+        public["connection_profiles"] = public_profiles(settings)
         return public
 
     def _to_internal_updates(self, updates: dict[str, Any]) -> dict[str, Any]:
@@ -183,6 +285,38 @@ class SettingsService:
             raise AppValidationError("settings 必须是对象")
 
         internal: dict[str, Any] = {}
+        external = updates.get("external_tts")
+        if isinstance(external, dict):
+            mapped = {}
+            for key in ("base_url", "model", "voice", "api_format", "instructions"):
+                if key in external:
+                    if not isinstance(external[key], str):
+                        raise AppValidationError(f"external_tts.{key} 必须是字符串")
+                    mapped[key] = external[key].strip()
+            if mapped.get("api_format", "speech") not in ("speech", "mimo_chat"):
+                raise AppValidationError("不支持的 TTS 接口格式")
+            if mapped.get("base_url"):
+                from urllib.parse import urlsplit
+
+                url = urlsplit(mapped["base_url"])
+                if (
+                    url.scheme not in ("http", "https")
+                    or not url.hostname
+                    or url.username
+                    or url.password
+                    or url.query
+                    or url.fragment
+                ):
+                    raise AppValidationError(
+                        "外部 TTS 地址必须是 HTTP(S) 基础地址，不包含凭据、查询参数或片段"
+                    )
+            credential = external.get("credential")
+            if credential not in ("", _MASKED_VALUE, None):
+                if not isinstance(credential, str):
+                    raise AppValidationError("TTS API Key 必须是字符串")
+                if credential.strip():
+                    mapped["api_key"] = credential.strip()
+            internal["external_tts"] = mapped
         for section in ("tts", "paths", "processing"):
             value = updates.get(section)
             if isinstance(value, dict):
@@ -208,11 +342,27 @@ class SettingsService:
                     continue
                 if "base_url" in provider_settings:
                     api_updates[f"{provider}_base_url"] = provider_settings["base_url"]
+                if "model" in provider_settings:
+                    model = provider_settings["model"]
+                    if not isinstance(model, str) or not model.strip():
+                        raise AppValidationError("模型 ID 不能为空")
+                    api_updates[f"{provider}_model"] = model.strip()
                 credential = provider_settings.get("credential")
                 if credential not in ("", _MASKED_VALUE, None):
                     api_updates[f"{provider}_api_key"] = credential
             if not api_updates:
                 internal.pop("api", None)
+        # Migrate only when profiles are first edited, preserving raw disk secrets
+        # rather than persisting environment overrides.
+        if hasattr(self.config, "get_file_config"):
+            base = self.config.build_effective_config(include_env=False)
+        else:
+            base = self.config.build_effective_config()
+        if "connection_profiles" in base or "connection_profile" in updates or "active_connections" in updates:
+            try:
+                internal["connection_profiles"] = update_profiles(base, updates, internal)
+            except ValueError as exc:
+                raise AppValidationError(str(exc)) from exc
         return internal
 
 

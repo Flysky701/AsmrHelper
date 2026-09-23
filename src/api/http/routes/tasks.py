@@ -38,6 +38,17 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 queue_router = APIRouter(tags=["tasks"])
 
 
+@router.get("/{task_id}/recovery")
+def get_recovery(task_id: str, svc: TaskService = Depends(task_service)):
+    return svc.recovery_info(task_id)
+
+
+@router.post("/{task_id}/resume", response_model=TaskStatusResponse)
+def resume_task(task_id: str,
+                pipeline_svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator)):
+    return TaskStatusResponse.from_task_status(pipeline_svc.resume_task(task_id))
+
+
 @router.post("/{task_id}/cancel", response_model=TaskStatusResponse)
 def cancel_task(
     task_id: str,

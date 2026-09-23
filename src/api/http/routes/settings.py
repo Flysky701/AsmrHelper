@@ -3,19 +3,37 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 
 from src.api.http.dependencies import settings_service
 from src.api.http.schemas.settings import (
     ProviderTestRequest,
     ProviderTestResponse,
+    ProviderModelsResponse,
     SettingsResponse,
     SettingsUpdateRequest,
     SettingsValidateRequest,
     SettingsValidateResponse,
 )
 from src.app.services import SettingsService
+from src.app.services.settings_service import ProviderModelsError
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+@router.post("/models", response_model=ProviderModelsResponse)
+def discover_models(
+    body: ProviderTestRequest,
+    svc: SettingsService = Depends(settings_service),
+):
+    try:
+        models = svc.discover_models(body.provider, body.settings or None)
+    except ProviderModelsError as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": {"code": exc.code, "message": str(exc)}},
+        )
+    return ProviderModelsResponse(provider=body.provider, models=models)
 
 
 @router.get("", response_model=SettingsResponse)

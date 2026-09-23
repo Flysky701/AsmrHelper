@@ -11,6 +11,7 @@ import json
 import threading
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
+from src.provider_profiles import project_profiles
 
 
 # 项目配置目录
@@ -115,6 +116,7 @@ class Config:
             self._merge_config(effective, config_override)
         if include_env:
             self._apply_env_overrides(effective)
+        project_profiles(effective, include_env=include_env)
         return effective
 
     def reload(self):
@@ -146,7 +148,8 @@ class Config:
 
     def to_dict(self) -> Dict[str, Any]:
         """返回当前生效配置副本。"""
-        return deepcopy(self._config)
+        from src.task_connection_context import overlay_connections
+        return overlay_connections(deepcopy(self._config))
 
     def persist_updates(self, updates: Dict[str, Any]):
         """将部分配置合并到磁盘配置并重新加载。"""
@@ -159,7 +162,7 @@ class Config:
     def get(self, key: str, default: Any = None) -> Any:
         """获取配置值，支持点号路径，如 'api.deepseek_api_key'"""
         keys = key.split(".")
-        value = self._config
+        value = self.to_dict()
         for k in keys:
             if isinstance(value, dict):
                 value = value.get(k)
@@ -215,8 +218,8 @@ class Config:
 
         # 验证 TTS 配置
         tts_engine = self._get_from_mapping(target, "tts.engine", "")
-        if tts_engine not in ("edge", "qwen3", "voxcpm2"):
-            errors.append(f"tts.engine 必须是 'edge'、'qwen3' 或 'voxcpm2'，当前: {tts_engine}")
+        if tts_engine not in ("edge", "qwen3", "voxcpm2", "openai_compatible"):
+            errors.append(f"不支持的 TTS 引擎: {tts_engine}")
 
         speed = self._get_from_mapping(target, "tts.speed", 1.0)
         if not self._is_number(speed) or speed < 0.1 or speed > 3.0:

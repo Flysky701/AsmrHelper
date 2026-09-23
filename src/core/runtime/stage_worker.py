@@ -10,6 +10,9 @@ from typing import Any
 def _execute(request: dict[str, Any]) -> dict[str, Any]:
     operation = str(request.get("operation") or "")
     payload = dict(request.get("payload") or {})
+    if operation == "alignment.align_file":
+        from src.core.engines.alignment import AlignmentRuntime
+        return AlignmentRuntime(local=True).align_file(**payload)
     if operation == "tts.synthesize_text":
         from src.core.engines.tts.service import TtsEngineRuntime
 

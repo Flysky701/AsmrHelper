@@ -207,20 +207,31 @@ class PipelineService:
 
             def on_stage(stage: str, progress: float, message: str) -> None:
                 nonlocal current_stage
-                current_stage = stage
+                if stage != "error":
+                    current_stage = stage
                 self._task_service.update_progress(
                     task_spec.task_id,
                     progress=progress,
                     message=message,
-                    stage=stage,
+                    stage=current_stage,
                 )
 
             plan = build_execution_plan(context)
+            recovery_options = {}
+            store = self._task_service.recovery_store
+            manifest = store.manifest(task_spec.task_id) if store else None
+            if manifest and isinstance(self._executor, PipelineExecutor):
+                from src.core.orchestration.pipeline.recovery import PipelineRecovery
+                from src.app.persistence.recovery_store import fingerprint
+                recovery_options["recovery"] = PipelineRecovery(
+                    store, task_spec.task_id, manifest.get("resume_of_task_id"), plan,
+                    fingerprint(manifest["connections"]))
             results = self._executor.execute(
                 plan,
                 progress_callback=on_progress,
                 stage_callback=on_stage,
                 cancel_event=cancel_event,
+                **recovery_options,
             )
 
             step_errors = results.get("step_errors", {})
@@ -452,7 +463,31 @@ class PipelineService:
             companion_asset_ids=companion_asset_ids,
             execution_profile=execution_profile,
         )
+        self._task_service.save_pipeline_manifest(
+            task_spec.task_id, input_path=primary_asset.absolute_path,
+            companion_paths=[self._input_catalog_service.get_asset(asset_id).absolute_path
+                             for asset_id in companion_asset_ids],
+            output_root=session.resolved_output_dir,
+        )
         return task_spec
+
+    def resume_pipeline_task(self, task_id: str):
+        info = self._task_service.recovery_info(task_id)
+        if not info["can_resume"]:
+            raise AppValidationError(info["reason"])
+        manifest = self._task_service.recovery_store.manifest(task_id)
+        workspace = self._workspace_service.resolve()
+        primary = self._input_catalog_service.inspect_paths([manifest["input_path"]])[0]
+        companions = self._input_catalog_service.inspect_paths(manifest["companion_paths"])
+        companion_ids = [asset.asset_id for asset in companions]
+        session = self._session_service.create_session(
+            workspace_id=workspace.workspace_id, mode="single-audio",
+            input_asset_ids=[primary.asset_id], primary_input_asset_id=primary.asset_id,
+            companion_asset_ids=companion_ids,
+            output_policy={"mode": "task-scoped-root", "custom_output_dir": manifest["output_root"]})
+        return self._task_service.resume_pipeline_task(
+            task_id, session_id=session.session_id, input_asset_id=primary.asset_id,
+            companion_asset_ids=companion_ids)
 
     @staticmethod
     def _resolve_task_output_dir(
@@ -568,7 +603,7 @@ class PipelineService:
     def _resolve_companion_subtitle_path(self, companion_asset_ids: list[str]) -> str | None:
         for asset_id in companion_asset_ids:
             asset = self._input_catalog_service.get_asset(asset_id)
-            if asset.kind == "subtitle":
+            if asset.kind == "subtitle" or Path(asset.absolute_path).suffix.lower() == ".txt":
                 return asset.absolute_path
         return None
 
@@ -615,6 +650,9 @@ class PipelineService:
             ("vocal_path", "separation", "audio.vocals", "audio"),
             ("tts_audio_path", "tts", "audio.tts", "audio"),
             ("transcript_path", "asr", "text.transcript", "text"),
+            ("alignment_path", "align", "alignment.timestamps", "json"),
+            ("aligned_subtitle_path", "align", "subtitle.aligned", "subtitle"),
+            ("alignment_original_path", "align", "alignment.original", "json"),
         ):
             path = results.get(file_key)
             if path:

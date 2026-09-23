@@ -160,6 +160,7 @@ def _stage_profile_parts(
     stage_profiles = {
         "separator": _stage_profile(dict(stages.get("separate", {}))),
         "asr": _stage_profile(dict(stages.get("asr", {}))),
+        "align": _stage_profile(dict(stages.get("align", {}))),
         "llm": _stage_profile(dict(stages.get("translate", {}))),
         "tts": _stage_profile(dict(stages.get("tts", {}))),
         "mix": _stage_profile(dict(stages.get("mix", {}))),
@@ -168,6 +169,7 @@ def _stage_profile_parts(
     stage_flags = {
         "separation": bool(dict(stages.get("separate", {})).get("enabled", True)),
         "asr": bool(dict(stages.get("asr", {})).get("enabled", True)),
+        "align": bool(dict(stages.get("align", {})).get("enabled", False)),
         "translation": bool(dict(stages.get("translate", {})).get("enabled", True)),
         "tts": bool(dict(stages.get("tts", {})).get("enabled", True)),
         "mix": bool(dict(stages.get("mix", {})).get("enabled", True)),
@@ -202,6 +204,8 @@ def build_execution_plan(context: PipelineExecutionContext) -> PipelineExecution
         batch_root_dir=str(pipeline_opts.get("batch_root_dir", "")),
         separation=_build_separation(stage_profiles, pipeline_opts, enabled=stage_flags["separation"]),
         asr=_build_asr(stage_profiles, pipeline_opts, source_lang, enabled=stage_flags["asr"]),
+        alignment=StageBinding(kind=StageKind.ALIGN, provider="qwen3_forced_aligner",
+            model="qwen3-forced-aligner-0.6b", enabled=stage_flags["align"]),
         translation=_build_translation(stage_profiles, pipeline_opts, enabled=stage_flags["translation"]),
         tts=_build_tts(stage_profiles, pipeline_opts, enabled=stage_flags["tts"]),
         mix=_build_mix(

@@ -96,6 +96,11 @@ class PipelineTaskOrchestrator:
         self.start_task(retried.task_id)
         return self._task_service.get_task(retried.task_id)
 
+    def resume_task(self, task_id: str) -> TaskStatus:
+        task = self._pipeline_service.resume_pipeline_task(task_id)
+        self.start_task(task.task_id)
+        return task
+
     def _execute_pipeline(self, task_spec, context):
         """Adapter keeping PipelineService's domain logic behind TaskDispatcher."""
         method = getattr(self._pipeline_service, "run_pipeline_task_spec", None)
