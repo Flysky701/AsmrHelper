@@ -14,6 +14,9 @@ export interface ConnectionProfile {
   provider: string
   base_url: string
   model?: string
+  api_format?: 'speech' | 'mimo_chat' | 'fish'
+  voice?: string
+  instructions?: string
   credential_configured: boolean
 }
 
@@ -28,7 +31,7 @@ export interface SettingsView {
     base_url: string
     model: string
     voice: string
-    api_format: 'speech' | 'mimo_chat'
+    api_format: 'speech' | 'mimo_chat' | 'fish'
     instructions: string
     credential_configured: boolean
   }
@@ -69,6 +72,9 @@ export type SettingsUpdate = {
     provider?: string
     base_url?: string
     model?: string
+    api_format?: 'speech' | 'mimo_chat' | 'fish'
+    voice?: string
+    instructions?: string
     credential?: string
   }
   active_connections?: { llm?: string; tts?: string }

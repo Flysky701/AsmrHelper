@@ -79,6 +79,8 @@ class CapabilityDescriptorService:
 
             result["default_model"] = config.get("external_tts.model") or "default"
             result["supported_models"] = [result["default_model"]]
+            if config.get("external_tts.api_format") == "fish":
+                result["display_name"] = "外部 TTS / Fish Audio"
             for option in result["common_option_schema"]:
                 if option["name"] == "voice":
                     option["default"] = config.get("external_tts.voice") or ""
@@ -89,6 +91,8 @@ class CapabilityDescriptorService:
                     option.update(
                         {"min": 1.0, "max": 1.0, "description": "MiMo 使用语音指令控制语速"}
                     )
+                if option["name"] == "speed" and config.get("external_tts.api_format") == "fish":
+                    option.update({"min": 0.5, "max": 2.0})
         if result["category"] == "llm":
             from src.core.config import config
 

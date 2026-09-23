@@ -293,7 +293,7 @@ class SettingsService:
                     if not isinstance(external[key], str):
                         raise AppValidationError(f"external_tts.{key} 必须是字符串")
                     mapped[key] = external[key].strip()
-            if mapped.get("api_format", "speech") not in ("speech", "mimo_chat"):
+            if mapped.get("api_format", "speech") not in ("speech", "mimo_chat", "fish"):
                 raise AppValidationError("不支持的 TTS 接口格式")
             if mapped.get("base_url"):
                 from urllib.parse import urlsplit

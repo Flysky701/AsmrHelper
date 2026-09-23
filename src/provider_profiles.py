@@ -46,10 +46,14 @@ def project_profiles(settings, include_env=True):
 def public_profiles(settings):
     profiles = profiles_for(settings)
     for kind in ("llm", "tts"):
-        allowed = ("id", "name", "provider", "base_url", "model") if kind == "llm" else ("id", "name", "provider", "base_url")
+        allowed = ("id", "name", "provider", "base_url", "model") if kind == "llm" else (
+            "id", "name", "provider", "base_url", "model", "voice", "api_format", "instructions"
+        )
         result = []
         for profile in profiles[kind]:
             item = {key: profile.get(key, "") for key in allowed}
+            if kind == "tts":
+                item["api_format"] = profile.get("api_format") or "speech"
             secret = profile.get("api_key")
             if kind == "llm" and profile["id"] == f"legacy-{profile['provider']}":
                 secret = os.environ.get(f"{profile['provider'].upper()}_API_KEY") or secret
@@ -101,9 +105,12 @@ def update_profiles(base, request, legacy_updates):
             raise ValueError("不支持的服务提供商")
         if existing and provider != existing["provider"]:
             raise ValueError("更换提供商请新建配置")
+        previous = deepcopy(existing) if existing else {}
         profile = existing if existing is not None else {"id": uuid4().hex, "api_key": ""}
         profile.update(name=name.strip(), provider=provider)
-        for field in (("base_url", "model") if kind == "llm" else ("base_url",)):
+        for field in (("base_url", "model") if kind == "llm" else (
+            "base_url", "model", "voice", "api_format", "instructions"
+        )):
             if field in draft:
                 if not isinstance(draft[field], str):
                     raise ValueError(f"{field} 必须是字符串")
@@ -119,6 +126,26 @@ def update_profiles(base, request, legacy_updates):
         credential = draft.get("credential")
         if credential is not None and not isinstance(credential, str):
             raise ValueError("API Key 必须是字符串")
+        if kind == "tts":
+            api_format = profile.get("api_format") or "speech"
+            if api_format not in ("speech", "mimo_chat", "fish"):
+                raise ValueError("不支持的 TTS 接口格式")
+            profile["api_format"] = api_format
+            if api_format == "fish":
+                if not all(profile.get(key) for key in ("base_url", "model", "voice")):
+                    raise ValueError("Fish Audio 配置需要 API 地址、模型和音色 ID")
+                if profile.get("instructions"):
+                    raise ValueError("Fish Audio 不支持独立语音指令字段，请在合成文本中使用官方支持的标签")
+            before_url = urlsplit(previous.get("base_url", ""))
+            after_url = urlsplit(profile.get("base_url", ""))
+            changed_service = (
+                (before_url.scheme, before_url.netloc) != (after_url.scheme, after_url.netloc)
+                or (previous.get("api_format") or "speech") != api_format
+            )
+            if previous.get("api_key") and changed_service and (
+                not credential or not credential.strip() or credential == "***configured***"
+            ):
+                raise ValueError("更换 TTS 服务地址或协议后，请重新填写对应服务的 API Key")
         if credential and credential.strip() and credential != "***configured***":
             profile["api_key"] = credential.strip()
         if existing is None:

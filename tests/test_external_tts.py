@@ -164,3 +164,78 @@ def test_runtime_forwards_remote_model_and_voice():
             "common_options": {"voice": "speaker", "speed": 1.2},
         },
     ) == {"model": "custom", "voice": "speaker", "speed": 1.2}
+
+
+@pytest.mark.parametrize("speed", [0.5, 1.0, 1.2, 2.0])
+def test_fish_saved_config_reaches_documented_protocol(monkeypatch, tmp_path, speed):
+    from src.core.config import config
+    from src.core.engines.tts.registry import TtsRegistry
+
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert str(request.url) == "https://api.fish.audio/v1/tts"
+        assert request.headers["authorization"] == "Bearer test-key"
+        assert request.headers["content-type"] == "application/json"
+        assert request.headers["model"] == "s2-pro"
+        expected = {"text": "你好", "reference_id": "saved-voice-id", "format": "wav"}
+        if speed != 1.0:
+            expected["prosody"] = {"speed": speed}
+        assert json.loads(request.content) == expected
+        return httpx.Response(200, content=wav_bytes())
+
+    mock_transport(monkeypatch, handler)
+    monkeypatch.setitem(config._config, "external_tts", {
+        "base_url": "https://api.fish.audio/v1/", "api_key": "test-key",
+        "api_format": "fish", "model": "s2-pro", "voice": "saved-voice-id",
+        "instructions": "",
+    })
+    registry = TtsRegistry()
+    registry._register_builtins()
+    engine = registry.get("openai_compatible", **TtsEngineRuntime._build_engine_kwargs(
+        "openai_compatible", {"common_options": {"speed": speed}}
+    ))
+    output = tmp_path / "fish-timeline.wav"
+    TtsEngineRuntime._synthesize_generic_segments(
+        engine=engine, segments=[{"text": "你好", "start_time": 0.25}],
+        output_dir=str(tmp_path), output_path=str(output),
+        reference_duration=1, sample_rate=24000,
+    )
+    assert len(requests) == 1
+    audio, rate = sf.read(output)
+    assert rate == 24000 and len(audio) == 24000
+    assert np.max(np.abs(audio[:6000])) == 0
+    assert np.max(np.abs(audio[6000:8400])) > 0
+
+
+@pytest.mark.parametrize("options", [
+    {"instructions": "轻声"}, {"speed": 0.4}, {"speed": 2.1},
+])
+def test_fish_rejects_unsupported_parameters_before_request(monkeypatch, tmp_path, options):
+    def handler(request):
+        pytest.fail("invalid configuration must not issue a billable request")
+
+    mock_transport(monkeypatch, handler)
+    engine = OpenAICompatibleTtsEngine(
+        base_url="https://api.fish.audio/v1", api_key="test-key", api_format="fish",
+        model="s2-pro", voice="voice-id", **options,
+    )
+    with pytest.raises(ValueError, match="Fish Audio"):
+        engine.synthesize("你好", str(tmp_path / "invalid.wav"))
+
+
+@pytest.mark.parametrize("status,body", [
+    (401, b'{"error":"test-key"}'), (200, b'{"error":"test-key"}'),
+])
+def test_fish_errors_do_not_leak_credentials_or_create_output(monkeypatch, tmp_path, status, body):
+    mock_transport(monkeypatch, lambda request: httpx.Response(status, content=body))
+    engine = OpenAICompatibleTtsEngine(
+        base_url="https://api.fish.audio/v1", api_key="test-key", api_format="fish",
+        model="s2-pro", voice="voice-id",
+    )
+    output = tmp_path / "invalid.wav"
+    with pytest.raises(RuntimeError) as error:
+        engine.synthesize("你好", str(output))
+    assert "test-key" not in str(error.value)
+    assert not output.exists()

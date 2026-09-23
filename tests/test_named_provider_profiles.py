@@ -142,3 +142,52 @@ def test_invalid_profile_writes_do_not_persist(service, draft):
     with pytest.raises(AppValidationError):
         service.update_settings({"connection_profile": draft})
     assert service.config.get_file_config() == before
+
+
+def fish_profile(**overrides):
+    return {"kind": "tts", "name": "Fish", "api_format": "fish",
+            "base_url": "https://api.fish.audio/v1", "model": "s2.1-pro-free",
+            "voice": "my-reference-id", "credential": "fish-test-secret", **overrides}
+
+
+def test_fish_profile_roundtrip_and_task_snapshot(service):
+    from src.task_connection_context import capture_connections
+    result = service.update_settings({"connection_profile": fish_profile()})
+    selected = result["connection_profiles"]["active_tts"]
+    profile = next(p for p in result["connection_profiles"]["tts"] if p["id"] == selected)
+    assert profile["api_format"] == "fish"
+    assert profile["model"] == "s2.1-pro-free"
+    assert profile["voice"] == "my-reference-id"
+    assert "fish-test-secret" not in json.dumps(result)
+    service.config.reload()
+    assert service.get_settings() == result
+    snapshot = capture_connections(service.get_settings(masked=False))
+    service.update_settings({"active_connections": {"tts": "legacy-tts"}})
+    assert snapshot["external_tts"]["api_format"] == "fish"
+    assert snapshot["external_tts"]["voice"] == "my-reference-id"
+    service.update_settings({"active_connections": {"tts": selected}})
+    assert service.config.get("external_tts.api_key") == "fish-test-secret"
+
+
+@pytest.mark.parametrize("overrides", [
+    {"api_format": "unknown"}, {"voice": ""}, {"model": ""},
+    {"instructions": "unsupported instruction"}, {"voice": 123},
+])
+def test_invalid_fish_profile_is_not_saved(service, overrides):
+    before = deepcopy(service.config.get_file_config())
+    with pytest.raises(AppValidationError):
+        service.update_settings({"connection_profile": fish_profile(**overrides)})
+    assert service.config.get_file_config() == before
+
+
+def test_fish_profile_host_change_requires_fresh_key(service):
+    result = service.update_settings({"connection_profile": fish_profile()})
+    selected = result["connection_profiles"]["active_tts"]
+    service.update_settings({"connection_profile": {"kind": "tts", "id": selected,
+                            "name": "Fish renamed", "credential": ""}})
+    assert service.config.get("external_tts.api_key") == "fish-test-secret"
+    before = deepcopy(service.config.get_file_config())
+    with pytest.raises(AppValidationError, match="重新填写"):
+        service.update_settings({"connection_profile": {"kind": "tts", "id": selected,
+                                "base_url": "https://another.invalid/v1", "credential": ""}})
+    assert service.config.get_file_config() == before

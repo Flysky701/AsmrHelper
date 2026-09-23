@@ -1,4 +1,4 @@
-"""Remote speech endpoints, including MiMo's chat audio response format."""
+"""Remote speech endpoints with provider-specific request and audio formats."""
 
 from __future__ import annotations
 
@@ -35,12 +35,18 @@ class OpenAICompatibleTtsEngine:
             raise ValueError("请在设置中填写外部 TTS 的地址、API Key、模型和音色")
         if not text.strip():
             raise ValueError("合成文本不能为空")
-        if self.api_format not in ("speech", "mimo_chat"):
+        if self.api_format not in ("speech", "mimo_chat", "fish"):
             raise ValueError("不支持的 TTS 接口格式")
         if not 0.25 <= self.speed <= 4.0:
             raise ValueError("语速必须在 0.25–4.0 之间")
         if self.api_format == "mimo_chat" and self.speed != 1.0:
             raise ValueError("MiMo 接口不支持数值语速；请使用语音指令设置语速")
+        if self.api_format == "fish":
+            if self.instructions:
+                raise ValueError("Fish Audio 不支持独立语音指令；请清空语音指令后重试")
+            if not 0.5 <= self.speed <= 2.0:
+                raise ValueError("Fish Audio 语速必须在 0.5–2.0 之间")
+        headers = {"Authorization": f"Bearer {self.api_key}"}
         if self.api_format == "speech":
             endpoint = "/audio/speech"
             payload = {
@@ -53,6 +59,12 @@ class OpenAICompatibleTtsEngine:
                 payload["speed"] = self.speed
             if self.instructions:
                 payload["instructions"] = self.instructions
+        elif self.api_format == "fish":
+            endpoint = "/tts"
+            headers["model"] = self.model
+            payload = {"text": text, "reference_id": self.voice, "format": "wav"}
+            if self.speed != 1.0:
+                payload["prosody"] = {"speed": self.speed}
         else:
             endpoint = "/chat/completions"
             messages = []
@@ -69,14 +81,14 @@ class OpenAICompatibleTtsEngine:
                 response = client.post(
                     self.base_url + endpoint,
                     json=payload,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    headers=headers,
                 )
                 if not response.is_success:
                     # Remote bodies may echo credentials or submitted text.
                     raise RuntimeError(
                         f"外部 TTS 请求失败（HTTP {response.status_code}），请检查地址、凭据和模型"
                     )
-                if self.api_format == "speech":
+                if self.api_format != "mimo_chat":
                     content = response.content
                 else:
                     content = base64.b64decode(
