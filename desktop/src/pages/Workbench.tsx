@@ -8,6 +8,7 @@ import { capabilitiesApi } from '@/api/engines'
 import { settingsApi } from '@/api/settings'
 import type { SettingsView } from '@/api/settings'
 import RemoteModelSelect from '@/components/RemoteModelSelect'
+import MixPreview from '@/components/MixPreview'
 import { resourcesApi } from '@/api/resources'
 import { ttsApi } from '@/api/tts'
 import { voiceApi } from '@/api/voice'
@@ -1987,6 +1988,8 @@ export default function Workbench() {
                 </>
               ) : null}
             </div>
+            {stageFlags.mix ? <MixPreview inputPaths={selectedInputPaths}
+              originalVolume={params.originalVolume} ttsVolumeRatio={params.ttsVolumeRatio} ttsDelay={params.ttsDelay} /> : null}
           </Section>
 
           <Section title="模型与引擎" open={modelExpanded} onToggle={toggleModel}>

@@ -6,12 +6,15 @@ import time
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 from src.api.http.dependencies import (
     artifact_service,
     pipeline_task_orchestrator,
     task_dispatcher,
     task_service,
+    input_catalog_service,
 )
 from src.api.http.schemas.tasks import (
     ReviewNoteUpdateRequest,
@@ -36,6 +39,43 @@ from src.core.tasks import TaskDispatcher
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 queue_router = APIRouter(tags=["tasks"])
+
+
+class MixPreviewRequest(BaseModel):
+    original_volume: float = Field(0.85, ge=0, le=1, allow_inf_nan=False)
+    tts_volume_ratio: float = Field(0.5, ge=0, le=1, allow_inf_nan=False)
+    tts_delay: float = Field(0, ge=-2, le=2, allow_inf_nan=False)
+    start_seconds: float = Field(0, ge=0, allow_inf_nan=False)
+
+
+@router.get("/mix-preview/sources")
+def get_mix_preview_sources(svc=Depends(task_service), artifacts=Depends(artifact_service),
+                            inputs=Depends(input_catalog_service)):
+    from src.app.services.mix_preview import resolve_mix_sources
+    from pathlib import Path
+    sources = []
+    for task in svc.list_tasks():
+        try:
+            original, source, _ = resolve_mix_sources(task.task_id, svc, artifacts, inputs)
+        except AppValidationError:
+            continue
+        sources.append({"task_id": task.task_id, "input_path": original,
+                        "label": Path(original).name, "created_at": task.created_at,
+                        "uses_vocals": source != original})
+    return {"sources": sources}
+
+
+@router.post("/{task_id}/mix-preview")
+def preview_mix(task_id: str, body: MixPreviewRequest, svc=Depends(task_service),
+                artifacts=Depends(artifact_service), inputs=Depends(input_catalog_service)):
+    from src.app.services.mix_preview import resolve_mix_sources, render_mix_preview
+    import subprocess
+    _, source, speech = resolve_mix_sources(task_id, svc, artifacts, inputs)
+    try:
+        audio = render_mix_preview(source, speech, **body.model_dump())
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+        raise AppValidationError("试听生成失败，请确认音频格式可读且 FFmpeg 可用") from exc
+    return Response(audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/{task_id}/recovery")
