@@ -332,7 +332,7 @@ export default function Settings() {
         background: 'var(--surface)', borderBottom: '1px solid var(--border)',
         padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '12px',
       }}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '15px', fontWeight: 600, letterSpacing: '-0.02em', marginRight: '16px' }}>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '22px', fontWeight: 700, letterSpacing: '-0.02em', marginRight: '16px' }}>
           设置
         </h1>
         <div className="settings-action-spacer" style={{ flex: 1 }} />
@@ -399,8 +399,13 @@ export default function Settings() {
           {/* Panel: API 配置 */}
           {activeTab === 'api' && (
             <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-              <section style={{ marginBottom: 32 }}>
-                <h2 style={{ fontSize: 16, marginBottom: 16 }}>翻译服务</h2>
+              <details className="settings-service-section" open>
+                <summary className="settings-service-heading">
+                  <span className="settings-service-tag">LLM</span>
+                  <h2 className="settings-section-title">翻译服务</h2>
+                  <span className="settings-service-toggle" aria-hidden="true" />
+                </summary>
+                <div className="settings-service-body">
                 <label className="settings-field">
                   已保存的配置
                   <select value={llmProfile.id} disabled={saving} onChange={event => void selectProfile('llm', event.target.value)}>
@@ -469,9 +474,15 @@ export default function Settings() {
                 <button className="settings-secondary-button" style={{ marginTop: 16 }} disabled={saving} onClick={() => void saveProfile('llm')}>
                   保存并启用翻译配置
                 </button>
-              </section>
-              <section>
-                <h2 style={{ fontSize: 16, marginBottom: 8 }}>外部语音合成</h2>
+                </div>
+              </details>
+              <details className="settings-service-section">
+                <summary className="settings-service-heading">
+                  <span className="settings-service-tag">TTS</span>
+                  <h2 className="settings-section-title">外部语音合成</h2>
+                  <span className="settings-service-toggle" aria-hidden="true" />
+                </summary>
+                <div className="settings-service-body">
                 <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>OpenAI 兼容语音接口</p>
                 <label className="settings-field">
                   已保存的配置
@@ -509,7 +520,8 @@ export default function Settings() {
                 <button className="settings-secondary-button" disabled={saving} onClick={() => void saveProfile('tts')}>
                   保存并启用语音配置
                 </button>
-              </section>
+                </div>
+              </details>
             </fieldset>
           )}
 
@@ -670,6 +682,66 @@ export default function Settings() {
       </div>
 
       <style>{`
+        .settings-service-section {
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          background: var(--surface);
+          margin-bottom: 16px;
+        }
+
+        .settings-service-heading {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 18px 20px;
+          cursor: pointer;
+          list-style: none;
+          border-radius: 10px;
+          background: var(--panel-muted);
+        }
+
+        .settings-service-heading::-webkit-details-marker { display: none; }
+        .settings-service-heading:hover { background: var(--accent-soft); }
+        .settings-service-section[open] > .settings-service-heading {
+          border-bottom: 1px solid var(--border);
+          border-radius: 10px 10px 0 0;
+        }
+
+        .settings-section-title {
+          margin: 0;
+          font-family: var(--font-display);
+          font-size: 20px;
+          font-weight: 700;
+          line-height: 1.4;
+          color: var(--fg);
+        }
+
+        .settings-service-tag {
+          flex-shrink: 0;
+          padding: 4px 7px;
+          border-radius: 5px;
+          background: var(--accent-soft);
+          color: var(--accent);
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .settings-service-toggle {
+          margin-left: auto;
+          font-size: 12px;
+          color: var(--muted);
+          flex-shrink: 0;
+        }
+        .settings-service-toggle::before { content: '展开 ＋'; }
+        .settings-service-section[open] > summary .settings-service-toggle::before { content: '收起 −'; }
+        .settings-service-body { padding: 20px; }
+
+        @media (max-width: 600px) {
+          .settings-service-heading { gap: 8px; padding: 14px 12px; }
+          .settings-section-title { font-size: 18px; }
+          .settings-service-body { padding: 16px 12px; }
+        }
+
         .settings-field {
           display: grid;
           gap: 6px;
