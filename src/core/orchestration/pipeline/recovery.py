@@ -10,6 +10,14 @@ from src.app.persistence.recovery_store import file_identity, fingerprint
 
 
 class PipelineRecovery:
+    # These providers consume their complete task-bound synthesis settings.
+    # Local engines additionally resolve mutable voice profiles, prompt caches,
+    # default weights, and (VoxCPM2) denoisers outside the plan. Their loaded
+    # singleton state has no verifiable revision. Hashing only the current files
+    # would incorrectly attest to the model which produced an earlier output.
+    # Unknown/new providers must opt in only after their dependencies are audited.
+    _REUSABLE_TTS_PROVIDERS = frozenset({"edge", "openai_compatible"})
+
     def __init__(self, store, task_id, source_task_id, plan, connection_fingerprint=""):
         self.store = store
         self.task_id = task_id
@@ -44,7 +52,9 @@ class PipelineRecovery:
 
     def run(self, stage, operation, results, segments, translations, by_product_dir, mix_path):
         stage_fingerprint = self._fingerprint(stage)
-        record = self.store.validated(self.source_task_id, stage, stage_fingerprint) if self._reuse else None
+        reusable = stage != "tts" or self.plan.tts.provider in self._REUSABLE_TTS_PROVIDERS
+        record = (self.store.validated(self.source_task_id, stage, stage_fingerprint)
+                  if self._reuse and reusable else None)
         if record:
             payload = deepcopy(record["payload"])
             mapping = {}

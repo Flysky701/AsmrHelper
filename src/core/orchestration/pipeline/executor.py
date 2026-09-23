@@ -92,7 +92,7 @@ class PipelineExecutor:
             "error": None,
         }
 
-        t0 = time.time()
+        t0 = time.perf_counter()
         current_step = 0
         total_steps = len(plan.active_stage_kinds) + int(plan.subtitle.enabled)
 
@@ -191,7 +191,7 @@ class PipelineExecutor:
                 _report("error", f"[ERROR] 流水线异常: {e}")
             raise
         finally:
-            results["total_duration"] = time.time() - t0
+            results["total_duration"] = time.perf_counter() - t0
             results["mix_path"] = str(mix_path) if mix_path.exists() else None
             results["primary_output"] = (
                 results["mix_path"] or results.get("exported_subtitle")

@@ -205,3 +205,64 @@ def test_missing_declared_output_never_publishes_success(setup):
         executor.execute(plan, recovery=PipelineRecovery(store, "first", None, plan))
     assert store.checkpoint("first", "asr") is None
     assert executor.calls == ["asr"]
+
+
+@pytest.mark.parametrize("provider,dependency", [
+    ("qwen3", "voice-profile.json"),
+    ("qwen3", "prompt-cache.pt"),
+    ("qwen3", "default-model.bin"),
+    ("voxcpm2", "model-weights.bin"),
+    ("voxcpm2", "reference.wav"),
+    ("voxcpm2", "prompt.wav"),
+    ("future_local_provider", "hidden-resource.bin"),
+])
+def test_indirect_tts_resources_cannot_reuse_stale_audio(setup, tmp_path, provider, dependency):
+    """An engine reads a mutable dependency absent from its serialized plan."""
+    store, plan = setup
+    plan.tts.provider = provider
+    plan.tts.model = "default"
+    plan.alignment.enabled = True
+    plan.mix.enabled = True
+    plan.subtitle.enabled = True
+    resource = tmp_path / dependency
+    resource.write_bytes(b"old voice/model state")
+    plan.tts.provider_options.update(
+        voice_profile_id="same-profile-id", model_dir=str(tmp_path / "model"),
+        reference_wav_path=str(tmp_path / "reference.wav"),
+        prompt_wav_path=str(tmp_path / "prompt.wav"))
+
+    class DependencyExecutor(StubExecutor):
+        def _execute_tts(self, *args):
+            path = super()._execute_tts(*args)
+            path.write_bytes(resource.read_bytes())
+            return path
+
+        def _export_subtitles(self, *args):
+            self.calls.append("export")
+            return super()._export_subtitles(*args)
+
+    first = DependencyExecutor()
+    initial = first.execute(plan, recovery=PipelineRecovery(store, "first", None, plan))
+    # Same IDs/paths/options; the hidden resource changes in place.
+    resource.write_bytes(b"new voice/model state")
+    resumed_plan = next_plan(plan)
+    second = DependencyExecutor()
+    result = second.execute(resumed_plan,
+                            recovery=PipelineRecovery(store, "second", "first", resumed_plan))
+    assert second.calls == ["tts", "mix", "export"]
+    assert Path(result["tts_audio_path"]).read_bytes() == b"new voice/model state"
+    assert Path(initial["tts_audio_path"]).read_bytes() == b"old voice/model state"
+    # Even unchanged disk state cannot attest to opaque cached model instances.
+    third_plan = next_plan(plan, "third")
+    third = DependencyExecutor()
+    third.execute(third_plan, recovery=PipelineRecovery(store, "third", "second", third_plan))
+    assert third.calls == ["tts", "mix", "export"]
+
+
+@pytest.mark.parametrize("provider", ["edge", "openai_compatible"])
+def test_audited_remote_tts_still_reuses_verified_results(setup, provider):
+    store, plan = setup
+    plan.tts.provider = provider
+    run(store, plan)
+    executor, _ = run(store, next_plan(plan), "first")
+    assert executor.calls == []

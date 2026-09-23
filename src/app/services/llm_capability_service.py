@@ -68,7 +68,7 @@ class LlmCapabilityService:
 
         try:
             items = self._runtime.translate_texts(
-                texts,
+                texts=texts,
                 profile=profile,
                 source_lang=source_lang,
                 target_lang=target_lang,
@@ -116,7 +116,7 @@ class LlmCapabilityService:
         try:
             if operation == "translate":
                 items = self._runtime.translate_texts(
-                    [line for line in content.splitlines() if line.strip()],
+                    texts=[line for line in content.splitlines() if line.strip()],
                     profile=profile,
                     source_lang=source_lang,
                     target_lang=target_lang,

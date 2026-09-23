@@ -11,6 +11,7 @@ LLM 翻译实现 - 支持 DeepSeek / OpenAI
 import time
 import json
 import re
+import hashlib
 from typing import List, Optional, Literal, Tuple
 
 from openai import OpenAI
@@ -31,6 +32,10 @@ _MEANINGFUL_CHAR_RE = re.compile(r'''
 
 # 独立出现的数字 "0" 的替换正则（不匹配 10, 20, 101 等中的 0）
 _STANDALONE_ZERO_RE = re.compile(r'(?<![0-9])0(?![0-9])')
+
+
+class TranslationError(RuntimeError):
+    """Translation did not complete; callers must not publish a successful result."""
 
 
 class Translator:
@@ -121,14 +126,35 @@ class Translator:
         """获取翻译缓存（延迟加载，自动持久化）"""
         if self._cache is None and self.use_cache:
             try:
-                from .cache import get_cache
-                self._cache = get_cache()
-                # 自动加载已有缓存
-                self._cache.load_if_empty(self.cache_namespace)
+                from .cache import TranslationCache
+                # Do not share the legacy text-only singleton across projects.
+                self._cache = TranslationCache()
+                self._cache.load_if_empty(self._cache_file_namespace())
             except Exception as e:
                 print(f"[Translator] 缓存加载失败: {e}")
                 self._cache = None
         return self._cache
+
+    def _cache_file_namespace(self) -> str:
+        return "translation-v2-" + hashlib.sha256(self.cache_namespace.encode("utf-8")).hexdigest()
+
+    def _cache_context(self, source_lang, target_lang, system_prompt, texts) -> str:
+        """Versioned request identity; only its digest reaches cache storage."""
+        context = {
+            "version": 2, "namespace": self.cache_namespace,
+            "provider": self.provider, "endpoint": self.base_url, "model": self.model,
+            "credential": hashlib.sha256(self.api_key.encode("utf-8")).hexdigest(),
+            "source_lang": source_lang, "target_lang": target_lang,
+            "system_prompt": system_prompt,
+            "batch": self.use_batch, "batch_size": self.batch_size,
+            "retries": self.max_retries, "temperatures": self.DEFAULT_TEMPERATURES,
+            "quality_check": self.use_quality_check,
+            "terminology": {name: getattr(self.term_db, name, None)
+                            for name in ("_pre_terms", "_gpt_terms", "_post_terms")},
+            # Batch neighbours can change interpretation, so do not reuse another context.
+            "texts": texts if self.use_batch else None,
+        }
+        return hashlib.sha256(json.dumps(context, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
     @property
     def api_key(self) -> str:
@@ -187,7 +213,7 @@ class Translator:
             temperature=0.3,
         )
 
-        if not response.choices or not response.choices[0].message.content:
+        if not response.choices or not isinstance(response.choices[0].message.content, str) or not response.choices[0].message.content.strip():
             raise ValueError("翻译 API 返回空响应")
         return response.choices[0].message.content.strip()
 
@@ -244,6 +270,8 @@ class Translator:
                     temperature=temperature,
                 )
 
+                if not response.choices or not isinstance(response.choices[0].message.content, str) or not response.choices[0].message.content.strip():
+                    raise ValueError("翻译 API 返回空响应")
                 translated = response.choices[0].message.content.strip()
                 return translated, True
 
@@ -251,11 +279,11 @@ class Translator:
                 if attempt < max_retries - 1:
                     # 指数退避：1s, 2s, 4s...
                     wait_time = 2 ** attempt
-                    print(f"  [WARN] 翻译失败 (尝试 {attempt+1}/{max_retries}): {e}, {wait_time}s 后重试...")
+                    print(f"  [WARN] 翻译失败 (尝试 {attempt+1}/{max_retries}): {type(e).__name__}, {wait_time}s 后重试...")
                     time.sleep(wait_time)
                 else:
-                    print(f"  [ERROR] 翻译最终失败: {e}")
-                    return text, False  # 降级：返回原文
+                    print(f"  [ERROR] 翻译最终失败: {type(e).__name__}")
+                    return text, False  # Internal failure marker, never a successful public result.
 
         return text, False
 
@@ -309,9 +337,13 @@ class Translator:
                 results = json.loads(content)
 
                 # 确保返回的是列表
-                if isinstance(results, list):
+                if isinstance(results, list) and len(results) == len(batch):
                     # 按 id 排序
+                    if any(not isinstance(r, dict) or type(r.get("id")) is not int for r in results):
+                        raise ValueError("Invalid translation IDs")
                     results_dict = {r["id"]: r for r in results}
+                    if set(results_dict) != set(range(len(batch))):
+                        raise ValueError("Missing or duplicate translation IDs")
                     
                     # 确定翻译字段名（支持多种格式）
                     trans_key = None
@@ -320,21 +352,24 @@ class Translator:
                             trans_key = key
                             break
                     
-                    if trans_key is None:
-                        print("[ERROR] API 返回缺少翻译字段，尝试使用 src（原文）")
-                        trans_key = "src"
+                    if trans_key is None or any(
+                        not isinstance(r.get(trans_key), str) or not r[trans_key].strip()
+                        for r in results_dict.values()
+                    ):
+                        raise ValueError("Missing or empty translation field")
                     
                     return [
-                        (batch_indices[i], results_dict[i].get(trans_key, batch[i]) if i in results_dict else batch[i], True)
+                        (batch_indices[i], results_dict[i][trans_key].strip(), True)
                         for i in range(len(batch))
                     ]
                 else:
                     raise ValueError(f"Expected list, got {type(results)}")
 
-            except (json.JSONDecodeError, KeyError, ValueError) as e:
+            except Exception as e:
                 wait_time = 2 ** attempt
-                print(f"  [WARN] 批量 JSON 解析失败 (尝试 {attempt+1}/{max_retries}): {e}")
-                time.sleep(wait_time)
+                print(f"  [WARN] 批量翻译失败 (尝试 {attempt+1}/{max_retries}): {type(e).__name__}")
+                if attempt < max_retries - 1:
+                    time.sleep(wait_time)
                 # 继续重试，温度递增
 
         # 所有批量重试均失败，降级为逐条翻译
@@ -364,6 +399,9 @@ class Translator:
 
         Returns:
             List[str]: 翻译结果列表
+
+        Raises:
+            TranslationError: 重试耗尽或质量检查拒绝结果；调用方不得提交成功产物。
         """
         t0 = time.time()
 
@@ -373,6 +411,10 @@ class Translator:
         # Step 2: 构建 system prompt（带 GPT 字典）
         if system_prompt is None:
             system_prompt = self._build_system_prompt_with_dict(source_lang, target_lang, texts)
+
+        cache_context = self._cache_context(source_lang, target_lang, system_prompt, preprocessed) if self.use_cache else ""
+        def cache_key(text):
+            return f"translation-v2:{cache_context}:{text}"
 
         # Step 3: 空文本 + 无意义文本预处理
         results = [""] * len(texts)
@@ -401,13 +443,11 @@ class Translator:
             # 缓存命中检查（使用预处理后的文本作为 key）
             cache = self._get_cache()
             if cache:
-                cached = cache.get(pre)
+                cached = cache.get(cache_key(pre))
                 if cached is not None:
                     cache_hits[i] = cached
                     continue
-                need_translate.append((i, pre))
-            else:
-                results[i] = ""
+            need_translate.append((i, pre))
 
         total_need = len(need_translate)
         total_cache = len(cache_hits)
@@ -435,16 +475,16 @@ class Translator:
         for i, cached in cache_hits.items():
             results[i] = cached
 
+        # Validate before publishing any new cache entry.
+        if self.use_quality_check:
+            results = self._run_quality_check(results, preprocessed)
+
         # Step 5: 保存新的翻译到缓存
         if self.use_cache and self._get_cache():
             cache = self._get_cache()
             for i, pre in need_translate:
                 if results[i] and results[i] != pre:  # 只有实际翻译成功的才缓存
-                    cache.set(pre, results[i], self.model)
-
-        # Step 6: 质量检测
-        if self.use_quality_check:
-            results = self._run_quality_check(results, preprocessed)
+                    cache.set(cache_key(pre), results[i], self.model)
 
         # Step 7: 后处理（修正 LLM 顽固错误）
         results = self._postprocess_texts(results)
@@ -468,7 +508,7 @@ class Translator:
             if stats["total"] > 0:
                 print(f"[Translator] 缓存统计: 命中 {stats['hits']}/{stats['total']} ({stats['hit_rate']*100:.1f}%)")
             # 自动保存缓存到文件
-            cache.save(cache._memory_cache, self.cache_namespace)
+            cache.save(cache._memory_cache, self._cache_file_namespace())
 
         print(f"[Translator] 批量翻译完成，{total_need} 句翻译 + {total_cache} 缓存命中，耗时: {time.time()-t0:.1f}s")
         return results
@@ -547,6 +587,8 @@ class Translator:
                 else:
                     # 批量失败，降级为逐条翻译
                     translated, ok = self._translate_single_with_retry(text, system_prompt)
+                    if not ok:
+                        raise TranslationError(f"第 {idx + 1} 段翻译失败，重试已用尽；未生成完整翻译结果")
                     results[idx] = translated
 
             # 进度显示
@@ -568,6 +610,8 @@ class Translator:
 
         for i, (idx, text) in enumerate(need_translate):
             translated, success = self._translate_single_with_retry(text, system_prompt)
+            if not success:
+                raise TranslationError(f"第 {idx + 1} 段翻译失败，重试已用尽；未生成完整翻译结果")
             results[idx] = translated
 
             # 进度显示
@@ -582,7 +626,7 @@ class Translator:
         results: List[str],
         originals: List[str],
     ) -> List[str]:
-        """运行质量检测（只检测实际翻译的句子，跳过降级保留原文的情况）"""
+        """拒绝不合格译文，避免原文回退被保存为成功结果。"""
         checker = self._get_quality_checker()
         if checker is None:
             return results
@@ -600,10 +644,9 @@ class Translator:
                     continue
 
                 issues_found += 1
-                # 残日问题：保留原文而非有问题的翻译
+                # A rejected translation must not become a successful checkpoint.
                 if any(iss.value == "japanese_residue" for iss in result.issues):
-                    print(f"  [QA] 第{result.index+1}句残留日文，保留原文: {result.translation[:30]}...")
-                    results[result.index] = result.original
+                    raise TranslationError(f"第 {result.index + 1} 段翻译未通过质量检查；未生成完整翻译结果")
 
         if issues_found > 0:
             print(f"[Translator] 质量检测: 发现 {issues_found} 条问题（已自动处理）")
