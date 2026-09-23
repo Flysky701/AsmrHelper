@@ -1,5 +1,16 @@
 # AsmrHelper 文档索引
 
+## 使用参考与目录约定
+
+- [音色描述词指南](guides/voice-description.md)
+- [历史模型下载备注](references/model-notes.md)：安装信息以 `config/models.yaml` 为准。
+- [待评估模型](roadmap/future-models.md)
+- [早期界面草图](archived/designs/sketch-2026-05-22T18-31-25.sketch.json)
+
+根目录保留源码、配置、启动入口和依赖清单；指南、评估及历史材料统一放在 `docs/`。
+`tests/test_*.py` 是正式回归测试；一次性探测产物放 `.tmp/`，工具缓存统一放 `.cache/`。
+清理时保留 `models/`、`.runtimes/`、`.venv/`、`output/`、用户配置及原始测试素材。
+
 ## 当前权威文档
 
 建议按以下顺序阅读：

@@ -93,6 +93,7 @@ packages = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+cache_dir = ".cache/pytest"
 
 [tool.black]
 line-length = 100
@@ -101,6 +102,7 @@ target-version = ["py311"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+cache-dir = ".cache/ruff"
 
 [tool.ruff.lint]
 extend-select = ["B007", "B033", "B904", "B905"]

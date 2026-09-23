@@ -80,6 +80,8 @@ logs/
 # Cache
 # =====================
 .cache/
+.uv-cache/
+.ruff_cache/
 .huggingface/
 *.log
 

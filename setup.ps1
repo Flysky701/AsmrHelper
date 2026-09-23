@@ -41,7 +41,7 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 # project's Conda interpreter and also makes caches/runtimes easy to inspect
 # and remove without touching global Python installations.
 if (-not $env:UV_CACHE_DIR) {
-    $env:UV_CACHE_DIR = Join-Path $ProjectRoot ".uv-cache"
+    $env:UV_CACHE_DIR = Join-Path $ProjectRoot ".cache\uv"
 }
 if (-not $env:UV_PYTHON_INSTALL_DIR) {
     $env:UV_PYTHON_INSTALL_DIR = Join-Path $ProjectRoot ".runtimes\python"
