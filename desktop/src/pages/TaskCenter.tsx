@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 
 import { tasksApi } from '@/api/tasks'
@@ -222,6 +222,19 @@ const TASK_CENTER_LAYOUT_STYLES = `
 `
 
 type FilterValue = 'all' | TaskStatus
+
+type TaskCategory = 'processing' | 'models' | 'tools'
+const TASK_CATEGORIES: { id: TaskCategory; label: string; description: string }[] = [
+  { id: 'processing', label: 'ASMR 处理', description: '翻译、对齐、配音与混音流水线' },
+  { id: 'models', label: '模型下载', description: '模型下载、安装与依赖准备' },
+  { id: 'tools', label: '工具任务', description: '音频、字幕、音色工具及其他任务' },
+]
+
+function taskCategory(jobType: JobType): TaskCategory {
+  if (jobType === 'pipeline') return 'processing'
+  if (jobType === 'model-install') return 'models'
+  return 'tools'
+}
 
 const FILTER_TABS: { value: FilterValue; label: string }[] = [
   { value: 'all', label: '全部' },
@@ -486,13 +499,22 @@ export default function TaskCenter() {
   useTaskPolling(3000, taskCenterView === 'tasks')
 
   const tasks = useTaskStore((state) => state.tasks)
-  const filter = useTaskStore((state) => state.filter)
-  const setFilter = useTaskStore((state) => state.setFilter)
   const selectedTaskId = useTaskStore((state) => state.selectedTaskId)
   const selectTask = useTaskStore((state) => state.selectTask)
   const addTask = useTaskStore((state) => state.addTask)
   const updateTask = useTaskStore((state) => state.updateTask)
   const setPage = useNavStore((state) => state.setPage)
+  const selectedJobType = tasks.find((task) => task.id === selectedTaskId)?.jobType
+  const [category, setCategory] = useState<TaskCategory>(() => selectedJobType ? taskCategory(selectedJobType) : 'processing')
+  const [categoryFilters, setCategoryFilters] = useState<Record<TaskCategory, FilterValue>>({ processing: 'all', models: 'all', tools: 'all' })
+  const filter = categoryFilters[category]
+  const setFilter = (value: FilterValue) => setCategoryFilters((current) => ({ ...current, [category]: value }))
+
+  useEffect(() => {
+    if (!selectedJobType) return
+    const target = taskCategory(selectedJobType)
+    setCategory(target)
+  }, [selectedJobType, selectedTaskId])
 
   const logs = useLogStore((state) => state.logs)
   const levelFilter = useLogStore((state) => state.levelFilter)
@@ -503,14 +525,16 @@ export default function TaskCenter() {
 
   const showAudio = useAudioPlayerStore((state) => state.show)
 
-  const filteredTasks = filter === 'all' ? tasks : tasks.filter((task) => task.status === filter)
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? filteredTasks[0] ?? null
+  const categoryTasks = tasks.filter((task) => taskCategory(task.jobType) === category)
+  const filteredTasks = filter === 'all' ? categoryTasks : categoryTasks.filter((task) => task.status === filter)
+  const selectedTask = filteredTasks.find((task) => task.id === selectedTaskId) ?? filteredTasks[filteredTasks.length - 1] ?? null
+  const categoryInfo = TASK_CATEGORIES.find((item) => item.id === category)!
 
-  const runningTasks = tasks.filter((task) => task.status === 'running')
-  const pendingTasks = tasks.filter((task) => task.status === 'pending')
-  const failedTasks = tasks.filter((task) => task.status === 'failed')
+  const runningTasks = categoryTasks.filter((task) => task.status === 'running')
+  const pendingTasks = categoryTasks.filter((task) => task.status === 'pending')
+  const failedTasks = categoryTasks.filter((task) => task.status === 'failed')
   const retryableFailedTasks = failedTasks.filter((task) => !task.historical)
-  const completedTasks = tasks.filter((task) => task.status === 'completed')
+  const completedTasks = categoryTasks.filter((task) => task.status === 'completed')
 
   const taskLogs = selectedTask ? logs.filter((entry) => entry.taskId === selectedTask.id) : logs
   const filteredLogs = taskLogs.filter((entry) => levelFilter.includes(entry.level)).slice(-120).reverse()
@@ -667,6 +691,7 @@ export default function TaskCenter() {
         detail: response.detail,
         createdAt: Date.parse(response.created_at) || Date.now(),
       })
+      setFilter('all')
       selectTask(newTaskId)
       addLog({ level: 'info', content: `已创建重试任务：${response.task_id}`, taskId: newTaskId })
     } catch (error) {
@@ -733,14 +758,30 @@ export default function TaskCenter() {
           {taskCenterView === 'tasks' ? (
             <>
               <ToolbarButton variant="secondary" onClick={handleRetryFailedTasks} disabled={retryableFailedTasks.length === 0}>
-                重试失败任务
+                重试本类失败任务
               </ToolbarButton>
               <ToolbarButton variant="secondary" onClick={handleCancelRunningTasks} disabled={runningTasks.length === 0}>
-                取消运行中
+                取消本类运行任务
               </ToolbarButton>
             </>
           ) : null}
         </div>
+
+        {taskCenterView === 'tasks' ? (
+          <nav aria-label="任务分类" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, width: '100%' }}>
+            {TASK_CATEGORIES.map((item) => {
+              const count = tasks.filter((task) => taskCategory(task.jobType) === item.id).length
+              return (
+                <button key={item.id} type="button" aria-pressed={category === item.id}
+                  onClick={() => { selectTask(null); setCategory(item.id) }}
+                  style={{ flex: '1 1 180px', textAlign: 'left', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: `1px solid ${category === item.id ? 'var(--accent)' : 'var(--border)'}`, background: category === item.id ? 'var(--accent-soft)' : 'var(--surface)', color: 'var(--fg)', cursor: 'pointer' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{item.label} <span style={{ marginLeft: 6, color: 'var(--muted)', fontWeight: 400 }}>{count}</span></div>
+                  <div style={{ fontSize: 12, marginTop: 4, color: 'var(--muted)' }}>{item.description}</div>
+                </button>
+              )
+            })}
+          </nav>
+        ) : null}
 
         {taskCenterView === 'tasks' ? (
           <div className="task-center-stats">
@@ -765,17 +806,17 @@ export default function TaskCenter() {
       <div className="task-center-content">
         <section className="task-center-list-panel" style={SURFACE_STYLE}>
           <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>任务列表</div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>{categoryInfo.label}</div>
             <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-              优先看状态、阶段和可操作的产物入口。
+              状态统计及批量操作仅针对当前分类。
             </div>
           </div>
 
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {FILTER_TABS.map((tab) => {
               const count = tab.value === 'all'
-                ? tasks.length
-                : tasks.filter((task) => task.status === tab.value).length
+                ? categoryTasks.length
+                : categoryTasks.filter((task) => task.status === tab.value).length
 
               return (
                 <button
@@ -802,7 +843,7 @@ export default function TaskCenter() {
           <div className="task-center-task-list">
             {filteredTasks.length === 0 ? (
               <div style={{ display: 'grid', placeItems: 'center', minHeight: 240, color: 'var(--muted)' }}>
-                当前筛选条件下还没有任务。
+                当前筛选条件下没有{categoryInfo.label}任务。
               </div>
             ) : (
               filteredTasks
