@@ -25,6 +25,7 @@ import {
   PIPELINE_STAGE_IDS,
   PIPELINE_STAGE_LABELS,
   normalizePresetStages,
+  type PipelineStageId,
 } from '@/domain/pipelinePreset'
 import {
   buildPipelineExecutionProfile,
@@ -208,9 +209,34 @@ const WORKBENCH_LAYOUT_STYLES = `
 
   .workbench-pipeline-track {
     display: grid;
-    grid-template-columns: repeat(6, minmax(126px, 1fr));
-    gap: 10px;
-    min-width: 790px;
+    grid-template-columns: repeat(7, minmax(104px, 1fr));
+    min-width: 728px;
+    padding: 4px 0;
+  }
+
+  .workbench-pipeline-step {
+    position: relative;
+    min-width: 0;
+    padding-right: 12px;
+  }
+
+  .workbench-pipeline-step:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    top: 12px;
+    left: 35px;
+    right: 10px;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .workbench-pipeline-detail {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   @media (max-width: 1100px) {
@@ -1498,11 +1524,22 @@ export default function Workbench() {
       : '当前预设不执行',
     export: stageFlags.export ? '导出 SRT 字幕与文本结果' : '当前预设不执行',
   }
+  const compactStageDetails: Record<PipelineStageId, string> = {
+    separate: params.vocalModel === 'htdemucs' ? 'Demucs' : params.vocalModel,
+    asr: params.asrModel.startsWith('faster-whisper-')
+      ? `Whisper ${params.asrModel.slice('faster-whisper-'.length)}` : params.asrModel,
+    align: 'Qwen 0.6B',
+    translate: `${optionLabel(LANG_OPTIONS, params.sourceLang).replace(/\s*\([^)]*\)/g, '')} → ${optionLabel(LANG_OPTIONS, params.targetLang).replace(/\s*\([^)]*\)/g, '')}`,
+    tts: params.ttsVoice === 'zh-CN-XiaoxiaoNeural' ? '晓晓 · Edge' : optionLabel(ttsVoiceOptions, params.ttsVoice),
+    mix: `原声 ${Math.round(params.originalVolume * 100)}% · 配音 ${Math.round(params.ttsVolumeRatio * 100)}%`,
+    export: 'SRT + 文本',
+  }
   const stageSummary = PIPELINE_STAGE_IDS.map((id) => ({
     id,
     title: PIPELINE_STAGE_LABELS[id],
     enabled: stageFlags[id],
     detail: stageDetails[id],
+    summary: compactStageDetails[id],
   }))
 
   const outputSummary = [
@@ -1836,28 +1873,21 @@ export default function Workbench() {
             ) : null}
           </Section>
 
-          <Section title="流水线预览">
-            <div className="workbench-pipeline-scroll">
-              <div className="workbench-pipeline-track">
+          <Section title="处理流程">
+            <div className="workbench-pipeline-scroll" tabIndex={0} role="region" aria-label="处理流程，可横向滚动查看全部步骤">
+              <ol className="workbench-pipeline-track" style={{ listStyle: 'none', margin: 0 }}>
               {stageSummary.map((stage, index) => (
-                <div
+                <li
                   key={stage.id}
-                  style={{
-                    minHeight: 126,
-                    padding: '13px 12px 12px',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    background: stage.enabled ? 'var(--surface)' : 'var(--panel-muted)',
-                    opacity: stage.enabled ? 1 : 0.72,
-                  }}
+                  className="workbench-pipeline-step"
+                  title={stage.detail}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span
                       style={{
                         width: 26,
                         height: 26,
                         borderRadius: 999,
-                        background: stage.enabled ? 'var(--accent-soft)' : 'var(--surface)',
+                        background: stage.enabled ? 'var(--accent-soft)' : 'var(--panel-muted)',
                         color: stage.enabled ? 'var(--accent)' : 'var(--muted)',
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -1868,17 +1898,11 @@ export default function Workbench() {
                     >
                       {index + 1}
                     </span>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>{stage.title}</div>
-                      <div style={{ marginTop: 3, fontSize: 11, color: stage.enabled ? 'var(--muted)' : 'var(--warning)' }}>
-                        {stage.enabled ? '本次执行' : '本次跳过'}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)' }}>{stage.detail}</div>
-                </div>
+                    <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: stage.enabled ? 'var(--fg)' : 'var(--muted)' }}>{stage.title}</div>
+                    <div className="workbench-pipeline-detail">{stage.enabled ? stage.summary : '跳过'}</div>
+                </li>
               ))}
-              </div>
+              </ol>
             </div>
           </Section>
 
