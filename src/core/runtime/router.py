@@ -26,7 +26,7 @@ class RuntimeRouter:
         "fun_asr": "fun_asr",
         "qwen3_asr": "qwen_asr",
     }
-    _TTS_PROFILES = {"qwen3": "qwen_tts"}
+    _TTS_PROFILES = {"qwen3": "qwen_tts", "voxcpm2": "voxcpm2"}
 
     def __init__(
         self,

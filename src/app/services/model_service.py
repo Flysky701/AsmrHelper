@@ -67,6 +67,7 @@ class ModelService:
                 variant_group=entry.variant_group,
                 variant_tier=entry.variant_tier,
                 is_primary_variant=entry.is_primary_variant,
+                is_auxiliary=entry.is_auxiliary,
                 dependency_group=entry.dependency_group,
                 runtime_profile=entry.runtime_profile,
                 preferred_runtime=entry.preferred_runtime,

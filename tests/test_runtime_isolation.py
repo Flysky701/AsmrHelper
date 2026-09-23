@@ -108,6 +108,7 @@ def test_isolated_model_status_reports_missing_runtime(tmp_path):
 def test_qwen_tts_runtime_bootstrap_uses_cuda_wheels(tmp_path, monkeypatch):
     resolver = RuntimeProfileResolver(project_root=tmp_path)
     monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda name: "uv.exe")
+    monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: 8.9)
 
     commands = resolver.build_bootstrap_commands(resolver.resolve("qwen_tts"))
 
@@ -115,6 +116,74 @@ def test_qwen_tts_runtime_bootstrap_uses_cuda_wheels(tmp_path, monkeypatch):
     assert "https://download.pytorch.org/whl/cu126" in commands[0]
     assert "torch==2.10.0+cu126" in commands[0]
     assert "torchaudio==2.10.0+cu126" in commands[0]
+
+
+def test_qwen_tts_runtime_bootstrap_uses_cu128_for_blackwell(tmp_path, monkeypatch):
+    resolver = RuntimeProfileResolver(project_root=tmp_path)
+    monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda name: "uv.exe")
+    monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: 12.0)
+
+    commands = resolver.build_bootstrap_commands(resolver.resolve("qwen_tts"))
+
+    assert len(commands) == 1
+    assert "https://download.pytorch.org/whl/cu128" in commands[0]
+    assert "torch==2.10.0+cu128" in commands[0]
+    assert "torchaudio==2.10.0+cu128" in commands[0]
+
+
+def test_qwen_tts_runtime_bootstrap_rejects_unknown_gpu(tmp_path, monkeypatch):
+    resolver = RuntimeProfileResolver(project_root=tmp_path)
+    monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda name: "uv.exe")
+    monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: None)
+
+    with pytest.raises(RuntimeError, match="unable to detect NVIDIA GPU"):
+        resolver.build_bootstrap_commands(resolver.resolve("qwen_tts"))
+
+
+def test_nvidia_compute_capability_uses_highest_valid_gpu(tmp_path, monkeypatch):
+    resolver = RuntimeProfileResolver(project_root=tmp_path)
+    monkeypatch.setattr(
+        "src.core.runtime.profiles.shutil.which",
+        lambda name: "nvidia-smi.exe" if name == "nvidia-smi" else None,
+    )
+    monkeypatch.setattr(
+        "src.core.runtime.profiles.subprocess.run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="8.9\nnot-a-capability\n12.0\n",
+            stderr="",
+        ),
+    )
+
+    assert resolver._detect_nvidia_compute_capability() == 12.0
+
+
+@pytest.mark.parametrize(
+    ("which_result", "run_result"),
+    [
+        (None, None),
+        ("nvidia-smi.exe", SimpleNamespace(returncode=1, stdout="", stderr="failed")),
+        ("nvidia-smi.exe", SimpleNamespace(returncode=0, stdout="invalid\n", stderr="")),
+    ],
+)
+def test_nvidia_compute_capability_returns_none_when_detection_fails(
+    tmp_path,
+    monkeypatch,
+    which_result,
+    run_result,
+):
+    resolver = RuntimeProfileResolver(project_root=tmp_path)
+    monkeypatch.setattr(
+        "src.core.runtime.profiles.shutil.which",
+        lambda name: which_result if name == "nvidia-smi" else None,
+    )
+    if run_result is not None:
+        monkeypatch.setattr(
+            "src.core.runtime.profiles.subprocess.run",
+            lambda *_args, **_kwargs: run_result,
+        )
+
+    assert resolver._detect_nvidia_compute_capability() is None
 
 
 def test_tts_runtime_routes_qwen_to_isolated_worker(tmp_path):

@@ -11,6 +11,7 @@ Requires:    PyTorch >= 2.5.0, CUDA >= 12.0, ~8GB VRAM
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 from typing import Any
 
 
@@ -42,7 +43,7 @@ class VoxCPM2Engine:
         model_dir: str | None = None,
         cfg_value: float = DEFAULT_CFG_VALUE,
         inference_timesteps: int = DEFAULT_INFERENCE_TIMESTEPS,
-        load_denoiser: bool = True,
+        load_denoiser: bool = False,
         device_map: str = "auto",
         # Voice cloning params (set per-call, stored as defaults)
         reference_wav_path: str | None = None,
@@ -68,6 +69,10 @@ class VoxCPM2Engine:
             self.model = VoxCPM.from_pretrained(
                 pretrained_id,
                 load_denoiser=load_denoiser,
+                device=device_map,
+                # The optional torch.compile/Triton path is not part of the
+                # Windows runtime; eager CUDA inference works without it.
+                optimize=sys.platform != "win32",
             )
         except Exception as exc:
             raise RuntimeError(

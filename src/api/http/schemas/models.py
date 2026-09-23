@@ -19,6 +19,7 @@ class ModelSummaryResponse(BaseModel):
     variant_group: str | None = None
     variant_tier: str | None = None
     is_primary_variant: bool = False
+    is_auxiliary: bool = False
     dependency_group: str | None = None
     runtime_profile: str | None = None
     preferred_runtime: str | None = None

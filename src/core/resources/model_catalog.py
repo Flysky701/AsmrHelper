@@ -42,6 +42,7 @@ class ModelEntry:
     variant_group: Optional[str] = None
     variant_tier: Optional[str] = None
     is_primary_variant: bool = False
+    is_auxiliary: bool = False
     dependency_group: Optional[str] = None
     required_python_extras: List[str] = field(default_factory=list)
     required_runtime_packages: List[str] = field(default_factory=list)
@@ -154,6 +155,7 @@ def _validate_entry(raw: Dict[str, Any]) -> ModelEntry:
         variant_group=raw.get("variant_group"),
         variant_tier=raw.get("variant_tier"),
         is_primary_variant=bool(raw.get("is_primary_variant", False)),
+        is_auxiliary=bool(raw.get("is_auxiliary", False)),
         dependency_group=raw.get("dependency_group"),
         required_python_extras=_list_of_strings(raw.get("required_python_extras")),
         required_runtime_packages=_list_of_strings(raw.get("required_runtime_packages")),

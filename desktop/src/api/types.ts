@@ -225,6 +225,7 @@ export interface ModelSummaryResponse {
   variant_group?: string | null
   variant_tier?: string | null
   is_primary_variant?: boolean
+  is_auxiliary?: boolean
   dependency_group?: string | null
   runtime_profile?: string | null
   preferred_runtime?: string | null

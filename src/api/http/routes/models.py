@@ -41,6 +41,7 @@ def list_models(
             variant_group=m.variant_group,
             variant_tier=m.variant_tier,
             is_primary_variant=m.is_primary_variant,
+            is_auxiliary=m.is_auxiliary,
             dependency_group=m.dependency_group,
             runtime_profile=m.runtime_profile,
             preferred_runtime=m.preferred_runtime,

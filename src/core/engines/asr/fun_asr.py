@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 import re
 from typing import Any
 
@@ -91,6 +92,10 @@ class FunAsrRecognizer:
         )
         duration = self._read_duration_seconds(source)
         segments = self._normalize_segments(result, duration_seconds=duration)
+        if duration > 0:
+            for segment in segments:
+                segment["start"] = min(duration, max(0.0, segment["start"]))
+                segment["end"] = min(duration, max(segment["start"], segment["end"]))
 
         if output_path:
             self._save_results(segments, output_path)
@@ -279,25 +284,27 @@ class FunAsrRecognizer:
     @staticmethod
     def _extract_time(value: Any, edge: str) -> float:
         if isinstance(value, dict):
-            if edge == "start":
-                return FunAsrRecognizer._coerce_seconds(value.get("start") or value.get("start_time"))
-            return FunAsrRecognizer._coerce_seconds(value.get("end") or value.get("end_time"))
+            # FunASR sentence/VAD bounds use milliseconds; Fun-ASR Nano's
+            # token start_time/end_time fields are explicitly seconds.
+            if value.get(edge) is not None:
+                return FunAsrRecognizer._coerce_seconds(value[edge])
+            return FunAsrRecognizer._coerce_seconds(value.get(f"{edge}_time"), milliseconds=False)
         if isinstance(value, (list, tuple)) and len(value) >= 2:
             index = 0 if edge == "start" else 1
             return FunAsrRecognizer._coerce_seconds(value[index])
         return 0.0
 
     @staticmethod
-    def _coerce_seconds(value: Any) -> float:
+    def _coerce_seconds(value: Any, *, milliseconds: bool = True) -> float:
         if value in (None, ""):
             return 0.0
         try:
             numeric = float(value)
         except (TypeError, ValueError):
             return 0.0
-        if numeric > 1000:
-            return numeric / 1000.0
-        return numeric
+        if not math.isfinite(numeric):
+            return 0.0
+        return max(0.0, numeric / 1000.0 if milliseconds else numeric)
 
     @staticmethod
     def _resolve_remote_code(remote_code_path: str | None) -> str | None:

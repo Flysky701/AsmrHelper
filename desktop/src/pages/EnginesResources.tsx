@@ -161,10 +161,14 @@ export default function EnginesResources() {
     }
   }
 
+  // Pure dependency assets stay available for status/installation, but are not
+  // independently selectable models. Assets with standalone features stay visible.
+  const visibleModels = useMemo(() => models.filter(model => !model.is_auxiliary), [models])
+
   // Group models by category, then by family/backend
   const grouped = useMemo(() => {
     const byCategory: Record<string, ModelSummaryResponse[]> = {}
-    for (const m of models) {
+    for (const m of visibleModels) {
       const rawCategory = m.category || 'other'
       const cat = rawCategory in CATEGORY_LABELS ? rawCategory : 'other'
       if (!byCategory[cat]) byCategory[cat] = []
@@ -181,18 +185,18 @@ export default function EnginesResources() {
       }
     }
     return result
-  }, [models])
+  }, [visibleModels])
 
   // Count per category tab
   const counts = useMemo(() => {
     const c: Record<CategoryTab, number> = { llm: 0, asr: 0, tts: 0, other: 0 }
-    for (const m of models) {
+    for (const m of visibleModels) {
       const cat = (m.category || 'other') as CategoryTab
       if (cat in c) c[cat]++
       else c.other++
     }
     return c
-  }, [models])
+  }, [visibleModels])
 
   const getTabModels = (tab: CategoryTab) => {
     return grouped[tab] || {}
@@ -367,6 +371,14 @@ export default function EnginesResources() {
                     <div>
                       {groupModels.map(model => {
                         const status = getStatus(model.model_id)
+                        const dependencies = (model.required_assets || []).map(id => ({
+                          id,
+                          name: models.find(item => item.model_id === id)?.display_name || id,
+                          status: getStatus(id),
+                        }))
+                        const missingDependencies = dependencies.some(({ status: asset }) =>
+                          asset && ['missing', 'not_installed', 'invalid'].includes(asset.status),
+                        )
                         const runtimeUnavailable =
                           status?.executable === false &&
                           (status.status === 'installed' || status.status === 'configured') &&
@@ -389,7 +401,7 @@ export default function EnginesResources() {
                               ? 'unverified'
                               : providerVerificationFailed
                                 ? 'verification_failed'
-                              : runtimeUnavailable
+                              : runtimeUnavailable || missingDependencies
                                 ? 'runtime_unavailable'
                                 : status.status
                           ] || STATUS_STYLES.unknown
@@ -408,11 +420,12 @@ export default function EnginesResources() {
                           !!status && (
                           status.status === 'not_installed' ||
                           status.status === 'missing' ||
+                          missingDependencies ||
                           (status.status === 'invalid' && !probeFailed) ||
                           repairableRuntimeIssue)
                         const installLabel = model.install_strategy === 'package'
                           ? '安装依赖'
-                          : repairableRuntimeIssue
+                          : repairableRuntimeIssue || missingDependencies
                             ? '修复依赖'
                             : status?.status === 'invalid'
                               ? '重新安装'
@@ -434,6 +447,13 @@ export default function EnginesResources() {
                                   {status.issues.map(issue => issue.message).join('；')}
                                 </div>
                               ) : null}
+                              {dependencies.length > 0 && (
+                                <div style={{ fontSize: '11px', color: missingDependencies ? 'oklch(48% 0.12 65)' : 'var(--muted)', marginTop: '4px' }}>
+                                  配套资源：{dependencies.map(({ name, status: asset }) =>
+                                    `${name}（${asset ? (STATUS_STYLES[asset.status]?.label || '状态未知') : statusLoading ? '检测中' : '状态未知'}）`,
+                                  ).join('；')}。随主模型安装或修复。
+                                </div>
+                              )}
                             </div>
                             <div className="engines-model-status" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                               <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>

@@ -229,6 +229,7 @@ models:
     required_assets: [fun-asr-fsmn-vad]
 
   - id: fun-asr-fsmn-vad
+    is_auxiliary: true
     kind: local
     category: asr
     provider: fun_asr
@@ -503,7 +504,7 @@ models:
     supports_remove: true
     install_strategy: huggingface_snapshot
     upstream_name: openbmb/VoxCPM2
-    runtime_profile: python_package_local
+    runtime_profile: voxcpm2
     supported_os: [windows, linux, macos]
     supported_python:
       min: "3.10"

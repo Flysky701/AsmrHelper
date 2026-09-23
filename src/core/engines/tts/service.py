@@ -131,7 +131,7 @@ class TtsEngineRuntime:
                 "model_dir": provider_options.get("model_dir") or model_reference,
                 "cfg_value": float(provider_options.get("cfg_value", 2.0)),
                 "inference_timesteps": int(provider_options.get("inference_timesteps", 10)),
-                "load_denoiser": bool(provider_options.get("load_denoiser", True)),
+                "load_denoiser": bool(provider_options.get("load_denoiser", False)),
                 "device_map": str(provider_options.get("device_map", "auto")),
                 "reference_wav_path": provider_options.get("reference_wav_path"),
                 "prompt_wav_path": provider_options.get("prompt_wav_path"),

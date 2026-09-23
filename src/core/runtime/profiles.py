@@ -41,10 +41,11 @@ class RuntimeProfileResolver:
         "qwen_tts": "qwen3",
         "qwen_asr": "qwen_asr",
         "fun_asr": "funasr",
+        "voxcpm2": "voxcpm2",
     }
     # Qwen3-TTS has a verified CUDA runtime. ASR runtimes declare ordinary
     # torch explicitly in the model catalog so CPU-only hosts remain usable.
-    _CUDA_TORCH_PROFILES = {"qwen_tts"}
+    _CUDA_TORCH_PROFILES = {"qwen_tts", "voxcpm2"}
 
     _ALIASES = {
         "": "main",
@@ -53,6 +54,7 @@ class RuntimeProfileResolver:
         "qwen_tts": "qwen_tts",
         "qwen_asr": "qwen_asr",
         "fun_asr": "fun_asr",
+        "voxcpm2": "voxcpm2",
     }
 
     def __init__(self, project_root: Path | None = None) -> None:
@@ -127,6 +129,13 @@ class RuntimeProfileResolver:
         uv_path = shutil.which("uv")
         if not uv_path:
             raise RuntimeError("uv is required to install the CUDA runtime")
+        compute_capability = self._detect_nvidia_compute_capability()
+        if compute_capability is None:
+            raise RuntimeError(
+                "unable to detect NVIDIA GPU compute capability; "
+                "ensure nvidia-smi is available and the NVIDIA driver is installed"
+            )
+        cuda_channel = "cu128" if compute_capability >= 12.0 else "cu126"
         return [[
             uv_path,
             "pip",
@@ -134,10 +143,43 @@ class RuntimeProfileResolver:
             "--python",
             str(profile.python_executable),
             "--index",
-            "https://download.pytorch.org/whl/cu126",
-            "torch==2.10.0+cu126",
-            "torchaudio==2.10.0+cu126",
+            f"https://download.pytorch.org/whl/{cuda_channel}",
+            f"torch==2.10.0+{cuda_channel}",
+            f"torchaudio==2.10.0+{cuda_channel}",
         ]]
+
+    def _detect_nvidia_compute_capability(self) -> float | None:
+        """Return the highest NVIDIA GPU compute capability reported by nvidia-smi."""
+        nvidia_smi = shutil.which("nvidia-smi")
+        if not nvidia_smi:
+            return None
+        try:
+            result = subprocess.run(
+                [
+                    nvidia_smi,
+                    "--query-gpu=compute_cap",
+                    "--format=csv,noheader,nounits",
+                ],
+                cwd=str(self.project_root),
+                env=self.subprocess_env(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        capabilities: list[float] = []
+        for line in result.stdout.splitlines():
+            try:
+                capabilities.append(float(line.strip()))
+            except ValueError:
+                continue
+        return max(capabilities, default=None)
 
     def check_modules(self, profile_id: str | None, modules: Iterable[str]) -> bool:
         profile = self.resolve(profile_id)

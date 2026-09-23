@@ -332,8 +332,8 @@ class CapabilityDescriptorService:
                         "load_denoiser",
                         "boolean",
                         required=False,
-                        default=True,
-                        description="Load denoiser for higher quality output",
+                        default=False,
+                        description="加载可选参考音频降噪组件，需要额外模型；普通文本合成不需要",
                     ),
                     _option(
                         "device_map",

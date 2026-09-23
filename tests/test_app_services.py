@@ -314,13 +314,17 @@ class TestCapabilityOptionContract:
         assert option["advanced"] is True
         assert option["secret"] is False
 
-    def test_llm_capability_models_come_from_runtime_registry(self):
+    def test_llm_capability_models_come_from_runtime_registry(self, monkeypatch):
         from src.app.services.capability_descriptor_service import (
             CapabilityDescriptorService,
         )
         from src.core.engines.llm import get_llm_registry
         from src.core.engines.llm.registry import LLM_SUPPORTED_MODELS
         from src.core.engines.llm.translator import Translator
+        from src.core.config import config
+
+        # Exercise the registry fallback independently of the user's saved model.
+        monkeypatch.setattr(config, "get", lambda *_args, **_kwargs: None)
 
         registry = get_llm_registry()
         descriptor = CapabilityDescriptorService().get_descriptor("llm", "deepseek")
@@ -377,6 +381,7 @@ class TestModelService:
                 variant_group=None,
                 variant_tier=None,
                 is_primary_variant=False,
+                is_auxiliary=False,
                 dependency_group=None,
                 runtime_profile=None,
                 preferred_runtime=None,
