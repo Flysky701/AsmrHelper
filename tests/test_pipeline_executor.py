@@ -11,6 +11,7 @@ Tests each stage with mocked engine runtimes to verify:
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -149,14 +150,31 @@ class TestPipelineExecutorStages:
         mock_llm.translate_texts.assert_called_once()
         assert results["steps"]["translate"]["segments"] == 2
 
-    def test_tts_stage_calls_runtime(self, tmp_path, mock_asr, mock_llm, mock_tts):
+    def test_tts_stage_calls_runtime(self, tmp_path, mock_asr, mock_llm, mock_tts, monkeypatch):
         (tmp_path / "input.wav").write_bytes(b"audio")
         plan = _make_plan(tmp_path, separation=False, mix=False)
+        snapshot = {"recipe": {"id": "saved-recipe", "revision": 2},
+                    "connection": {"id": "frozen-connection"}, "assets": {}}
+        plan.tts.provider_options["speech_snapshot"] = snapshot
+        speech = MagicMock()
+        speech.synthesize_timeline.return_value = {"experiment_id": "experiment", "id": "assembly"}
+        monkeypatch.setattr("src.app.services.speech_service.get_speech_service", lambda: speech)
+        cancellation = threading.Event()
 
         executor = PipelineExecutor(asr=mock_asr, llm=mock_llm, tts=mock_tts)
-        results = executor.execute(plan)
+        results = executor.execute(plan, cancel_event=cancellation)
 
-        mock_tts.synthesize_segments.assert_called_once()
+        mock_tts.synthesize_segments.assert_not_called()
+        speech.synthesize_timeline.assert_called_once()
+        args, kwargs = speech.synthesize_timeline.call_args
+        assert args[0] == snapshot
+        assert args[1][0] == {"index": "0001", "text": "你好", "original": "こんにちは", "start_time": 0.0, "end_time": 1.5}
+        assert args[3] == plan.task_id
+        assert kwargs["cancel_check"]() is False
+        cancellation.set()
+        assert kwargs["cancel_check"]() is True
+        assert results["speech_experiment_id"] == "experiment"
+        assert results["speech_assembly_id"] == "assembly"
         assert "tts" in results["steps"]
 
     def test_mix_stage_calls_mixer(self, tmp_path, mock_asr, mock_llm, mock_tts, mock_mixer_factory):
@@ -177,6 +195,13 @@ class TestPipelineExecutorStages:
 
 class TestPipelineExecutorErrorHandling:
     """Test per-stage error isolation."""
+
+    def test_tts_without_frozen_recipe_never_calls_legacy_engine(self, tmp_path, mock_asr, mock_tts):
+        (tmp_path / "input.wav").write_bytes(b"audio")
+        plan = _make_plan(tmp_path, separation=False, translation=False, mix=False)
+        result = PipelineExecutor(asr=mock_asr, tts=mock_tts).execute(plan)
+        assert "配方快照" in result["step_errors"]["tts"]
+        mock_tts.synthesize_segments.assert_not_called()
 
     def test_separation_error_captured_in_step_errors(self, tmp_path):
         (tmp_path / "input.wav").write_bytes(b"audio")

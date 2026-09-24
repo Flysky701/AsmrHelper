@@ -156,6 +156,24 @@ class ResourceService:
             stage = stages.get(stage_name)
             if not isinstance(stage, dict) or not bool(stage.get("enabled", True)):
                 continue
+            if stage_name == "tts":
+                try:
+                    from .speech_service import get_speech_service
+                    from src.core.speech.providers import get_provider
+                    speech = get_speech_service()
+                    recipe_id = stage.get("options", {}).get("speech_recipe_id")
+                    if not recipe_id:
+                        raise ValueError("请先在音色实验室保存并选择配音配方")
+                    snapshot = speech.snapshot(recipe_id)
+                    context = speech.connection_context(snapshot["connection"])
+                    context.update(model=snapshot["recipe"]["model"], mode=snapshot["recipe"]["mode"])
+                    readiness = get_provider(snapshot["recipe"]["provider_id"]).probe(context)
+                    if not readiness.get("ready"):
+                        raise ValueError(readiness.get("detail") or "配方所需运行环境未就绪")
+                except (ValueError, KeyError, FileNotFoundError) as exc:
+                    issues.append(self._issue(stage="tts", category="tts", provider="speech", model=None,
+                        code="SPEECH_RECIPE_NOT_READY", requirement="speech_recipe", message=str(exc), action="voice-lab"))
+                continue
 
             provider = str(stage.get("provider") or "").strip()
             requested_model = str(stage.get("model") or "").strip() or None

@@ -1,0 +1,447 @@
+"""Durable, provider-neutral speech records and owned reference audio.
+
+The store never uploads audio or removes a user's source file. Immutable
+records are revised by creating another record, so submitted work stays fixed.
+"""
+from __future__ import annotations
+
+from contextlib import contextmanager
+from copy import deepcopy
+from datetime import datetime, timezone
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+from typing import Any
+from uuid import uuid4
+
+
+COLLECTIONS = frozenset({"voices", "recipes", "experiments", "takes", "selections", "assemblies", "assets", "plans", "connections", "imports"})
+IMMUTABLE = frozenset({"recipes", "takes", "plans", "assets", "assemblies"})
+_LOCKS: dict[str, threading.RLock] = {}
+_LOCKS_GUARD = threading.Lock()
+_SECRET_KEYS = {"api_key", "apikey", "authorization", "access_token", "secret", "password", "credential"}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _readable_audio(source: Path, directory: Path) -> Path:
+    """Decode unsupported containers to disk, keeping the exact source bytes."""
+    import soundfile as sf
+    try:
+        with sf.SoundFile(source):
+            return source
+    except (OSError, RuntimeError):
+        from src.utils import get_ffmpeg
+        decoded = directory / "decoded.wav"
+        result = subprocess.run([
+            get_ffmpeg(), "-nostdin", "-v", "error", "-y", "-i", str(source),
+            "-map", "0:a:0", "-vn", "-c:a", "pcm_f32le", "-rf64", "auto", str(decoded),
+        ], capture_output=True, timeout=300, check=False)
+        if result.returncode != 0:
+            raise ValueError("Reference audio could not be decoded") from None
+        with sf.SoundFile(decoded):
+            return decoded
+
+
+def _no_secrets(value: Any) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if str(key).lower() in _SECRET_KEYS:
+                raise ValueError("Speech records accept credential references, not secrets")
+            _no_secrets(child)
+    elif isinstance(value, list):
+        for child in value:
+            _no_secrets(child)
+
+
+def validate_plan(text: str, proposed: dict) -> dict:
+    """Validate intentions against immutable text; offsets are Python codepoints."""
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("Plan text must not be empty")
+    if not isinstance(proposed, dict):
+        raise ValueError("Plan must be an object")
+    if set(proposed) - {"id", "text", "text_hash", "segments", "revision", "created_at", "updated_at", "previous_id"}:
+        raise ValueError("Plans may contain only original text, offsets and intentions")
+    text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    if proposed.get("text", text) != text or proposed.get("text_hash", text_hash) != text_hash:
+        raise ValueError("A plan cannot replace the original text")
+    segments = proposed.get("segments")
+    if not isinstance(segments, list) or not segments:
+        raise ValueError("Plan must cover the complete original text")
+    cursor = 0
+    normalized = []
+    ids = set()
+    for segment in segments:
+        if not isinstance(segment, dict) or set(segment) - {"id", "start", "end", "delivery", "emotion", "pause_ms"}:
+            raise ValueError("Segments may contain only offsets and delivery intentions")
+        start, end = segment.get("start"), segment.get("end")
+        if type(start) is not int or type(end) is not int or start != cursor or not start < end <= len(text):
+            raise ValueError("Segment offsets must cover text without gaps, overlap or additions")
+        delivery, emotion = segment.get("delivery", "normal"), segment.get("emotion", "neutral")
+        pause = segment.get("pause_ms", 0)
+        if delivery not in {"normal", "soft", "whisper"}:
+            raise ValueError("Unknown delivery intention")
+        if not isinstance(emotion, str) or not emotion.strip() or len(emotion) > 100:
+            raise ValueError("Emotion must be a short intention")
+        if type(pause) is not int or not 0 <= pause <= 60000:
+            raise ValueError("pause_ms must be an integer between 0 and 60000")
+        segment_id = segment.get("id") or hashlib.sha256(f"{text_hash}:{start}:{end}".encode()).hexdigest()[:24]
+        if not isinstance(segment_id, str) or not segment_id or segment_id in ids:
+            raise ValueError("Segment IDs must be unique nonempty strings")
+        ids.add(segment_id)
+        normalized.append({"id": segment_id, "start": start, "end": end, "delivery": delivery, "emotion": emotion, "pause_ms": pause})
+        cursor = end
+    if cursor != len(text):
+        raise ValueError("Plan dropped text")
+    return {"id": str(uuid4()), "text": text, "text_hash": text_hash, "segments": normalized}
+
+
+def build_plan(text: str) -> dict:
+    """Split at sentence punctuation while retaining every character verbatim."""
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("Plan text must not be empty")
+    boundaries = [match.end() for match in re.finditer(r"[。！？!?]+[\"'”’」』]*|\n+", text)]
+    if not boundaries or boundaries[-1] != len(text):
+        boundaries.append(len(text))
+    start = 0
+    segments = []
+    for end in boundaries:
+        if end > start:
+            segments.append({"start": start, "end": end})
+            start = end
+    return validate_plan(text, {"segments": segments})
+
+
+class SpeechStore:
+    def __init__(self, root: Path | None = None):
+        if root is None:
+            from src.config import PROJECT_ROOT
+            root = PROJECT_ROOT / "config" / "voice_lab"
+        self.root = Path(root).resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.path = self.root / "store.json"
+        self.assets_root = self.root / "assets"
+        with _LOCKS_GUARD:
+            self._thread_lock = _LOCKS.setdefault(str(self.root).casefold(), threading.RLock())
+
+    @contextmanager
+    def _locked(self):
+        with self._thread_lock:
+            with (self.root / ".store.lock").open("a+b") as handle:
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
+                if os.name == "nt":
+                    import msvcrt
+                    deadline = time.monotonic() + 30
+                    while True:
+                        try:
+                            handle.seek(0)
+                            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                            break
+                        except OSError:
+                            if time.monotonic() >= deadline:
+                                raise TimeoutError("Speech store is busy") from None
+                            time.sleep(0.02)
+                else:
+                    import fcntl
+                    fcntl.flock(handle, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    if os.name == "nt":
+                        handle.seek(0)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        fcntl.flock(handle, fcntl.LOCK_UN)
+
+    @staticmethod
+    def _collection(collection: str) -> None:
+        if collection not in COLLECTIONS:
+            raise ValueError(f"Unknown speech collection: {collection}")
+
+    def _read(self) -> dict:
+        if not self.path.exists():
+            return {"schema_version": 1, "collections": {key: {} for key in COLLECTIONS}}
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        if data.get("schema_version") != 1 or not isinstance(data.get("collections"), dict):
+            raise ValueError("Unsupported or corrupt speech store")
+        for key in COLLECTIONS:
+            data["collections"].setdefault(key, {})
+        return data
+
+    def _write(self, data: dict) -> None:
+        self._atomic_json(self.path, data)
+
+    @staticmethod
+    def _atomic_json(path: Path, data: dict) -> None:
+        raw = json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False)
+        fd, temporary = tempfile.mkstemp(prefix=".write-", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def list(self, collection: str) -> list[dict]:
+        self._collection(collection)
+        with self._locked():
+            return deepcopy(list(self._read()["collections"][collection].values()))
+
+    def get(self, collection: str, id: str) -> dict:
+        self._collection(collection)
+        with self._locked():
+            try:
+                return deepcopy(self._read()["collections"][collection][id])
+            except KeyError:
+                raise KeyError(f"Unknown {collection} record: {id}") from None
+
+    @staticmethod
+    def _validate(collection: str, record: dict) -> None:
+        _no_secrets(record)
+        # JSON round trip also rejects runtime objects and non-finite numbers.
+        json.dumps(record, allow_nan=False)
+        if collection == "voices":
+            if not str(record.get("name", "")).strip():
+                raise ValueError("Voice name is required")
+            bindings = record.get("bindings", [])
+            if not isinstance(bindings, list):
+                raise ValueError("Voice bindings must be a list")
+            for binding in bindings:
+                if not isinstance(binding, dict) or not binding.get("provider_id"):
+                    raise ValueError("Voice bindings require a provider_id")
+                for variant in binding.get("variants", []):
+                    SpeechStore._variant(variant)
+        elif collection == "recipes":
+            for key in ("name", "voice_id", "provider_id", "model"):
+                if not record.get(key):
+                    raise ValueError(f"Recipe requires {key}")
+            SpeechStore._variant(record.get("variant"))
+            options = record.get("provider_options", {})
+            if not isinstance(options, dict) or options.get("schema_version") != 1:
+                raise ValueError("Recipe provider_options require schema_version=1")
+        elif collection == "plans":
+            validate_plan(record.get("text"), record)
+
+    @staticmethod
+    def _variant(variant: dict) -> None:
+        if not isinstance(variant, dict) or variant.get("kind") not in {"hosted", "builtin", "reference", "design"}:
+            raise ValueError("Invalid voice variant")
+        if not isinstance(variant.get("value"), str) or not variant["value"].strip():
+            raise ValueError("Voice variant value is required")
+        if variant.get("style", "normal") not in {"normal", "soft", "whisper"}:
+            raise ValueError("Invalid voice variant style")
+
+    def create(self, collection: str, data: dict) -> dict:
+        self._collection(collection)
+        record = deepcopy(data)
+        record.setdefault("id", str(uuid4()))
+        if not isinstance(record["id"], str) or not record["id"]:
+            raise ValueError("Record id must be a nonempty string")
+        record.setdefault("revision", 1)
+        record["created_at"] = _now()
+        record["updated_at"] = record["created_at"]
+        self._validate(collection, record)
+        with self._locked():
+            state = self._read()
+            if record["id"] in state["collections"][collection]:
+                raise ValueError("Record already exists; create a new revision")
+            previous = state["collections"][collection].get(record.get("previous_id"))
+            expected = previous["revision"] + 1 if previous else 1
+            if record.get("previous_id") and previous is None:
+                raise ValueError("Previous revision does not exist")
+            if type(record["revision"]) is not int or record["revision"] != expected:
+                raise ValueError("Invalid record revision")
+            state["collections"][collection][record["id"]] = record
+            self._write(state)
+        return deepcopy(record)
+
+    def update(self, collection: str, id: str, data: dict, expected_revision: int | None = None) -> dict:
+        self._collection(collection)
+        with self._locked():
+            state = self._read()
+            old = state["collections"][collection].get(id)
+            if old is None:
+                raise KeyError(id)
+            if expected_revision is not None and old["revision"] != expected_revision:
+                raise ValueError("Record revision conflict; reload before saving")
+            if collection == "plans" and data.get("text", old["text"]) != old["text"]:
+                raise ValueError("Create a new plan for changed source text")
+            record = {**old, **deepcopy(data)}
+            record["id"] = str(uuid4()) if collection in IMMUTABLE else id
+            record["revision"] = old["revision"] + 1
+            record["updated_at"] = _now()
+            record["created_at"] = record["updated_at"] if collection in IMMUTABLE else old["created_at"]
+            if collection in IMMUTABLE:
+                record["previous_id"] = id
+            self._validate(collection, record)
+            state["collections"][collection][record["id"]] = record
+            self._write(state)
+        return deepcopy(record)
+
+    def build_plan(self, text: str) -> dict:
+        return self.create("plans", build_plan(text))
+
+    def validate_plan(self, text: str, proposed: dict) -> dict:
+        return self.create("plans", validate_plan(text, proposed))
+
+    def import_reference(self, path: str | Path, start: float, end: float, transcript: str, language: str, confirmed: bool = True) -> dict:
+        import numpy as np
+        import soundfile as sf
+        if confirmed is not True or not isinstance(transcript, str) or not transcript.strip():
+            raise ValueError("A confirmed, real reference transcript is required")
+        if not isinstance(language, str) or not language.strip():
+            raise ValueError("Reference language is required")
+        source = Path(path).resolve(strict=True)
+        if not source.is_file():
+            raise ValueError("Reference must be an audio file")
+        start, end = float(start), float(end)
+        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
+            raise ValueError("Invalid reference interval")
+        # Copy before decoding so later edits to the source cannot mutate assets.
+        self.assets_root.mkdir(parents=True, exist_ok=True)
+        directory = self.assets_root / str(uuid4())
+        directory.mkdir()
+        try:
+            original_path = str(source)
+            inspection_id = None
+            staging = (self.root / "_staging").resolve()
+            if source.is_relative_to(staging) and (source.parent / "inspection.json").is_file():
+                inspected = self.get_inspection(source.parent.name)
+                if source not in {Path(inspected["path"]).resolve(), Path(inspected["source_path"]).resolve()}:
+                    raise ValueError("Unknown staged reference file")
+                original_path = inspected["original_path"]
+                inspection_id = inspected["id"]
+                source = Path(inspected["source_path"])
+            copied = directory / ("source" + source.suffix.lower())
+            shutil.copyfile(source, copied)
+            source_hash = _hash_file(copied)
+            if inspection_id and source_hash != inspected.get("source_sha256", inspected["sha256"]):
+                raise ValueError("Staged source changed while importing")
+            playable = _readable_audio(copied, directory)
+            with sf.SoundFile(playable) as audio:
+                rate = audio.samplerate
+                if end > audio.frames / rate:
+                    raise ValueError("Reference interval exceeds source audio")
+                first, last = round(start * rate), round(end * rate)
+                if last <= first:
+                    raise ValueError("Reference interval contains no samples")
+                audio.seek(first)
+                samples = audio.read(last - first, dtype="float32", always_2d=True)
+                source_frames = audio.frames
+            crop = directory / "reference.wav"
+            sf.write(crop, samples, rate, subtype="FLOAT")
+            mono_peak = np.max(np.abs(samples), axis=1)
+            peaks = [float(np.max(chunk)) for chunk in np.array_split(mono_peak, min(512, len(mono_peak))) if len(chunk)]
+            return self.create("assets", {
+                "kind": "reference", "name": source.stem, "path": str(crop),
+                "source_path": str(copied), "original_path": original_path, "inspection_id": inspection_id,
+                "source_playback_path": str(playable), "source_playback_sha256": _hash_file(playable),
+                "sha256": _hash_file(crop), "source_sha256": source_hash,
+                "start": first / rate, "end": last / rate, "start_frame": first,
+                "end_frame": last, "sample_rate": rate, "channels": int(samples.shape[1]),
+                "duration": len(samples) / rate, "source_duration": source_frames / rate,
+                "transcript": transcript, "language": language, "confirmed": True,
+                "peaks": peaks, "processing_version": 1,
+            })
+        except Exception:
+            # Only our newly allocated directory; never source or existing assets.
+            shutil.rmtree(directory)
+            raise
+
+    def inspect_reference(self, path: str | Path) -> dict:
+        """Stage a source for listening and waveform selection, without adopting it."""
+        import numpy as np
+        import soundfile as sf
+        original = Path(path).resolve(strict=True)
+        if not original.is_file():
+            raise ValueError("Reference must be an audio file")
+        id = str(uuid4())
+        directory = self.root / "_staging" / id
+        directory.mkdir(parents=True)
+        copied = directory / ("source" + original.suffix.lower())
+        try:
+            shutil.copyfile(original, copied)
+            playable = _readable_audio(copied, directory)
+            with sf.SoundFile(playable) as audio:
+                rate, frames, channels = audio.samplerate, audio.frames, audio.channels
+                if frames <= 0:
+                    raise ValueError("Reference audio is empty")
+                # Bounded memory even for long originals: one peak per bin.
+                bin_size = max(1, math.ceil(frames / 1024))
+                peaks = []
+                while audio.tell() < frames:
+                    block = audio.read(bin_size, dtype="float32", always_2d=True)
+                    peaks.append(float(np.max(np.abs(block))))
+            record = {"id": id, "path": str(playable), "source_path": str(copied),
+                      "source_playback_path": str(playable), "source_playback_sha256": _hash_file(playable),
+                      "original_path": str(original), "duration": frames / rate,
+                      "sample_rate": rate, "channels": channels, "peaks": peaks,
+                      "sha256": _hash_file(playable), "source_sha256": _hash_file(copied), "staged": True}
+            self._atomic_json(directory / "inspection.json", record)
+            return record
+        except Exception:
+            shutil.rmtree(directory)
+            raise
+
+    def get_inspection(self, id: str) -> dict:
+        if not isinstance(id, str) or not re.fullmatch(r"[0-9a-f-]{36}", id):
+            raise ValueError("Invalid inspection id")
+        path = self.root / "_staging" / id / "inspection.json"
+        record = json.loads(path.read_text(encoding="utf-8"))
+        audio = Path(record["path"]).resolve(strict=True)
+        if not audio.is_relative_to(path.parent.resolve()) or _hash_file(audio) != record["sha256"]:
+            raise ValueError("Staged reference changed since inspection")
+        original = Path(record["source_path"]).resolve(strict=True)
+        if not original.is_relative_to(path.parent.resolve()) or _hash_file(original) != record.get("source_sha256", record["sha256"]):
+            raise ValueError("Staged original changed since inspection")
+        return record
+
+    def reference_audio_path(self, id: str, *, source: bool = False) -> Path:
+        asset = self.get("assets", id)
+        path = Path(asset["source_path" if source else "path"]).resolve(strict=True)
+        if not path.is_relative_to(self.assets_root.resolve()):
+            raise ValueError("Asset is outside the owned audio directory")
+        expected = asset["source_sha256" if source else "sha256"]
+        if _hash_file(path) != expected:
+            raise ValueError("Reference audio has changed since import")
+        return path
+
+    def backup_for_import(self, sources: list[Path]) -> Path:
+        """Back up source files and existing store before an explicit import."""
+        folder = self.root / "backups" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex)
+        folder.mkdir(parents=True)
+        manifest = []
+        with self._locked():
+            if self.path.exists():
+                shutil.copyfile(self.path, folder / "store.json")
+            for index, source in enumerate(sources):
+                source = Path(source).resolve(strict=True)
+                destination = folder / f"{index}-{source.name}"
+                shutil.copyfile(source, destination)
+                manifest.append({"source": str(source), "backup": destination.name, "sha256": _hash_file(destination)})
+            self._atomic_json(folder / "manifest.json", {"created_at": _now(), "files": manifest})
+        return folder

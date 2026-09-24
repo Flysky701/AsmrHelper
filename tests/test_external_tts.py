@@ -103,33 +103,24 @@ def test_remote_errors_do_not_create_artifact_or_leak_key(monkeypatch, tmp_path,
 
 def test_custom_cloud_models_pass_readiness(monkeypatch, tmp_path):
     from src.app.services.resource_service import ResourceService
-    from src.core.config import config
-
-    monkeypatch.setitem(
-        config._config,
-        "external_tts",
-        {
-            "base_url": "https://speech.invalid/v1",
-            "api_key": "test-key",
-            "model": "custom-tts",
-            "voice": "voice",
-        },
-    )
+    from test_app_services import _saved_speech_recipe
+    speech, recipe = _saved_speech_recipe(tmp_path, monkeypatch, provider="openai_compatible", model="custom-tts")
     service = ResourceService(
         project_root=tmp_path, model_service=SimpleNamespace(list_models=lambda: [])
     )
     profile = {
         "stages": {
             "translate": {"provider": "openai", "model": "custom-llm"},
-            "tts": {"provider": "openai_compatible", "model": "custom-tts"},
+            "tts": {"provider": "speech", "options": {"speech_recipe_id": recipe["id"]}},
             "mix": {"enabled": False},
             "export": {"enabled": False},
         }
     }
     assert service._check_pipeline_profile(profile) == []
-    monkeypatch.setitem(config._config["external_tts"], "api_key", "")
+    connection = speech.store.get("connections", recipe["connection_ref"])
+    speech._credential_path(connection).unlink()
     issues = service._check_pipeline_profile(profile)
-    assert any(item["code"] == "CREDENTIAL_MISSING" for item in issues)
+    assert any(item["code"] == "SPEECH_RECIPE_NOT_READY" and "凭据" in item["message"] for item in issues)
 
 
 def test_external_tts_settings_keep_secrets_write_only():

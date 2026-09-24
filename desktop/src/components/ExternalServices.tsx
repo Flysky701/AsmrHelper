@@ -2,24 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import type { ConnectionProfile, SettingsUpdate, SettingsView } from '@/api/settings'
 import { useWorkbenchStore } from '@/stores/workbenchStore'
+import { speechApi } from '@/api/speech'
+import type { SpeechConnection, SpeechProvider } from '@/api/speech'
+import { useNavStore } from '@/stores/navStore'
 
-type Kind = 'llm' | 'tts'
-type Editor = ConnectionProfile & { kind: Kind; credential: string; credentialReset?: boolean }
+type Kind = 'llm'
+type Editor = ConnectionProfile & { kind: Kind; credential: string }
 type Discovery = { success: boolean; message: string; models: string[] }
-const FISH_MODELS = ['s2.1-pro-free', 's2.1-pro', 's2-pro', 's1']
-const TTS_PROTOCOL_LABELS = { speech: '通用 OpenAI 兼容', fish: 'Fish Audio 官方', mimo_chat: 'MiMo（已有配置）' }
-
-function serviceOrigin(url: string) {
-  try { return new URL(url).origin } catch { return url.trim() }
-}
-
 // Legacy settings synthesize default provider records even before the user adds a service.
 function isSavedProfile(profile: ConnectionProfile) {
   if (!profile.id.startsWith('legacy-') || profile.credential_configured) return true
   const defaults: Record<string, { name: string; urls: string[] }> = {
     'legacy-deepseek': { name: 'DeepSeek', urls: ['', 'https://api.deepseek.com', 'https://api.deepseek.com/v1'] },
     'legacy-openai': { name: 'OpenAI 兼容', urls: ['', 'https://api.openai.com/v1'] },
-    'legacy-tts': { name: '外部语音', urls: ['', 'https://api.openai.com/v1'] },
   }
   const preset = defaults[profile.id]
   return !preset || profile.name !== preset.name || !preset.urls.includes(profile.base_url.replace(/\/+$/, ''))
@@ -35,13 +30,34 @@ export default function ExternalServices() {
   const [testing, setTesting] = useState(false)
   const [discovery, setDiscovery] = useState<Discovery | null>(null)
   const [verified, setVerified] = useState<Record<string, string>>({})
+  const [speechConnections, setSpeechConnections] = useState<SpeechConnection[]>([])
+  const [speechProviders, setSpeechProviders] = useState<SpeechProvider[]>([])
+  const [speechError, setSpeechError] = useState('')
+  const [speechLoading, setSpeechLoading] = useState(true)
+  const speechGeneration = useRef(0)
   const loadGeneration = useRef(0)
   const discoveryGeneration = useRef(0)
 
   useEffect(() => {
     void load()
-    return () => { loadGeneration.current += 1; discoveryGeneration.current += 1 }
+    void loadSpeech()
+    return () => { loadGeneration.current += 1; discoveryGeneration.current += 1; speechGeneration.current += 1 }
   }, [])
+
+  async function loadSpeech() {
+    const generation = ++speechGeneration.current
+    setSpeechLoading(true)
+    setSpeechError('')
+    try {
+      const [library, descriptors] = await Promise.all([speechApi.library(), speechApi.providers()])
+      if (generation === speechGeneration.current) {
+        setSpeechConnections(library.connections)
+        setSpeechProviders(descriptors.providers)
+      }
+    } catch (cause) {
+      if (generation === speechGeneration.current) setSpeechError('无法加载语音连接：' + String(cause))
+    } finally { if (generation === speechGeneration.current) setSpeechLoading(false) }
+  }
 
   async function load() {
     const generation = ++loadGeneration.current
@@ -67,8 +83,8 @@ export default function ExternalServices() {
     resetDiscovery()
     setMessage('')
     setEditor({ kind, credential: '', ...(profile ?? {
-      id: '', name: '', provider: kind === 'llm' ? 'deepseek' : 'openai_compatible',
-      base_url: kind === 'llm' ? 'https://api.deepseek.com' : '', model: '', credential_configured: false,
+      id: '', name: '', provider: 'deepseek',
+      base_url: 'https://api.deepseek.com', model: '', credential_configured: false,
     }) })
   }
 
@@ -80,9 +96,6 @@ export default function ExternalServices() {
       kind: current.kind, ...(id ? { id } : {}), name: current.name.trim(),
       provider: current.provider, base_url: current.base_url.trim(),
       model: current.model?.trim() || '',
-      ...(current.kind === 'tts' ? {
-        api_format: current.api_format || 'speech', voice: current.voice?.trim() || '', instructions: current.instructions || '',
-      } : {}),
       ...(current.credential ? { credential: current.credential } : {}),
     } }
   }
@@ -92,10 +105,6 @@ export default function ExternalServices() {
     const provider = current.providers.default_llm === 'deepseek' ? 'deepseek' : 'openai'
     workbench.updateParam('translateProvider', provider)
     workbench.updateParam('translateModel', current.providers[provider].model)
-    if (workbench.params.ttsEngine === 'openai_compatible') {
-      workbench.updateParam('ttsVoice', current.external_tts.voice || '')
-      if (current.external_tts.api_format === 'mimo_chat') workbench.updateParam('ttsSpeed', 1)
-    }
   }
 
   async function save() {
@@ -104,19 +113,13 @@ export default function ExternalServices() {
     if (editor.kind === 'llm' && !editor.model?.trim()) {
       setMessage('保存失败：请获取并选择模型，或根据服务商文档手动填写模型'); return
     }
-    if (editor.kind === 'tts' && editor.api_format === 'fish' && (!editor.base_url.trim() || !editor.model?.trim() || !editor.voice?.trim())) {
-      setMessage('保存失败：请填写 API 地址、Fish Audio 模型和音色 ID'); return
-    }
-    if (editor.kind === 'tts' && (editor.credentialReset || editor.api_format === 'fish') && !editor.credential_configured && !editor.credential.trim()) {
-      setMessage('保存失败：请填写该服务的 API 密钥'); return
-    }
     setSaving(true)
     setMessage('')
     try {
       const result = await settingsApi.update(candidate(editor))
       setSettings(result.settings)
       syncWorkbench(result.settings)
-      const id = editor.kind === 'llm' ? result.settings.connection_profiles.active_llm : result.settings.connection_profiles.active_tts
+      const id = result.settings.connection_profiles.active_llm
       setVerified(previous => ({ ...previous, [id]: editor.kind === 'llm' && discovery?.success ? '已获取模型' : '' }))
       resetDiscovery()
       setEditor(null)
@@ -158,48 +161,35 @@ export default function ExternalServices() {
   if (!settings) return <div role="alert"><p>{error}</p><button onClick={() => void load()}>重新加载</button></div>
 
   const profiles = {
-    ...settings.connection_profiles,
+    active_llm: settings.connection_profiles.active_llm,
     llm: settings.connection_profiles.llm.filter(isSavedProfile),
-    tts: settings.connection_profiles.tts.filter(isSavedProfile),
   }
   const editorForm = (kind: Kind) => editor?.kind === kind && (
     <fieldset disabled={saving} className="external-service-editor">
       <div className="external-service-card-heading">
-        <h3>{editor.id ? '编辑配置' : kind === 'llm' ? '添加翻译服务' : '添加语音服务'}</h3>
+        <h3>{editor.id ? '编辑配置' : '添加翻译服务'}</h3>
         <button className="external-service-button" onClick={() => { resetDiscovery(); setEditor(null) }}>收起</button>
       </div>
       <label className="external-service-field">配置名称
-        <input value={editor.name} maxLength={80} onChange={event => setEditor({ ...editor, name: event.target.value })} placeholder={kind === 'llm' ? '例如：日常翻译' : '例如：旁白语音'} />
+        <input value={editor.name} maxLength={80} onChange={event => setEditor({ ...editor, name: event.target.value })} placeholder="例如：日常翻译" />
       </label>
-      {kind === 'llm' ? <label className="external-service-field">服务提供商
+      <label className="external-service-field">服务提供商
         <select value={editor.provider} disabled={!!editor.id} onChange={event => {
           resetDiscovery()
           setEditor({ ...editor, provider: event.target.value, base_url: event.target.value === 'deepseek' ? 'https://api.deepseek.com' : '', credential: '', model: '' })
         }}><option value="deepseek">DeepSeek</option><option value="openai">OpenAI / 兼容接口</option></select>
-      </label> : <label className="external-service-field">服务协议
-        <select value={editor.api_format || 'speech'} onChange={event => {
-          const api_format = event.target.value as 'speech' | 'fish'
-          setEditor({ ...editor, api_format, base_url: api_format === 'fish' ? 'https://api.fish.audio/v1' : '',
-            model: api_format === 'fish' ? 's2.1-pro-free' : '', voice: '', instructions: '',
-            credential: '', credential_configured: false, credentialReset: true })
-        }}>
-          <option value="speech">通用 OpenAI 兼容</option>
-          <option value="fish">Fish Audio 官方</option>
-          {editor.api_format === 'mimo_chat' && <option value="mimo_chat">MiMo（已有配置）</option>}
-        </select>
-      </label>}
+      </label>
       <label className="external-service-field">API 地址
         <input value={editor.base_url} onChange={event => {
           resetDiscovery()
           const base_url = event.target.value
-          const changedHost = kind === 'tts' && serviceOrigin(base_url) !== serviceOrigin(editor.base_url)
-          setEditor({ ...editor, base_url, ...(changedHost ? { credential: '', credential_configured: false, credentialReset: true } : {}) })
+          setEditor({ ...editor, base_url })
         }} placeholder="填写服务商提供的 API 基础地址" />
       </label>
       <label className="external-service-field">API 密钥
         <input type="password" autoComplete="off" value={editor.credential} onChange={event => { resetDiscovery(); setEditor({ ...editor, credential: event.target.value }) }} placeholder={editor.credential_configured ? '已配置；留空保持此配置的密钥' : '输入 API 密钥'} />
       </label>
-      {kind === 'llm' ? <>
+      <>
         <button className="external-service-button" disabled={testing} onClick={() => void discover()}>{testing ? '检测中...' : '检测连接并获取模型'}</button>
         {discovery && <p role="status" className="external-service-muted" style={{ color: discovery.success ? 'var(--accent)' : 'var(--danger)' }}>{discovery.message}</p>}
         <label className="external-service-field" style={{ marginTop: 16 }}>翻译模型
@@ -212,23 +202,7 @@ export default function ExternalServices() {
         <details><summary>手动填写模型</summary><label className="external-service-field" style={{ marginTop: 12 }}>服务商文档中的模型 ID
           <input value={editor.model || ''} onChange={event => setEditor({ ...editor, model: event.target.value })} placeholder="填写文档中支持翻译的模型 ID" />
         </label></details>
-      </> : <>
-        <label className="external-service-field">语音模型
-          {editor.api_format === 'fish' ? <select value={editor.model || ''} onChange={event => setEditor({ ...editor, model: event.target.value })}>
-            <option value="">选择语音模型</option>
-            {editor.model && !FISH_MODELS.includes(editor.model) && <option value={editor.model}>{editor.model}（已保存，未核验）</option>}
-            {FISH_MODELS.map(model => <option key={model} value={model}>{model}</option>)}
-          </select> : <input value={editor.model || ''} onChange={event => setEditor({ ...editor, model: event.target.value })} placeholder="按服务商文档填写模型 ID" />}
-        </label>
-        <label className="external-service-field">{editor.api_format === 'fish' ? '音色 ID（reference_id）' : '音色 ID'}
-          <input value={editor.voice || ''} onChange={event => setEditor({ ...editor, voice: event.target.value })} placeholder={editor.api_format === 'fish' ? '填写 Fish Audio 的实际音色 ID' : '按服务商文档填写音色 ID'} />
-        </label>
-        {editor.api_format !== 'fish' && <label className="external-service-field">语音指令（可选）
-          <textarea rows={2} value={editor.instructions || ''} onChange={event => setEditor({ ...editor, instructions: event.target.value })} placeholder="仅在服务商文档明确支持时填写" />
-        </label>}
-        {editor.api_format === 'fish' && <p className="external-service-muted"><a href="https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech" target="_blank" rel="noreferrer">Fish Audio 官方接口文档</a> · 使用原生 /tts 协议；不发送通用语音指令。</p>}
-        <p className="external-service-muted">保存配置不代表语音合成已验证。{editor.credentialReset ? '服务或地址变更后需要重新填写密钥。' : ''}</p>
-      </>}
+      </>
       <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
         <button className="external-service-button external-service-primary" disabled={testing} onClick={() => void save()}>{saving ? '保存中...' : '保存并启用'}</button>
         <button className="external-service-button" onClick={() => { resetDiscovery(); setEditor(null) }}>取消</button>
@@ -238,16 +212,16 @@ export default function ExternalServices() {
 
   return <div className="external-services">
     {message && <div className="external-service-notice" role="status">{message}</div>}
-    {(['llm', 'tts'] as const).map(kind => <section className="external-service-section" key={kind}>
+    {(['llm'] as const).map(kind => <section className="external-service-section" key={kind}>
       <div className="external-service-heading">
         <span className="external-service-tag">{kind.toUpperCase()}</span>
-        <h2>{kind === 'llm' ? '翻译服务' : '外部语音合成'}</h2>
+        <h2>翻译服务</h2>
         <button className="external-service-button" disabled={saving} onClick={() => edit(kind)}>添加服务</button>
       </div>
       <div className="external-service-body">
-        {profiles[kind].length === 0 && <p className="external-service-muted">尚未添加{kind === 'llm' ? '翻译' : '外部语音'}服务</p>}
+        {profiles[kind].length === 0 && <p className="external-service-muted">尚未添加翻译服务</p>}
         {profiles[kind].map(profile => {
-          const active = profile.id === (kind === 'llm' ? profiles.active_llm : profiles.active_tts)
+          const active = profile.id === profiles.active_llm
           return <div className="external-service-card" key={profile.id}>
             <div className="external-service-card-heading">
               <h3>{profile.name}</h3>
@@ -257,9 +231,7 @@ export default function ExternalServices() {
                 <button className="external-service-button" aria-expanded={editor?.kind === kind && editor.id === profile.id} disabled={saving} onClick={() => edit(kind, profile)}>编辑</button>
               </div>
             </div>
-            <p className="external-service-muted">{kind === 'tts'
-              ? `${TTS_PROTOCOL_LABELS[profile.api_format || 'speech'] || profile.api_format} · ${profile.model || '未选择模型'} · ${profile.voice || '默认音色'}`
-              : `${profile.provider === 'deepseek' ? 'DeepSeek' : 'OpenAI / 兼容接口'} · ${profile.model || '未选择模型'}`}</p>
+            <p className="external-service-muted">{`${profile.provider === 'deepseek' ? 'DeepSeek' : 'OpenAI / 兼容接口'} · ${profile.model || '未选择模型'}`}</p>
             <div className="external-service-muted">{profile.credential_configured ? '密钥已配置' : '未配置密钥'} · {verified[profile.id] || '连接未验证'}</div>
             {editor?.kind === kind && editor.id === profile.id && editorForm(kind)}
           </div>
@@ -267,6 +239,26 @@ export default function ExternalServices() {
         {editor?.kind === kind && !editor.id && editorForm(kind)}
       </div>
     </section>)}
+    <section className="external-service-section">
+      <div className="external-service-heading">
+        <span className="external-service-tag">TTS</span>
+        <h2>外部语音合成</h2>
+        <button className="external-service-button" onClick={() => useNavStore.getState().setPage('voice-lab')}>管理声音与配方</button>
+      </div>
+      <div className="external-service-body">
+        <p className="external-service-muted">语音连接、声音来源和配方统一在音色实验室管理，正式配音使用已保存的配方。</p>
+        {speechLoading ? <p className="external-service-muted">加载语音连接中…</p> : speechError ? <div role="alert"><p className="external-service-muted">{speechError}</p><button className="external-service-button" onClick={() => void loadSpeech()}>重新加载</button></div> : <>
+          {speechConnections.filter(connection => speechProviders.some(provider => provider.provider_id === connection.provider_id && provider.connection_required)).map(connection => <div className="external-service-card" key={connection.id}>
+            <div className="external-service-card-heading"><h3>{connection.name}</h3></div>
+            <p className="external-service-muted">{speechProviders.find(provider => provider.provider_id === connection.provider_id)?.name || connection.provider_id} · {{ local: '本机服务', lan: '局域网', cloud: '云端' }[connection.deployment]}</p>
+            {connection.base_url && <p className="external-service-muted">{connection.base_url}</p>}
+            <div className="external-service-muted">{connection.credential_configured ? '密钥已配置' : '未配置密钥'} · 服务可达性未验证</div>
+          </div>)}
+          {!speechConnections.some(connection => speechProviders.some(provider => provider.provider_id === connection.provider_id && provider.connection_required)) && <p className="external-service-muted">尚无新的外部语音连接。请在音色实验室创建声音与连接。</p>}
+        </>}
+        <details className="external-service-muted"><summary>已有配置的导入</summary><p>旧语音配置仍保留在原处。需通过离线导入工具显式导入到新的声音库；此页面不会自动迁移或覆盖旧数据。</p></details>
+      </div>
+    </section>
     <style>{`
       .external-services { max-width: 1040px; min-width: 0; }
       .external-service-section { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 20px; overflow: hidden; }

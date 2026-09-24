@@ -269,7 +269,7 @@ class PipelineService:
                     message="cancelled by user",
                 )
             elif manage_lifecycle:
-                task_error = failure_error or _build_pipeline_task_error(
+                task_error = getattr(exc, "task_error", None) or failure_error or _build_pipeline_task_error(
                     current_stage,
                     str(exc),
                 )
@@ -280,7 +280,7 @@ class PipelineService:
                 )
                 self._task_service.fail_task(
                     task_spec.task_id,
-                    message=str(task_error["message"]),
+                    message=str(task_error.get("message") or task_error.get("detail") or str(exc)),
                     detail=str(task_error["detail"]),
                     stage=current_stage,
                     error=task_error,
@@ -290,7 +290,10 @@ class PipelineService:
                 (AppValidationError, AppExecutionError, ResourceValidationError),
             ):
                 raise
-            raise AppExecutionError(str(exc)) from exc
+            error = AppExecutionError(str(exc))
+            if getattr(exc, "task_error", None):
+                error.task_error = dict(exc.task_error)
+            raise error from exc
 
         self._task_service.update_progress(
             task_spec.task_id,
@@ -455,6 +458,15 @@ class PipelineService:
             },
         )
         execution_profile = self._resolve_execution_profile(request)
+        from copy import deepcopy
+        execution_profile = deepcopy(execution_profile)
+        speech_stage = execution_profile.get("stages", {}).get("tts", {})
+        if speech_stage and speech_stage.get("enabled", True):
+            from .speech_service import get_speech_service
+            recipe_id = speech_stage.get("options", {}).get("speech_recipe_id")
+            if not recipe_id:
+                raise AppValidationError("请在音色实验室保存配方，并在工作台选择配方后提交")
+            speech_stage["provider_options"] = {"speech_snapshot": get_speech_service().snapshot(recipe_id)}
         task_spec, _ = self._task_service.create_task_spec(
             task_type="pipeline",
             task_source=task_source,
@@ -472,6 +484,18 @@ class PipelineService:
         return task_spec
 
     def resume_pipeline_task(self, task_id: str):
+        if (self._task_service.get_task(task_id).error or {}).get("result_unknown"):
+            raise AppValidationError("远端请求结果未知，请核对服务端结果和计费后创建新任务")
+        stage = self._task_service.get_task_spec(task_id).execution_profile.get("stages", {}).get("tts", {})
+        snapshot = stage.get("provider_options", {}).get("speech_snapshot")
+        if stage.get("enabled"):
+            if not snapshot:
+                raise AppValidationError("旧配音任务仅保留历史，请选择新配方创建任务")
+            from .speech_service import get_speech_service
+            from src.core.speech.compiler import COMPILER_VERSION
+            if snapshot["compiler_version"] != COMPILER_VERSION:
+                raise AppValidationError("原配音编译器版本已改变，请创建新任务")
+            get_speech_service().connection_context(snapshot["connection"])
         info = self._task_service.recovery_info(task_id)
         if not info["can_resume"]:
             raise AppValidationError(info["reason"])

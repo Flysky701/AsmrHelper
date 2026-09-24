@@ -104,9 +104,7 @@ def build_default_executor_registry() -> ExecutorRegistry:
         "tool.volume_preview",
         "subtitle.script_to_vtt",
         "model_install",
-        "voice.design",
-        "voice.clone",
-        "voice.preview",
+        "speech.generate",
     ):
         registry.register(task_type)
     return registry

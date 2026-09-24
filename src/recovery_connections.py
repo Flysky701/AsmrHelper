@@ -56,7 +56,7 @@ def _project(settings, references):
     return result
 
 
-def capture_recovery_connections(settings: dict, snapshot: dict) -> dict:
+def capture_recovery_connections(settings: dict, snapshot: dict, *, include_tts: bool = True) -> dict:
     """Capture references; never write credentials or arbitrary nested values.
 
     ``settings`` must include connection_profiles when named profiles are used;
@@ -66,8 +66,9 @@ def capture_recovery_connections(settings: dict, snapshot: dict) -> dict:
     profiles = profiles_for(settings)
     salt = secrets.token_hex(32)
     references = []
-    selected = {kind: profiles[f"active_{kind}"] for kind in ("llm", "tts")}
-    for kind in ("llm", "tts"):
+    kinds = ("llm", "tts") if include_tts else ("llm",)
+    selected = {kind: profiles[f"active_{kind}"] for kind in kinds}
+    for kind in kinds:
         profile = next((p for p in profiles[kind] if p["id"] == selected[kind]), None)
         if profile is None:
             raise ValueError("无法保存恢复配置：所选连接配置不存在")
@@ -94,6 +95,8 @@ def capture_recovery_connections(settings: dict, snapshot: dict) -> dict:
             key: ({"value": deepcopy(value)} if _safe_field(key, value) else {"digest": _digest(value, salt)})
             for key, value in snapshot.get(section, {}).items()
         }
+    if not include_tts:
+        template["external_tts"] = {}
     record = {"schema_version": 1, "salt": salt, "selected": selected,
               "references": references, "template": template}
     # Reject mismatched capture inputs immediately, rather than persisting an
@@ -117,7 +120,9 @@ def restore_recovery_connections(record: dict, settings: dict) -> dict:
             raise ValueError("invalid salt")
         if set(record["template"]) != {"api", "external_tts"}:
             raise ValueError("invalid template")
-        for kind in ("llm", "tts"):
+        if set(record["selected"]) not in ({"llm", "tts"}, {"llm"}):
+            raise ValueError("invalid selected kinds")
+        for kind in record["selected"]:
             selected_refs = [ref for ref in record["references"] if ref["kind"] == kind and ref.get("selected")]
             if len(selected_refs) != 1 or selected_refs[0]["id"] != record["selected"][kind]:
                 raise ValueError("invalid selected reference")

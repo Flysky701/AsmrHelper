@@ -406,6 +406,7 @@ function jobTypeLabel(jobType: JobType) {
     'voice-design': '音色设计',
     'voice-clone': '音色克隆',
     'voice-preview': '音色试听',
+    'speech-generate': '配音候选生成',
     unknown: '历史任务',
   }
 

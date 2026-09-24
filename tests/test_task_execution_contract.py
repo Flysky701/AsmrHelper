@@ -10,7 +10,7 @@ import pytest
 from src.app.errors import AppExecutionError, AppValidationError
 from src.app.persistence import SqliteStateStore
 from src.app.services.task_service import TaskService
-from src.core.tasks import ExecutorRegistry, TaskDispatcher
+from src.core.tasks import ExecutorRegistry, TaskDispatcher, build_default_executor_registry
 
 
 def _create(service: TaskService, task_type: str = "pipeline"):
@@ -37,6 +37,19 @@ def test_unregistered_task_type_is_rejected_at_submission():
         _create(service, "not.registered")
 
 
+@pytest.mark.parametrize("task_type", ["voice.design", "voice.clone", "voice.preview"])
+def test_default_task_registry_rejects_removed_voice_entrypoints(task_type):
+    registry = build_default_executor_registry()
+    assert registry.is_registered("speech.generate")
+    assert not registry.is_registered(task_type)
+    service = TaskService(executor_registry=registry)
+    with pytest.raises(AppValidationError, match="no executor registered"):
+        _create(service, task_type)
+    speech, status = _create(service, "speech.generate")
+    assert speech.task_type == "speech.generate"
+    assert status.state == "pending"
+
+
 def test_terminal_status_is_immutable_and_retry_is_a_new_task():
     service = TaskService()
     spec, _ = _create(service)
@@ -61,7 +74,11 @@ def test_terminal_status_is_immutable_and_retry_is_a_new_task():
 
 
 def test_voice_clone_retry_chain_cannot_branch_from_the_same_failed_task():
-    service = TaskService()
+    # The legacy internal service invariant remains testable with explicit
+    # registration, but is no longer exposed by application defaults.
+    registry = ExecutorRegistry()
+    registry.register("voice.clone")
+    service = TaskService(executor_registry=registry)
     failed_spec, _ = _create(service, "voice.clone")
     service.start_task(failed_spec.task_id)
     service.fail_task(failed_spec.task_id, message="failed", stage="clone")

@@ -19,6 +19,8 @@ from src.app.services.workspace_service import WorkspaceService
 from src.config import config
 from src.core.orchestration.pipeline.executor import PipelineExecutor
 from src.core.sessions import WorkspaceContext
+from src.core.speech.store import SpeechStore
+from src.app.services.speech_service import SpeechService
 
 
 def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp_path, monkeypatch):
@@ -28,6 +30,14 @@ def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp
     audio.write_bytes(b"original audio bytes")
     calls = []
     first_tts_outputs = []
+    speech_store = SpeechStore(tmp_path / "voice-lab")
+    connection = speech_store.create("connections", {"name": "Edge", "provider_id": "edge", "deployment": "cloud"})
+    recipe = speech_store.create("recipes", {
+        "name": "Frozen voice", "voice_id": "voice", "provider_id": "edge", "model": "edge-tts",
+        "mode": "builtin", "connection_ref": connection["id"], "language": "ja",
+        "variant": {"kind": "builtin", "value": "ja-JP-NanamiNeural", "style": "normal"},
+        "provider_options": {"schema_version": 1},
+    })
 
     def transcribe_file(*, input_path, output_path, profile):
         assert Path(input_path) == audio
@@ -49,6 +59,15 @@ def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp
 
     def make_services(state_store, tts_function):
         task_service = TaskService(state_store=state_store)
+        speech = SpeechService(store=SpeechStore(speech_store.root), tasks=task_service,
+                               dispatcher=Mock(), artifacts=Mock())
+        def synthesize_timeline(snapshot, segments, output_path, task_id, **kwargs):
+            assert snapshot["recipe"]["id"] == recipe["id"]
+            assert snapshot["connection"]["id"] == connection["id"]
+            tts_function(segments=segments, output_path=output_path)
+            return {"experiment_id": "experiment-" + task_id, "id": "assembly-" + task_id}
+        speech.synthesize_timeline = synthesize_timeline
+        monkeypatch.setattr("src.app.services.speech_service.get_speech_service", lambda: speech)
         workspace = WorkspaceContext("test-workspace", str(tmp_path), str(tmp_path / "output"),
                                      str(tmp_path / "temp"), str(tmp_path / "models"))
         workspace_service = WorkspaceService(resolver=Mock(resolve=Mock(return_value=workspace)))
@@ -73,6 +92,8 @@ def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp
                               source_lang="ja", target_lang="ja", use_vocal_separator=False)
     profile = PipelineService._resolve_execution_profile(request)
     profile["stages"]["mix"]["enabled"] = False
+    profile["stages"]["tts"] = {"enabled": True, "provider": "speech", "model": None,
+                                 "options": {"speech_recipe_id": recipe["id"]}, "provider_options": {}}
     request.execution_profile = profile
     _, first_spec = pipeline.create_pipeline_task(request)
     with pytest.raises(AppExecutionError, match="injected synthesis failure"):

@@ -58,7 +58,8 @@ class TaskService:
             settings = config.to_dict()
             connections = capture_connections(settings)
             from src.recovery_connections import capture_recovery_connections
-            connection_record = capture_recovery_connections(settings, connections)
+            speech_snapshot = (execution_profile or {}).get("stages", {}).get("tts", {}).get("provider_options", {}).get("speech_snapshot")
+            connection_record = capture_recovery_connections(settings, connections, include_tts=not bool(speech_snapshot))
             try:
                 result = self._registry.create_task_spec(
                     task_type=task_type,
@@ -209,6 +210,9 @@ class TaskService:
                 )
             try:
                 task_spec = self._registry.get_task_spec(task_id)
+                error = self._registry.get_task(task_id).error or {}
+                if error.get("result_unknown"):
+                    raise AppValidationError("上次请求结果未知，请确认服务端结果与计费后在音色实验室显式生成新候选")
                 if task_spec.task_type == "voice.clone" and any(
                     task.retry_of_task_id == task_id
                     for task in self._registry.list_tasks()
@@ -476,16 +480,8 @@ def get_task_dispatcher():
                     lambda spec, context: _lazy_model_executor(spec, context),
                 )
                 _dispatcher.register_executor(
-                    "voice.design",
-                    lambda spec, context: _lazy_voice_executor(spec, context),
-                )
-                _dispatcher.register_executor(
-                    "voice.clone",
-                    lambda spec, context: _lazy_voice_executor(spec, context),
-                )
-                _dispatcher.register_executor(
-                    "voice.preview",
-                    lambda spec, context: _lazy_voice_executor(spec, context),
+                    "speech.generate",
+                    lambda spec, context: _lazy_speech_executor(spec, context),
                 )
     return _dispatcher
 
@@ -514,7 +510,7 @@ def _lazy_script_subtitle_executor(task_spec, context):
     return get_script_subtitle_service()._execute_task(task_spec, context)
 
 
-def _lazy_voice_executor(task_spec, context):
-    from .voice_service import get_voice_service
+def _lazy_speech_executor(task_spec, context):
+    from .speech_service import get_speech_service
 
-    return get_voice_service()._execute_voice_task(task_spec, context)
+    return get_speech_service()._execute(task_spec, context)

@@ -14,6 +14,7 @@ export type JobType =
   | 'voice-design'
   | 'voice-clone'
   | 'voice-preview'
+  | 'speech-generate'
   | 'unknown'
 
 export type TaskStatus =
@@ -118,6 +119,7 @@ function jobTypeFromServer(taskType?: string): JobType {
     'voice.design': 'voice-design',
     'voice.clone': 'voice-clone',
     'voice.preview': 'voice-preview',
+    'speech.generate': 'speech-generate',
   }
   return mapping[taskType || ''] ?? 'unknown'
 }

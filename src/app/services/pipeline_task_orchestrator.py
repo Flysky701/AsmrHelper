@@ -92,6 +92,9 @@ class PipelineTaskOrchestrator:
             raise AppValidationError(
                 "historical tasks cannot be retried after restart; submit a new pipeline run"
             )
+        stage = self._task_service.get_task_spec(task_id).execution_profile.get("stages", {}).get("tts", {})
+        if stage.get("enabled") and not stage.get("provider_options", {}).get("speech_snapshot"):
+            raise AppValidationError("旧配音任务仅保留历史，请选择新配方创建任务")
         retried = self._task_service.retry_task(task_id)
         self.start_task(retried.task_id)
         return self._task_service.get_task(retried.task_id)

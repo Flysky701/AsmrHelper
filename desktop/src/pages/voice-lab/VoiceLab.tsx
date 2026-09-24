@@ -1,1370 +1,240 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { voiceApi } from '@/api/voice'
-import type { VoiceProfileSummaryResponse, VoiceProfileResponse, VoiceCloneCandidate } from '@/api/types'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
+import { speechApi } from '@/api/speech'
+import type { Delivery, ReferenceAsset, SpeechConnection, SpeechLibrary, SpeechPlan, SpeechProvider, SpeechRecipe, SpeechTake, SpeechVoice, VoiceVariant, Waveform } from '@/api/speech'
+import { tasksApi } from '@/api/tasks'
+import type { TaskStatusResponse } from '@/api/types'
 import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
 import { useNavStore } from '@/stores/navStore'
-import { useTaskStore } from '@/stores/taskStore'
-import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
-import type { TaskStatus } from '@/stores/taskStore'
+import { useSpeechDraftStore } from '@/stores/speechDraftStore'
+import CandidateAudio from './CandidateAudio'
+import './VoiceLab.css'
 
-// ── Types ────────────────────────────────────────────
-type FilterKind = 'all' | 'preset' | 'design' | 'clone'
-type PanelType = 'preset' | 'design-create' | 'design-detail' | 'clone-create' | 'clone-detail' | 'empty'
-type CloneMode = 'icl' | 'x-vector'
+const emptyLibrary: SpeechLibrary = { voices: [], recipes: [], assets: [], experiments: [], takes: [], plans: [], selections: [], assemblies: [], connections: [] }
+const styles: { value: Delivery; label: string }[] = [{ value: 'normal', label: '普通' }, { value: 'soft', label: '轻声' }, { value: 'whisper', label: '耳语' }]
+const variantNames = { hosted: '服务端音色 ID', builtin: '内置说话人 ID', reference: '参考素材', design: '声音描述' }
+const modeNames: Record<string, string> = { hosted: '服务端音色', builtin: '内置声音', reference: '参考声音克隆', design: '声音设计' }
+const deploymentNames = { local: '本机', lan: '局域网', cloud: '云端' }
+const emotionNames: Record<string, string> = { neutral: '自然', happy: '愉快', sad: '悲伤', angry: '生气', excited: '兴奋', calm: '平静', nervous: '紧张', relaxed: '放松' }
+const optionNames: Record<string, string> = { speed: '语速', temperature: '采样温度', top_p: '采样范围（top_p）', style_description: '风格描述', tag_density: '标签密度', device: '运算设备', cfg_value: '引导强度', inference_timesteps: '推理步数' }
+const blankVoice = (): SpeechVoice => ({ id: '', name: '', description: '', bindings: [], default_binding: '' })
+const blankRecipe = (): SpeechRecipe => ({ id: '', revision: 0, name: '', voice_id: '', provider_id: '', model: '', mode: '', connection_ref: '', variant: { kind: 'hosted', value: '', style: 'normal' }, language: 'zh', provider_options: { schema_version: 1 } })
+function Field({ title, children }: { title: string; children: ReactNode }) { return <label className="field">{title}{children}</label> }
+function json(value: unknown) { return JSON.stringify(value, null, 2) }
+function segmentText(plan: SpeechPlan, start: number, end: number) { return Array.from(plan.text).slice(start, end).join('') }
 
-interface ProfileGroup {
-  engine: string
-  label: string
-  badge: string
-  profiles: VoiceProfileSummaryResponse[]
-}
-
-// ── Styles ───────────────────────────────────────────
-const S = {
-  page: { display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%', overflow: 'hidden' } as const,
-  actionBar: {
-    background: 'var(--surface)', borderBottom: '1px solid var(--border)',
-    padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '12px',
-  } as const,
-  title: {
-    fontFamily: 'var(--font-display)', fontSize: '15px', fontWeight: 600,
-    letterSpacing: '-0.02em', marginRight: '8px',
-  } as const,
-  gpuPill: {
-    display: 'inline-flex', alignItems: 'center', gap: '4px',
-    padding: '3px 10px', borderRadius: '10px', fontSize: '11px', fontWeight: 500,
-    background: 'oklch(95% 0.02 255)', color: 'var(--accent)',
-  } as const,
-  spacer: { flex: 1 } as const,
-  btn: {
-    fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500,
-    padding: '7px 14px', borderRadius: '6px', border: '1px solid var(--border)',
-    background: 'var(--surface)', color: 'var(--fg)', cursor: 'pointer',
-    display: 'inline-flex', alignItems: 'center', gap: '6px',
-  } as const,
-  btnPrimary: {
-    fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500,
-    padding: '7px 14px', borderRadius: '6px', border: '1px solid var(--accent)',
-    background: 'var(--accent)', color: 'white', cursor: 'pointer',
-    display: 'inline-flex', alignItems: 'center', gap: '6px',
-  } as const,
-  btnSm: {
-    fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 500,
-    padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border)',
-    background: 'var(--surface)', color: 'var(--fg)', cursor: 'pointer',
-    display: 'inline-flex', alignItems: 'center', gap: '6px',
-  } as const,
-  btnPrimarySm: {
-    fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 500,
-    padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--accent)',
-    background: 'var(--accent)', color: 'white', cursor: 'pointer',
-    display: 'inline-flex', alignItems: 'center', gap: '6px',
-  } as const,
-  btnDanger: {
-    fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 500,
-    padding: '5px 10px', borderRadius: '6px', border: '1px solid oklch(85% 0.06 25)',
-    background: 'var(--surface)', color: 'var(--danger)', cursor: 'pointer',
-  } as const,
-  content: { display: 'grid', gridTemplateColumns: '260px 1fr', overflow: 'hidden' } as const,
-
-  // Profile list
-  list: {
-    borderRight: '1px solid var(--border)', overflowY: 'auto', background: 'var(--surface)',
-    display: 'flex', flexDirection: 'column',
-  } as const,
-  listHeader: {
-    padding: '12px 16px', fontSize: '11px', fontWeight: 600, color: 'var(--muted)',
-    textTransform: 'uppercase' as const, letterSpacing: '0.05em',
-    borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-  } as const,
-  filterBar: {
-    padding: '8px 12px', borderBottom: '1px solid var(--border)',
-    display: 'flex', gap: '2px', background: 'var(--surface)',
-  } as const,
-  filterTab: (active: boolean) => ({
-    padding: '4px 8px', fontSize: '11px', fontWeight: 500, borderRadius: '4px',
-    cursor: 'pointer', color: active ? 'var(--fg)' : 'var(--muted)',
-    background: active ? 'var(--bg)' : 'transparent', border: 'none', fontFamily: 'var(--font-body)',
-  } as const),
-  groupHeader: {
-    padding: '10px 16px', fontSize: '12px', fontWeight: 600, color: 'var(--fg)',
-    display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' as const,
-  } as const,
-  badge: {
-    padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 600,
-    background: 'oklch(95% 0.02 255)', color: 'var(--accent)',
-  } as const,
-  badgeCount: {
-    background: 'var(--bg)', color: 'var(--muted)', fontSize: '10px',
-    padding: '1px 5px', borderRadius: '3px', marginLeft: 'auto',
-  } as const,
-  chevron: (collapsed: boolean) => ({
-    width: 12, height: 12, color: 'var(--muted)', flexShrink: 0,
-    transition: 'transform 0.15s', transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)',
-  } as const),
-  profileItem: (selected: boolean) => ({
-    padding: selected ? '9px 16px 9px 29px' : '9px 16px 9px 32px',
-    fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
-    color: 'var(--fg)', borderLeft: selected ? '3px solid var(--accent)' : '3px solid transparent',
-    background: selected ? 'oklch(97% 0.01 255)' : 'transparent',
-    transition: 'background 0.1s, border-color 0.1s',
-  } as const),
-  availDot: (ok: boolean) => ({
-    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-    background: ok ? 'var(--success)' : 'oklch(70% 0.08 50)',
-  } as const),
-  itemName: { flex: 1, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' as const },
-  itemSpeaker: {
-    fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--font-mono)',
-    maxWidth: 90, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' as const,
-  },
-  groupEmpty: { padding: '12px 16px 12px 32px', fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic' },
-
-  // Work panel
-  workPanel: {
-    padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px',
-  } as const,
-  panel: {
-    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px',
-  } as const,
-  panelHeader: {
-    padding: '12px 16px', fontSize: '13px', fontWeight: 600,
-    borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px',
-  } as const,
-  panelSubtitle: { fontWeight: 400, color: 'var(--muted)', fontSize: '12px' } as const,
-  panelBody: { padding: '16px' } as const,
-  detailGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' } as const,
-  label: { fontSize: '11px', color: 'var(--muted)', marginBottom: '2px' } as const,
-  value: { fontSize: '13px', fontWeight: 500 } as const,
-  valueMono: { fontSize: '12px', fontFamily: 'var(--font-mono)', fontWeight: 500 } as const,
-  valueMuted: { fontSize: '13px', fontWeight: 400, color: 'var(--muted)' } as const,
-  formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' } as const,
-  formField: { display: 'flex', flexDirection: 'column' as const, gap: '4px' } as const,
-  formLabel: {
-    fontSize: '11px', fontWeight: 500, color: 'var(--muted)',
-    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-  } as const,
-  input: {
-    fontFamily: 'var(--font-body)', fontSize: '13px', padding: '8px 10px',
-    borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-    color: 'var(--fg)', width: '100%', outline: 'none',
-  } as const,
-  textarea: {
-    fontFamily: 'var(--font-body)', fontSize: '13px', padding: '8px 10px',
-    borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-    color: 'var(--fg)', width: '100%', minHeight: 80, lineHeight: 1.5, resize: 'vertical' as const, outline: 'none',
-  } as const,
-  hint: { fontSize: '11px', color: 'var(--muted)', marginTop: '2px' } as const,
-  actionsRow: { display: 'flex', gap: '8px', alignItems: 'center', paddingTop: '12px' } as const,
-  previewBar: {
-    display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px',
-    borderTop: '1px solid var(--border)',
-  } as const,
-  tag: (variant: 'preset' | 'design' | 'clone' | 'ready' | 'unavail') => {
-    const colors = {
-      preset: { bg: 'oklch(95% 0.02 255)', fg: 'var(--accent)' },
-      design: { bg: 'oklch(93% 0.03 145)', fg: 'oklch(40% 0.12 145)' },
-      clone: { bg: 'oklch(93% 0.03 85)', fg: 'oklch(45% 0.10 85)' },
-      ready: { bg: 'oklch(94% 0.03 145)', fg: 'oklch(38% 0.10 145)' },
-      unavail: { bg: 'oklch(94% 0.02 50)', fg: 'oklch(50% 0.08 50)' },
-    }
-    return {
-      display: 'inline-flex', padding: '2px 8px', borderRadius: '4px',
-      fontSize: '11px', fontWeight: 500, background: colors[variant].bg, color: colors[variant].fg,
-    } as const
-  },
-  uploadZone: {
-    border: '2px dashed var(--border)', borderRadius: '8px', padding: '24px', textAlign: 'center' as const,
-    color: 'var(--muted)', fontSize: '13px', cursor: 'pointer',
-  } as const,
-  segmentTable: {
-    width: '100%', borderCollapse: 'collapse' as const, fontSize: '12px', marginTop: '8px',
-  } as const,
-  segTh: {
-    textAlign: 'left' as const, fontSize: '10px', fontWeight: 600, color: 'var(--muted)',
-    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-    padding: '6px 8px', borderBottom: '1px solid var(--border)',
-  } as const,
-  segTd: { padding: '6px 8px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' as const },
-  emptyState: {
-    display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center',
-    height: '100%', color: 'var(--muted)', fontSize: '13px', gap: '12px', textAlign: 'center' as const,
-  } as const,
-}
-
-// ── SVG Icons ────────────────────────────────────────
-const PlusIcon = () => (
-  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M7 3v8M3 7h8"/></svg>
-)
-const PlayIcon = () => (
-  <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 2l7 4-7 4V2z" fill="currentColor" stroke="none"/></svg>
-)
-const ChevronIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 3l4 3-4 3"/></svg>
-)
-const UploadIcon = () => (
-  <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: 4 }}>
-    <path d="M12 5v10M8 11l4 4 4-4"/><path d="M4 17v2h16v-2"/>
-  </svg>
-)
-
-// ── Group engine → label mapping ─────────────────────
-const ENGINE_GROUPS: Record<string, { label: string; badge: string }> = {
-  qwen3_custom: { label: 'CustomVoice 预设', badge: 'Qwen3' },
-  qwen3_design: { label: 'VoiceDesign 设计', badge: 'Qwen3' },
-  qwen3_clone: { label: '克隆音色', badge: 'Qwen3' },
-}
-
-const QWEN_LANGUAGE_OPTIONS = [
-  { value: 'auto', label: '自动识别' },
-  { value: 'zh', label: '中文' },
-  { value: 'ja', label: '日语' },
-  { value: 'en', label: '英语' },
-  { value: 'ko', label: '韩语' },
-  { value: 'de', label: '德语' },
-  { value: 'fr', label: '法语' },
-  { value: 'ru', label: '俄语' },
-  { value: 'pt', label: '葡萄牙语' },
-  { value: 'es', label: '西班牙语' },
-  { value: 'it', label: '意大利语' },
-]
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function candidateSourceLabel(sourceVariant: string): string {
-  if (sourceVariant === 'separated' || sourceVariant === 'vocals' || sourceVariant === 'separated_vocals') return '分离人声'
-  if (sourceVariant === 'original') return '原始音频'
-  return sourceVariant || '未知来源'
-}
-
-function detailValue(value: unknown): string {
-  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2)
-  if (typeof value === 'string' || typeof value === 'boolean') return String(value)
-  try {
-    return JSON.stringify(value) ?? String(value)
-  } catch {
-    return String(value)
-  }
-}
-
-function candidateDetails(details: Record<string, unknown>): string {
-  return Object.entries(details)
-    .map(([key, value]) => `${key}: ${detailValue(value)}`)
-    .join(' · ')
-}
-
-// ── Component ────────────────────────────────────────
 export default function VoiceLab() {
+  const [tab, setTab] = useState(0)
+  const [library, setLibrary] = useState<SpeechLibrary>(emptyLibrary)
+  const [providers, setProviders] = useState<SpeechProvider[]>([])
+  const [busy, setBusy] = useState('')
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const [voice, setVoice] = useState<SpeechVoice>(blankVoice)
+  const [recipe, setRecipe] = useState<SpeechRecipe>(blankRecipe)
+  const [recipeDirty, setRecipeDirty] = useState(false)
+  const [connection, setConnection] = useState<Partial<SpeechConnection> & { api_key: string }>({ name: '', provider_id: '', deployment: 'cloud', api_key: '', base_url: '', timeout: 60 })
+  const [showConnection, setShowConnection] = useState(false)
+  const [probeResult, setProbeResult] = useState<Record<string, unknown> | null>(null)
+  const [script, setScript] = useState('')
+  const [plan, setPlan] = useState<SpeechPlan | null>(null)
+  const [planDirty, setPlanDirty] = useState(false)
+  const [compiled, setCompiled] = useState<Record<string, unknown>[] | null>(null)
+  const [experimentId, setExperimentId] = useState('')
+  const [tasks, setTasks] = useState<TaskStatusResponse[]>([])
+  const [equalLoudness, setEqualLoudness] = useState(false)
+  const [comparison, setComparison] = useState<string[]>([])
+  const [source, setSource] = useState<(Waveform & { id: string; path: string }) | null>(null)
+  const [cropStart, setCropStart] = useState(0)
+  const [cropEnd, setCropEnd] = useState(10)
+  const [transcript, setTranscript] = useState('')
+  const [language, setLanguage] = useState('zh')
+  const [confirmed, setConfirmed] = useState(false)
+  const [asset, setAsset] = useState<ReferenceAsset | null>(null)
+  const [waveform, setWaveform] = useState<Waveform | null>(null)
+  const [analyzed, setAnalyzed] = useState<Awaited<ReturnType<typeof speechApi.analyze>> | null>(null)
+  const sourcePlayer = useRef<HTMLAudioElement>(null)
+  const playingCrop = useRef(false)
+  const alive = useRef(true)
   const { selectFiles } = useFileSelector()
-  const setPage = useNavStore((state) => state.setPage)
-  const addTask = useTaskStore((state) => state.addTask)
-  const updateTask = useTaskStore((state) => state.updateTask)
-  const showAudio = useAudioPlayerStore((state) => state.show)
-  const seekAudio = useAudioPlayerStore((state) => state.seek)
-  const [profiles, setProfiles] = useState<VoiceProfileSummaryResponse[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [detail, setDetail] = useState<VoiceProfileResponse | null>(null)
-  const [filter, setFilter] = useState<FilterKind>('all')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const [panel, setPanel] = useState<PanelType>('empty')
+  const provider = providers.find(item => item.provider_id === recipe.provider_id)
+  const connectionProvider = providers.find(item => item.provider_id === connection.provider_id)
+  const selectedMode = provider?.modes.find(mode => mode.id === recipe.mode)
+  const experiment = library.experiments.find(item => item.id === experimentId)
+  const takes = library.takes.filter(item => item.experiment_id === experimentId)
+  const adoptable = !!recipe.id && !recipeDirty
 
-  // Create form state
-  const [designName, setDesignName] = useState('')
-  const [designDesc, setDesignDesc] = useState('')
-  const [designRefText, setDesignRefText] = useState('')
-  const [cloneName, setCloneName] = useState('')
-  const [cloneRefText, setCloneRefText] = useState('')
-  const [cloneAudioPath, setCloneAudioPath] = useState('')
-  const [cloneSubtitlePath, setCloneSubtitlePath] = useState('')
-  const [cloneAudioLanguage, setCloneAudioLanguage] = useState('ja')
-  const [cloneMode, setCloneMode] = useState<CloneMode>('icl')
-  const [separateVocals, setSeparateVocals] = useState(false)
-
-  // Preview state
-  const [previewText, setPreviewText] = useState('哥哥，今天给你做个特别的按摩哦，先从肩膀开始，放松一下吧。')
-  const [previewLanguage, setPreviewLanguage] = useState('zh')
-  const [previewLoading, setPreviewLoading] = useState(false)
-
-  // Instruct editing
-  const [instructValue, setInstructValue] = useState('')
-
-  // Segment analysis
-  const [analysisId, setAnalysisId] = useState('')
-  const [sourceFingerprint, setSourceFingerprint] = useState('')
-  const [candidates, setCandidates] = useState<VoiceCloneCandidate[]>([])
-  const [recommendedCandidateId, setRecommendedCandidateId] = useState<string | null>(null)
-  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
-  const [analysisWarnings, setAnalysisWarnings] = useState<string[]>([])
-  const [analyzing, setAnalyzing] = useState(false)
-  const analysisRequestId = useRef(0)
-  const selectionRequestId = useRef(0)
-
-  // Loading states
-  const [designing, setDesigning] = useState(false)
-  const [cloning, setCloning] = useState(false)
-  const [actionError, setActionError] = useState('')
-
-  // ── Load profiles ──────────────────────────────────
-  const loadProfiles = useCallback(async (invalidateSelection = true) => {
-    if (invalidateSelection) selectionRequestId.current += 1
-    try {
-      const data = await voiceApi.listProfiles()
-      setProfiles(data)
-    } catch (error) {
-      setProfiles([])
-      setActionError(`加载音色失败：${errorMessage(error)}`)
-    }
+  const refresh = useCallback(async () => {
+    const result = await speechApi.library()
+    if (alive.current) setLibrary(result)
   }, [])
-
-  useEffect(() => { loadProfiles() }, [loadProfiles])
-
-  const invalidateAnalysis = useCallback(() => {
-    analysisRequestId.current += 1
-    setAnalysisId('')
-    setSourceFingerprint('')
-    setCandidates([])
-    setRecommendedCandidateId(null)
-    setSelectedCandidateId(null)
-    setCloneRefText('')
-    setAnalysisWarnings([])
-    setAnalyzing(false)
+  useEffect(() => {
+    alive.current = true
+    void Promise.all([speechApi.providers(), speechApi.library(), tasksApi.list()]).then(([descriptors, data, taskList]) => {
+      if (alive.current) { setProviders(descriptors.providers); setLibrary(data); setTasks(taskList.tasks.filter(task => task.task_type === 'speech.generate')) }
+    }).catch(cause => { if (alive.current) setError('无法加载音色实验室：' + String(cause)) })
+    return () => { alive.current = false }
   }, [])
-
-  // ── Select profile ─────────────────────────────────
-  const handleSelect = useCallback(async (id: string, category: string) => {
-    const requestId = ++selectionRequestId.current
-    setActionError('')
-    setSelectedId(id)
-    setDetail(null)
-    setPanel('empty')
-    invalidateAnalysis()
-
-    if (category === 'preset') {
+  const pendingIds = tasks.filter(task => task.state === 'pending' || task.state === 'running').map(task => task.task_id).join(',')
+  useEffect(() => {
+    if (!pendingIds) return
+    let active = true
+    let timer: ReturnType<typeof setTimeout>
+    async function poll() {
       try {
-        const d = await voiceApi.getProfile(id)
-        if (requestId !== selectionRequestId.current) return
-        setDetail(d)
-        setInstructValue(d.instruct || '')
-        setPanel('preset')
-      } catch (error) {
-        if (requestId !== selectionRequestId.current) return
-        setActionError(`读取音色详情失败：${errorMessage(error)}`)
-        setPanel('empty')
-      }
-    } else if (category === 'custom') {
-      try {
-        const d = await voiceApi.getProfile(id)
-        if (requestId !== selectionRequestId.current) return
-        setDetail(d)
-        setPanel('design-detail')
-      } catch (error) {
-        if (requestId !== selectionRequestId.current) return
-        setActionError(`读取音色详情失败：${errorMessage(error)}`)
-        setPanel('empty')
-      }
-    } else if (category === 'clone') {
-      try {
-        const d = await voiceApi.getProfile(id)
-        if (requestId !== selectionRequestId.current) return
-        setDetail(d)
-        setPanel('clone-detail')
-      } catch (error) {
-        if (requestId !== selectionRequestId.current) return
-        setActionError(`读取音色详情失败：${errorMessage(error)}`)
-        setPanel('empty')
-      }
+        const result = await Promise.all(pendingIds.split(',').map(id => tasksApi.get(id)))
+        if (!active) return
+        setTasks(previous => previous.map(task => result.find(next => next.task_id === task.task_id) || task))
+        if (result.some(task => !['pending', 'running'].includes(task.state))) await refresh()
+      } catch (cause) { if (active) setError('任务状态更新失败：' + String(cause)) }
+      if (active) timer = setTimeout(() => void poll(), 1800)
     }
-  }, [invalidateAnalysis])
+    void poll()
+    return () => { active = false; clearTimeout(timer) }
+  }, [pendingIds, refresh])
 
-  // ── Actions ────────────────────────────────────────
-  const handlePreview = useCallback(async () => {
-    const text = previewText.trim()
-    if (!selectedId || !text) return
-    setActionError('')
-    setPreviewLoading(true)
-    const localTaskId = addTask({
-      jobType: 'voice-preview',
-      sourceName: detail?.name || selectedId,
-      sourcePath: selectedId,
-      params: { profile_id: selectedId, text, speed: 1.0, language: previewLanguage },
-    })
-    updateTask(localTaskId, { message: '正在创建音色试听任务' })
-    try {
-      const remote = await voiceApi.preview(selectedId, {
-        text,
-        speed: 1.0,
-        language: previewLanguage,
-      })
-      updateTask(localTaskId, {
-        serverTaskId: remote.task_id,
-        status: remote.state as TaskStatus,
-        stage: remote.stage ?? undefined,
-        progress: Math.round(remote.progress * 100),
-        message: remote.message || '后端已接管音色试听任务',
-        detail: remote.detail,
-      })
-      setPage('task-center')
-    } catch (error) {
-      updateTask(localTaskId, { status: 'failed', message: '音色试听任务创建失败', errorMessage: String(error) })
-      setActionError(`试听生成失败：${errorMessage(error)}`)
-    } finally {
-      setPreviewLoading(false)
-    }
-  }, [addTask, detail?.name, previewLanguage, previewText, selectedId, setPage, updateTask])
-
-  const handleDesign = useCallback(async () => {
-    const name = designName.trim()
-    const description = designDesc.trim()
-    const refText = designRefText.trim()
-    if (!name || !description) return
-    setActionError('')
-    setDesigning(true)
-    const localTaskId = addTask({
-      jobType: 'voice-design',
-      sourceName: name,
-      sourcePath: '',
-      params: { name, description, ref_text: refText || undefined },
-    })
-    updateTask(localTaskId, { message: '正在创建音色设计任务' })
-    try {
-      const remote = await voiceApi.design({ name, description, ref_text: refText || undefined })
-      updateTask(localTaskId, {
-        serverTaskId: remote.task_id,
-        status: remote.state as TaskStatus,
-        stage: remote.stage ?? undefined,
-        progress: Math.round(remote.progress * 100),
-        message: remote.message || '后端已接管音色设计任务',
-        detail: remote.detail,
-      })
-      setPage('task-center')
-    } catch (error) {
-      updateTask(localTaskId, { status: 'failed', message: '音色设计任务创建失败', errorMessage: String(error) })
-      setActionError(`音色设计失败：${errorMessage(error)}`)
-    } finally {
-      setDesigning(false)
-    }
-  }, [addTask, designName, designDesc, designRefText, setPage, updateTask])
-
-  const handleAnalyze = useCallback(async () => {
-    if (!cloneAudioPath) return
-    const requestId = ++analysisRequestId.current
-    setActionError('')
-    setAnalysisId('')
-    setSourceFingerprint('')
-    setCandidates([])
-    setRecommendedCandidateId(null)
-    setSelectedCandidateId(null)
-    setCloneRefText('')
-    setAnalysisWarnings([])
-    setAnalyzing(true)
-    try {
-      const res = await voiceApi.analyzeSegments({
-        audio_path: cloneAudioPath,
-        subtitle_path: cloneSubtitlePath || undefined,
-        audio_language: cloneAudioLanguage,
-        separate_vocals: separateVocals,
-        x_vector_only_mode: cloneMode === 'x-vector',
-      })
-      if (requestId !== analysisRequestId.current) return
-      const nextCandidates = res.candidates ?? []
-      const recommendedId = nextCandidates.some((candidate) => candidate.eligible && candidate.candidate_id === res.recommended_candidate_id)
-        ? res.recommended_candidate_id ?? null
-        : null
-      const recommendedCandidate = recommendedId
-        ? nextCandidates.find((candidate) => candidate.candidate_id === recommendedId) ?? null
-        : null
-      setAnalysisId(res.analysis_id ?? '')
-      setSourceFingerprint(res.source_fingerprint ?? '')
-      setCandidates(nextCandidates)
-      setRecommendedCandidateId(recommendedId)
-      setSelectedCandidateId(recommendedId)
-      setCloneRefText(recommendedCandidate?.text ?? '')
-      setAnalysisWarnings(res.warnings ?? [])
-    } catch (error) {
-      if (requestId !== analysisRequestId.current) return
-      setActionError(`音频分析失败：${errorMessage(error)}`)
-    } finally {
-      if (requestId === analysisRequestId.current) setAnalyzing(false)
-    }
-  }, [cloneAudioLanguage, cloneAudioPath, cloneMode, cloneSubtitlePath, separateVocals])
-
-  const handleSelectCandidate = useCallback((candidate: VoiceCloneCandidate) => {
-    if (!candidate.eligible) {
-      setActionError('该候选未通过克隆质量门槛，可试听核对但不能用于克隆')
-      return
-    }
-    setSelectedCandidateId(candidate.candidate_id)
-    setCloneRefText(candidate.text)
-    setActionError('')
-  }, [])
-
-  const handlePreviewCandidate = useCallback((candidate: VoiceCloneCandidate) => {
-    const previewPath = candidate.preview_audio_path || cloneAudioPath
-    if (!previewPath) return
-    showAudio(previewPath, `克隆候选 · ${candidateSourceLabel(candidate.source_variant)} · ${candidate.start.toFixed(1)}-${candidate.end.toFixed(1)}s`)
-    if (!candidate.preview_audio_path) seekAudio(candidate.start)
-    if (!useAudioPlayerStore.getState().isPlaying) {
-      useAudioPlayerStore.getState().togglePlay()
-    }
-  }, [cloneAudioPath, seekAudio, showAudio])
-
-  const handleClone = useCallback(async () => {
-    const name = cloneName.trim()
-    if (!cloneAudioPath || !name) return
-    const selectedCandidate = candidates.find((candidate) => candidate.candidate_id === selectedCandidateId)
-    if (!analysisId || !selectedCandidate) {
-      setActionError('请先完成素材分析并选择一个候选片段')
-      return
-    }
-    if (!selectedCandidate.eligible) {
-      setActionError('所选候选未通过克隆质量门槛，请重新分析并选择合格片段')
-      return
-    }
-    const xVectorOnly = cloneMode === 'x-vector'
-    const refText = cloneRefText.trim()
-    if (!xVectorOnly && !refText) {
-      setActionError('高保真 ICL 模式需要确认与候选片段完全一致的文本')
-      return
-    }
-    const confirmedText = xVectorOnly ? '' : refText
-    setActionError('')
-    setCloning(true)
-    const cloneParams = {
-      audio_path: cloneAudioPath,
-      name,
-      ref_text: xVectorOnly ? undefined : (refText || undefined),
-      x_vector_only_mode: xVectorOnly,
-      analysis_id: analysisId,
-      candidate_id: selectedCandidate.candidate_id,
-      confirmed_text: confirmedText,
-    }
-    const localTaskId = addTask({
-      jobType: 'voice-clone',
-      sourceName: name,
-      sourcePath: cloneAudioPath,
-      params: cloneParams,
-    })
-    updateTask(localTaskId, { message: '正在创建音色克隆任务' })
-    try {
-      const remote = await voiceApi.clone(cloneParams)
-      updateTask(localTaskId, {
-        serverTaskId: remote.task_id,
-        status: remote.state as TaskStatus,
-        stage: remote.stage ?? undefined,
-        progress: Math.round(remote.progress * 100),
-        message: remote.message || '后端已接管音色克隆任务',
-        detail: remote.detail,
-      })
-      setPage('task-center')
-    } catch (error) {
-      updateTask(localTaskId, { status: 'failed', message: '音色克隆任务创建失败', errorMessage: String(error) })
-      setActionError(`音色克隆失败：${errorMessage(error)}`)
-    } finally {
-      setCloning(false)
-    }
-  }, [addTask, analysisId, candidates, cloneAudioPath, cloneMode, cloneName, cloneRefText, selectedCandidateId, setPage, updateTask])
-
-  const handleDelete = useCallback(async () => {
-    if (!selectedId || detail?.id !== selectedId) {
-      setActionError('当前音色详情尚未加载完成，请重新选择后再删除')
-      return
-    }
-    const profileId = selectedId
-    const requestId = ++selectionRequestId.current
-    setActionError('')
-    try {
-      await voiceApi.deleteProfile(profileId)
-      const selectionIsCurrent = requestId === selectionRequestId.current
-      if (selectionIsCurrent) {
-        setSelectedId(null)
-        setDetail(null)
-        setPanel('empty')
-      }
-      await loadProfiles(selectionIsCurrent)
-    } catch (error) {
-      if (requestId !== selectionRequestId.current) return
-      setActionError(`删除音色失败：${errorMessage(error)}`)
-    }
-  }, [detail?.id, selectedId, loadProfiles])
-
-  const handleSelectCloneAudio = useCallback(async () => {
-    const files = await selectFiles({
-      multiple: false,
-      filters: [FILE_FILTERS.audio],
-      browserPrompt: '请输入参考音频所在目录的完整路径：',
-    })
-    if (files.length > 0) {
-      invalidateAnalysis()
-      setCloneAudioPath(files[0]!)
-      setCloneSubtitlePath('')
-      setActionError('')
-    }
-  }, [invalidateAnalysis, selectFiles])
-
-  const handleSelectCloneSubtitle = useCallback(async () => {
-    const files = await selectFiles({
-      multiple: false,
-      filters: [FILE_FILTERS.subtitle],
-      browserPrompt: '请输入参考字幕文件的完整路径：',
-    })
-    if (files.length > 0) {
-      invalidateAnalysis()
-      setCloneSubtitlePath(files[0]!)
-      setActionError('')
-    }
-  }, [invalidateAnalysis, selectFiles])
-
-  const showCreate = (type: 'design' | 'clone') => {
-    selectionRequestId.current += 1
-    setSelectedId(null)
-    setDetail(null)
-    setActionError('')
-    invalidateAnalysis()
-    if (type === 'design') {
-      setDesignName(''); setDesignDesc(''); setDesignRefText('')
-      setPanel('design-create')
-    } else {
-      setCloneName(''); setCloneRefText(''); setCloneAudioPath(''); setCloneSubtitlePath(''); setCloneAudioLanguage('ja'); setCloneMode('icl'); setSeparateVocals(false)
-      setPanel('clone-create')
-    }
+  async function run(label: string, operation: () => Promise<void>) {
+    setBusy(label); setError(''); setNotice('')
+    try { await operation() } catch (cause) { if (alive.current) setError(String(cause)) }
+    finally { if (alive.current) setBusy('') }
   }
-
-  // ── Build groups ───────────────────────────────────
-  const groups: ProfileGroup[] = Object.entries(ENGINE_GROUPS).map(([engine, meta]) => ({
-    engine,
-    label: meta.label,
-    badge: meta.badge,
-    profiles: profiles.filter(profile => {
-      if (engine === 'qwen3_custom') return profile.category === 'preset'
-      if (engine === 'qwen3_design') return profile.category === 'custom'
-      return profile.category === 'clone'
-    }),
-  }))
-
-  const filteredGroups = filter === 'all'
-    ? groups
-    : groups.filter(g => {
-        if (filter === 'preset') return g.engine === 'qwen3_custom'
-        if (filter === 'design') return g.engine === 'qwen3_design'
-        if (filter === 'clone') return g.engine === 'qwen3_clone'
-        return true
-      })
-
-  const totalCount = profiles.length
-  const counts: Record<FilterKind, number> = {
-    all: totalCount,
-    preset: profiles.filter(p => p.category === 'preset').length,
-    design: profiles.filter(p => p.category === 'custom').length,
-    clone: profiles.filter(p => p.category === 'clone').length,
+  function editRecipe(patch: Partial<SpeechRecipe>) { setRecipe(previous => ({ ...previous, ...patch })); setRecipeDirty(true); setCompiled(null) }
+  function changeProvider(id: string, variant?: VoiceVariant) {
+    setShowConnection(false); setProbeResult(null)
+    variant ||= library.voices.find(item => item.id === recipe.voice_id)?.bindings.find(binding => binding.provider_id === id)?.variants[0]
+    const descriptor = providers.find(item => item.provider_id === id)
+    const mode = descriptor?.modes.find(item => variant && item.variant_kinds.includes(variant.kind)) || descriptor?.modes[0]
+    const options: Record<string, unknown> = { schema_version: 1 }
+    Object.entries(descriptor?.options_schema.properties || {}).forEach(([key, field]) => { if (field.default !== undefined) options[key] = field.default })
+    editRecipe({ provider_id: id, mode: mode?.id || '', model: mode?.models[0] || '', connection_ref: '',
+      variant: variant || { kind: mode?.variant_kinds[0] || 'hosted', value: '', style: 'normal' }, provider_options: options })
   }
-
-  // ── Render helpers ─────────────────────────────────
-  const renderFilterTab = (kind: FilterKind, label: string) => (
-    <button style={S.filterTab(filter === kind)} onClick={() => setFilter(kind)}>
-      {label}<span style={{ marginLeft: 3, fontSize: 10, opacity: 0.7 }}>{counts[kind]}</span>
-    </button>
-  )
-
-  const renderDetailField = (label: string, value: string, opts?: { mono?: boolean; muted?: boolean; full?: boolean }) => (
-    <div className="voice-lab-detail-field" style={opts?.full ? { gridColumn: '1 / -1' } : undefined}>
-      <div style={S.label}>{label}</div>
-      <div className="voice-lab-detail-value" style={opts?.mono ? S.valueMono : opts?.muted ? S.valueMuted : S.value}>{value}</div>
-    </div>
-  )
-
-  // ── Panel rendering ────────────────────────────────
-  const renderPanel = () => {
-    switch (panel) {
-      case 'preset':
-        if (!detail) return null
-        return (
-          <>
-            {/* Detail */}
-            <div style={S.panel}>
-              <div className="voice-lab-panel-header" style={S.panelHeader}>
-                音色详情
-                <span style={S.panelSubtitle}>— Qwen3 CustomVoice 预设</span>
-                <div style={{ marginLeft: 'auto' }}><span style={S.tag('preset')}>预设</span></div>
-              </div>
-              <div style={S.panelBody}>
-                <div className="voice-lab-detail-grid" style={S.detailGrid}>
-                  {renderDetailField('名称', detail.name)}
-                  {renderDetailField('ID', detail.id, { mono: true })}
-                  {renderDetailField('引擎', detail.engine)}
-                  {renderDetailField('Speaker', detail.speaker || '—')}
-                  {renderDetailField('状态', detail.available ? '可用' : '不可用')}
-                  {renderDetailField('分类', detail.category)}
-                  {renderDetailField('描述', detail.description || '—', { muted: true, full: true })}
-                </div>
-              </div>
-            </div>
-
-            {/* Instruct editing */}
-            <div style={S.panel}>
-              <div className="voice-lab-panel-header" style={S.panelHeader}>语气控制 (Instruct)</div>
-              <div style={S.panelBody}>
-                <div className="voice-lab-form-grid" style={S.formGrid}>
-                  <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
-                    <label style={S.formLabel}>Instruct 指令</label>
-                    <input
-                      style={S.input}
-                      type="text"
-                      value={instructValue}
-                      onChange={e => setInstructValue(e.target.value)}
-                      placeholder="如：用撒娇的语气说、用低沉性感的声音说"
-                    />
-                    <span style={S.hint}>控制 CustomVoice 的语气和情感表达。留空则使用默认语气。</span>
-                  </div>
-                </div>
-                <div className="voice-lab-actions-row" style={S.actionsRow}>
-                  <button
-                    style={{ ...S.btnSm, cursor: 'not-allowed', opacity: 0.5 }}
-                    disabled
-                    title="当前后端未提供音色更新接口"
-                  >
-                    保存修改（暂不可用）
-                  </button>
-                  <button
-                    style={{ ...S.btnDanger, cursor: 'not-allowed', opacity: 0.5 }}
-                    disabled
-                    title="内置预设音色不能删除"
-                  >
-                    内置预设不可删除
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Preview */}
-            {renderPreviewPanel()}
-          </>
-        )
-
-      case 'design-create':
-        return (
-          <div style={S.panel}>
-            <div className="voice-lab-panel-header" style={S.panelHeader}>
-              音色设计
-              <span style={S.panelSubtitle}>— 自然语言描述生成新音色</span>
-              <div style={{ marginLeft: 'auto' }}><span style={S.tag('design')}>VoiceDesign</span></div>
-            </div>
-            <div style={S.panelBody}>
-              <div className="voice-lab-form-grid" style={S.formGrid}>
-                <div style={S.formField}>
-                  <label style={S.formLabel}>配置名称 *</label>
-                  <input style={S.input} type="text" value={designName} onChange={e => setDesignName(e.target.value)} placeholder="给这个音色起个名字" />
-                </div>
-                <div style={S.formField}>
-                  <label style={S.formLabel}>参考文本 (可选)</label>
-                  <input style={S.input} type="text" value={designRefText} onChange={e => setDesignRefText(e.target.value)} placeholder="生成时朗读的文本" />
-                </div>
-                <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
-                  <label style={S.formLabel}>音色描述 (design_instruct) *</label>
-                  <textarea
-                    style={S.textarea}
-                    value={designDesc}
-                    onChange={e => setDesignDesc(e.target.value)}
-                    placeholder={'用自然语言描述想要的声音特征，例如：\n- 温柔的成年女性声音，语速偏慢，带有轻微的气声感，适合耳语场景\n- 活泼的少女声线，语调上扬，带有俏皮感'}
-                  />
-                  <span style={S.hint}>VoiceDesign 模型会根据描述生成对应音色的参考音频和 prompt cache。</span>
-                </div>
-              </div>
-              <div className="voice-lab-actions-row" style={S.actionsRow}>
-                <button style={S.btnPrimarySm} onClick={handleDesign} disabled={designing || !designName.trim() || !designDesc.trim()}>
-                  {designing ? '生成中...' : '生成音色'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-
-      case 'design-detail':
-        if (!detail) return null
-        return (
-          <>
-            <div style={S.panel}>
-              <div className="voice-lab-panel-header" style={S.panelHeader}>
-                设计音色详情
-                <span style={S.panelSubtitle}>— VoiceDesign 生成</span>
-                <div style={{ marginLeft: 'auto' }}><span style={S.tag('design')}>VoiceDesign</span></div>
-              </div>
-              <div style={S.panelBody}>
-                <div className="voice-lab-detail-grid" style={S.detailGrid}>
-                  {renderDetailField('名称', detail.name)}
-                  {renderDetailField('ID', detail.id, { mono: true })}
-                  {renderDetailField('状态', detail.available ? '已生成' : '待生成')}
-                  {renderDetailField('引擎', 'qwen3_design')}
-                  {renderDetailField('音色描述', detail.design_instruct || detail.description || '—', { muted: true, full: true })}
-                  {renderDetailField('参考音频', detail.ref_audio || '—', { mono: true, full: true })}
-                </div>
-                <div className="voice-lab-actions-row" style={S.actionsRow}>
-                  <button style={S.btnSm} onClick={() => showCreate('design')}>重新生成</button>
-                  <button style={S.btnDanger} onClick={handleDelete}>删除音色</button>
-                </div>
-              </div>
-            </div>
-            {renderPreviewPanel()}
-          </>
-        )
-
-      case 'clone-create':
-        return (
-          <div style={S.panel}>
-            <div className="voice-lab-panel-header" style={S.panelHeader}>
-              音色克隆
-              <span style={S.panelSubtitle}>— 从参考音频提取音色特征</span>
-              <div style={{ marginLeft: 'auto' }}><span style={S.tag('clone')}>Clone</span></div>
-            </div>
-            <div style={S.panelBody}>
-              <div className="voice-lab-form-grid" style={S.formGrid}>
-                <div style={S.formField}>
-                  <label style={S.formLabel}>配置名称 *</label>
-                  <input style={S.input} type="text" value={cloneName} onChange={e => setCloneName(e.target.value)} placeholder="克隆音色名称" />
-                </div>
-                <div style={S.formField}>
-                  <label style={S.formLabel}>克隆模式</label>
-                  <select
-                    style={S.input}
-                    value={cloneMode}
-                    onChange={event => {
-                      invalidateAnalysis()
-                      setActionError('')
-                      setCloneMode(event.target.value as CloneMode)
-                    }}
-                  >
-                    <option value="icl">高保真 ICL</option>
-                    <option value="x-vector">仅说话人向量 (x-vector)</option>
-                  </select>
-                  <span style={S.hint}>
-                    {cloneMode === 'icl'
-                      ? '结合语音与准确文本，音色还原更好'
-                      : '无可靠逐字文本时的降级模式；只提取说话人特征，还原度通常较低，跨语言并不要求使用此模式'}
-                  </span>
-                </div>
-                <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
-                  <label style={S.formLabel}>
-                    候选确认文本 {cloneMode === 'icl' ? '*' : '(x-vector 模式不使用)'}
-                  </label>
-                  <input
-                    style={{ ...S.input, background: cloneMode === 'x-vector' || !selectedCandidateId ? 'var(--bg)' : 'var(--surface)' }}
-                    type="text"
-                    value={cloneRefText}
-                    onChange={event => setCloneRefText(event.target.value)}
-                    placeholder={selectedCandidateId ? '请逐字确认候选片段中实际说出的内容' : '分析并选择候选片段后自动填入'}
-                    disabled={cloneMode === 'x-vector' || !selectedCandidateId}
-                  />
-                  <span style={S.hint}>
-                    {cloneMode === 'icl'
-                      ? '选择候选后会自动填入识别文本；请在提交前修正为与片段完全一致的内容。'
-                      : 'x-vector 仅使用说话人特征，确认文本不可编辑。'}
-                  </span>
-                </div>
-                <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
-                  <label style={S.formLabel}>参考音频 *</label>
-                  <button
-                    type="button"
-                    className="voice-lab-upload-zone"
-                    style={{ ...S.uploadZone, width: '100%', background: 'var(--surface)', fontFamily: 'var(--font-body)' }}
-                    onClick={handleSelectCloneAudio}
-                    aria-label="选择参考音频"
-                  >
-                    <UploadIcon />
-                    <div>{cloneAudioPath || '点击选择参考音频文件 (.wav / .mp3)'}</div>
-                    <div style={{ fontSize: 11, marginTop: 4 }}>可选择包含多句的音频；分析后从切分候选中选择克隆片段</div>
-                  </button>
-                </div>
-                <div style={S.formField}>
-                  <label style={S.formLabel}>参考字幕</label>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button style={S.btnSm} type="button" onClick={handleSelectCloneSubtitle}>
-                      {cloneSubtitlePath ? '更换字幕' : '选择字幕'}
-                    </button>
-                    {cloneSubtitlePath && (
-                      <button
-                        style={S.btnSm}
-                        type="button"
-                        onClick={() => {
-                          invalidateAnalysis()
-                          setCloneSubtitlePath('')
-                          setActionError('')
-                        }}
-                      >
-                        移除字幕
-                      </button>
-                    )}
-                  </div>
-                  <span style={S.hint}>{cloneSubtitlePath || '未提供时使用 ASR 识别音频文本'}</span>
-                </div>
-                <div style={S.formField}>
-                  <label style={S.formLabel}>参考音频语言</label>
-                  <select
-                    style={S.input}
-                    value={cloneAudioLanguage}
-                    onChange={event => {
-                      invalidateAnalysis()
-                      setActionError('')
-                      setCloneAudioLanguage(event.target.value)
-                    }}
-                  >
-                    <option value="ja">日语</option>
-                    <option value="zh">中文</option>
-                    <option value="en">英语</option>
-                  </select>
-                </div>
-                <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
-                  <label style={{ ...S.formLabel, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={separateVocals}
-                      onChange={event => {
-                        invalidateAnalysis()
-                        setActionError('')
-                        setSeparateVocals(event.target.checked)
-                      }}
-                    />
-                    分析前分离人声
-                  </label>
-                  <span style={S.hint}>默认关闭。仅在背景音乐明显时启用；候选会标明使用原始音频还是分离人声。</span>
-                </div>
-              </div>
-
-              {/* Segment analysis */}
-              {candidates.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      克隆候选片段
-                    </div>
-                    {sourceFingerprint && (
-                      <span style={{ ...S.hint, marginLeft: 'auto', fontFamily: 'var(--font-mono)' }}>
-                        素材指纹 {sourceFingerprint.replace(/^sha256:/, '').slice(0, 12)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="voice-lab-table-scroll">
-                    <table style={S.segmentTable}>
-                      <thead>
-                        <tr>
-                          <th style={S.segTh}>选择</th>
-                          <th style={S.segTh}>时间</th>
-                          <th style={S.segTh}>来源</th>
-                          <th style={S.segTh}>文本 / 评分详情</th>
-                          <th style={S.segTh}>评分</th>
-                          <th style={S.segTh}>状态</th>
-                          <th style={S.segTh}>试听</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {candidates.map((candidate) => {
-                          const isRecommended = candidate.candidate_id === recommendedCandidateId
-                          const isSelected = candidate.candidate_id === selectedCandidateId
-                          const isEligible = candidate.eligible
-                          const detailsText = candidateDetails(candidate.details)
-                          return (
-                            <tr
-                              key={candidate.candidate_id}
-                              onClick={() => {
-                                if (isEligible) handleSelectCandidate(candidate)
-                              }}
-                              style={{
-                                cursor: isEligible ? 'pointer' : 'default',
-                                opacity: isEligible ? 1 : 0.68,
-                                background: isSelected
-                                  ? 'oklch(95% 0.025 255)'
-                                  : isRecommended
-                                    ? 'oklch(97% 0.01 145)'
-                                    : undefined,
-                              }}
-                            >
-                              <td style={S.segTd}>
-                                <input
-                                  type="radio"
-                                  name="voice-clone-candidate"
-                                  checked={isSelected}
-                                  onChange={() => handleSelectCandidate(candidate)}
-                                  disabled={!isEligible}
-                                  aria-label={`选择 ${candidate.start.toFixed(1)} 到 ${candidate.end.toFixed(1)} 秒的候选片段`}
-                                />
-                              </td>
-                              <td style={{ ...S.segTd, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                                {candidate.start.toFixed(1)} – {candidate.end.toFixed(1)}s
-                              </td>
-                              <td style={{ ...S.segTd, whiteSpace: 'nowrap' }}>{candidateSourceLabel(candidate.source_variant)}</td>
-                              <td style={{ ...S.segTd, minWidth: 260 }}>
-                                <div>{candidate.text || '（无识别文本）'}</div>
-                                {detailsText && <div style={{ ...S.hint, marginTop: 4 }}>{detailsText}</div>}
-                                {candidate.reasons.length > 0 && (
-                                  <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 4 }}>
-                                    {candidate.reasons.join('；')}
-                                  </div>
-                                )}
-                              </td>
-                              <td style={S.segTd}>
-                                <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 11, color: candidate.score >= 80 ? 'var(--success)' : 'var(--warning)' }}>
-                                  {candidate.score}
-                                </span>
-                              </td>
-                              <td style={{ ...S.segTd, whiteSpace: 'nowrap' }}>
-                                {isRecommended && <span style={S.tag('ready')}>推荐</span>}
-                                {!isEligible && <span style={S.tag('unavail')}>不合格</span>}
-                                {isEligible && !isRecommended && (candidate.label || '—')}
-                              </td>
-                              <td style={S.segTd}>
-                                <button
-                                  style={S.btnSm}
-                                  type="button"
-                                  onClick={event => {
-                                    event.stopPropagation()
-                                    handlePreviewCandidate(candidate)
-                                  }}
-                                >
-                                  <PlayIcon /> 试听
-                                </button>
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {analysisWarnings.length > 0 && (
-                <div style={{ ...S.hint, marginTop: 8, color: 'var(--warning)' }}>
-                  {analysisWarnings.join('；')}
-                </div>
-              )}
-
-              {analysisId && candidates.length === 0 && (
-                <div style={{ ...S.hint, marginTop: 12 }}>分析完成，但没有可用于克隆的候选片段。</div>
-              )}
-
-              {analysisId && candidates.length > 0 && !candidates.some((candidate) => candidate.eligible) && (
-                <div style={{ ...S.hint, marginTop: 12, color: 'var(--warning)' }}>
-                  当前片段均未通过质量门槛；仍可试听检查，但不能用于克隆。
-                </div>
-              )}
-
-              {!analysisId && candidates.length > 0 && (
-                <div style={{ ...S.hint, marginTop: 12, color: 'var(--warning)' }}>
-                  当前后端返回了旧版分析结果，无法安全绑定候选片段；请升级后端后重新分析。
-                </div>
-              )}
-
-              {selectedCandidateId && analysisId && (
-                <div style={{ ...S.hint, marginTop: 12 }}>
-                  克隆将使用当前单选候选；切换音频、字幕、语言、模式或人声分离设置后需要重新分析。
-                </div>
-              )}
-
-              <div className="voice-lab-actions-row" style={S.actionsRow}>
-                <button style={S.btnSm} onClick={handleAnalyze} disabled={analyzing || !cloneAudioPath}>
-                  {analyzing ? '分析中...' : '分析并生成候选'}
-                </button>
-                <button
-                  style={S.btnPrimarySm}
-                  onClick={handleClone}
-                  disabled={cloning || !cloneName.trim() || !cloneAudioPath || !analysisId || !candidates.some((candidate) => candidate.candidate_id === selectedCandidateId && candidate.eligible) || (cloneMode === 'icl' && !cloneRefText.trim())}
-                >
-                  {cloning ? '克隆中...' : '开始克隆'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-
-      case 'clone-detail':
-        if (!detail) return null
-        return (
-          <>
-            <div style={S.panel}>
-              <div className="voice-lab-panel-header" style={S.panelHeader}>
-                克隆音色详情
-                <span style={S.panelSubtitle}>— 从参考音频提取</span>
-                <div style={{ marginLeft: 'auto' }}><span style={S.tag('clone')}>Clone</span></div>
-              </div>
-              <div style={S.panelBody}>
-                <div className="voice-lab-detail-grid" style={S.detailGrid}>
-                  {renderDetailField('名称', detail.name)}
-                  {renderDetailField('ID', detail.id, { mono: true })}
-                  {renderDetailField('状态', detail.available ? '已缓存' : '未缓存')}
-                  {renderDetailField('引擎', 'qwen3_clone')}
-                  {renderDetailField('参考音频', detail.ref_audio || '—', { mono: true, full: true })}
-                  {renderDetailField('描述', detail.description || '—', { muted: true, full: true })}
-                </div>
-                <div className="voice-lab-actions-row" style={S.actionsRow}>
-                  <button style={S.btnDanger} onClick={handleDelete}>删除音色</button>
-                </div>
-              </div>
-            </div>
-            {renderPreviewPanel()}
-          </>
-        )
-
-      case 'empty':
-      default:
-        return (
-          <div style={S.emptyState}>
-            <svg width="48" height="48" fill="none" stroke="currentColor" strokeWidth="1" opacity={0.3}>
-              <path d="M24 8v32M16 14v20M32 12v24M40 20v8M8 20v8" />
-            </svg>
-            <div>选择一个音色查看详情，或从上方设计、克隆新音色</div>
-          </div>
-        )
+  function editConnection() {
+    const item = library.connections.find(value => value.id === recipe.connection_ref)
+    if (!item) return
+    const descriptor = providers.find(value => value.provider_id === item.provider_id)
+    setConnection({ id: item.id, name: item.name, provider_id: item.provider_id, deployment: descriptor?.connection_required ? item.deployment : 'local',
+      base_url: item.base_url || '', timeout: item.timeout || 60, model_path: item.model_path || '', device: item.device || '', api_key: '' })
+    setShowConnection(true)
+  }
+  async function saveRecipe() {
+    const saved = await speechApi.recipe(recipe)
+    setRecipe(saved); setRecipeDirty(false); await refresh(); setNotice('已保存配方修订 ' + saved.revision)
+  }
+  async function generate(segmentId?: string) {
+    if (!plan || !recipe.id || recipeDirty || planDirty) throw new Error('请先保存配方与演绎方案')
+    let id = experimentId
+    if (!id || library.plans.find(item => item.id === experiment?.plan_id)?.text_hash !== plan.text_hash) {
+      const created = await speechApi.experiment((recipe.name || '试音') + ' · ' + new Date().toLocaleString(), plan.id)
+      id = created.id; setExperimentId(id)
     }
+    const task = await speechApi.generate(id, recipe.id, plan.id, segmentId)
+    setTasks(previous => [...previous, task]); await refresh(); setTab(2)
+    setNotice('已提交新候选任务，已有结果会保留。')
   }
+  async function inspectReference() {
+    const paths = await selectFiles({ multiple: false, filters: [FILE_FILTERS.audio] })
+    if (!paths[0]) return
+    const result = await speechApi.inspect(paths[0])
+    setSource(result); setCropStart(0); setCropEnd(Math.min(10, result.duration)); setTranscript(''); setConfirmed(false); setAnalyzed(null)
+  }
+  async function openAsset(item: ReferenceAsset) { setAsset(item); setWaveform(await speechApi.waveform(item.id)) }
+  function updateSegment(id: string, patch: Partial<SpeechPlan['segments'][number]>) {
+    if (!plan) return
+    setPlan({ ...plan, segments: plan.segments.map(segment => segment.id === id ? { ...segment, ...patch } : segment) })
+    setPlanDirty(true); setCompiled(null)
+  }
+  function useRecipe(item: SpeechRecipe) { setRecipe(structuredClone(item)); setRecipeDirty(false); setCompiled(null) }
+  async function adoptRecipe(take: SpeechTake) {
+    const saved = library.recipes.find(item => item.id === take.recipe_id)
+    const takePlan = library.plans.find(item => item.id === take.plan_id)
+    const intent = takePlan?.segments.find(item => item.id === take.segment_id)
+    if (!saved || !intent) throw new Error('此候选的配方或演绎方案不可用')
+    const adopted = await speechApi.recipe({ ...saved, default_delivery: intent.delivery,
+      default_emotion: intent.emotion, default_pause_ms: intent.pause_ms })
+    useRecipe(adopted); await refresh(); setNotice('已保存候选配置与演绎默认值的新修订；未采用试音音频')
+  }
+  async function analyzeSource(separate: boolean) {
+    if (!source) return
+    const result = await speechApi.analyze(source.path, language, separate)
+    setAnalyzed(result); setConfirmed(false)
+  }
+  async function createPlan() {
+    const created = await speechApi.plan({ text: script })
+    const hasDefaults = (recipe.default_delivery && recipe.default_delivery !== 'normal') || (recipe.default_emotion && recipe.default_emotion !== 'neutral') || recipe.default_pause_ms
+    const saved = hasDefaults ? await speechApi.plan({ text: created.text, segments: created.segments.map(segment => ({ ...segment,
+      delivery: recipe.default_delivery || 'normal', emotion: recipe.default_emotion || 'neutral', pause_ms: recipe.default_pause_ms || 0 })) }) : created
+    setPlan(saved); setPlanDirty(false); setExperimentId(''); setCompiled(null); await refresh()
+  }
+  const waveformSvg = (data: Waveform, start = 0, end = data.duration) => <svg className="waveform" viewBox="0 0 600 100" preserveAspectRatio="none" role="img" aria-label="真实音频波形">
+    <rect x={600 * start / Math.max(data.duration, .001)} width={600 * (end - start) / Math.max(data.duration, .001)} height="100" fill="var(--accent-soft)" />
+    {data.peaks.map((peak, index) => <line key={index} x1={index * 600 / data.peaks.length} x2={index * 600 / data.peaks.length} y1={50 - Math.min(1, Math.abs(peak)) * 45} y2={50 + Math.min(1, Math.abs(peak)) * 45} stroke="var(--accent)" strokeWidth="1" />)}
+  </svg>
 
-  const renderPreviewPanel = () => (
-    <div style={S.panel}>
-      <div className="voice-lab-panel-header" style={S.panelHeader}>试听</div>
-      <div className="voice-lab-preview-bar" style={S.previewBar}>
-        <input
-          style={{ ...S.input, flex: 1, background: 'var(--bg)' }}
-          type="text"
-          value={previewText}
-          onChange={e => setPreviewText(e.target.value)}
-          placeholder="输入试听文本"
-        />
-        <select
-          style={{ ...S.input, width: 132, flex: '0 0 132px' }}
-          value={previewLanguage}
-          onChange={event => setPreviewLanguage(event.target.value)}
-          aria-label="试听目标语言"
-        >
-          {QWEN_LANGUAGE_OPTIONS.map(option => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-        <button style={S.btnPrimarySm} onClick={handlePreview} disabled={previewLoading || !previewText.trim()}>
-          <PlayIcon /> {previewLoading ? '生成中...' : '试听'}
-        </button>
-      </div>
-      <div style={{ padding: '8px 16px 12px', fontSize: 11, color: 'var(--muted)' }}>
-        试听作为后台任务执行，完成后可在任务中心播放产物。
-      </div>
-    </div>
-  )
-
-  // ── Main render ────────────────────────────────────
-  return (
-    <div className="voice-lab-page" style={S.page}>
-      {/* Action bar */}
-      <div className="voice-lab-action-bar" style={S.actionBar}>
-        <span style={S.title}>音色实验室</span>
-        {actionError && (
-          <span className="voice-lab-action-error" style={{ color: 'var(--danger)', fontSize: 12 }} title={actionError}>
-            {actionError}
-          </span>
-        )}
-        <span style={S.gpuPill}>Qwen3 扩展</span>
-        <div className="voice-lab-action-spacer" style={S.spacer} />
-        <button style={S.btn} onClick={() => showCreate('design')}>
-          <PlusIcon /> 设计音色
-        </button>
-        <button style={S.btnPrimary} onClick={() => showCreate('clone')}>
-          <PlusIcon /> 克隆音色
-        </button>
-      </div>
-
-      {/* Content: list + work panel */}
-      <div className="voice-lab-content" style={S.content}>
-        {/* Profile list */}
-        <div className="voice-lab-list" style={S.list}>
-          <div style={S.listHeader}>
-            <span>音色列表</span>
-            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>{totalCount} 个</span>
-          </div>
-
-          {/* Filter tabs */}
-          <div className="voice-lab-filter-bar" style={S.filterBar}>
-            {renderFilterTab('all', '全部')}
-            {renderFilterTab('preset', '预设')}
-            {renderFilterTab('design', '设计')}
-            {renderFilterTab('clone', '克隆')}
-          </div>
-
-          {/* Model groups */}
-          <div className="voice-lab-groups">
-            {filteredGroups.map(group => {
-              const isCollapsed = collapsed[group.engine] || false
-              return (
-                <div key={group.engine} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <div
-                    style={S.groupHeader}
-                    onClick={() => setCollapsed(c => ({ ...c, [group.engine]: !c[group.engine] }))}
-                  >
-                    <span style={{ ...S.chevron(isCollapsed), display: 'inline-flex', alignItems: 'center' }}>
-                      <ChevronIcon />
-                    </span>
-                    <span style={S.badge}>{group.badge}</span>
-                    {group.label}
-                    <span style={S.badgeCount}>{group.profiles.length}</span>
-                  </div>
-                  {!isCollapsed && (
-                    <div>
-                      {group.profiles.length === 0 ? (
-                        <div style={S.groupEmpty}>
-                          {group.engine === 'qwen3_custom'
-                            ? '暂无预设音色'
-                            : `暂无${group.label}，点击「${group.engine === 'qwen3_design' ? '设计音色' : '克隆音色'}」创建`}
-                        </div>
-                      ) : (
-                        group.profiles.map(p => (
-                          <div
-                            key={p.id}
-                            style={S.profileItem(selectedId === p.id)}
-                            onClick={() => handleSelect(p.id, p.category)}
-                          >
-                            <span style={S.availDot(p.available)} />
-                            <span style={S.itemName}>{p.name}</span>
-                            <span style={S.itemSpeaker}>{p.category}</span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+  return <div className="speech-lab">
+    <header><div className="row spread"><div><h1>音色实验室</h1><p className="muted">管理声音来源，逐句演绎，保留每次试音。</p></div><button disabled={!!busy} onClick={() => void run('刷新', refresh)}>刷新声音库</button></div>
+      <nav className="tabs" role="tablist" aria-label="音色实验室步骤">{['声音与素材', '台词与演绎', '试音与对比', '用于配音'].map((title, index) => <button key={title} role="tab" aria-selected={tab === index} onClick={() => setTab(index)}>{index + 1}　{title}</button>)}</nav>
+    </header>
+    <main>{error && <div role="alert" className="notice error">{error}</div>}{notice && <div role="status" className="notice">{notice}</div>}{busy && <p role="status" className="muted">{busy}…</p>}
+      {tab === 0 && <div className="columns"><aside>
+        <section className="panel"><div className="row spread"><h2>声音库</h2><button onClick={() => setVoice(blankVoice())}>新建声音</button></div>
+          {!library.voices.length && <p className="empty">尚无声音。创建一个声音，再为普通、轻声或耳语配置实际来源。</p>}
+          {library.voices.map(item => <div className={'item ' + (voice.id === item.id ? 'selected' : '')} key={item.id}><button onClick={() => setVoice(structuredClone(item))}>{item.name}</button><p className="muted">{item.bindings.length} 个引擎实现 · {item.description}</p></div>)}
+        </section>
+        <section className="panel"><h2>已保存配方</h2>{!library.recipes.length && <p className="empty">保存配方后可在新任务中复用。</p>}{library.recipes.map(item => <div className={'item ' + (recipe.id === item.id ? 'selected' : '')} key={item.id}><button onClick={() => useRecipe(item)}>{item.name} · r{item.revision}</button><p className="muted">{item.provider_id} · {item.model}</p></div>)}</section>
+      </aside><div>
+        <section className="panel"><h2>声音身份</h2><div className="grid"><Field title="声音名称"><input value={voice.name} onChange={event => setVoice({ ...voice, name: event.target.value })} /></Field><Field title="描述"><input value={voice.description} onChange={event => setVoice({ ...voice, description: event.target.value })} /></Field></div>
+          {voice.bindings.map((binding, index) => <div className="item" key={index}><div className="row spread"><strong>{providers.find(item => item.provider_id === binding.provider_id)?.name || binding.provider_id}</strong><label><input type="radio" checked={voice.default_binding === binding.provider_id} onChange={() => setVoice({ ...voice, default_binding: binding.provider_id })} /> 默认实现</label><button onClick={() => setVoice({ ...voice, bindings: voice.bindings.filter((_, i) => i !== index), default_binding: voice.default_binding === binding.provider_id ? (voice.bindings.find((_, i) => i !== index)?.provider_id || '') : voice.default_binding })}>移除此实现</button></div>
+            {binding.variants.map((variant, vi) => <div className="grid" key={vi} style={{ marginTop: 14 }}><Field title="声音版本"><select value={variant.style} onChange={event => { const next = structuredClone(voice); next.bindings[index]!.variants[vi]!.style = event.target.value as Delivery; setVoice(next) }}>{styles.map(style => <option key={style.value} value={style.value}>{style.label}</option>)}</select></Field><Field title="声音来源"><select value={variant.kind} onChange={event => { const next = structuredClone(voice); next.bindings[index]!.variants[vi] = { ...variant, kind: event.target.value as VoiceVariant['kind'], value: '' }; setVoice(next) }}>{[...new Set(providers.find(item => item.provider_id === binding.provider_id)?.modes.flatMap(mode => mode.variant_kinds) || [])].map(kind => <option key={kind} value={kind}>{variantNames[kind]}</option>)}</select></Field><Field title={variantNames[variant.kind]}>{variant.kind === 'reference' ? <select value={variant.value} onChange={event => { const next = structuredClone(voice); next.bindings[index]!.variants[vi]!.value = event.target.value; setVoice(next) }}><option value="">选择素材</option>{library.assets.map(item => <option key={item.id} value={item.id}>{item.transcript || item.id}</option>)}</select> : <input value={variant.value} onChange={event => { const next = structuredClone(voice); next.bindings[index]!.variants[vi]!.value = event.target.value; setVoice(next) }} />}</Field></div>)}
+            <button disabled={binding.variants.length >= 3} onClick={() => { const next = structuredClone(voice); const style = styles.find(item => !binding.variants.some(variant => variant.style === item.value))?.value; if (style) { next.bindings[index]!.variants.push({ kind: binding.variants[0]?.kind || 'hosted', value: '', style }); setVoice(next) } }}>添加声音版本</button>
+          </div>)}
+          <div className="row" style={{ marginTop: 14 }}><select aria-label="添加引擎实现" value="" onChange={event => { const item = providers.find(p => p.provider_id === event.target.value); if (item) setVoice({ ...voice, default_binding: voice.default_binding || item.provider_id, bindings: [...voice.bindings, { provider_id: item.provider_id, variants: [{ kind: item.modes[0]?.variant_kinds[0] || 'hosted', value: '', style: 'normal' }] }] }) }}><option value="">添加引擎实现…</option>{providers.filter(item => !voice.bindings.some(binding => binding.provider_id === item.provider_id)).map(item => <option key={item.provider_id} value={item.provider_id}>{item.name}</option>)}</select><button className="primary" disabled={!!busy || !voice.name.trim() || !voice.bindings.length} onClick={() => void run('保存声音', async () => { setVoice(await speechApi.voice(voice)); await refresh(); setNotice('声音已保存') })}>保存声音</button></div>
+        </section>
+        <section className="panel"><h2>合成配方 {recipe.id && <span className="pill">r{recipe.revision}{recipeDirty ? ' · 有未保存修改' : ''}</span>}</h2><div className="grid">
+          <Field title="配方名称"><input value={recipe.name} onChange={event => editRecipe({ name: event.target.value })} /></Field>
+          <Field title="声音"><select value={recipe.voice_id} onChange={event => { const item = library.voices.find(v => v.id === event.target.value); if (item) { changeProvider(item.default_binding, item.bindings.find(b => b.provider_id === item.default_binding)?.variants[0]); editRecipe({ voice_id: item.id }) } }}><option value="">选择已保存声音</option>{library.voices.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+          <Field title="引擎"><select disabled={!recipe.voice_id} value={recipe.provider_id} onChange={event => changeProvider(event.target.value)}><option value="">选择声音已绑定的引擎</option>{providers.filter(item => library.voices.find(saved => saved.id === recipe.voice_id)?.bindings.some(binding => binding.provider_id === item.provider_id)).map(item => <option key={item.provider_id} value={item.provider_id}>{item.name}</option>)}</select></Field>
+          <Field title="模式"><select value={recipe.mode} onChange={event => { const mode = provider?.modes.find(item => item.id === event.target.value); editRecipe({ mode: event.target.value, model: mode?.models[0] || '', variant: { ...recipe.variant, kind: mode?.variant_kinds[0] || 'hosted', value: '' } }) }}>{provider?.modes.map(mode => <option key={mode.id} value={mode.id}>{modeNames[mode.id] || mode.id}</option>)}</select></Field>
+          <Field title="模型">{selectedMode?.models.length ? <select value={recipe.model} onChange={event => editRecipe({ model: event.target.value })}>{recipe.model && !selectedMode.models.includes(recipe.model) && <option value={recipe.model}>{recipe.model}（已保存）</option>}{selectedMode.models.map(model => <option key={model} value={model}>{model}</option>)}</select> : <input value={recipe.model} placeholder="填写服务文档中的模型 ID" onChange={event => editRecipe({ model: event.target.value })} />}</Field>
+          <Field title="连接"><select value={recipe.connection_ref} onChange={event => editRecipe({ connection_ref: event.target.value })}><option value="">选择明确的运行连接</option>{library.connections.filter(item => item.provider_id === recipe.provider_id).map(item => <option key={item.id} value={item.id}>{item.name} · {deploymentNames[item.deployment]}</option>)}</select></Field>
+          <Field title="声音版本"><select value={recipe.variant.style} onChange={event => { const style = event.target.value as Delivery; const variant = library.voices.find(item => item.id === recipe.voice_id)?.bindings.find(item => item.provider_id === recipe.provider_id)?.variants.find(item => item.style === style); editRecipe({ variant: variant || { ...recipe.variant, style, value: '' } }) }}>{styles.map(style => <option key={style.value} value={style.value}>{style.label}</option>)}</select></Field>
+          <Field title={variantNames[recipe.variant.kind]}>{recipe.variant.kind === 'reference' ? <select value={recipe.variant.value} onChange={event => editRecipe({ variant: { ...recipe.variant, value: event.target.value } })}><option value="">选择参考素材</option>{library.assets.map(item => <option key={item.id} value={item.id}>{item.transcript || item.id}</option>)}</select> : <input value={recipe.variant.value} onChange={event => editRecipe({ variant: { ...recipe.variant, value: event.target.value } })} />}</Field>
+          <Field title="语言"><input value={recipe.language} onChange={event => editRecipe({ language: event.target.value })} /></Field>
+          <Field title="默认发声方式"><select value={recipe.default_delivery || 'normal'} onChange={event => editRecipe({ default_delivery: event.target.value as Delivery })}>{styles.map(style => <option key={style.value} value={style.value}>{style.label}</option>)}</select></Field>
+          <Field title="默认情绪"><select value={recipe.default_emotion || 'neutral'} onChange={event => editRecipe({ default_emotion: event.target.value })}>{Object.entries(emotionNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+          <Field title="默认句后停顿（毫秒）"><input type="number" min={0} max={30000} step={50} value={recipe.default_pause_ms || 0} onChange={event => editRecipe({ default_pause_ms: Number(event.target.value) })} /></Field>
         </div>
+          <div className="grid">{Object.entries(provider?.options_schema.properties || {}).filter(([key]) => key !== 'schema_version').map(([key, field]) => <Field key={key} title={field.title || optionNames[key] || key}>{field.enum ? <select value={String(recipe.provider_options[key] ?? field.default ?? '')} onChange={event => editRecipe({ provider_options: { ...recipe.provider_options, [key]: event.target.value } })}><option value="">默认</option>{field.enum.map(value => <option key={String(value)} value={value}>{value}</option>)}</select> : field.type === 'boolean' ? <input type="checkbox" checked={Boolean(recipe.provider_options[key] ?? field.default)} onChange={event => editRecipe({ provider_options: { ...recipe.provider_options, [key]: event.target.checked } })} /> : <input type={['number', 'integer'].includes(field.type || '') ? 'number' : 'text'} step={field.type === 'integer' ? 1 : 'any'} min={field.minimum} max={field.maximum} title={field.description} value={String(recipe.provider_options[key] ?? field.default ?? '')} onChange={event => { const value = event.target.value; const options = { ...recipe.provider_options }; if (!value) delete options[key]; else options[key] = ['number', 'integer'].includes(field.type || '') ? Number(value) : value; editRecipe({ provider_options: options }) }} />}</Field>)}</div>
+          <div className="row"><button onClick={() => { setConnection({ name: '', provider_id: recipe.provider_id, deployment: provider?.connection_required ? 'cloud' : 'local', api_key: '', base_url: '', timeout: 60 }); setShowConnection(!showConnection) }}>新建连接</button><button disabled={!recipe.connection_ref || !!busy} onClick={editConnection}>编辑连接</button><button disabled={!recipe.connection_ref || !!busy} onClick={() => void run('检查连接', async () => setProbeResult(await speechApi.probe(recipe.connection_ref, recipe.model, recipe.mode)))}>检查连接</button><button className="primary" disabled={!!busy || !recipe.name.trim() || !recipe.voice_id || !recipe.provider_id || !recipe.connection_ref} onClick={() => void run('保存配方', saveRecipe)}>保存新修订</button><button disabled={!adoptable} onClick={() => setTab(1)}>编辑演绎 →</button></div>
+          {probeResult && <details open><summary>连接检查结果</summary><pre>{json(probeResult)}</pre></details>}{showConnection && <div className="item"><h3>{connection.id ? '编辑' : '新建'} {connectionProvider?.name} 连接</h3><div className="grid"><Field title="连接名称"><input value={connection.name || ''} onChange={event => setConnection({ ...connection, name: event.target.value })} /></Field><Field title="运行位置"><select value={connection.deployment} onChange={event => setConnection({ ...connection, deployment: event.target.value as SpeechConnection['deployment'] })}><option value="local">{connectionProvider?.connection_required ? '本机服务' : '本机'}</option>{connectionProvider?.connection_required && <><option value="lan">局域网</option><option value="cloud">云端</option></>}</select></Field>{connectionProvider?.connection_required && <><Field title="API 地址"><input value={connection.base_url || ''} onChange={event => setConnection({ ...connection, base_url: event.target.value })} /></Field><Field title="API 密钥"><input type="password" autoComplete="off" value={connection.api_key} onChange={event => setConnection({ ...connection, api_key: event.target.value })} /></Field><Field title="超时（秒）"><input type="number" min={1} value={connection.timeout || 60} onChange={event => setConnection({ ...connection, timeout: Number(event.target.value) })} /></Field></>}{connectionProvider && !connectionProvider.remote && <><Field title="模型路径（可选）"><input value={connection.model_path || ''} onChange={event => setConnection({ ...connection, model_path: event.target.value })} /></Field><Field title="设备（可选）"><input value={connection.device || ''} onChange={event => setConnection({ ...connection, device: event.target.value })} /></Field></>}</div><button disabled={!!busy || !connection.name?.trim()} onClick={() => void run('保存连接', async () => { const saved = await speechApi.connection(connection); editRecipe({ connection_ref: saved.id }); setConnection({ ...connection, api_key: '' }); setShowConnection(false); await refresh() })}>保存连接</button></div>}
+          {provider && <details style={{ marginTop: 14 }}><summary>引擎能力与验证状态</summary><pre>{json(selectedMode?.capabilities || provider.capabilities)}</pre></details>}
+        </section>
+        <section className="panel"><div className="row spread"><h2>参考素材</h2><button disabled={!!busy} onClick={() => void run('读取参考音频', inspectReference)}>导入音频</button></div>
+          {source && <div className="item"><p className="muted">{source.path} · {source.duration.toFixed(2)} 秒</p>{waveformSvg(source, cropStart, cropEnd)}<audio ref={sourcePlayer} controls src={speechApi.referenceAudio(source.id, true)} onTimeUpdate={() => { if (playingCrop.current && sourcePlayer.current && sourcePlayer.current.currentTime >= cropEnd) { sourcePlayer.current.pause(); playingCrop.current = false } }} /><div className="grid"><Field title="起点（秒）"><input type="number" min={0} max={cropEnd} step={.01} value={cropStart} onChange={event => { setCropStart(Number(event.target.value)); setConfirmed(false) }} /></Field><Field title="终点（秒）"><input type="number" min={cropStart} max={source.duration} step={.01} value={cropEnd} onChange={event => { setCropEnd(Number(event.target.value)); setConfirmed(false) }} /></Field><Field title="语言"><input value={language} onChange={event => setLanguage(event.target.value)} /></Field></div><Field title="选中片段的真实转录"><textarea rows={3} value={transcript} onChange={event => { setTranscript(event.target.value); setConfirmed(false) }} /></Field><label><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> 已核对文字与所选片段一致</label><div className="row" style={{ marginTop: 12 }}><button className="primary" disabled={!!busy || !confirmed || !transcript.trim() || cropEnd <= cropStart || cropEnd > source.duration || cropStart < 0} onClick={() => void run('保存参考素材', async () => { const saved = await speechApi.reference({ path: source.path, start: cropStart, end: cropEnd, transcript, language, confirmed: true }); await refresh(); await openAsset(saved); setSource(null); setNotice('参考素材已保存，可用于声音版本') })}>保存选中片段</button></div></div>}
+          {source && <div className="item"><div className="row"><button disabled={!!busy} onClick={() => void run('识别参考台词', () => analyzeSource(false))}>识别参考台词</button><button disabled={!!busy} onClick={() => void run('分离人声与识别', () => analyzeSource(true))}>分离人声并比较</button><button onClick={() => { if (sourcePlayer.current) { playingCrop.current = true; sourcePlayer.current.currentTime = cropStart; void sourcePlayer.current.play().catch(cause => setError(String(cause))) } }}>试听所选片段</button></div><p className="muted">识别结果仅供填写参考转录，保存前仍需人工核对。</p>
+            {analyzed && <><div className="grid"><div><h3>原始素材</h3><audio controls src={speechApi.referenceAudio(analyzed.original.id, true)} /></div><div><h3>分析使用的音频</h3><audio controls src={speechApi.referenceAudio(analyzed.analyzed.id, true)} /><button onClick={() => { setSource(analyzed.analyzed); setCropStart(0); setCropEnd(Math.min(10, analyzed.analyzed.duration)); setConfirmed(false); setTranscript('') }}>使用此音轨选段</button></div></div><p className="muted">点击识别片段填入时间与文字，再核对音轨。</p>{analyzed.segments.map((segment, index) => <button key={index} style={{ margin: 4 }} onClick={() => { setSource(analyzed.analyzed); setCropStart(segment.start); setCropEnd(segment.end); setTranscript(segment.text); setConfirmed(false) }}>{segment.start.toFixed(1)}–{segment.end.toFixed(1)}s · {segment.text}</button>)}</>}
+          </div>}
+          {!library.assets.length && !source && <p className="empty">参考音频会保存为独立素材，供支持参考克隆的引擎使用。</p>}
+          {library.assets.map(item => <button key={item.id} style={{ margin: '8px 8px 0 0' }} onClick={() => void run('读取素材', () => openAsset(item))}>{item.transcript?.slice(0, 22) || item.id}</button>)}
+          {asset && <div className="item"><h3>{asset.transcript}</h3>{waveform && waveformSvg(waveform)}<p className="muted">已保存片段</p><audio controls src={speechApi.referenceAudio(asset.id)} /><details><summary>对比原始素材</summary><audio controls src={speechApi.referenceAudio(asset.id, true)} /></details></div>}
+        </section>
+      </div></div>}
 
-        {/* Work panel */}
-        <div className="voice-lab-work-panel" style={S.workPanel}>
-          {renderPanel()}
-        </div>
-      </div>
+      {tab === 1 && <><section className="panel"><div className="row spread"><h2>台词</h2><select aria-label="载入已有方案" value={plan?.id || ''} onChange={event => { const saved = library.plans.find(item => item.id === event.target.value); if (saved) { setPlan(structuredClone(saved)); setScript(saved.text); setPlanDirty(false); setCompiled(null) } }}><option value="">载入已有方案…</option>{library.plans.map(item => <option key={item.id} value={item.id}>{item.text.slice(0, 45)}</option>)}</select></div><textarea aria-label="试音原文" rows={5} value={script} onChange={event => { setScript(event.target.value); setCompiled(null) }} placeholder="输入试音台词。演绎方案保留原文，只调整说话方式和停顿。" /><div className="row" style={{ marginTop: 14 }}><button className="primary" disabled={!!busy || !script.trim()} onClick={() => void run('建立台词方案', createPlan)}>建立新方案</button><button disabled={!!busy || !plan || script !== plan.text || planDirty} onClick={() => void run('自动规划演绎', async () => { if (plan) { const result = await speechApi.planPerformance(plan.id); setPlan(result); setScript(result.text); setPlanDirty(false); setCompiled(null); await refresh() } })}>LLM 自动演绎</button></div>{plan && script !== plan.text && <p className="muted">台词已修改，请建立新方案后继续。</p>}</section>
+        {plan && <section className="panel"><h2>逐句演绎</h2>{plan.segments.map((segment, index) => <div className="segment" key={segment.id}><h3>{index + 1}. {segmentText(plan, segment.start, segment.end)}</h3><div className="grid"><Field title="发声方式"><select value={segment.delivery} onChange={event => updateSegment(segment.id, { delivery: event.target.value as Delivery })}>{styles.map(style => <option key={style.value} value={style.value}>{style.label}</option>)}</select></Field><Field title="情绪意图"><select value={segment.emotion} onChange={event => updateSegment(segment.id, { emotion: event.target.value })}>{['neutral', 'happy', 'sad', 'angry', 'excited', 'calm', 'nervous', 'relaxed'].map(emotion => <option key={emotion} value={emotion}>{emotionNames[emotion] || emotion}</option>)}</select></Field><Field title="句后停顿（毫秒）"><input type="number" min={0} max={10000} step={50} value={segment.pause_ms} onChange={event => updateSegment(segment.id, { pause_ms: Number(event.target.value) })} /></Field></div></div>)}<div className="row"><button disabled={!!busy || script !== plan.text} onClick={() => void run('保存演绎方案', async () => { const saved = await speechApi.plan({ text: plan.text, segments: plan.segments }); setPlan(saved); setPlanDirty(false); setCompiled(null); await refresh() })}>保存演绎方案</button><button disabled={!!busy || !adoptable || planDirty || script !== plan.text} onClick={() => void run('检查合成请求', async () => setCompiled((await speechApi.compile(recipe.id, plan.id)).requests))}>检查引擎请求</button><button className="primary" disabled={!!busy || !adoptable || planDirty || script !== plan.text} onClick={() => void run('提交试音', () => generate())}>生成新候选</button></div><p className="muted">当前配方：{recipe.name || '未选择'}。云端生成会调用所选连接，可能计费；检查请求不会合成。</p>{compiled && <details open><summary>实际编译请求（不含密钥）</summary><pre>{json(compiled)}</pre></details>}</section>}
+      </>}
 
-      <style>{`
-        .voice-lab-page,
-        .voice-lab-content,
-        .voice-lab-work-panel,
-        .voice-lab-detail-grid,
-        .voice-lab-detail-field,
-        .voice-lab-form-grid,
-        .voice-lab-form-grid > * {
-          min-width: 0;
-        }
+      {tab === 2 && <><section className="panel"><div className="row spread"><h2>试音与对比</h2><label><input type="checkbox" checked={equalLoudness} onChange={event => setEqualLoudness(event.target.checked)} /> 校准试听音量</label></div><Field title="试音实验"><select value={experimentId} onChange={event => { setExperimentId(event.target.value); setComparison([]); const exp = library.experiments.find(item => item.id === event.target.value); const saved = library.plans.find(item => item.id === exp?.plan_id); if (saved) { setPlan(saved); setScript(saved.text); setPlanDirty(false) } }}><option value="">选择实验</option>{library.experiments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><div className="row"><span className="muted">配方：{recipe.name || '未选择'}{recipeDirty ? '（未保存）' : ''}</span><button disabled={!!busy || !adoptable || !plan || planDirty || script !== plan.text} onClick={() => void run('生成新候选', () => generate())}>再生成一组</button></div>
+          {tasks.map(task => <div className="item" key={task.task_id}><div className="row spread"><span>{task.task_id} · {task.state} · {Math.round(task.progress * 100)}%</span>{['pending', 'running'].includes(task.state) && <button onClick={() => void run('取消任务', async () => { const result = await tasksApi.cancel(task.task_id); setTasks(previous => previous.map(item => item.task_id === result.task_id ? result : item)) })}>取消后续生成</button>}</div>{task.message && <p className="muted">{task.message}</p>}{task.error && <p className="error">{json(task.error)}</p>}</div>)}
+        </section>
+        {!takes.length && <div className="panel empty">尚无已完成的候选。先保存配方和台词方案，再生成试音；失败或未完成的音频不能采用。</div>}
+        {plan?.segments.map((segment, index) => <section className="panel" key={segment.id}><div className="row spread"><h3>第 {index + 1} 句 · {segmentText(plan, segment.start, segment.end)}</h3><button disabled={!!busy || !adoptable || planDirty || script !== plan.text} onClick={() => void run('重生成单句', () => generate(segment.id))}>仅重生成此句</button></div><div className="grid">{takes.filter(take => take.segment_id === segment.id).map(take => <div className="item" key={take.id}><div className="row spread"><strong>{take.id}</strong><label><input type="checkbox" checked={comparison.includes(take.id)} disabled={!comparison.includes(take.id) && (comparison.length >= 2 || comparison.some(id => takes.find(item => item.id === id)?.segment_id !== take.segment_id))} onChange={event => setComparison(event.target.checked ? [...comparison, take.id] : comparison.filter(id => id !== take.id))} /> 对比</label></div><p className="muted">{take.audio?.duration?.toFixed(2) || '—'} 秒 · 生成耗时 {take.elapsed_seconds?.toFixed(1) || '—'} 秒</p><CandidateAudio url={speechApi.takeAudio(take.id)} equalLoudness={equalLoudness} /><div className="row"><button disabled={!!busy} onClick={() => void run('采用候选配方', () => adoptRecipe(take))}>采用此配方</button><button className="primary" disabled={!!busy} onClick={() => void run('采用片段音频', async () => { await speechApi.select({ experiment_id: experimentId, segment_id: take.segment_id, take_id: take.id }); await refresh(); setNotice('已采用该句音频，其余片段保留') })}>{library.selections.some(item => item.experiment_id === experimentId && item.segment_id === segment.id && item.take_id === take.id) ? '已采用音频' : '采用此句音频'}</button></div></div>)}</div></section>)}
+        {comparison.length === 2 && <section className="panel"><h2>候选配置差异</h2><div className="grid">{comparison.map(id => { const take = takes.find(item => item.id === id); const other = takes.find(item => item.id === comparison.find(otherId => otherId !== id)); if (!take || !other) return null; const keys = new Set([...Object.keys(take.compiled_request), ...Object.keys(other.compiled_request)]); const diff = Object.fromEntries([...keys].filter(key => json(take.compiled_request[key]) !== json(other.compiled_request[key])).map(key => [key, take.compiled_request[key]])); return <div key={id}><h3>{id}</h3><pre>{Object.keys(diff).length ? json(diff) : '有效配置相同；声音差异可能来自随机生成。'}</pre></div> })}</div></section>}
+      </>}
 
-        .voice-lab-action-error,
-        .voice-lab-detail-value,
-        .voice-lab-upload-zone,
-        .voice-lab-work-panel {
-          overflow-wrap: anywhere;
-          word-break: break-word;
-        }
-
-        .voice-lab-table-scroll {
-          max-width: 100%;
-          overflow-x: auto;
-        }
-
-        .voice-lab-table-scroll > table {
-          min-width: 620px;
-        }
-
-        @media (max-width: 1100px) {
-          .voice-lab-content {
-            grid-template-columns: minmax(0, 1fr) !important;
-            grid-template-rows: auto minmax(0, 1fr);
-            min-height: 0;
-          }
-
-          .voice-lab-list {
-            max-height: 260px;
-            overflow: hidden !important;
-            border-right: 0 !important;
-            border-bottom: 1px solid var(--border);
-          }
-
-          .voice-lab-groups {
-            display: flex;
-            flex: 1;
-            min-height: 0;
-            overflow: auto;
-          }
-
-          .voice-lab-groups > div {
-            flex: 0 0 240px;
-            border-right: 1px solid var(--border);
-          }
-        }
-
-        @media (max-width: 760px) {
-          .voice-lab-action-bar {
-            align-items: flex-start !important;
-            flex-wrap: wrap;
-            padding: 12px 16px !important;
-          }
-
-          .voice-lab-action-error {
-            flex: 1 0 100%;
-            order: 3;
-          }
-
-          .voice-lab-action-spacer {
-            display: none;
-          }
-
-          .voice-lab-action-bar > button {
-            margin-left: auto;
-          }
-
-          .voice-lab-list {
-            max-height: 220px;
-          }
-
-          .voice-lab-filter-bar {
-            overflow-x: auto;
-          }
-
-          .voice-lab-filter-bar > button {
-            flex: 0 0 auto;
-          }
-
-          .voice-lab-work-panel {
-            padding: 16px !important;
-          }
-
-          .voice-lab-panel-header {
-            align-items: flex-start !important;
-            flex-wrap: wrap;
-          }
-
-          .voice-lab-detail-grid,
-          .voice-lab-form-grid {
-            grid-template-columns: minmax(0, 1fr) !important;
-          }
-
-          .voice-lab-form-grid > *,
-          .voice-lab-detail-field {
-            grid-column: 1 !important;
-          }
-
-          .voice-lab-actions-row {
-            align-items: stretch !important;
-            flex-wrap: wrap;
-          }
-
-          .voice-lab-actions-row > button {
-            flex: 1 1 auto;
-            justify-content: center;
-          }
-
-          .voice-lab-preview-bar {
-            align-items: stretch !important;
-            flex-direction: column;
-          }
-
-          .voice-lab-preview-bar > button {
-            justify-content: center;
-            width: 100%;
-          }
-        }
-      `}</style>
-    </div>
-  )
+      {tab === 3 && <><section className="panel"><h2>将配方用于正式配音</h2><p>工作台接收当前配方的固定快照，按正式台词重新合成。</p><p className="muted">{recipe.name || '尚未选择配方'} · {recipe.provider_id || '—'} · {recipe.model || '—'} · 修订 {recipe.revision || '—'}</p><button className="primary" disabled={!!busy || !adoptable} onClick={() => void run('创建工作台草稿', async () => { const draft = await speechApi.workbenchDraft(recipe.id); useSpeechDraftStore.getState().setRecipe(draft.recipe); useNavStore.getState().setPage('workbench') })}>送入工作台草稿</button><p className="muted">不会自动提交任务，也不会将试音句音频拼入其他台词。</p></section>
+        <section className="panel"><h2>导出本实验采用的音频</h2><p className="muted">逐句采用满意候选后，创建新的组装版本。更换某句候选后需要重新组装。</p><Field title="实验"><select value={experimentId} onChange={event => setExperimentId(event.target.value)}><option value="">选择实验</option>{library.experiments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><button disabled={!!busy || !experimentId} onClick={() => void run('组装已选音频', async () => { await speechApi.assembly(experimentId); await refresh(); setNotice('新的音频组装版本已生成') })}>组装已采用片段</button>{library.assemblies.filter(item => item.experiment_id === experimentId).map(item => <div className="item" key={item.id}><h3>组装版本 {item.revision || item.id}</h3><audio controls src={speechApi.assemblyAudio(item.id)} /><a href={speechApi.assemblyAudio(item.id)} download>下载音频</a></div>)}</section>
+      </>}
+    </main>
+  </div>
 }

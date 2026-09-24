@@ -44,7 +44,7 @@ class StubExecutor(PipelineExecutor):
         results["steps"]["translate"] = {"output": str(output)}
         return ["translated"]
 
-    def _execute_tts(self, plan, segments, directory, results):
+    def _execute_tts(self, plan, segments, directory, results, *, cancel_check=None):
         self.calls.append("tts")
         assert segments[0]["translation"] == "translated"
         if plan.alignment.enabled:
@@ -232,8 +232,8 @@ def test_indirect_tts_resources_cannot_reuse_stale_audio(setup, tmp_path, provid
         prompt_wav_path=str(tmp_path / "prompt.wav"))
 
     class DependencyExecutor(StubExecutor):
-        def _execute_tts(self, *args):
-            path = super()._execute_tts(*args)
+        def _execute_tts(self, *args, **kwargs):
+            path = super()._execute_tts(*args, **kwargs)
             path.write_bytes(resource.read_bytes())
             return path
 

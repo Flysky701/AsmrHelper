@@ -1,0 +1,33 @@
+.speech-lab { height: 100%; overflow: auto; color: var(--fg); background: var(--bg); }
+.speech-lab header { padding: 24px 28px 0; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
+.speech-lab h1 { margin: 0; font-size: 25px; }
+.speech-lab h2 { margin: 0 0 16px; font-size: 18px; }
+.speech-lab h3 { margin: 0 0 10px; font-size: 15px; }
+.speech-lab p { line-height: 1.6; }
+.speech-lab .muted { color: var(--muted); font-size: 12px; }
+.speech-lab .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.speech-lab .spread { justify-content: space-between; }
+.speech-lab .tabs { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+.speech-lab .tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 12px 16px; background: transparent; }
+.speech-lab .tabs button[aria-selected=true] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 650; }
+.speech-lab main { padding: 24px 28px; max-width: 1400px; margin: auto; }
+.speech-lab .columns { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(0, 1.7fr); gap: 20px; align-items: start; }
+.speech-lab .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 18px; min-width: 0; }
+.speech-lab .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.speech-lab label.field { display: grid; align-content: start; gap: 6px; margin-bottom: 14px; font-size: 13px; }
+.speech-lab input:not([type=checkbox]):not([type=range]), .speech-lab select, .speech-lab textarea { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 9px 10px; }
+.speech-lab textarea { resize: vertical; line-height: 1.6; }
+.speech-lab button { font: inherit; font-size: 13px; padding: 8px 13px; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
+.speech-lab button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+.speech-lab button:disabled { opacity: .5; cursor: default; }
+.speech-lab .pill { background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 3px 7px; font-size: 11px; }
+.speech-lab .item { border: 1px solid var(--border); border-radius: 9px; padding: 14px; margin-top: 10px; overflow-wrap: anywhere; }
+.speech-lab .selected { border-color: var(--accent); background: var(--panel-muted); }
+.speech-lab .notice { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; background: var(--panel-muted); overflow-wrap: anywhere; font-size: 13px; }
+.speech-lab .error { color: var(--danger); }
+.speech-lab .empty { padding: 24px 12px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.speech-lab pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; padding: 12px; background: var(--panel-muted); border-radius: 8px; font-size: 12px; }
+.speech-lab audio { width: 100%; margin-top: 8px; }
+.speech-lab .segment { border-left: 3px solid var(--accent); padding: 14px 16px; margin-bottom: 12px; background: var(--panel-muted); border-radius: 0 8px 8px 0; }
+.speech-lab .waveform { width: 100%; height: 100px; background: var(--panel-muted); border-radius: 8px; display: block; }
+@media (max-width: 850px) { .speech-lab .columns { grid-template-columns: 1fr; } .speech-lab main { padding: 16px; } .speech-lab header { padding: 18px 16px 0; } .speech-lab .tabs { gap: 0; } .speech-lab .tabs button { padding: 10px 8px; } }

@@ -164,7 +164,8 @@ class PipelineExecutor:
                 current_step += 1
                 _report("tts", f"[{current_step}/{total_steps}] TTS 语音合成...")
                 tts_audio_path = _run("tts", lambda: self._execute_tts(
-                    plan, timestamped_segments, by_product_dir, results
+                    plan, timestamped_segments, by_product_dir, results,
+                    cancel_check=lambda: bool((cancel_event or self._cancel_event) and (cancel_event or self._cancel_event).is_set()),
                 ))
 
             # === MIX ===
@@ -380,9 +381,10 @@ class PipelineExecutor:
         timestamped_segments: list[dict[str, Any]],
         by_product_dir: Path,
         results: dict[str, Any],
+        cancel_check=lambda: False,
     ) -> Path:
         """Run TTS synthesis stage."""
-        from src.core.engines.tts import TtsEngineRuntime
+        from src.app.services.speech_service import get_speech_service
 
         tts_audio_path = by_product_dir / "tts_output.wav"
 
@@ -420,20 +422,15 @@ class PipelineExecutor:
             except Exception:
                 pass
 
-            runtime = self._tts or TtsEngineRuntime()
-            runtime.synthesize_segments(
-                segments=voice_segments,
-                output_dir=str(by_product_dir),
-                output_path=str(tts_audio_path),
-                profile={
-                    "provider": plan.tts.provider,
-                    "model": plan.tts.model,
-                    "common_options": plan.tts.common_options,
-                    "provider_options": plan.tts.provider_options,
-                },
-                reference_duration=reference_duration,
-                sample_rate=sample_rate,
+            snapshot = plan.tts.provider_options.get("speech_snapshot")
+            if not snapshot:
+                raise ValueError("缺少不可变配音配方快照，请从新工作台重新提交")
+            assembly = get_speech_service().synthesize_timeline(
+                snapshot, voice_segments, tts_audio_path, plan.task_id,
+                cancel_check=cancel_check, reference_duration=reference_duration,
             )
+            results["speech_experiment_id"] = assembly["experiment_id"]
+            results["speech_assembly_id"] = assembly["id"]
             results["steps"]["tts"] = {
                 "duration": time.time() - t1,
                 "segments": len(voice_segments),
@@ -443,6 +440,8 @@ class PipelineExecutor:
         except Exception as e:
             results["steps"]["tts"] = {"error": str(e), "recoverable": True}
             results["step_errors"]["tts"] = str(e)
+            if getattr(e, "task_error", None):
+                raise
         finally:
             self._try_clear_gpu()
 
@@ -491,6 +490,12 @@ class PipelineExecutor:
                 tts_path=str(tts_audio_path),
                 output_path=str(mix_path),
             )
+            if results.get("speech_experiment_id"):
+                from src.app.services.speech_service import get_speech_service
+                get_speech_service().record_formal_mix(results["speech_experiment_id"], str(input_path), {
+                    "original_volume": plan.mix.original_volume, "tts_volume_ratio": plan.mix.tts_volume_ratio,
+                    "tts_delay_ms": plan.mix.tts_delay_ms,
+                })
             results["steps"]["mixer"] = {
                 "duration": time.time() - t1, "output": str(mix_path)
             }

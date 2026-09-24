@@ -17,6 +17,7 @@ class PipelineRecovery:
     # would incorrectly attest to the model which produced an earlier output.
     # Unknown/new providers must opt in only after their dependencies are audited.
     _REUSABLE_TTS_PROVIDERS = frozenset({"edge", "openai_compatible"})
+    _REUSABLE_SPEECH_PROVIDERS = frozenset({"edge", "openai_compatible", "fish_audio", "mimo_audio", "qwen3", "voxcpm2"})
 
     def __init__(self, store, task_id, source_task_id, plan, connection_fingerprint=""):
         self.store = store
@@ -28,12 +29,83 @@ class PipelineRecovery:
         self._upstream = fingerprint({"version": 1, "input": file_identity(plan.input_path),
             "companion": file_identity(plan.companion_subtitle_path) if plan.companion_subtitle_path else None})
         self._models = {}
+        self._speech_audit = None
+
+    def _speech_identity(self):
+        """Attest only to the new immutable recipe, never to global TTS defaults."""
+        from src.core.speech.compiler import COMPILER_VERSION
+        from src.core.speech.providers import get_provider
+        snapshot = self.plan.tts.provider_options.get("speech_snapshot")
+        if not isinstance(snapshot, dict):
+            raise ValueError("语音恢复缺少固定配置快照，请建立新任务")
+        recipe, connection, assets = snapshot.get("recipe"), snapshot.get("connection"), snapshot.get("assets", {})
+        if not isinstance(recipe, dict) or not isinstance(connection, dict) or not isinstance(assets, dict):
+            raise ValueError("语音恢复快照不完整，请建立新任务")
+        if snapshot.get("compiler_version") != COMPILER_VERSION:
+            raise ValueError("语音编译器版本已改变，请建立新任务")
+        provider_id = recipe.get("provider_id")
+        if provider_id not in self._REUSABLE_SPEECH_PROVIDERS:
+            raise ValueError("该语音引擎尚未通过阶段恢复审计，请建立新任务")
+        provider = get_provider(provider_id)
+        if snapshot.get("provider_version", provider.version) != provider.version:
+            raise ValueError("语音引擎版本已改变，请建立新任务")
+        if connection.get("provider_id") != provider_id or connection.get("id") != recipe.get("connection_ref"):
+            raise ValueError("语音连接与固定配方不符，请建立新任务")
+        def check_public(value):
+            if isinstance(value, dict):
+                if any(key.lower() in {"api_key", "credential", "token", "password", "authorization"} for key in value):
+                    raise ValueError("语音恢复连接必须仅包含凭据引用")
+                for item in value.values():
+                    check_public(item)
+            elif isinstance(value, list):
+                for item in value:
+                    check_public(item)
+        check_public(connection)
+        provider.validate(recipe, assets)
+        reference_files = {}
+        if recipe["variant"]["kind"] == "reference":
+            aid = recipe["variant"]["value"]
+            asset = assets[aid]
+            try:
+                identity = file_identity(asset["path"])
+            except (OSError, KeyError, TypeError):
+                raise ValueError("语音参考素材缺失，不能恢复原任务，请建立新任务") from None
+            if identity["sha256"] != asset.get("sha256"):
+                raise ValueError("语音参考素材已改变，不能恢复原任务，请建立新任务")
+            reference_files[aid] = identity
+        model_identity = None
+        if not provider.remote:
+            from src.core.resources.model_reference import resolve_model_reference
+            reference = connection.get("model_path") or resolve_model_reference(recipe["model"])
+            directory = Path(reference)
+            if not directory.is_dir():
+                raise ValueError("语音模型目录缺失，不能恢复原任务，请建立新任务")
+            # Include weights, tokenizer, config and local model implementation.
+            # Files are hashed before inference, with no singleton model fallback.
+            files = [item for item in sorted(directory.rglob("*")) if item.is_file()]
+            if not (directory / "config.json").is_file() or not any(item.suffix in {".safetensors", ".bin", ".pth", ".pt"} for item in files):
+                raise ValueError("语音模型权重或配置缺失，不能恢复原任务，请建立新任务")
+            model_identity = {"path": str(directory.resolve()), "files": [file_identity(item) for item in files]}
+        return {"version": 1, "provider_id": provider_id, "provider_version": provider.version,
+            "compiler_version": COMPILER_VERSION, "recipe": fingerprint(recipe),
+            "connection": fingerprint(connection), "reference_files": reference_files,
+            "model": model_identity}
 
     def _fingerprint(self, stage):
         attribute = {"separate": "separation", "align": "alignment", "translate": "translation",
                      "export": "subtitle"}.get(stage, stage)
         binding = getattr(self.plan, attribute)
         model = getattr(binding, "model", "")
+        if stage == "tts" and self.plan.tts.provider == "speech":
+            self._speech_audit = self._speech_identity()
+            # A completed synthesis must never be regenerated implicitly when
+            # its producer's dependencies can no longer be attested to.
+            prior = self.store.checkpoint(self.source_task_id, "tts") if self.source_task_id else None
+            if prior and prior.get("payload", {}).get("speech_identity") != self._speech_audit:
+                raise ValueError("语音快照、引擎版本、素材或模型已改变；不能复用或自动重做已完成语音，请明确建立新任务")
+            return fingerprint({"version": 2, "stage": stage, "binding": asdict(binding),
+                "speech_identity": self._speech_audit, "upstream": self._upstream,
+                "language": [self.plan.source_lang, self.plan.target_lang]})
         if model and model not in self._models:
             from src.core.resources.model_reference import resolve_model_reference
             reference = resolve_model_reference(model)
@@ -52,9 +124,13 @@ class PipelineRecovery:
 
     def run(self, stage, operation, results, segments, translations, by_product_dir, mix_path):
         stage_fingerprint = self._fingerprint(stage)
-        reusable = stage != "tts" or self.plan.tts.provider in self._REUSABLE_TTS_PROVIDERS
+        reusable = (stage != "tts" or self.plan.tts.provider in self._REUSABLE_TTS_PROVIDERS
+                    or (self.plan.tts.provider == "speech" and self._speech_audit is not None))
         record = (self.store.validated(self.source_task_id, stage, stage_fingerprint)
                   if self._reuse and reusable else None)
+        if (stage == "tts" and self.plan.tts.provider == "speech" and self.source_task_id
+                and not record and self.store.checkpoint(self.source_task_id, stage)):
+            raise ValueError("已完成语音的检查点或上游结果已失效；请明确建立新任务，避免恢复时重复生成与计费")
         if record:
             payload = deepcopy(record["payload"])
             mapping = {}
@@ -93,6 +169,8 @@ class PipelineRecovery:
             value = operation()
             if results["step_errors"]:
                 raise RuntimeError(f"{stage} 阶段失败: {next(iter(results['step_errors'].values()))}")
+            if stage == "tts" and self._speech_audit is not None and self._speech_identity() != self._speech_audit:
+                raise ValueError("语音生成期间模型、素材或引擎版本发生变化，不能保存可恢复检查点，请建立新任务")
             if stage == "export" and segments and not value:
                 raise RuntimeError("字幕导出失败")
             changes = {key: deepcopy(item) for key, item in results.items()
@@ -111,6 +189,8 @@ class PipelineRecovery:
                 "segments": deepcopy(segments), "translations": deepcopy(translations),
                 "value": str(value) if isinstance(value, Path) else deepcopy(value),
                 "path_value": isinstance(value, Path)}
+            if stage == "tts" and self._speech_audit is not None:
+                payload["speech_identity"] = deepcopy(self._speech_audit)
             self.store.commit(self.task_id, stage, stage_fingerprint, payload, outputs)
         self._upstream = stage_fingerprint
         return value

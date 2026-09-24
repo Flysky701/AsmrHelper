@@ -416,10 +416,8 @@ class TestTtsRoutes:
         client.app.dependency_overrides[dependencies.tts_engine_service] = _mock_dep(mock_svc)
 
         resp = client.get("/api/v1/tts/engines")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["engines"][0]["provider"] == "edge"
-        assert data["engines"][0]["common_option_schema"][0]["name"] == "voice"
+        assert resp.status_code == 404
+        mock_svc.list_engines.assert_not_called()
 
     def test_list_tts_voices(self, client):
         mock_svc = MagicMock()
@@ -434,18 +432,8 @@ class TestTtsRoutes:
 
         resp = client.get("/api/v1/tts/engines/edge/voices")
 
-        assert resp.status_code == 200
-        assert resp.json() == {
-            "engine_id": "edge",
-            "voices": [
-                {
-                    "id": "zh-CN-XiaoxiaoNeural",
-                    "name": "晓晓（女）",
-                    "language": "zh-CN",
-                }
-            ],
-        }
-        mock_svc.list_voices.assert_called_once_with("edge")
+        assert resp.status_code == 404
+        mock_svc.list_voices.assert_not_called()
 
     def test_synthesize_success(self, client, tmp_path):
         mock_svc = MagicMock()
@@ -472,18 +460,8 @@ class TestTtsRoutes:
                 "provider_options": {"proxy": "http://127.0.0.1:7890"},
             },
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["engine"] == "edge"
-        assert data["output_path"] == "/test/output.wav"
-        mock_svc.synthesize_text.assert_called_once_with(
-            text="hello world",
-            output_path="/test/output.wav",
-            provider="edge",
-            model="default",
-            common_options={"voice": "zh-CN-XiaoxiaoNeural", "speed": 1.1},
-            provider_options={"proxy": "http://127.0.0.1:7890"},
-        )
+        assert resp.status_code == 404
+        mock_svc.synthesize_text.assert_not_called()
 
 
 # ─── Capabilities ─────────────────────────────────────────────────────
@@ -752,7 +730,7 @@ class TestVoiceTaskRoutes:
             ("/api/v1/voice/profiles/A1/preview", "submit_preview_voice", {"text": "hello", "speed": 1.0}, "voice.preview"),
         ],
     )
-    def test_voice_long_operations_return_task_snapshot(
+    def test_removed_voice_long_operations_do_not_submit_tasks(
         self, client, path, method_name, payload, task_type
     ):
         mock_svc = MagicMock()
@@ -769,9 +747,21 @@ class TestVoiceTaskRoutes:
 
         response = client.post(path, json=payload)
 
-        assert response.status_code == 201
-        assert response.json()["task_type"] == task_type
-        getattr(mock_svc, method_name).assert_called_once()
+        assert response.status_code == 404
+        getattr(mock_svc, method_name).assert_not_called()
+
+    @pytest.mark.parametrize(("method", "path"), [
+        ("GET", "/api/v1/voice/profiles"),
+        ("GET", "/api/v1/voice/profiles/A1"),
+        ("DELETE", "/api/v1/voice/profiles/A1"),
+        ("POST", "/api/v1/voice/analyze-segments"),
+    ])
+    def test_removed_voice_library_routes_are_not_compatibility_aliases(self, client, method, path):
+        service = MagicMock()
+        client.app.dependency_overrides[dependencies.voice_service] = _mock_dep(service)
+        response = client.request(method, path)
+        assert response.status_code == 404
+        assert service.mock_calls == []
 
 
 class TestSubtitleRoutes:

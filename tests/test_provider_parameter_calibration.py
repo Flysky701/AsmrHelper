@@ -390,7 +390,12 @@ async def test_edge_batch_synthesis_limits_websocket_concurrency(
     assert peak == engine.MAX_CONCURRENT_REQUESTS
 
 
-def test_readiness_rejects_invalid_edge_speed_before_runtime(tmp_path) -> None:
+def test_readiness_rejects_invalid_edge_speed_before_runtime(tmp_path, monkeypatch) -> None:
+    from test_app_services import _saved_speech_recipe
+    speech, recipe = _saved_speech_recipe(tmp_path, monkeypatch)
+    # Simulate a persisted invalid recipe; readiness must recompile rather than
+    # trusting an old validation result or falling back to legacy Edge options.
+    invalid = speech.store.update("recipes", recipe["id"], {"provider_options": {"schema_version": 1, "speed": 2.1}})
     model_service = SimpleNamespace(list_models=lambda: [])
     service = ResourceService(
         project_root=tmp_path,
@@ -406,13 +411,9 @@ def test_readiness_rejects_invalid_edge_speed_before_runtime(tmp_path) -> None:
             "stages": {
                 "tts": {
                     "enabled": True,
-                    "provider": "edge",
-                    "model": "default",
-                    "options": {
-                        "voice": "zh-CN-XiaoxiaoNeural",
-                        "speed": 2.1,
-                        "language": "zh",
-                    },
+                    "provider": "speech",
+                    "model": None,
+                    "options": {"speech_recipe_id": invalid["id"]},
                     "provider_options": {},
                 }
             }
@@ -420,8 +421,8 @@ def test_readiness_rejects_invalid_edge_speed_before_runtime(tmp_path) -> None:
     )
 
     assert result["ready"] is False
-    assert result["issues"][0]["code"] == "OPTION_INVALID"
-    assert "speed must be <= 2.0" in result["issues"][0]["message"]
+    assert result["issues"][0]["code"] == "SPEECH_RECIPE_NOT_READY"
+    assert "speed" in result["issues"][0]["message"]
 
 
 def test_generic_tts_provider_is_adapted_to_pipeline_segments(tmp_path) -> None:

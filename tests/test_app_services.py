@@ -16,6 +16,27 @@ from unittest.mock import MagicMock
 import pytest
 
 
+def _saved_speech_recipe(tmp_path, monkeypatch, *, provider="edge", model="edge-tts", options=None):
+    """A real isolated v2 library; only tasks/artifact transport are test doubles."""
+    from src.app.services.speech_service import SpeechService
+    from src.core.speech.store import SpeechStore
+    speech = SpeechService(store=SpeechStore(tmp_path / "speech-library"), tasks=MagicMock(),
+                           dispatcher=MagicMock(), artifacts=MagicMock())
+    connection = speech.save_connection({"name": "Test connection", "provider_id": provider,
+        "deployment": "cloud", "base_url": "https://speech.invalid/v1",
+        "api_key": "test-key"})
+    hosted = provider == "openai_compatible"
+    speech.store.create("voices", {"id": "test-voice", "name": "Test voice",
+        "bindings": [{"provider_id": provider, "variants": [{"kind": "hosted" if hosted else "builtin",
+            "value": "voice" if hosted else "zh-CN-XiaoxiaoNeural", "style": "normal"}]}], "default_binding": provider})
+    recipe = speech.save_recipe({"name": "Test recipe", "voice_id": "test-voice", "provider_id": provider,
+        "model": model, "mode": "hosted" if hosted else "builtin", "connection_ref": connection["id"],
+        "variant": {"kind": "hosted" if hosted else "builtin", "value": "voice" if hosted else "zh-CN-XiaoxiaoNeural", "style": "normal"},
+        "language": "zh", "provider_options": {"schema_version": 1, **(options or {})}})
+    monkeypatch.setattr("src.app.services.speech_service.get_speech_service", lambda: speech)
+    return speech, recipe
+
+
 class _FakeConfig:
     def __init__(self):
         self.data = {
@@ -981,8 +1002,11 @@ class TestResourceService:
         assert result["ready"] is True
         descriptors.get_descriptor.assert_not_called()
 
-    def test_pipeline_readiness_checks_provider_runtime_dependency(self, tmp_path):
+    def test_pipeline_readiness_checks_provider_runtime_dependency(self, tmp_path, monkeypatch):
         from src.app.services.resource_service import ResourceService
+        _speech, recipe = _saved_speech_recipe(tmp_path, monkeypatch)
+        from importlib.util import find_spec
+        monkeypatch.setattr("importlib.util.find_spec", lambda name: None if name == "edge_tts" else find_spec(name))
 
         descriptors = MagicMock()
         descriptors.get_descriptor.return_value = {
@@ -1008,16 +1032,25 @@ class TestResourceService:
                 "stages": {
                     "tts": {
                         "enabled": True,
-                        "provider": "edge",
+                        "provider": "speech",
                         "model": None,
+                        "options": {"speech_recipe_id": recipe["id"]},
                     }
                 }
             },
         )
 
         assert result["ready"] is False
-        assert result["issues"][0]["code"] == "PYTHON_DEPENDENCY_MISSING"
-        assert result["issues"][0]["requirement"] == "edge_tts"
+        assert result["issues"][0]["code"] == "SPEECH_RECIPE_NOT_READY"
+        assert result["issues"][0]["requirement"] == "speech_recipe"
+        assert result["issues"][0]["stage"] == "tts"
+        monkeypatch.setattr("importlib.util.find_spec", find_spec)
+        # The same saved recipe is usable once its provider dependency is present.
+        monkeypatch.setattr("importlib.util.find_spec", lambda name: object() if name == "edge_tts" else find_spec(name))
+        repaired = service.check_task_readiness(task_type="pipeline", execution_profile={"stages": {
+            "tts": {"enabled": True, "provider": "speech", "options": {"speech_recipe_id": recipe["id"]}}
+        }})
+        assert repaired["ready"] is True
 
     def test_pipeline_readiness_checks_ffmpeg_for_mix(self, tmp_path):
         from src.app.services.resource_service import ResourceService

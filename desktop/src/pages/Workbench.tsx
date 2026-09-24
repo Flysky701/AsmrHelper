@@ -10,15 +10,14 @@ import type { SettingsView } from '@/api/settings'
 import RemoteModelSelect from '@/components/RemoteModelSelect'
 import MixPreview from '@/components/MixPreview'
 import { resourcesApi } from '@/api/resources'
-import { ttsApi } from '@/api/tts'
-import { voiceApi } from '@/api/voice'
+import { speechApi } from '@/api/speech'
+import type { SpeechRecipe } from '@/api/speech'
+import { useSpeechDraftStore } from '@/stores/speechDraftStore'
 import type {
   CapabilityDescriptorResponse,
   CapabilityOptionResponse,
   PipelineRunRequest,
   TaskReadinessIssueResponse,
-  TtsVoiceItemResponse,
-  VoiceProfileSummaryResponse,
 } from '@/api/types'
 import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
@@ -52,11 +51,6 @@ const LANG_OPTIONS = [
   { value: 'ja', label: '日语 (ja)' },
   { value: 'zh', label: '中文 (zh)' },
   { value: 'en', label: '英语 (en)' },
-]
-
-const TTS_ENGINE_OPTIONS = [
-  { value: 'edge', label: 'Edge-TTS' },
-  { value: 'qwen3', label: 'Qwen3-TTS' },
 ]
 
 const TRANSLATE_PROVIDER_OPTIONS = [
@@ -910,7 +904,7 @@ export default function Workbench() {
   const [switchingConnection, setSwitchingConnection] = useState(false)
   const connectionSwitchRef = useRef(false)
 
-  const selectConnection = async (kind: 'llm' | 'tts', id: string) => {
+  const selectConnection = async (kind: 'llm', id: string) => {
     if (connectionSwitchRef.current || submitting) return
     connectionSwitchRef.current = true
     setSwitchingConnection(true)
@@ -921,9 +915,6 @@ export default function Workbench() {
         const provider = settings.providers.default_llm
         updateParam('translateProvider', provider)
         updateParam('translateModel', provider === 'openai' ? settings.providers.openai.model : settings.providers.deepseek.model)
-      } else {
-        updateParam('ttsVoice', settings.external_tts.voice || '')
-        updateParam('ttsSpeed', 1)
       }
       setCapabilities(await capabilitiesApi.list())
       setCapabilityError('')
@@ -934,9 +925,12 @@ export default function Workbench() {
       setSwitchingConnection(false)
     }
   }
-  const [ttsVoices, setTtsVoices] = useState<TtsVoiceItemResponse[]>([])
-  const [ttsVoiceError, setTtsVoiceError] = useState('')
-  const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfileSummaryResponse[]>([])
+  const { recipeId, recipe, setRecipe, clear: clearRecipe } = useSpeechDraftStore()
+  const [speechRecipes, setSpeechRecipes] = useState<SpeechRecipe[]>([])
+  const [speechRecipeError, setSpeechRecipeError] = useState('')
+  const [speechRecipesLoading, setSpeechRecipesLoading] = useState(false)
+  const [speechReload, setSpeechReload] = useState(0)
+  const selectedRecipe = speechRecipes.find(item => item.id === recipeId) ?? recipe
   const [readinessIssues, setReadinessIssues] = useState<TaskReadinessIssueResponse[]>([])
   const [checkingReadiness, setCheckingReadiness] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -1031,75 +1025,33 @@ export default function Workbench() {
   }, [])
 
   useEffect(() => {
-    if (!stageFlags.tts) {
-      setTtsVoices([])
-      setTtsVoiceError('')
-      return
-    }
+    if (!stageFlags.tts) return
     let cancelled = false
-    ttsApi
-      .listVoices(params.ttsEngine)
-      .then((response) => {
-        if (cancelled) return
-        setTtsVoices(response.voices)
-        setTtsVoiceError('')
-
-        const currentVoice = useWorkbenchStore.getState().params.ttsVoice
-        if (!response.voices.some((voice) => voice.id === currentVoice)) {
-          const descriptor = capabilities.find(
-            (item) => item.category === 'tts' && item.provider === params.ttsEngine,
-          )
-          const declaredDefault = descriptor?.common_option_schema
-            .find((option) => option.name === 'voice')?.default
-          const nextVoice = response.voices.find(
-            (voice) => voice.id === declaredDefault,
-          )?.id ?? response.voices[0]?.id
-          if (nextVoice) updateParam('ttsVoice', nextVoice)
-        }
-      })
-      .catch((error) => {
-        if (cancelled) return
-        setTtsVoices([])
-        setTtsVoiceError(`音色列表加载失败：${error instanceof Error ? error.message : String(error)}`)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [stageFlags.tts, params.ttsEngine, capabilities, updateParam])
-
-  useEffect(() => {
-    if (!stageFlags.tts) {
-      setVoiceProfiles([])
-      return
-    }
-    let cancelled = false
-    voiceApi
-      .listProfiles()
-      .then((profiles) => {
-        if (cancelled) return
-        setVoiceProfiles(profiles)
-        const availableProfileIds = new Set(
-          profiles
-            .filter((profile) => profile.available && profile.engine.startsWith('qwen3'))
-            .map((profile) => profile.id),
-        )
-        const currentProfileId = useWorkbenchStore.getState().params.voiceProfileId
-        if (currentProfileId && !availableProfileIds.has(currentProfileId)) {
-          updateParam('voiceProfileId', null)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setVoiceProfiles([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [stageFlags.tts, updateParam])
+    setSpeechRecipesLoading(true)
+    speechApi.library().then(library => {
+      if (cancelled) return
+      setSpeechRecipes(library.recipes)
+      const currentId = useSpeechDraftStore.getState().recipeId
+      if (currentId && !library.recipes.some(item => item.id === currentId)) {
+        clearRecipe()
+        setSpeechRecipeError('已选择的配方不存在，请重新选择')
+      } else {
+        setSpeechRecipeError('')
+      }
+    }).catch(error => {
+      if (cancelled) return
+      setSpeechRecipes([])
+      setSpeechRecipeError(`配方加载失败：${error instanceof Error ? error.message : String(error)}`)
+    }).finally(() => {
+      if (!cancelled) setSpeechRecipesLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [stageFlags.tts, speechReload, clearRecipe])
 
   useEffect(() => {
     setReadinessIssues([])
     setSubmissionError('')
-  }, [preset, params, capabilityOptions, selectedInputPaths])
+  }, [preset, params, capabilityOptions, selectedInputPaths, recipeId])
 
   const runningCount = tasks.filter((task) => task.status === 'running').length
   const pendingCount = tasks.filter((task) => task.status === 'pending').length
@@ -1286,6 +1238,11 @@ export default function Workbench() {
       submitLockRef.current
     ) return
 
+    if (stageFlags.tts && (!recipeId || !speechRecipes.some(item => item.id === recipeId))) {
+      setSubmissionError('请先在音色实验室保存配方，并在这里选择用于配音的修订')
+      return
+    }
+
     submitLockRef.current = true
     setSubmitting(true)
     setSubmissionError('')
@@ -1296,6 +1253,13 @@ export default function Workbench() {
         capabilities,
         capabilityOptions,
       })
+      executionProfile.stages.tts = {
+        enabled: stageFlags.tts,
+        provider: 'speech',
+        model: null,
+        options: stageFlags.tts ? { speech_recipe_id: recipeId } : {},
+        provider_options: {},
+      }
 
       setCheckingReadiness(true)
       setReadinessIssues([])
@@ -1378,18 +1342,16 @@ export default function Workbench() {
           source_lang: params.sourceLang,
           target_lang: params.targetLang,
           use_vocal_separator: stageFlags.separate,
-          tts_engine: params.ttsEngine,
-          tts_voice: params.ttsVoice,
+          speech_recipe_id: stageFlags.tts ? recipeId : null,
+          speech_recipe_name: stageFlags.tts ? selectedRecipe?.name : null,
           vocal_model: params.vocalModel,
           asr_model: params.asrModel,
           translate_provider: params.translateProvider,
           translate_model: params.translateModel,
-          tts_speed: params.ttsSpeed,
           original_volume: params.originalVolume,
           tts_volume_ratio: params.ttsVolumeRatio,
           tts_delay: params.ttsDelay,
           skip_existing: params.skipExisting,
-          voice_profile_id: params.voiceProfileId,
         },
       })
 
@@ -1448,35 +1410,11 @@ export default function Workbench() {
   const defaultModelFor = (category: string, provider: string) =>
     descriptorsFor(category).find((item) => item.provider === provider)?.default_model ?? ''
 
-  const ttsEngineOptions = providerOptions('tts', TTS_ENGINE_OPTIONS)
   const translateProviderOptions = providerOptions('llm', TRANSLATE_PROVIDER_OPTIONS)
-  const ttsSpeedOption = capabilities.find(item => item.category === 'tts' && item.provider === params.ttsEngine)
-    ?.common_option_schema.find(option => option.name === 'speed')
-  const ttsFixedSpeed = ttsSpeedOption?.min === 1 && ttsSpeedOption?.max === 1
   const asrProviderOptions = providerOptions('asr', [{ value: 'faster_whisper', label: 'faster-whisper' }])
   const asrModelOptions = modelsFor('asr', params.asrProvider, ASR_MODEL_OPTIONS)
   const vocalProviderOptions = providerOptions('separator', [{ value: 'demucs', label: 'Demucs' }])
   const vocalModelOptions = modelsFor('separator', params.vocalProvider, VOCAL_MODEL_OPTIONS)
-
-  const fallbackTtsVoiceOptions = params.ttsEngine === 'qwen3'
-    ? [
-        { value: 'Serena', label: 'Serena (预设)' },
-        { value: 'Vivian', label: 'Vivian (预设)' },
-        { value: 'Chelsie', label: 'Chelsie (预设)' },
-      ]
-    : [
-        { value: 'zh-CN-XiaoxiaoNeural', label: 'XiaoxiaoNeural' },
-        { value: 'zh-CN-YunxiNeural', label: 'YunxiNeural' },
-        { value: 'zh-CN-XiaoyiNeural', label: 'XiaoyiNeural' },
-        { value: 'ja-JP-NanamiNeural', label: 'NanamiNeural' },
-        { value: 'en-US-JennyNeural', label: 'JennyNeural' },
-      ]
-  const ttsVoiceOptions = ttsVoices.length > 0
-    ? ttsVoices.map((voice) => ({
-        value: voice.id,
-        label: `${voice.name}${voice.language ? ` · ${voice.language}` : ''}`,
-      }))
-    : fallbackTtsVoiceOptions
 
   const selectedDescriptors = [
     stageFlags.asr
@@ -1484,9 +1422,6 @@ export default function Workbench() {
       : undefined,
     stageFlags.translate
       ? capabilities.find((item) => item.category === 'llm' && item.provider === params.translateProvider)
-      : undefined,
-    stageFlags.tts
-      ? capabilities.find((item) => item.category === 'tts' && item.provider === params.ttsEngine)
       : undefined,
   ].filter((item): item is CapabilityDescriptorResponse => Boolean(item))
 
@@ -1504,10 +1439,6 @@ export default function Workbench() {
       })))
   })
 
-  const availableVoiceProfiles = voiceProfiles.filter(
-    (profile) => profile.available && profile.engine.startsWith('qwen3'),
-  )
-
   const stageDetails = {
     separate: activePresetStages.has('separate')
       ? (params.useVocalSeparator ? `模型：${params.vocalModel}` : '已由参数关闭')
@@ -1519,7 +1450,7 @@ export default function Workbench() {
           ? `${optionLabel(LANG_OPTIONS, params.sourceLang)} → ${optionLabel(LANG_OPTIONS, params.targetLang)}`
           : '源语言与目标语言相同，自动跳过')
       : '当前预设不执行',
-    tts: stageFlags.tts ? `${params.ttsEngine} · ${params.ttsVoice}` : '当前预设不执行',
+    tts: stageFlags.tts ? (selectedRecipe ? `${selectedRecipe.name} · 修订 ${selectedRecipe.revision} · ${selectedRecipe.provider_id}` : '请选择已保存的配音配方') : '当前预设不执行',
     mix: stageFlags.mix
       ? `原声 ${Math.round(params.originalVolume * 100)}% · 配音 ${Math.round(params.ttsVolumeRatio * 100)}%`
       : '当前预设不执行',
@@ -1531,7 +1462,7 @@ export default function Workbench() {
       ? `Whisper ${params.asrModel.slice('faster-whisper-'.length)}` : params.asrModel,
     align: 'Qwen 0.6B',
     translate: `${optionLabel(LANG_OPTIONS, params.sourceLang).replace(/\s*\([^)]*\)/g, '')} → ${optionLabel(LANG_OPTIONS, params.targetLang).replace(/\s*\([^)]*\)/g, '')}`,
-    tts: params.ttsVoice === 'zh-CN-XiaoxiaoNeural' ? '晓晓 · Edge' : optionLabel(ttsVoiceOptions, params.ttsVoice),
+    tts: selectedRecipe ? `${selectedRecipe.name} · r${selectedRecipe.revision}` : '待选择配方',
     mix: `原声 ${Math.round(params.originalVolume * 100)}% · 配音 ${Math.round(params.ttsVolumeRatio * 100)}%`,
     export: 'SRT + 文本',
   }
@@ -1569,7 +1500,7 @@ export default function Workbench() {
       ? [{ label: '目标语言', value: optionLabel(LANG_OPTIONS, params.targetLang) }]
       : []),
     ...(stageFlags.tts
-      ? [{ label: '语音合成', value: optionLabel(ttsEngineOptions, params.ttsEngine) }]
+      ? [{ label: '配音配方', value: selectedRecipe ? `${selectedRecipe.name} · 修订 ${selectedRecipe.revision}` : '尚未选择' }]
       : []),
     ...(stageFlags.translate
       ? [{ label: '翻译提供方', value: optionLabel(translateProviderOptions, params.translateProvider) }]
@@ -1943,19 +1874,6 @@ export default function Workbench() {
                 checked={params.alignSubtitles}
                 onChange={(value) => updateParam('alignSubtitles', value)}
               /> : null}
-              {stageFlags.tts && ttsFixedSpeed ? (
-                <div style={{ fontSize: 13, color: 'var(--muted)' }}>语速：在设置的语音指令中调整</div>
-              ) : stageFlags.tts ? (
-                <RangeField
-                  title="语速"
-                  value={params.ttsSpeed}
-                  min={0.6}
-                  max={1.6}
-                  step={0.05}
-                  displayValue={`${params.ttsSpeed.toFixed(2)}x`}
-                  onChange={(value) => updateParam('ttsSpeed', value)}
-                />
-              ) : null}
               {stageFlags.mix ? (
                 <>
                   <RangeField
@@ -1995,50 +1913,30 @@ export default function Workbench() {
           <Section title="模型与引擎" open={modelExpanded} onToggle={toggleModel}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
               {stageFlags.tts ? (
-                <>
+                <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 10 }}>
                   <SelectField
-                    title="TTS 引擎"
-                    value={params.ttsEngine}
-                    options={ttsEngineOptions}
-                    onChange={(value) => {
-                      updateParam('ttsEngine', value)
-                      if (value === 'openai_compatible') {
-                        updateParam('ttsSpeed', 1.0)
-                        const voice = capabilities.find(item => item.category === 'tts' && item.provider === value)
-                          ?.common_option_schema.find(option => option.name === 'voice')?.default
-                        updateParam('ttsVoice', typeof voice === 'string' ? voice : '')
-                      }
-                      updateParam('voiceProfileId', null)
+                    title="配音配方"
+                    hint={speechRecipeError || '选择已保存的修订；任务提交后固定该配方，不受后续编辑影响'}
+                    value={recipeId ?? ''}
+                    disabled={submitting || speechRecipesLoading}
+                    options={[
+                      { value: '', label: speechRecipesLoading ? '正在加载配方…' : '请选择配音配方' },
+                      ...speechRecipes.map(item => ({ value: item.id, label: `${item.name} · 修订 ${item.revision} · ${item.provider_id}` })),
+                    ]}
+                    onChange={value => {
+                      const next = speechRecipes.find(item => item.id === value)
+                      if (next) setRecipe(next)
+                      else clearRecipe()
                     }}
                   />
-                  {params.ttsEngine === 'openai_compatible' ? (
-                    <SelectField title="语音连接配置" hint="在引擎与资源的外部服务中管理" disabled={submitting || switchingConnection}
-                      value={connections?.active_tts || ''}
-                      options={connections?.tts.map(item => ({ value: item.id, label: item.name })) || []}
-                      onChange={value => void selectConnection('tts', value)} />
-                  ) : <SelectField
-                    title="TTS 声线"
-                    hint={ttsVoiceError || '由当前语音合成引擎提供'}
-                    value={params.ttsVoice}
-                    options={ttsVoiceOptions}
-                    onChange={(value) => updateParam('ttsVoice', value)}
-                  />}
-                  {params.ttsEngine === 'qwen3' ? (
-                    <SelectField
-                      title="音色档案"
-                      hint={availableVoiceProfiles.length > 0 ? '仅显示当前可用的 Qwen3 音色档案' : '当前没有可用的 Qwen3 音色档案'}
-                      value={params.voiceProfileId ?? ''}
-                      options={[
-                        { value: '', label: '不使用音色档案' },
-                        ...availableVoiceProfiles.map((profile) => ({
-                          value: profile.id,
-                          label: `${profile.name} · ${profile.category}`,
-                        })),
-                      ]}
-                      onChange={(value) => updateParam('voiceProfileId', value || null)}
-                    />
-                  ) : null}
-                </>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <ActionButton variant="ghost" disabled={submitting} onClick={() => setPage('voice-lab')}>管理声音与配方</ActionButton>
+                    <ActionButton variant="ghost" disabled={submitting || speechRecipesLoading} onClick={() => setSpeechReload(value => value + 1)}>刷新配方</ActionButton>
+                  </div>
+                  {selectedRecipe ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                    {selectedRecipe.model} · {selectedRecipe.variant.style} · {selectedRecipe.language}
+                  </div> : null}
+                </div>
               ) : null}
               {stageFlags.asr ? (
                 <>
