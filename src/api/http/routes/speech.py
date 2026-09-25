@@ -1,11 +1,17 @@
 """The VoiceLab v2 API; no legacy voice-profile projection."""
-from fastapi import APIRouter, Depends, HTTPException
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 from src.app.services.speech_service import get_speech_service
 from src.core.speech.providers import list_providers, get_provider
 from src.api.http.schemas.tasks import TaskStatusResponse
 
 router = APIRouter(prefix="/speech", tags=["speech"])
+MAX_REFERENCE_UPLOAD = 100 * 1024 * 1024
+REFERENCE_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma"}
 
 
 def call(fn, *args, **kwargs):
@@ -60,6 +66,28 @@ def recipe(body: dict, svc=Depends(get_speech_service)):
     return call(svc.save_recipe, body)
 
 
+@router.post("/rules")
+def save_rule(body: dict, svc=Depends(get_speech_service)):
+    return call(svc.save_rule, body)
+
+
+@router.get("/rules")
+def rules(include_archived: bool = False, svc=Depends(get_speech_service)):
+    return {"recipes": call(svc.active_recipes, include_archived=include_archived)}
+
+
+@router.delete("/rules/{id}")
+def archive_rule(id: str, svc=Depends(get_speech_service)):
+    return call(svc.archive_rule, id)
+
+
+@router.patch("/rules/{id}")
+def rule_archive_status(id: str, body: dict, svc=Depends(get_speech_service)):
+    if set(body) != {"archived"} or type(body["archived"]) is not bool:
+        raise HTTPException(422, "请提供 archived 布尔值")
+    return call(svc.archive_rule, id, archived=body["archived"])
+
+
 @router.post("/plans")
 def plan(body: dict, svc=Depends(get_speech_service)):
     return call(svc.create_plan, body)
@@ -80,6 +108,38 @@ def inspect_reference(body: dict, svc=Depends(get_speech_service)):
     return call(svc.store.inspect_reference, required(body, "path"))
 
 
+@router.post("/references/upload")
+async def upload_reference(request: Request, filename: str, svc=Depends(get_speech_service)):
+    """Stream a browser-selected file into the same inspection flow as native paths."""
+    suffix = Path(filename).suffix.lower()
+    if suffix not in REFERENCE_EXTENSIONS:
+        raise HTTPException(422, "请选择支持的音频文件")
+    length = request.headers.get("content-length")
+    if length is not None:
+        try:
+            size = int(length)
+        except ValueError as exc:
+            raise HTTPException(400, "无效的文件长度") from exc
+        if size > MAX_REFERENCE_UPLOAD:
+            raise HTTPException(413, "参考音频不能超过 100 MB，请先裁剪")
+    directory = svc.store.root / "_uploads"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / (uuid4().hex + suffix)
+    received = 0
+    try:
+        with path.open("xb") as stream:
+            async for chunk in request.stream():
+                received += len(chunk)
+                if received > MAX_REFERENCE_UPLOAD:
+                    raise HTTPException(413, "参考音频不能超过 100 MB，请先裁剪")
+                stream.write(chunk)
+        if not received:
+            raise HTTPException(422, "音频文件为空")
+        return await run_in_threadpool(call, svc.store.inspect_reference, path)
+    finally:
+        path.unlink(missing_ok=True)
+
+
 @router.post("/references/analyze")
 def analyze_reference(body: dict, svc=Depends(get_speech_service)):
     return call(svc.analyze_reference, body)
@@ -87,8 +147,45 @@ def analyze_reference(body: dict, svc=Depends(get_speech_service)):
 
 @router.post("/references")
 def reference(body: dict, svc=Depends(get_speech_service)):
+    return _process_reference(body, svc)
+
+
+def _process_reference(body, svc, preview=False):
     return call(svc.store.import_reference, required(body, "path"), body.get("start", 0), body.get("end"),
-        body.get("transcript", ""), body.get("language", "auto"), confirmed=body.get("confirmed", False))
+        body.get("transcript", ""), body.get("language", "auto"), confirmed=body.get("confirmed", False),
+        name=body.get("name", ""), notes=body.get("notes", ""), gain_db=body.get("gain_db", 0),
+        fade_in=body.get("fade_in", 0), fade_out=body.get("fade_out", 0), preview=preview)
+
+
+@router.post("/references/preview")
+def preview_reference(body: dict, svc=Depends(get_speech_service)):
+    return _process_reference(body, svc, preview=True)
+
+
+@router.get("/references")
+def references(query: str = "", include_archived: bool = False, svc=Depends(get_speech_service)):
+    return {"assets": [a for a in svc.store.list("assets") if (include_archived or not a.get("archived"))
+        and query.casefold() in (a.get("name", "") + " " + a.get("notes", "")).casefold()]}
+
+
+@router.patch("/references/{id}")
+def reference_metadata(id: str, body: dict, svc=Depends(get_speech_service)):
+    return call(svc.store.reference_metadata, id, body)
+
+
+@router.delete("/references/{id}")
+def archive_reference(id: str, svc=Depends(get_speech_service)):
+    # Archive only: recipes, frozen task snapshots and audio paths remain valid.
+    return call(svc.store.reference_metadata, id, {"archived": True})
+
+
+@router.post("/references/subtitles")
+def reference_subtitles(body: dict):
+    from src.core.subtitles.parser import SubtitleParser
+    if body.get("format", "srt") not in {"srt", "vtt"}:
+        raise HTTPException(422, "仅支持 SRT 或 VTT")
+    doc = call(SubtitleParser().parse_text, required(body, "text"), body.get("format", "srt"))
+    return {"segments": [{"start": s.start, "end": s.end, "text": s.text} for s in doc.segments]}
 
 
 def reference_record(svc, asset_id):
@@ -104,10 +201,11 @@ def waveform(asset_id: str, svc=Depends(get_speech_service)):
 
 
 @router.get("/references/{asset_id}/audio")
-def reference_audio(asset_id: str, source: bool = False, svc=Depends(get_speech_service)):
+def reference_audio(asset_id: str, source: bool = False, download: bool = False, svc=Depends(get_speech_service)):
     asset = call(reference_record, svc, asset_id)
     path = (asset.get("source_playback_path") or asset.get("source_path")) if source else asset.get("path")
-    return FileResponse(path or asset["path"])
+    audio_path = Path(path or asset["path"])
+    return FileResponse(audio_path, filename=audio_path.name if download else None)
 
 
 @router.post("/experiments")

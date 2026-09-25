@@ -49,7 +49,7 @@ def create_app() -> FastAPI:
             "http://localhost:5173",
         ],
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type"],
     )
 

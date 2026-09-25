@@ -21,6 +21,9 @@
 .speech-lab button.primary { background: var(--accent); border-color: var(--accent); color: white; }
 .speech-lab button:disabled { opacity: .5; cursor: default; }
 .speech-lab .pill { background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 3px 7px; font-size: 11px; }
+.speech-lab .lab-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.speech-lab .subtitle-segments { max-height: 220px; overflow: auto; display: grid; gap: 6px; margin-top: 12px; }
+.speech-lab .waveform { cursor: crosshair; }
 .speech-lab .item { border: 1px solid var(--border); border-radius: 9px; padding: 14px; margin-top: 10px; overflow-wrap: anywhere; }
 .speech-lab .selected { border-color: var(--accent); background: var(--panel-muted); }
 .speech-lab .notice { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; background: var(--panel-muted); overflow-wrap: anywhere; font-size: 13px; }

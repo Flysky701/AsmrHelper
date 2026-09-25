@@ -1028,20 +1028,20 @@ export default function Workbench() {
     if (!stageFlags.tts) return
     let cancelled = false
     setSpeechRecipesLoading(true)
-    speechApi.library().then(library => {
+    speechApi.rules().then(library => {
       if (cancelled) return
       setSpeechRecipes(library.recipes)
       const currentId = useSpeechDraftStore.getState().recipeId
       if (currentId && !library.recipes.some(item => item.id === currentId)) {
         clearRecipe()
-        setSpeechRecipeError('已选择的配方不存在，请重新选择')
+        setSpeechRecipeError('所选音色已更新或归档，请重新选择')
       } else {
         setSpeechRecipeError('')
       }
     }).catch(error => {
       if (cancelled) return
       setSpeechRecipes([])
-      setSpeechRecipeError(`配方加载失败：${error instanceof Error ? error.message : String(error)}`)
+      setSpeechRecipeError(`音色加载失败：${error instanceof Error ? error.message : String(error)}`)
     }).finally(() => {
       if (!cancelled) setSpeechRecipesLoading(false)
     })
@@ -1239,7 +1239,7 @@ export default function Workbench() {
     ) return
 
     if (stageFlags.tts && (!recipeId || !speechRecipes.some(item => item.id === recipeId))) {
-      setSubmissionError('请先在音色实验室保存配方，并在这里选择用于配音的修订')
+      setSubmissionError('请先保存音色生成规则，并在这里选择用于配音的音色')
       return
     }
 
@@ -1450,7 +1450,7 @@ export default function Workbench() {
           ? `${optionLabel(LANG_OPTIONS, params.sourceLang)} → ${optionLabel(LANG_OPTIONS, params.targetLang)}`
           : '源语言与目标语言相同，自动跳过')
       : '当前预设不执行',
-    tts: stageFlags.tts ? (selectedRecipe ? `${selectedRecipe.name} · 修订 ${selectedRecipe.revision} · ${selectedRecipe.provider_id}` : '请选择已保存的配音配方') : '当前预设不执行',
+    tts: stageFlags.tts ? (selectedRecipe ? `${selectedRecipe.name} · 修订 ${selectedRecipe.revision} · ${selectedRecipe.provider_id}` : '请选择已保存的配音音色') : '当前预设不执行',
     mix: stageFlags.mix
       ? `原声 ${Math.round(params.originalVolume * 100)}% · 配音 ${Math.round(params.ttsVolumeRatio * 100)}%`
       : '当前预设不执行',
@@ -1462,7 +1462,7 @@ export default function Workbench() {
       ? `Whisper ${params.asrModel.slice('faster-whisper-'.length)}` : params.asrModel,
     align: 'Qwen 0.6B',
     translate: `${optionLabel(LANG_OPTIONS, params.sourceLang).replace(/\s*\([^)]*\)/g, '')} → ${optionLabel(LANG_OPTIONS, params.targetLang).replace(/\s*\([^)]*\)/g, '')}`,
-    tts: selectedRecipe ? `${selectedRecipe.name} · r${selectedRecipe.revision}` : '待选择配方',
+    tts: selectedRecipe ? `${selectedRecipe.name} · r${selectedRecipe.revision}` : '待选择音色',
     mix: `原声 ${Math.round(params.originalVolume * 100)}% · 配音 ${Math.round(params.ttsVolumeRatio * 100)}%`,
     export: 'SRT + 文本',
   }
@@ -1500,7 +1500,7 @@ export default function Workbench() {
       ? [{ label: '目标语言', value: optionLabel(LANG_OPTIONS, params.targetLang) }]
       : []),
     ...(stageFlags.tts
-      ? [{ label: '配音配方', value: selectedRecipe ? `${selectedRecipe.name} · 修订 ${selectedRecipe.revision}` : '尚未选择' }]
+      ? [{ label: '配音音色', value: selectedRecipe ? `${selectedRecipe.name} · 修订 ${selectedRecipe.revision}` : '尚未选择' }]
       : []),
     ...(stageFlags.translate
       ? [{ label: '翻译提供方', value: optionLabel(translateProviderOptions, params.translateProvider) }]
@@ -1915,12 +1915,12 @@ export default function Workbench() {
               {stageFlags.tts ? (
                 <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 10 }}>
                   <SelectField
-                    title="配音配方"
-                    hint={speechRecipeError || '选择已保存的修订；任务提交后固定该配方，不受后续编辑影响'}
+                    title="配音音色"
+                    hint={speechRecipeError || '选择保存的音色生成规则；提交后固定配置，不受后续编辑影响'}
                     value={recipeId ?? ''}
                     disabled={submitting || speechRecipesLoading}
                     options={[
-                      { value: '', label: speechRecipesLoading ? '正在加载配方…' : '请选择配音配方' },
+                      { value: '', label: speechRecipesLoading ? '正在加载音色…' : '请选择配音音色' },
                       ...speechRecipes.map(item => ({ value: item.id, label: `${item.name} · 修订 ${item.revision} · ${item.provider_id}` })),
                     ]}
                     onChange={value => {
@@ -1930,11 +1930,11 @@ export default function Workbench() {
                     }}
                   />
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    <ActionButton variant="ghost" disabled={submitting} onClick={() => setPage('voice-lab')}>管理声音与配方</ActionButton>
-                    <ActionButton variant="ghost" disabled={submitting || speechRecipesLoading} onClick={() => setSpeechReload(value => value + 1)}>刷新配方</ActionButton>
+                    <ActionButton variant="ghost" disabled={submitting} onClick={() => setPage('voice-lab')}>管理声音与音色</ActionButton>
+                    <ActionButton variant="ghost" disabled={submitting || speechRecipesLoading} onClick={() => setSpeechReload(value => value + 1)}>刷新音色</ActionButton>
                   </div>
                   {selectedRecipe ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                    {selectedRecipe.model} · {selectedRecipe.variant.style} · {selectedRecipe.language}
+                    {selectedRecipe.model} · {selectedRecipe.variant.kind === 'reference' ? '参考克隆' : selectedRecipe.variant.kind === 'design' ? '描述创建' : '已保存音色'} · {selectedRecipe.language}
                   </div> : null}
                 </div>
               ) : null}

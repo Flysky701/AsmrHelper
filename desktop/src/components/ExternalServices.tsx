@@ -243,10 +243,10 @@ export default function ExternalServices() {
       <div className="external-service-heading">
         <span className="external-service-tag">TTS</span>
         <h2>外部语音合成</h2>
-        <button className="external-service-button" onClick={() => useNavStore.getState().setPage('voice-lab')}>管理声音与配方</button>
+        <button className="external-service-button" onClick={() => useNavStore.getState().setPage('voice-lab')}>管理声音与音色</button>
       </div>
       <div className="external-service-body">
-        <p className="external-service-muted">语音连接、声音来源和配方统一在音色实验室管理，正式配音使用已保存的配方。</p>
+        <p className="external-service-muted">在「声音与音色」中管理参考录音和音色生成规则，工作台调用已保存的音色。</p>
         {speechLoading ? <p className="external-service-muted">加载语音连接中…</p> : speechError ? <div role="alert"><p className="external-service-muted">{speechError}</p><button className="external-service-button" onClick={() => void loadSpeech()}>重新加载</button></div> : <>
           {speechConnections.filter(connection => speechProviders.some(provider => provider.provider_id === connection.provider_id && provider.connection_required)).map(connection => <div className="external-service-card" key={connection.id}>
             <div className="external-service-card-heading"><h3>{connection.name}</h3></div>

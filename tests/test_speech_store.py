@@ -24,6 +24,86 @@ def _recipe():
             "provider_options": {"schema_version": 1}}
 
 
+def test_reference_preview_save_match_without_transcript_and_preserve_source(tmp_path):
+    original = tmp_path / "source.wav"
+    sf.write(original, np.full(1000, .2, dtype=np.float32), 1000, subtype="FLOAT")
+    original_hash = hashlib.sha256(original.read_bytes()).hexdigest()
+    store = SpeechStore(tmp_path / "library")
+    options = dict(name="素材", notes="未转录", gain_db=6, fade_in=.1, fade_out=.1)
+    preview = store.import_reference(original, .1, .9, "", "ja", False, preview=True, **options)
+    assert store.list("assets") == []
+    assert store.get_inspection(preview["id"])["staged"]
+    saved = store.import_reference(original, .1, .9, "", "ja", False, **options)
+    assert saved["sha256"] == preview["sha256"]
+    assert saved["confirmed"] is False
+    samples, _ = sf.read(saved["path"])
+    assert samples[0] == samples[-1] == 0
+    assert samples[200] == pytest.approx(.2 * 10**(.3), rel=1e-6)
+    assert hashlib.sha256(original.read_bytes()).hexdigest() == original_hash
+    store.create("recipes", {**_recipe(), "variant": {"kind": "reference", "value": saved["id"], "style": "normal"}})
+    changed = store.reference_metadata(saved["id"], {"name": "已归档", "archived": True})
+    assert changed["id"] == saved["id"] and changed["sha256"] == saved["sha256"]
+    assert store.reference_audio_path(saved["id"]).is_file()
+    with pytest.raises(ValueError):
+        store.reference_metadata(saved["id"], {"path": "other.wav"})
+    crop = store.import_reference(saved["path"], .1, .4, "", "ja", False)
+    assert crop["parent_asset_id"] == saved["id"]
+    inspected = store.inspect_reference(saved["path"])
+    staged_crop = store.import_reference(inspected["path"], .1, .4, "", "ja", False)
+    assert staged_crop["parent_asset_id"] == saved["id"]
+    assert staged_crop["source_processing"]["parent_asset_id"] == saved["id"]
+
+
+def test_processing_rejects_clipping_and_invalid_fades(tmp_path):
+    original = tmp_path / "source.wav"
+    sf.write(original, np.full(1000, .9), 1000, subtype="FLOAT")
+    store = SpeechStore(tmp_path / "library")
+    with pytest.raises(ValueError, match="削波"):
+        store.import_reference(original, 0, 1, "", "ja", False, gain_db=12)
+    with pytest.raises(ValueError, match="Fade"):
+        store.import_reference(original, 0, 1, "", "ja", False, fade_in=2)
+    assert not store.list("assets")
+
+
+def test_atomic_rule_creation_revision_archive_preserves_history(tmp_path):
+    store = SpeechStore(tmp_path)
+    invalid = {**_recipe(), "model": ""}
+    with pytest.raises(ValueError):
+        store.create_rule(_voice(), invalid)
+    assert store.list("voices") == []
+    first = store.create_rule(_voice(), _recipe())
+    second = store.create_rule(None, {**first, "previous_id": first["id"], "name": "Revised"})
+    with pytest.raises(ValueError, match="reload"):
+        store.create_rule(None, {**first, "previous_id": first["id"], "name": "Stale edit"})
+    assert len(store.list("recipes")) == 2
+    assert store.active_recipes() == [second]
+    store.archive_recipe(second["id"])
+    assert store.active_recipes() == []
+    assert store.active_recipes(include_archived=True) == [{**second, "archived": True}]
+    store.archive_recipe(first["id"], archived=False)
+    assert store.active_recipes() == [second]
+    assert store.active_recipes(include_archived=True) == [{**second, "archived": False}]
+    assert store.get("recipes", first["id"]) == first
+    assert store.get("recipes", second["id"]) == second
+
+
+def test_rule_rechecks_reference_archive_inside_atomic_save(tmp_path):
+    store = SpeechStore(tmp_path / "library")
+    original = _audio(tmp_path)
+    asset = store.import_reference(original, 0, .5, "hello", "en")
+    prepared = {**_recipe(), "variant": {"kind": "reference", "value": asset["id"], "style": "normal"}}
+    # Simulate archival after service validation but before atomic rule saving.
+    store.reference_metadata(asset["id"], {"archived": True})
+    with pytest.raises(ValueError, match="archived"):
+        store.create_rule(_voice(), prepared)
+    assert store.list("voices") == []
+    assert store.list("recipes") == []
+    prepared["variant"]["value"] = "missing"
+    with pytest.raises(ValueError, match="missing"):
+        store.create_rule(_voice(), prepared)
+    assert store.list("voices") == []
+
+
 def test_store_survives_restart_and_records_are_detached(tmp_path):
     store = SpeechStore(tmp_path)
     voice = store.create("voices", _voice())
@@ -131,7 +211,7 @@ def test_reference_inspection_crop_and_original_are_persistent(tmp_path):
 
 
 @pytest.mark.parametrize("start,end,transcript,confirmed", [
-    (0, 1, "", True), (0, 1, "hello", False), (-1, 1, "hello", True),
+    (-1, 1, "hello", True),
     (0, 2, "hello", True), (float("nan"), 1, "hello", True),
 ])
 def test_invalid_reference_never_adopted_or_source_removed(tmp_path, start, end, transcript, confirmed):

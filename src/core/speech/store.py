@@ -23,7 +23,7 @@ from typing import Any
 from uuid import uuid4
 
 
-COLLECTIONS = frozenset({"voices", "recipes", "experiments", "takes", "selections", "assemblies", "assets", "plans", "connections", "imports"})
+COLLECTIONS = frozenset({"voices", "recipes", "experiments", "takes", "selections", "assemblies", "assets", "plans", "connections", "imports", "rule_states"})
 IMMUTABLE = frozenset({"recipes", "takes", "plans", "assets", "assemblies"})
 _LOCKS: dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -305,32 +305,112 @@ class SpeechStore:
     def build_plan(self, text: str) -> dict:
         return self.create("plans", build_plan(text))
 
+    def create_rule(self, voice_data: dict | None, recipe_data: dict) -> dict:
+        with self._locked():
+            state = self._read()
+            records = state["collections"]
+            recipe = deepcopy(recipe_data)
+            variant = recipe.get("variant") or {}
+            if variant.get("kind") == "reference":
+                asset = records["assets"].get(variant.get("value"))
+                if asset is None or asset.get("archived"):
+                    raise ValueError("Reference asset is missing or archived; reload before saving")
+            if voice_data is not None:
+                voice = {**deepcopy(voice_data), "id": str(uuid4()), "revision": 1, "created_at": _now(), "updated_at": _now()}
+                self._validate("voices", voice)
+                records["voices"][voice["id"]] = voice
+                recipe["voice_id"] = voice["id"]
+            elif recipe.get("voice_id") not in records["voices"]:
+                raise ValueError("Unknown rule voice")
+            previous = records["recipes"].get(recipe.get("previous_id"))
+            if recipe.get("previous_id") and previous is None:
+                raise ValueError("Unknown previous recipe")
+            if previous and any(item.get("previous_id") == previous["id"] for item in records["recipes"].values()):
+                raise ValueError("Rule revision changed; reload before saving")
+            if previous and previous["voice_id"] != recipe["voice_id"]:
+                raise ValueError("Recipe revision must retain its voice")
+            recipe.update(id=str(uuid4()), revision=previous["revision"] + 1 if previous else 1, created_at=_now(), updated_at=_now())
+            self._validate("recipes", recipe)
+            records["recipes"][recipe["id"]] = recipe
+            self._write(state)
+            return deepcopy(recipe)
+
+    @staticmethod
+    def _recipe_root(records: dict, id: str) -> str:
+        seen = set()
+        while records[id].get("previous_id"):
+            if id in seen:
+                raise ValueError("Cyclic recipe revisions")
+            seen.add(id)
+            id = records[id]["previous_id"]
+        return id
+
+    def active_recipes(self, include_archived: bool = False) -> list[dict]:
+        with self._locked():
+            records = self._read()["collections"]
+            latest = {}
+            for recipe in records["recipes"].values():
+                root = self._recipe_root(records["recipes"], recipe["id"])
+                if not include_archived and records["rule_states"].get(root, {}).get("archived"):
+                    continue
+                if root not in latest or recipe["revision"] > latest[root]["revision"]:
+                    latest[root] = recipe
+            result = deepcopy(list(latest.values()))
+            if include_archived:
+                for recipe in result:
+                    root = self._recipe_root(records["recipes"], recipe["id"])
+                    recipe["archived"] = bool(records["rule_states"].get(root, {}).get("archived"))
+            return result
+
+    def archive_recipe(self, id: str, archived: bool = True) -> dict:
+        if type(archived) is not bool:
+            raise ValueError("Archive status must be a boolean")
+        with self._locked():
+            state = self._read()
+            root = self._recipe_root(state["collections"]["recipes"], id)
+            record = {"id": root, "archived": archived, "updated_at": _now()}
+            state["collections"]["rule_states"][root] = record
+            self._write(state)
+            return deepcopy(record)
+
     def validate_plan(self, text: str, proposed: dict) -> dict:
         return self.create("plans", validate_plan(text, proposed))
 
-    def import_reference(self, path: str | Path, start: float, end: float, transcript: str, language: str, confirmed: bool = True) -> dict:
+    def import_reference(self, path: str | Path, start: float, end: float | None, transcript: str, language: str, confirmed: bool = True,
+                         *, name: str = "", notes: str = "", gain_db: float = 0, fade_in: float = 0,
+                         fade_out: float = 0, preview: bool = False) -> dict:
         import numpy as np
         import soundfile as sf
-        if confirmed is not True or not isinstance(transcript, str) or not transcript.strip():
-            raise ValueError("A confirmed, real reference transcript is required")
+        if not isinstance(name, str) or not isinstance(notes, str):
+            raise ValueError("Reference name and notes must be text")
+        if not isinstance(transcript, str) or type(confirmed) is not bool:
+            raise ValueError("Invalid reference transcript or confirmation")
+        confirmed = confirmed and bool(transcript.strip())
         if not isinstance(language, str) or not language.strip():
             raise ValueError("Reference language is required")
         source = Path(path).resolve(strict=True)
         if not source.is_file():
             raise ValueError("Reference must be an audio file")
-        start, end = float(start), float(end)
-        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
+        start, end = float(start), None if end is None else float(end)
+        gain_db, fade_in, fade_out = float(gain_db), float(fade_in), float(fade_out)
+        if not all(math.isfinite(v) for v in (gain_db, fade_in, fade_out)) or not -24 <= gain_db <= 12 or min(fade_in, fade_out) < 0:
+            raise ValueError("Invalid gain or fades")
+        if not math.isfinite(start) or start < 0 or (end is not None and (not math.isfinite(end) or end <= start)):
             raise ValueError("Invalid reference interval")
         # Copy before decoding so later edits to the source cannot mutate assets.
-        self.assets_root.mkdir(parents=True, exist_ok=True)
-        directory = self.assets_root / str(uuid4())
+        destination_root = self.root / "_staging" if preview else self.assets_root
+        destination_root.mkdir(parents=True, exist_ok=True)
+        directory = destination_root / str(uuid4())
         directory.mkdir()
         try:
             original_path = str(source)
+            parent_asset = next((a for a in self.list("assets") if Path(a.get("path", "")).resolve() == source), None)
             inspection_id = None
             staging = (self.root / "_staging").resolve()
             if source.is_relative_to(staging) and (source.parent / "inspection.json").is_file():
                 inspected = self.get_inspection(source.parent.name)
+                if inspected.get("parent_asset_id"):
+                    parent_asset = self.get("assets", inspected["parent_asset_id"])
                 if source not in {Path(inspected["path"]).resolve(), Path(inspected["source_path"]).resolve()}:
                     raise ValueError("Unknown staged reference file")
                 original_path = inspected["original_path"]
@@ -344,6 +424,8 @@ class SpeechStore:
             playable = _readable_audio(copied, directory)
             with sf.SoundFile(playable) as audio:
                 rate = audio.samplerate
+                if end is None:
+                    end = audio.frames / rate
                 if end > audio.frames / rate:
                     raise ValueError("Reference interval exceeds source audio")
                 first, last = round(start * rate), round(end * rate)
@@ -352,25 +434,66 @@ class SpeechStore:
                 audio.seek(first)
                 samples = audio.read(last - first, dtype="float32", always_2d=True)
                 source_frames = audio.frames
+            if fade_in + fade_out > len(samples) / rate:
+                raise ValueError("Fade durations exceed selected audio")
+            samples *= 10 ** (gain_db / 20)
+            for seconds, reverse in ((fade_in, False), (fade_out, True)):
+                count = min(len(samples), round(seconds * rate))
+                if count:
+                    ramp = np.linspace(0, 1, count, dtype="float32")
+                    if reverse:
+                        samples[-count:] *= ramp[::-1, None]
+                    else:
+                        samples[:count] *= ramp[:, None]
+            peak = float(np.max(np.abs(samples)))
+            if not math.isfinite(peak) or peak > 1.0:
+                raise ValueError("处理结果将产生削波，请降低增益；不会自动限幅")
             crop = directory / "reference.wav"
             sf.write(crop, samples, rate, subtype="FLOAT")
             mono_peak = np.max(np.abs(samples), axis=1)
             peaks = [float(np.max(chunk)) for chunk in np.array_split(mono_peak, min(512, len(mono_peak))) if len(chunk)]
-            return self.create("assets", {
-                "kind": "reference", "name": source.stem, "path": str(crop),
+            record = {
+                "kind": "reference", "name": name.strip() or Path(original_path).stem, "notes": notes, "path": str(crop),
                 "source_path": str(copied), "original_path": original_path, "inspection_id": inspection_id,
                 "source_playback_path": str(playable), "source_playback_sha256": _hash_file(playable),
                 "sha256": _hash_file(crop), "source_sha256": source_hash,
                 "start": first / rate, "end": last / rate, "start_frame": first,
                 "end_frame": last, "sample_rate": rate, "channels": int(samples.shape[1]),
                 "duration": len(samples) / rate, "source_duration": source_frames / rate,
-                "transcript": transcript, "language": language, "confirmed": True,
+                "transcript": transcript, "language": language, "confirmed": confirmed,
+                "parent_asset_id": parent_asset["id"] if parent_asset else None,
+                "source_processing": {"parent_asset_id": parent_asset["id"] if parent_asset else None,
+                                      "input_sha256": source_hash, "start": first / rate, "end": last / rate},
+                "processing": {"gain_db": gain_db, "fade_in": fade_in, "fade_out": fade_out},
+                "peak": peak, "headroom_db": -20 * math.log10(peak) if peak > 0 else None,
                 "peaks": peaks, "processing_version": 1,
-            })
+            }
+            if preview:
+                record.update(id=directory.name, staged=True)
+                self._atomic_json(directory / "inspection.json", record)
+                return record
+            return self.create("assets", record)
         except Exception:
             # Only our newly allocated directory; never source or existing assets.
             shutil.rmtree(directory)
             raise
+
+    def reference_metadata(self, id: str, data: dict) -> dict:
+        """Rename/archive without modifying immutable audio or historical IDs."""
+        if set(data) - {"name", "notes", "archived"}:
+            raise ValueError("Only reference name, notes and archive status can change")
+        if "name" in data and (not isinstance(data["name"], str) or not data["name"].strip()):
+            raise ValueError("Reference name is required")
+        if "notes" in data and not isinstance(data["notes"], str):
+            raise ValueError("Reference notes must be text")
+        if "archived" in data and type(data["archived"]) is not bool:
+            raise ValueError("Invalid archive status")
+        with self._locked():
+            state = self._read()
+            record = state["collections"]["assets"][id]
+            record.update(deepcopy(data), updated_at=_now())
+            self._write(state)
+            return deepcopy(record)
 
     def inspect_reference(self, path: str | Path) -> dict:
         """Stage a source for listening and waveform selection, without adopting it."""
@@ -379,6 +502,7 @@ class SpeechStore:
         original = Path(path).resolve(strict=True)
         if not original.is_file():
             raise ValueError("Reference must be an audio file")
+        parent_asset = next((a for a in self.list("assets") if Path(a.get("path", "")).resolve() == original), None)
         id = str(uuid4())
         directory = self.root / "_staging" / id
         directory.mkdir(parents=True)
@@ -397,6 +521,7 @@ class SpeechStore:
                     block = audio.read(bin_size, dtype="float32", always_2d=True)
                     peaks.append(float(np.max(np.abs(block))))
             record = {"id": id, "path": str(playable), "source_path": str(copied),
+                      "parent_asset_id": parent_asset["id"] if parent_asset else None,
                       "source_playback_path": str(playable), "source_playback_sha256": _hash_file(playable),
                       "original_path": str(original), "duration": frames / rate,
                       "sample_rate": rate, "channels": channels, "peaks": peaks,

@@ -86,13 +86,21 @@ class SpeechService:
         return {"connection": value, **{k: value[k] for k in ("model_path", "device", "precision", "runtime") if k in value}}
 
     def save_recipe(self, body):
-        data = deepcopy(body)
-        allowed = {"id", "revision", "created_at", "updated_at", "previous_id", "name", "voice_id", "provider_id", "model", "mode", "connection_ref", "variant", "language", "provider_options", "default_delivery", "default_emotion", "default_pause_ms"}
-        if set(data) - allowed:
-            raise ValueError("未知配方字段")
+        data = self._prepare_recipe(body)
         voice = self.store.get("voices", data["voice_id"])
         if voice.get("bindings") and not any(b["provider_id"] == data["provider_id"] for b in voice["bindings"]):
             raise ValueError("请先为此声音添加对应引擎实现")
+        return self.store.create("recipes", data)
+
+    def _prepare_recipe(self, body):
+        data = deepcopy(body)
+        allowed = {"id", "revision", "created_at", "updated_at", "previous_id", "name", "description", "voice_id", "provider_id", "model", "mode", "connection_ref", "variant", "language", "provider_options", "default_delivery", "default_emotion", "default_pause_ms"}
+        if set(data) - allowed:
+            raise ValueError("未知配方字段")
+        if not isinstance(data.get("name"), str) or not data["name"].strip():
+            raise ValueError("请填写规则名称")
+        if not isinstance(data.get("description", ""), str):
+            raise ValueError("规则说明必须是文本")
         data.pop("id", None)
         data["id"] = uuid4().hex
         previous_id = body.get("id")
@@ -108,7 +116,51 @@ class SpeechService:
         for segment in probe_plan["segments"]:
             segment.update(delivery=data.get("default_delivery", "normal"), emotion=data.get("default_emotion", "neutral"), pause_ms=data.get("default_pause_ms", 0))
         compile_recipe(data, probe_plan, self.assets())
-        return self.store.create("recipes", data)
+        return data
+
+    def save_rule(self, body):
+        """Save a single-engine generation rule without a separate voice wizard."""
+        data = deepcopy(body)
+        if data.get("mode") not in {"reference", "design"}:
+            raise ValueError("生成规则仅支持参考音频或声音设计")
+        variant = data.get("variant")
+        if not isinstance(variant, dict) or variant.get("kind") != data["mode"]:
+            raise ValueError("规则来源必须与生成模式一致")
+        if variant.get("style", "normal") != "normal" or any(
+            key in data for key in ("default_delivery", "default_emotion", "default_pause_ms")
+        ):
+            raise ValueError("演绎选项属于试音记录，不能保存为声音标签")
+        variant["style"] = "normal"
+        if data["mode"] == "reference":
+            asset = self.store.get("assets", variant.get("value"))
+            if asset.get("archived"):
+                raise ValueError("参考素材已归档，请选择可用素材")
+            reference = get_provider(data.get("provider_id")).capabilities(
+                data.get("model"), data["mode"]
+            ).get("reference", {})
+            if reference.get("transcript_required") and asset.get("confirmed") is not True:
+                raise ValueError("此引擎需要已核对转录的参考素材，请先确认转录")
+        previous = self.store.get("recipes", data["id"]) if data.get("id") else None
+        if previous:
+            if data.get("voice_id", previous["voice_id"]) != previous["voice_id"]:
+                raise ValueError("修改规则不能更换声音归属")
+            data["voice_id"] = previous["voice_id"]
+        voice_data = None
+        if not data.get("voice_id"):
+            data["voice_id"] = uuid4().hex
+            voice_data = {"id": data["voice_id"], "name": data.get("name"), "bindings": []}
+        else:
+            voice = self.store.get("voices", data["voice_id"])
+            if voice.get("bindings"):
+                raise ValueError("旧声音绑定保持不变，请创建独立生成规则")
+        prepared = self._prepare_recipe(data)
+        return self.store.create_rule(voice_data, prepared)
+
+    def active_recipes(self, include_archived=False):
+        return self.store.active_recipes(include_archived=include_archived)
+
+    def archive_rule(self, recipe_id, archived=True):
+        return self.store.archive_recipe(recipe_id, archived=archived)
 
     def assets(self):
         return {a["id"]: a for a in self.store.list("assets")}
