@@ -1,0 +1,69 @@
+.reference-library { --ref-soft: var(--panel-muted); }
+.reference-library .reference-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; align-items: start; }
+.reference-library .reference-sidebar { padding: 18px; }
+.reference-library .reference-sidebar h2 { font-size: 15px; margin: 0; }
+.reference-library .reference-count { margin-left: 5px; font-size: 12px; color: var(--muted); font-weight: 400; }
+.reference-library .reference-archive { display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); margin: 14px 0; }
+.reference-library .reference-assets { display: grid; gap: 10px; }
+.reference-library button.reference-asset { display: grid; gap: 8px; width: 100%; text-align: left; padding: 15px 12px; }
+.reference-library .reference-asset strong { overflow-wrap: anywhere; }
+.reference-library .reference-asset > span { color: var(--muted); font-size: 12px; }
+.reference-library .reference-status { justify-self: start; background: var(--ref-soft); padding: 3px 6px; border-radius: 4px; }
+.reference-library .reference-status.is-confirmed { color: var(--accent); }
+.reference-library .is-selected { border-color: var(--accent); background: var(--ref-soft); }
+.reference-library .reference-main { min-width: 0; }
+.reference-library .reference-steps { display: flex; gap: 28px; list-style: none; padding: 0 0 20px; margin: 0; }
+.reference-library .reference-steps li { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.reference-library .reference-steps li > span { display: grid; place-items: center; border: 1px solid var(--border); width: 26px; height: 26px; border-radius: 50%; background: var(--surface); }
+.reference-library .reference-steps li[aria-current] { color: var(--accent); font-weight: 600; }
+.reference-library .reference-steps li[aria-current] > span { color: white; background: var(--accent); border-color: var(--accent); }
+.reference-library .reference-start { text-align: center; padding: 65px 30px 35px; border-style: dashed; }
+.reference-library .reference-start-icon { display: grid; place-items: center; margin: 0 auto 22px; width: 60px; height: 60px; border-radius: 18px; color: var(--accent); background: var(--accent-soft); font-size: 29px; }
+.reference-library .reference-start h2 { font-size: 21px; }
+.reference-library .reference-start p { color: var(--muted); font-size: 14px; }
+.reference-library .reference-start .primary { margin: 15px 0 8px; padding: 11px 22px; }
+.reference-library .reference-start-tip { border-top: 1px solid var(--border); padding-top: 22px; margin-top: 35px; color: var(--muted); font-size: 12px; }
+.reference-library .reference-editor { padding: 24px; }
+.reference-library .reference-eyebrow { color: var(--accent); font-size: 11px; letter-spacing: 1px; display: block; margin-bottom: 9px; }
+.reference-library .reference-editor h2 { margin: 0; font-size: 20px; }
+.reference-library .reference-source { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; margin: 24px 0 12px; }
+.reference-library .reference-source strong { overflow-wrap: anywhere; }
+.reference-library .reference-source > span { color: var(--muted); flex-shrink: 0; }
+.reference-library .reference-waveform { height: 112px; touch-action: none; cursor: ew-resize; }
+.reference-library .reference-timeline { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 7px; font-variant-numeric: tabular-nums; }
+.reference-library .reference-playback { margin-top: 12px; }
+.reference-library .reference-playback label { color: var(--muted); font-size: 12px; display: flex; gap: 5px; align-items: center; }
+.reference-library .reference-range { display: flex; gap: 14px; align-items: end; margin-top: 18px; }
+.reference-library .reference-range label.field { max-width: 150px; margin: 0; }
+.reference-library .reference-editor > .muted { margin-bottom: 0; }
+.reference-library .reference-assist h3 { margin: 0; }
+.reference-library .reference-assist p.muted { margin-bottom: 0; }
+.reference-library .reference-language { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 12px; margin-top: 18px; }
+.reference-library .reference-language select { width: auto; padding: 6px 10px; font-size: 12px; }
+.reference-library .reference-candidates { display: grid; gap: 12px; margin-top: 20px; }
+.reference-library .reference-candidate { border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.reference-library .reference-candidate.is-selected { border-color: var(--accent); }
+.reference-library .reference-candidate strong { font-size: 13px; }
+.reference-library .reference-candidate p { font-size: 13px; margin: 12px 0; }
+.reference-library .reference-hints { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 13px; }
+.reference-library .reference-hints span { font-size: 11px; color: var(--muted); border-radius: 4px; background: var(--bg); padding: 4px 7px; }
+.reference-library .reference-footer { position: sticky; bottom: 0; z-index: 1; display: flex; gap: 14px; align-items: center; justify-content: space-between; padding: 16px 20px; border: 1px solid var(--border); background: var(--surface); border-radius: 10px; box-shadow: 0 -4px 18px #203e4e08; }
+.reference-library .reference-footer > span { font-size: 12px; color: var(--muted); }
+.reference-library .reference-footer > button { flex-shrink: 0; padding: 10px 18px; }
+.reference-library .reference-optional { color: var(--muted); font-size: 11px; font-weight: 400; }
+.reference-library .reference-confirm { display: flex; align-items: center; gap: 7px; font-size: 12px; margin: 14px 0 22px; }
+.reference-library .reference-processing summary { cursor: pointer; font-size: 13px; }
+.reference-library .reference-processing summary > span { margin-left: 10px; }
+.reference-library .reference-processing[open] summary { margin-bottom: 20px; }
+.reference-library .reference-saved { padding: 28px; }
+.reference-library .reference-saved h2 { margin: 0; }
+.reference-library .reference-saved-transcript { padding: 20px; background: var(--ref-soft); border-radius: 9px; margin: 24px 0; }
+.reference-library .reference-saved-transcript p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.reference-library .reference-more { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 28px; font-size: 13px; }
+.reference-library .reference-more summary { cursor: pointer; margin-bottom: 16px; }
+.reference-library .reference-busy { display: flex; align-items: center; gap: 10px; padding: 14px; background: var(--accent-soft); border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+.reference-library .reference-spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: reference-spin 1s linear infinite; }
+@keyframes reference-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .reference-library .reference-spinner { animation: none; } }
+@media (max-width: 1100px) { .reference-library .reference-layout { grid-template-columns: 215px minmax(0, 1fr); gap: 16px; } .reference-library .reference-steps { gap: 16px; } }
+@media (max-width: 850px) { .reference-library .reference-layout { grid-template-columns: 1fr; } .reference-library .reference-assets { max-height: 210px; overflow: auto; } .reference-library .reference-source { flex-wrap: wrap; } .reference-library .reference-footer { flex-wrap: wrap; } .reference-library .reference-editor { padding: 18px; } .reference-library .reference-range { flex-wrap: wrap; } }

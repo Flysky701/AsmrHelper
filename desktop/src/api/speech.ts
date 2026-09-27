@@ -9,6 +9,7 @@ export interface SpeechRecipe { id: string; revision: number; name: string; desc
 export interface SpeechSegment { id: string; start: number; end: number; delivery: Delivery; emotion: string; pause_ms: number }
 export interface SpeechPlan { id: string; text: string; text_hash: string; segments: SpeechSegment[] }
 export interface ReferenceAsset { id: string; path: string; name?: string; notes?: string; archived?: boolean; source_path?: string; transcript: string; language: string; start?: number; end?: number; duration?: number; confirmed?: boolean }
+export interface ReferenceCandidate { start: number; end: number; text: string; score?: number; selected?: boolean; reasons?: string[] }
 export interface ReferenceDraft { path: string; start: number; end: number; transcript: string; language: string; confirmed: boolean; name: string; notes: string; gain_db: number; fade_in: number; fade_out: number }
 export interface ReferenceInspection extends Waveform { id: string; path: string }
 export interface SpeechConnection { id: string; name: string; provider_id: string; deployment: 'local' | 'lan' | 'cloud'; base_url?: string; credential_configured?: boolean; timeout?: number; model_path?: string; device?: string }
@@ -51,7 +52,7 @@ export const speechApi = {
   connection: (connection: Partial<SpeechConnection> & { api_key?: string }) => api.post<SpeechConnection>('/speech/connections', connection),
   probe: (id: string, model: string, mode: string) => api.post<Record<string, unknown>>(`/speech/connections/${encodeURIComponent(id)}/probe`, { model, mode }),
   inspect: (path: string) => api.post<Waveform & { id: string; path: string }>('/speech/references/inspect', { path }),
-  analyze: (path: string, language: string, separate_vocals: boolean) => api.post<{ original: Waveform & { id: string; path: string }; analyzed: Waveform & { id: string; path: string }; segments: { start: number; end: number; text: string }[] }>('/speech/references/analyze', { path, language, separate_vocals }),
+  analyze: (path: string, language: string, separate_vocals: boolean) => api.post<{ original: Waveform & { id: string; path: string }; analyzed: Waveform & { id: string; path: string }; segments: ReferenceCandidate[] }>('/speech/references/analyze', { path, language, separate_vocals }),
   reference: (reference: ReferenceDraft) => api.post<ReferenceAsset>('/speech/references', reference),
   previewReference: (reference: ReferenceDraft) => api.post<ReferenceInspection>('/speech/references/preview', reference),
   subtitles: (text: string, format: 'srt' | 'vtt') => api.post<{ segments: { start: number; end: number; text: string }[] }>('/speech/references/subtitles', { text, format }),
