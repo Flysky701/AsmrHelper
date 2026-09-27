@@ -45,6 +45,10 @@ ASR、TTS、LLM 等能力统一按 Provider 类别扩展，不再分别维护重
 
 ## 设计草案
 
+- [声音库与音色生成规则（当前使用说明）](guides/voice-lab-v2.md)
+- [音色实验室 v2：完整目标与交互预览（历史设计草案）](designs/voice-lab-v2-product-preview.md)
+- [音色实验室初版专项设计（历史草案，范围已调整）](designs/voice-lab-multi-engine-design.md)
+- [耳语 TTS 功能探索与接入评估](designs/whisper-tts-feasibility.md)
 - [桌面端 UI 重设计蓝图](designs/desktop-ui-redesign-blueprint.md)
 - [模型资产管理需求草案](designs/model-asset-management-requirements.md)
 - [模型资产元数据与安装契约草案](designs/model-asset-schema-design.md)
