@@ -104,7 +104,9 @@ secrets.ini
 # Sensitive Config (user-specific)
 # =====================
 config/config.json
+config/runtime_install.json
 config/voice_profiles.json
+config/voice_lab/
 
 # =====================
 # IDE workspace data

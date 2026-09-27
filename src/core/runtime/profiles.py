@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -43,9 +44,7 @@ class RuntimeProfileResolver:
         "fun_asr": "funasr",
         "voxcpm2": "voxcpm2",
     }
-    # Qwen3-TTS has a verified CUDA runtime. ASR runtimes declare ordinary
-    # torch explicitly in the model catalog so CPU-only hosts remain usable.
-    _CUDA_TORCH_PROFILES = {"qwen_tts", "voxcpm2"}
+    _CUDA_TORCH_PROFILES = {"main", "qwen_asr", "fun_asr", "qwen_tts", "voxcpm2"}
 
     _ALIASES = {
         "": "main",
@@ -123,19 +122,54 @@ class RuntimeProfileResolver:
             raise RuntimeError(f"failed to create runtime {profile.id}: {detail}")
         return profile
 
+    def compute_mode(self) -> str:
+        mode = os.environ.get("ASMR_HELPER_COMPUTE")
+        path = self.project_root / "config" / "runtime_install.json"
+        if mode is None:
+            mode = json.loads(path.read_text(encoding="utf-8")).get("compute", "auto") if path.is_file() else "auto"
+        if mode not in {"auto", "cpu", "cuda"}:
+            raise ValueError("compute must be auto, cpu, or cuda")
+        return mode
+
+    def save_compute_mode(self, mode: str) -> None:
+        if mode not in {"auto", "cpu", "cuda"}:
+            raise ValueError("compute must be auto, cpu, or cuda")
+        path = self.project_root / "config" / "runtime_install.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        data.update(compute=mode)
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            temporary.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def resolve_compute_target(self) -> str:
+        mode = self.compute_mode()
+        if mode == "cpu":
+            return "cpu"
+        capability = self._detect_nvidia_compute_capability()
+        if capability is None:
+            if mode == "cuda":
+                raise RuntimeError("unable to detect NVIDIA GPU compute capability; CUDA was explicitly requested")
+            return "cpu"
+        return "cu128" if capability >= 12.0 else "cu126"
+
+    def compute_constraints(self, target: str | None = None) -> Path:
+        target = target or self.resolve_compute_target()
+        if target not in {"cpu", "cu126", "cu128"}:
+            raise ValueError("unknown compute target")
+        path = self.project_root / ".runtimes" / f"torch-{target}-constraints.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"torch==2.10.0+{target}\ntorchaudio==2.10.0+{target}\n", encoding="utf-8")
+        return path
+
     def build_bootstrap_commands(self, profile: RuntimeProfile) -> list[list[str]]:
-        if not profile.cuda_torch:
-            return []
+        target = self.resolve_compute_target()
         uv_path = shutil.which("uv")
         if not uv_path:
-            raise RuntimeError("uv is required to install the CUDA runtime")
-        compute_capability = self._detect_nvidia_compute_capability()
-        if compute_capability is None:
-            raise RuntimeError(
-                "unable to detect NVIDIA GPU compute capability; "
-                "ensure nvidia-smi is available and the NVIDIA driver is installed"
-            )
-        cuda_channel = "cu128" if compute_capability >= 12.0 else "cu126"
+            raise RuntimeError("uv is required to install the compute runtime")
         return [[
             uv_path,
             "pip",
@@ -143,10 +177,34 @@ class RuntimeProfileResolver:
             "--python",
             str(profile.python_executable),
             "--index",
-            f"https://download.pytorch.org/whl/{cuda_channel}",
-            f"torch==2.10.0+{cuda_channel}",
-            f"torchaudio==2.10.0+{cuda_channel}",
+            f"https://download.pytorch.org/whl/{target}",
+            f"torch==2.10.0+{target}",
+            f"torchaudio==2.10.0+{target}",
         ]]
+
+    def verify_compute(self, profile: RuntimeProfile) -> dict:
+        target = self.resolve_compute_target()
+        device = "cpu" if target == "cpu" else "cuda:0"
+        script = (
+            "import json, torch, torchaudio\n"
+            f"target={target!r}\ndevice={device!r}\n"
+            "assert torch.__version__ == '2.10.0+' + target, torch.__version__\n"
+            "assert torchaudio.__version__ == '2.10.0+' + target, torchaudio.__version__\n"
+            "assert (torch.version.cuda is None) == (target == 'cpu'), 'wrong torch build'\n"
+            "a=torch.ones((16,16),device=device)\n"
+            "assert (a @ a).sum().item() == 4096\n"
+            "print('__ASMR_COMPUTE__'+json.dumps(dict(target=target,device=device,torch=torch.__version__,torchaudio=torchaudio.__version__,cuda=torch.version.cuda)))\n"
+        )
+        result = subprocess.run([str(profile.python_executable), "-c", script],
+            cwd=str(self.project_root), env=self.subprocess_env(), capture_output=True,
+            text=True, encoding="utf-8", errors="replace", timeout=120, check=False)
+        if result.returncode:
+            raise RuntimeProbeError(f"compute verification failed for {profile.id}: {(result.stderr or result.stdout)[-1500:]}")
+        try:
+            line = next(line for line in reversed(result.stdout.splitlines()) if line.startswith("__ASMR_COMPUTE__"))
+            return json.loads(line.removeprefix("__ASMR_COMPUTE__"))
+        except (StopIteration, ValueError) as exc:
+            raise RuntimeProbeError(f"invalid compute verification result for {profile.id}") from exc
 
     def _detect_nvidia_compute_capability(self) -> float | None:
         """Return the highest NVIDIA GPU compute capability reported by nvidia-smi."""

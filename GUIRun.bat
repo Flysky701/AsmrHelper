@@ -60,6 +60,7 @@ goto launch_failed
 
 :check_dev_tools
 call :add_node_to_path
+call :add_rust_to_path
 where node >nul 2>nul
 if errorlevel 1 (
     echo [ERROR] Node.js not found. Set ASMR_HELPER_NODE_HOME or install Node.js.
@@ -219,11 +220,24 @@ exit /b 0
 
 :add_node_to_path
 if defined ASMR_HELPER_NODE_HOME if exist "%ASMR_HELPER_NODE_HOME%\node.exe" set "PATH=%ASMR_HELPER_NODE_HOME%;!PATH!"
+if not defined ASMR_HELPER_NODE_HOME for /d %%D in ("%PROJECT_ROOT%.runtimes\node-*-win-x64") do if exist "%%~fD\node.exe" set "PATH=%%~fD;!PATH!"
 where node >nul 2>nul
 if not errorlevel 1 exit /b 0
 for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\Node.js" /v InstallPath 2^>nul ^| findstr InstallPath') do set "NODE_HOME=%%B"
 if defined NODE_HOME if exist "!NODE_HOME!\node.exe" set "PATH=!NODE_HOME!;!PATH!"
 if exist "E:\Dependencies\nodejs\node.exe" set "PATH=E:\Dependencies\nodejs;!PATH!"
+exit /b 0
+
+:add_rust_to_path
+if not defined CARGO_HOME if exist "%PROJECT_ROOT%.runtimes\cargo\bin\cargo.exe" set "CARGO_HOME=%PROJECT_ROOT%.runtimes\cargo"
+if not defined RUSTUP_HOME if exist "%PROJECT_ROOT%.runtimes\rustup\toolchains" set "RUSTUP_HOME=%PROJECT_ROOT%.runtimes\rustup"
+if defined CARGO_HOME if exist "%CARGO_HOME%\bin\cargo.exe" set "PATH=%CARGO_HOME%\bin;!PATH!"
+if not defined RUSTUP_TOOLCHAIN if exist "%RUSTUP_HOME%\toolchains\stable-x86_64-pc-windows-gnu" (
+    for /d %%D in ("%PROJECT_ROOT%.runtimes\llvm-mingw-*-ucrt-x86_64") do if exist "%%~fD\bin\gcc.exe" (
+        set "PATH=%%~fD\bin;!PATH!"
+        set "RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu"
+    )
+)
 exit /b 0
 
 :runapp
@@ -237,7 +251,7 @@ if /I "%LAUNCH_MODE%"=="--release" (
     )
     echo [INFO] Building release application...
     pushd "%DESKTOP_DIR%"
-    call npm.cmd run tauri -- build
+    call npm.cmd run tauri -- build --no-bundle
     set "APP_EXIT=!ERRORLEVEL!"
     popd
     if not "!APP_EXIT!"=="0" goto app_failed

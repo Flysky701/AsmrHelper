@@ -2,6 +2,7 @@
 """Compatibility wrapper for shared model-management installation."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -89,7 +90,11 @@ def main():
     )
     parser.add_argument("--mirror", type=str, default=None, help="HuggingFace mirror URL")
     parser.add_argument("--force", action="store_true", help="Force re-download of existing models")
+    parser.add_argument("--compute", choices=("auto", "cpu", "cuda"), help="CPU/CUDA policy for dependency installation (otherwise use saved policy)")
     args = parser.parse_args()
+
+    if args.compute:
+        os.environ["ASMR_HELPER_COMPUTE"] = args.compute
 
     service = get_model_service()
     catalog_models = service.list_models(kind="local")

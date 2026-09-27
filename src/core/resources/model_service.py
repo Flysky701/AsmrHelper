@@ -206,6 +206,7 @@ class ModelService:
         runtime = self.runtime_resolver.ensure_environment(entry.runtime_profile or "main")
         installer = self._resolve_installer(str(runtime.python_executable))
         install_env = self.runtime_resolver.subprocess_env()
+        constraints = self.runtime_resolver.compute_constraints()
 
         for cmd in self.runtime_resolver.build_bootstrap_commands(runtime):
             result = subprocess.run(
@@ -228,6 +229,7 @@ class ModelService:
             try:
                 logger.info("installing extras for %s: %s", entry.id, extras)
                 cmd = installer["extras_cmd"](extras, str(PROJECT_ROOT))
+                cmd.extend(["--constraint", str(constraints)])
                 result = subprocess.run(
                     cmd,
                     check=False,
@@ -258,6 +260,7 @@ class ModelService:
             try:
                 logger.info("installing packages for %s: %s", entry.id, packages)
                 cmd = installer["packages_cmd"](packages)
+                cmd.extend(["--constraint", str(constraints)])
                 result = subprocess.run(
                     cmd,
                     check=False,
@@ -281,6 +284,8 @@ class ModelService:
                     f"failed to install runtime packages for {entry.id}: {exc}"
                 ) from exc
 
+        # Extras can otherwise replace the preinstalled torch with a CPU wheel.
+        self.runtime_resolver.verify_compute(runtime)
         self.runtime_resolver.clear_probe_cache(runtime.id)
 
     @staticmethod

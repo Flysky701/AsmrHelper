@@ -133,6 +133,7 @@ def test_qwen_tts_runtime_bootstrap_uses_cu128_for_blackwell(tmp_path, monkeypat
 
 def test_qwen_tts_runtime_bootstrap_rejects_unknown_gpu(tmp_path, monkeypatch):
     resolver = RuntimeProfileResolver(project_root=tmp_path)
+    monkeypatch.setenv("ASMR_HELPER_COMPUTE", "cuda")
     monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda name: "uv.exe")
     monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: None)
 

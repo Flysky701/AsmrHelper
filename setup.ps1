@@ -18,6 +18,9 @@
     .\setup.ps1 -SkipInstall
     .\setup.ps1 -DevOnly
     .\setup.ps1 -CleanReinstall
+    .\setup.ps1 -Compute auto -Models
+    .\setup.ps1 -Compute cpu -Models
+    .\setup.ps1 -Compute cuda -Models
 #>
 
 param(
@@ -29,6 +32,8 @@ param(
     [switch]$CleanReinstall,
     [switch]$Offline,
     [switch]$SkipFrontend,
+    [ValidateSet("", "auto", "cpu", "cuda")]
+    [string]$Compute = "",
     [string[]]$Engines = @(),
     [string]$PythonVersion = "3.12",
     [string]$PythonPath = ""
@@ -92,7 +97,18 @@ function Ensure-Uv {
 }
 
 function Add-NodeToPath {
-    if (Test-Command "node") {
+    $nodeCandidates = @()
+    if ($env:ASMR_HELPER_NODE_HOME) {
+        $nodeCandidates += $env:ASMR_HELPER_NODE_HOME
+    }
+    $nodeCandidates += @(Get-ChildItem -Path (Join-Path $ProjectRoot ".runtimes\node-*-win-x64") -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -ExpandProperty FullName)
+    foreach ($candidate in $nodeCandidates) {
+        if ((Test-Path (Join-Path $candidate "node.exe")) -and (Test-Path (Join-Path $candidate "npm.cmd"))) {
+            $env:PATH = "$candidate;$env:PATH"
+            return
+        }
+    }
+    if ((Test-Command "node") -and (Test-Command "npm.cmd")) {
         return
     }
 
@@ -238,6 +254,27 @@ function Invoke-FrontendInstall {
     Write-OK "桌面端依赖同步完成"
 }
 
+function Invoke-ComputeInstall {
+    $venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    if (-not (Test-Path $venvPython)) {
+        throw "项目虚拟环境不存在，请先完成依赖同步。"
+    }
+    Write-Step "选择并验证 CPU / CUDA 运行环境"
+    $computeArgs = @((Join-Path $ProjectRoot "scripts\configure_compute.py"), "--existing")
+    if ($Compute) { $computeArgs += @("--compute", $Compute) }
+    if ($Models -or $Full) { $computeArgs += "--require-main" }
+    if ($Offline) { $computeArgs += "--offline" }
+    if ($SkipInstall) {
+        $computeArgs += "--check"
+    } else {
+        $computeArgs += "--apply"
+    }
+    & $venvPython @computeArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "CPU/CUDA 环境检查失败。请检查驱动与上方错误，或明确选择 -Compute cpu。"
+    }
+}
+
 function Invoke-ModelInstall {
     if (-not $Models) {
         return
@@ -252,6 +289,7 @@ function Invoke-ModelInstall {
         throw "项目虚拟环境不存在，请先完成依赖同步。"
     }
     $args = @($scriptPath)
+    if ($Compute) { $args += @("--compute", $Compute) }
 
     if ($Engines.Count -gt 0) {
         foreach ($engine in $Engines) {
@@ -294,6 +332,7 @@ Set-Location $ProjectRoot
 Write-OK "当前目录: $ProjectRoot"
 
 Invoke-DependencyInstall
+Invoke-ComputeInstall
 Ensure-ConfigFiles
 Ensure-Directories
 Invoke-FrontendInstall

@@ -115,6 +115,14 @@ $env:DEEPSEEK_API_KEY = "your-deepseek-api-key"
 
 桌面启动器会隐藏启动后端并在 APP 退出时清理本次创建的后端进程。后端启动、请求和异常日志保存在 `logs/backend.log`，启动失败时窗口会显示日志尾部，不再只留下闪退现象。开发模式需要 Node.js 与 Rust；已有 release 的普通启动不要求这两套构建工具。
 
+启动器和安装脚本可自动使用 `.runtimes/node-*-win-x64` 中包含 npm 的 Node.js。桌面启动器也会识别项目内 `.runtimes/cargo` 和 `.runtimes/rustup`；同时存在 GNU Rust 和 `.runtimes/llvm-mingw-*-ucrt-x86_64` 时，使用这套便携工具链构建，无需 MSVC。显式设置的 `ASMR_HELPER_NODE_HOME`、`CARGO_HOME`、`RUSTUP_HOME` 和 `RUSTUP_TOOLCHAIN` 优先。`--release` 只构建并启动应用，不生成安装包。
+
+### CPU / CUDA 安装选项
+
+安装时可使用 `./setup.ps1 -Compute auto` 自动检测 NVIDIA GPU，或明确指定 `-Compute cpu`、`-Compute cuda`。显式选择 CUDA 时，检测或运算验证失败会报错，不自动降级。选项保存在本机 `config/runtime_install.json`，不提交到仓库。
+
+已有环境可先执行 `.venv\Scripts\python.exe scripts/configure_compute.py --existing` 查看计划；添加 `--check` 仅验证，添加 `--apply --compute cpu` 或 `--apply --compute cuda` 才会安装对应依赖。切换会影响已有本地模型运行环境，请先查看计划。模型文件不会因此重新下载。
+
 ## 项目结构
 
 ```
