@@ -720,6 +720,8 @@ interface CapabilityOptionPresentation {
 }
 
 const CAPABILITY_OPTION_PRESENTATIONS: Record<string, CapabilityOptionPresentation> = {
+  speaking_style: { label: '说话风格（实验）', hint: 'normal 默认 / soft 轻声 / whisper 耳语；仅支持 Qwen3 预设音色，效果需试听确认' },
+  instruct: { label: '补充风格指令', hint: '可选；与音色及说话风格提示叠加，仅支持 Qwen3 预设音色', placeholder: '例如：保持自然的停顿，吐字清晰' },
   proxy: { label: '网络代理', hint: '可选；仅在当前网络需要代理时填写', placeholder: '留空时直接连接' },
   vad_filter: { label: 'VAD 语音过滤', hint: '过滤静音和非语音片段；默认关闭' },
   disable_vad: { label: '禁用 VAD', hint: '关闭语音活动检测' },

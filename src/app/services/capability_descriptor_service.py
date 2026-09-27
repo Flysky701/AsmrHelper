@@ -276,6 +276,20 @@ class CapabilityDescriptorService:
                         description="Custom profile identifier",
                     ),
                     _option(
+                        "speaking_style",
+                        "string",
+                        required=False,
+                        default="normal",
+                        enum=["normal", "soft", "whisper"],
+                        description="Experimental delivery style (Qwen3 preset voices only)",
+                    ),
+                    _option(
+                        "instruct",
+                        "string",
+                        required=False,
+                        description="Additional delivery instruction (Qwen3 preset voices only)",
+                    ),
+                    _option(
                         "emotion",
                         "string",
                         required=False,

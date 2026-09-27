@@ -435,6 +435,8 @@ class Qwen3TTSEngine:
         speed: float = 1.0,
         voice_profile_id: str = None,
         language: str = "auto",
+        speaking_style: str = "normal",
+        instruct: str = "",
         **kwargs,
     ):
         """
@@ -477,6 +479,13 @@ class Qwen3TTSEngine:
                 raise ValueError(
                     f"unsupported voice profile category: {self.profile.category}"
                 )
+
+        from .speech_style import compose_instruction, style_instruction
+
+        style = style_instruction(speaking_style)
+        if self.profile and self.profile.category in ("custom", "clone") and (style or instruct):
+            raise ValueError("Qwen3 克隆/自定义音色不支持风格指令，请选择预设音色")
+        self.instruct = compose_instruction(self.instruct, style, instruct)
 
         # 检查是否安装
         try:
@@ -570,7 +579,11 @@ class Qwen3TTSEngine:
         Returns:
             str: 输出文件路径
         """
-        return self._synthesize(text, output_path, instruct=instruct)
+        from .speech_style import compose_instruction
+
+        return self._synthesize(
+            text, output_path, instruct=compose_instruction(self.instruct, instruct) or None
+        )
 
     def _synthesize(self, text: str, output_path: str, instruct: str = None) -> str:
         """内部合成方法，支持自定义 instruct"""
@@ -676,6 +689,8 @@ class TTSEngine:
         proxy: str = None,
         voice_profile_id: str = None,
         language: str = "auto",
+        speaking_style: str = "normal",
+        instruct: str = "",
     ):
         """
         初始化 TTS 引擎（使用注册式工厂）
@@ -707,6 +722,8 @@ class TTSEngine:
                 speed=speed,
                 voice_profile_id=voice_profile_id,
                 language=language,
+                speaking_style=speaking_style,
+                instruct=instruct,
             )
         else:
             raise ValueError(f"不支持的引擎: {engine}，可用: edge/qwen3")
@@ -886,7 +903,7 @@ class TTSEngine:
                         if instruct and hasattr(self.engine, 'synthesize_with_instruct'):
                             try:
                                 temp_tts_fast = temp_dir / f"tts_{i:04d}_fast.wav"
-                                self.engine.synthesize_with_instruct(translation, str(temp_tts_fast), instruct=instruct)
+                                self.engine.synthesize_with_instruct(valid_texts[idx], str(temp_tts_fast), instruct=instruct)
                                 if temp_tts_fast.exists() and temp_tts_fast.stat().st_size > 0:
                                     tts_data_new, tts_sr_new = sf.read(str(temp_tts_fast))
                                     if tts_sr_new != sample_rate:
