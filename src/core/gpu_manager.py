@@ -139,32 +139,9 @@ class GPUManager:
             "active_operations": self._active_count,
         }
 
-    def print_memory_status(self):
-        """打印当前 GPU 显存状态"""
-        info = self.get_gpu_memory_info()
-        if info["available"]:
-            print(
-                f"[GPU] {info['name']} | "
-                f"已用: {info['allocated_gb']:.1f}GB | "
-                f"缓存: {info['reserved_gb']:.1f}GB | "
-                f"空闲: {info['free_gb']:.1f}GB | "
-                f"活跃操作: {info['active_operations']}/{self._max_concurrent}"
-            )
-        else:
-            print("[GPU] CPU 模式")
-
-    def clear_cache(self):
-        """清理 GPU 显存缓存"""
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            print("[GPU Manager] 显存缓存已清理")
-
 
 # 全局 GPU 锁实例（默认最大并发 1）
 # 可通过修改 max_concurrent 调整并发度
-def get_gpu_lock(max_concurrent: int = 1) -> GPUManager:
-    """获取全局 GPU 锁实例"""
-    return GPUManager(max_concurrent=max_concurrent)
 
 
 # 便捷的全局实例

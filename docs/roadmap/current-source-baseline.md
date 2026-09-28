@@ -1,6 +1,15 @@
 # AsmrHelper 当前源码基线
 
-日期：2026-08-30
+更新：2026-09-29
+
+### 2026-09-29 开发基线整理
+
+- 当前开发基线为 `dev`，承接原实验分支 `33e3ab1` 的全部提交，并整合远程 `master` 的接口统一和无调用代码清理。`master` 保留稳定主线角色，开发基线尚待产品验收。
+- 工具目录统一为 `GET /api/v1/tools`，工具任务为 `POST /api/v1/tool-runs`；台本任务为 `POST /api/v1/subtitles/script-to-subtitle/tasks`。
+- 设置统一读取 `/settings`，配置导入统一使用 `src.config`。任务结果统一从 `/tasks/{id}/result` 查询；审阅采用 PATCH `/tasks/{id}/review` 与 PUT `/tasks/{id}/review-note`。
+- 保留当前工作台、声音库、音色生成规则、任务恢复以及克隆 manifest；旧独立批处理页面继续移除。历史设计及验收材料保留在 `docs/archived/`。
+- 当前待处理范围以 [模块边界清单](module-boundary-checklist.md) 为准，其中跳过或待讨论的项目不因本次合并而扩大实施。
+- 本次检查结果、历史分支与标签处理见 [基线整理记录](git-baseline-cleanup-2026-09-29.md)。下面保留此前阶段记录，其日期不代表本次重新完成真实模型验收。
 
 ### 2026-09-23 体验优化补充
 
@@ -13,7 +22,7 @@
 
 ## 1. 本文定位
 
-本文是当前源码和文档整理的第一事实源，按当前分支 `master` 的工作树编写。它描述源码中已经存在的入口、已删除的旧入口、产品边界和本轮可确认的验证状态；不把设计稿、历史计划或单纯存在的路由当成已验收能力。
+本文是当前源码和文档整理的第一事实源，按开发分支 `dev` 的工作树维护。它描述源码中已经存在的入口、已删除的旧入口、产品边界和可确认的验证状态；不把设计稿、历史计划或单纯存在的路由当成已验收能力。
 
 事实优先级如下：
 
@@ -25,7 +34,7 @@
 
 ## 2. 当前版本边界
 
-- 当前分支：`master`。
+- 当前开发分支：`dev`；稳定主线：`master`。
 - 本页按当前工作树编写；工作区可能包含尚未提交的用户修改，实施和验证时必须保留并避开无关改动。
 - 正式产品入口是 `GUIRun.bat` 启动的 Tauri 桌面端；后端是本机 FastAPI HTTP API；CLI 和 `scripts/` 下脚本是兼容或排障入口，不是 GUI 能力事实源。
 - 项目要求 Python `>=3.11,<3.13`。`setup.ps1` 使用项目内 UV Python，并把项目虚拟环境放在 `.venv`；`.runtimes/` 保存 UV Python 和按 Provider 划分的隔离运行时。
@@ -84,9 +93,9 @@ desktop/src/pages/BatchProcessing.tsx
 | --- | --- | --- |
 | Pipeline | `POST /api/v1/pipeline-runs` | 返回 `202`，创建并提交后台任务 |
 | BatchRun | `POST /api/v1/batch-runs` | 持久聚合多个普通 Pipeline Task，支持整批取消和失败项重提 |
-| Tool | `POST /api/v1/tool-runs/tasks` | 返回 `201`，创建并提交后台任务 |
+| Tool | `POST /api/v1/tool-runs` | 返回 `201`，创建并提交后台任务 |
 | 模型安装 | `POST /api/v1/models/{model_id}/install` | 默认返回 `201` 的 TaskStatus |
-| 字幕台本转 VTT | `POST /api/v1/subtitles/script-to-vtt/tasks` | 后台 Task，产物归属 Task |
+| 台本转字幕 | `POST /api/v1/subtitles/script-to-subtitle/tasks` | 后台 Task，产物归属 Task |
 | Voice Design/Clone/Preview | 对应 `/api/v1/voice/*` | 返回 `201` 的后台 Task |
 | 任务查询 | `GET /api/v1/tasks/{task_id}` | TaskStatus 是状态事实源 |
 | 结果查询 | `GET /api/v1/tasks/{task_id}/result` 或 `/preview` | 使用 `primary_artifact_id + artifacts` |
@@ -95,7 +104,7 @@ Workbench 统一整理文件选择和目录递归扫描得到的输入清单，�
 
 `/api/v1/asr/transcribe`、`/llm/translate`、`/llm/operations/run` 和 `/tts/synthesize` 是同步诊断/Provider 验收面，不是桌面长任务入口。桌面端长任务必须通过 Pipeline、Tool 或 Voice Task 提交。
 
-任务审阅的规范入口是 `PATCH /api/v1/tasks/{task_id}/review`；`POST /review-status`、`PUT/POST /review-note` 仍作为现存兼容别名，不能描述为已删除路由。
+任务审阅的规范入口是 `PATCH /api/v1/tasks/{task_id}/review`，备注使用 `PUT /api/v1/tasks/{task_id}/review-note`；旧 `POST /review-status` 和 `POST /review-note` 已移除。
 
 ## 6. 当前任务和结果语义
 
@@ -120,7 +129,7 @@ Workbench 统一整理文件选择和目录递归扫描得到的输入清单，�
 
 Qwen3-TTS、Qwen3-ASR 和 Fun-ASR 使用按需隔离运行时；ASR/TTS 可通过短生命周期 Worker 执行。Fun-ASR Nano 已完成独立运行时短音频转写，Pipeline 级验收仍待完成。模型已安装、当前解释器可导入、readiness 通过和真实主链路验收是四个不同状态，界面必须分别展示。
 
-## 8. 最近一次完整验证记录（2026-08-22）
+## 8. 历史验证记录（2026-08-22）
 
 - 已完成源码引用审计：当前页面没有引用已删除的桌面组件，仓库内没有活跃代码导入 `src.core.model_manager` 或 `src.core.translate`。
 - 已确认 `git diff --check` 无空白错误。

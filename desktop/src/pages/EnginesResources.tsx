@@ -157,7 +157,7 @@ function LocalResources() {
       [modelId]: { active: true, message: packageOnly ? '准备安装运行依赖...' : '准备下载...' },
     }))
     try {
-      const res = await modelsApi.installAsync(modelId, {
+      const res = await modelsApi.install(modelId, {
         install_mode: model.default_install_mode || 'single',
         install_dependencies: true,
       })

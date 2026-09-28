@@ -8,7 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from src.core.config import config
+from src.config import config
 from src.provider_profiles import public_profiles, update_profiles
 from src.core.engines.llm.registry import LLM_DEFAULT_MODELS
 from src.core.resources.provider_verification import (
@@ -58,8 +58,6 @@ class SettingsService:
         settings = self.config.to_dict()
         return self._to_public_settings(settings) if masked else settings
 
-    def get_effective_settings(self, masked: bool = True) -> dict[str, Any]:
-        return self.get_settings(masked=masked)
 
     def update_settings(self, updates: dict[str, Any]) -> dict[str, Any]:
         with getattr(self.config, "_state_lock", nullcontext()):

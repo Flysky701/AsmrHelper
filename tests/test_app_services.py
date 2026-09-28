@@ -342,7 +342,7 @@ class TestCapabilityOptionContract:
         from src.core.engines.llm import get_llm_registry
         from src.core.engines.llm.registry import LLM_SUPPORTED_MODELS
         from src.core.engines.llm.translator import Translator
-        from src.core.config import config
+        from src.config import config
 
         # Exercise the registry fallback independently of the user's saved model.
         monkeypatch.setattr(config, "get", lambda *_args, **_kwargs: None)
@@ -774,7 +774,6 @@ class TestPipelineTaskOrchestrator:
         service = PipelineTaskOrchestrator(
             pipeline_service=BlockingPipelineService(),
             task_service=task_service,
-            artifact_service=MagicMock(),
         )
 
         accepted = service.submit_task(PipelineRequest(input_path="/tmp/input.wav"))
@@ -820,7 +819,6 @@ class TestPipelineTaskOrchestrator:
         service = PipelineTaskOrchestrator(
             pipeline_service=CancellablePipelineService(),
             task_service=task_service,
-            artifact_service=MagicMock(),
         )
         accepted = service.submit_task(PipelineRequest(input_path="/tmp/input.wav"))
         assert started.wait(timeout=1)

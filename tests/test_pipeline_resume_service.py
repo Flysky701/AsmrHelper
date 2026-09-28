@@ -82,8 +82,7 @@ def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp
         service = PipelineService(task_service=task_service, resource_service=resources,
                                   workspace_service=workspace_service, input_catalog_service=catalog,
                                   session_service=sessions, artifact_service=artifacts, executor=executor)
-        orchestrator = PipelineTaskOrchestrator(pipeline_service=service, task_service=task_service,
-                                                artifact_service=artifacts)
+        orchestrator = PipelineTaskOrchestrator(pipeline_service=service, task_service=task_service)
         return task_service, service, orchestrator, catalog, sessions, workspace
 
     db_path = tmp_path / "state.sqlite3"

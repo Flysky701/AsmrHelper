@@ -8,7 +8,7 @@ import { useTaskStore } from '@/stores/taskStore'
 import type { TaskStatus } from '@/stores/taskStore'
 import type {
   SubtitleSegmentModel,
-  ScriptToVttRequest,
+  ScriptToSubtitleRequest,
 } from '@/api/types'
 
 // ── Tab types ────────────────────────────────────────────
@@ -848,7 +848,7 @@ export default function SubtitleWorkshop() {
   }
 
   // ── Script-to-VTT handler ──────────────────────────────
-  const handleScriptToVtt = async () => {
+  const handleScriptToSubtitle = async () => {
     if (!scriptPath) return
     if (scriptMode === 'full' && !scriptAudioPath) {
       setError('完整模式需要选择音频文件')
@@ -861,7 +861,7 @@ export default function SubtitleWorkshop() {
     setLoading('script')
     setError('')
     try {
-      const req: ScriptToVttRequest = {
+      const req: ScriptToSubtitleRequest = {
         script_path: scriptPath,
         fmt: scriptFmt,
         use_llm_clean: useLlmClean,
@@ -877,7 +877,7 @@ export default function SubtitleWorkshop() {
       }
       req.vertical_mode = verticalMode
       const localTaskId = addTask({
-        jobType: 'script-to-vtt',
+        jobType: 'script-to-subtitle',
         sourceName: scriptPath.split(/[/\\]/).pop() || scriptPath,
         sourcePath: scriptPath,
         params: { task_type: 'subtitle.script_to_vtt', mode: scriptMode, ...req },
@@ -1501,7 +1501,7 @@ export default function SubtitleWorkshop() {
               <div className="subtitle-execute-row" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                 <button
                   style={{ ...S.btn, ...S.btnPrimary, padding: '10px 24px' }}
-                  onClick={handleScriptToVtt}
+                  onClick={handleScriptToSubtitle}
                   disabled={!scriptPath || !!loading}
                 >
                   <Icon.Start /> {loading === 'script' ? '转换中...' : '开始转换'}

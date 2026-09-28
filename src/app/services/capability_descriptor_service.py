@@ -75,7 +75,7 @@ class CapabilityDescriptorService:
     def _with_model_defaults(item: dict[str, Any]) -> dict[str, Any]:
         result = deepcopy(item)
         if result["category"] == "tts" and result["provider"] == "openai_compatible":
-            from src.core.config import config
+            from src.config import config
 
             result["default_model"] = config.get("external_tts.model") or "default"
             result["supported_models"] = [result["default_model"]]
@@ -94,7 +94,7 @@ class CapabilityDescriptorService:
                 if option["name"] == "speed" and config.get("external_tts.api_format") == "fish":
                     option.update({"min": 0.5, "max": 2.0})
         if result["category"] == "llm":
-            from src.core.config import config
+            from src.config import config
 
             model = config.get(f"api.{result['provider']}_model")
             if isinstance(model, str) and model.strip():
@@ -104,8 +104,6 @@ class CapabilityDescriptorService:
                 )
         return result
 
-    def list_categories(self) -> list[str]:
-        return sorted({item["category"] for item in self._descriptors})
 
     def get_descriptor(self, category: str, provider: str) -> dict[str, Any]:
         for item in self._descriptors:

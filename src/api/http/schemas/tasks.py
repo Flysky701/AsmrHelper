@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 
 from src.app.dto import RuntimeEvent, TaskSpec, TaskStatus
 from .artifacts import (
-    ArtifactResponse,
     TaskPreviewResponse as TaskPreviewResponse,
     TaskResultResponse,
 )
@@ -146,26 +145,14 @@ class TaskCreateResponse(BaseModel):
     spec: TaskSpecResponse
 
 
-class TaskBatchCreateItemRequest(BaseModel):
-    task_type: str
-    task_source: str = "manual"
-    session_id: str
-    input_asset_id: str = ""
-    companion_asset_ids: list[str] = Field(default_factory=list)
-    execution_profile: dict[str, Any] = Field(default_factory=dict)
-    priority: int = 0
-    dedupe_key: str = ""
-
-
 class TaskBatchCreateRequest(BaseModel):
-    items: list[TaskBatchCreateItemRequest] = Field(default_factory=list)
+    items: list[TaskCreateRequest] = Field(default_factory=list)
 
 
 class TaskBatchCreateResponse(BaseModel):
     items: list[TaskCreateResponse] = Field(default_factory=list)
 
 
-ArtifactRecordResponse = ArtifactResponse
 TaskArtifactsResponse = TaskResultResponse
 
 

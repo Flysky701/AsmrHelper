@@ -159,7 +159,7 @@ def test_runtime_forwards_remote_model_and_voice():
 
 @pytest.mark.parametrize("speed", [0.5, 1.0, 1.2, 2.0])
 def test_fish_saved_config_reaches_documented_protocol(monkeypatch, tmp_path, speed):
-    from src.core.config import config
+    from src.config import config
     from src.core.engines.tts.registry import TtsRegistry
 
     requests = []

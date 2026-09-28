@@ -147,7 +147,7 @@ def test_batch_and_individual_failure_is_explicit(tmp_path):
     instance, create = translator(tmp_path)
     create.side_effect = RuntimeError("network failed")
     with pytest.raises(TranslationError):
-        instance.translate_segments([{"text": "hello"}, {"text": "world"}])
+        instance.translate_batch(["hello", "world"])
     assert not instance._cache._memory_cache
 
 

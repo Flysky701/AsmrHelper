@@ -19,13 +19,3 @@ def list_capabilities(
 ):
     descriptors = svc.list_descriptors(category=category, provider=provider)
     return [CapabilityDescriptorResponse(**item) for item in descriptors]
-
-
-@router.get("/{category}", response_model=list[CapabilityDescriptorResponse])
-def list_capabilities_by_category(
-    category: str,
-    provider: str | None = None,
-    svc: CapabilityDescriptorService = Depends(capability_descriptor_service),
-):
-    descriptors = svc.list_descriptors(category=category, provider=provider)
-    return [CapabilityDescriptorResponse(**item) for item in descriptors]

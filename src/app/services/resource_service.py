@@ -293,7 +293,7 @@ class ResourceService:
                 continue
 
             if category == "tts" and provider == "openai_compatible":
-                from src.core.config import config
+                from src.config import config
 
                 for key, label in (
                     ("base_url", "API 地址"),

@@ -153,14 +153,6 @@ class TranslationCache:
         except IOError as e:
             print(f"[TranslationCache] 缓存保存失败: {e}")
 
-    def _is_expired(self, timestamp_str: str) -> bool:
-        """检查缓存是否过期"""
-        try:
-            timestamp = datetime.fromisoformat(timestamp_str)
-            age_days = (datetime.now() - timestamp).days
-            return age_days > self.max_age_days
-        except (ValueError, TypeError):
-            return True  # 无效时间戳视为过期
 
     def get(self, text: str) -> Optional[str]:
         """
@@ -232,20 +224,6 @@ class TranslationCache:
 
         return hits, misses
 
-    def set_batch(
-        self,
-        results: List[Tuple[int, str, str]],
-        model: str = "unknown",
-    ):
-        """
-        批量设置缓存
-
-        Args:
-            results: [(索引, 原文, 翻译), ...]
-            model: 使用的模型
-        """
-        for _, text, translation in results:
-            self.set(text, translation, model)
 
     def get_stats(self) -> Dict[str, int]:
         """获取缓存统计信息"""
@@ -259,11 +237,6 @@ class TranslationCache:
             "hit_rate": hit_rate,
             "memory_entries": len(self._memory_cache),
         }
-
-    def clear_stats(self):
-        """清除统计信息"""
-        self._hits = 0
-        self._misses = 0
 
 
 # 全局单例（延迟初始化，线程安全）

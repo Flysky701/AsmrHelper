@@ -1,5 +1,7 @@
 # ASMR Helper
 
+开发基线为 `dev`，稳定主线为 `master`。分支使用与发布流程见 [分支与发布约定](docs/guides/branch-workflow.md)。
+
 ASMR 音频汉化工具，支持人声分离、语音识别、日译中翻译、语音合成和智能混音，输出双语双轨音频。
 
 ## 入口说明

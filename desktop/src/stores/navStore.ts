@@ -22,16 +22,6 @@ export const PAGE_LABELS: Record<PageId, string> = {
   settings: '设置',
 }
 
-export const PAGE_ORDER: PageId[] = [
-  'workbench',
-  'subtitle-workshop',
-  'voice-lab',
-  'audio-tools',
-  'task-center',
-  'engines',
-  'settings',
-]
-
 interface NavStore {
   activePage: PageId
   setPage: (page: PageId) => void

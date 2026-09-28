@@ -56,6 +56,7 @@ class VoiceProfile:
         # 相对路径，基于项目根目录解析
         return str(PROJECT_ROOT / path)
 
+
     def _make_relative_path(self, path: str) -> str:
         """
         将绝对路径转换为相对路径（使用 ${PROJECT_ROOT} 占位符）
@@ -200,122 +201,6 @@ class VoiceProfileManager:
         with self._profiles_lock:
             return [p for p in self._profiles.values() if p.category == "clone"]
 
-    def update_generated(self, profile_id: str, generated: bool, ref_audio: str = None, prompt_cache: str = None):
-        """
-        更新音色生成状态（线程安全）
-
-        Args:
-            profile_id: 音色 ID
-            generated: 是否已生成
-            ref_audio: 参考音频路径（可选，自动转换为相对路径）
-            prompt_cache: prompt 缓存路径（可选，自动转换为相对路径）
-        """
-        with self._profiles_lock:
-            profile = self._profiles.get(profile_id)
-            if profile:
-                profile.generated = generated
-                if ref_audio:
-                    profile.set_ref_audio_path(ref_audio)
-                if prompt_cache:
-                    profile.set_prompt_cache_path(prompt_cache)
-            # 在同一锁内保存，避免竞态条件
-            self.save()
-
-    def add_clone_profile(self, name: str, ref_audio: str, description: str = "") -> str:
-        """
-        添加用户克隆音色（线程安全）
-
-        Args:
-            name: 音色名称
-            ref_audio: 参考音频路径（自动转换为相对路径）
-            description: 描述
-
-        Returns:
-            新音色 ID
-        """
-        with self._profiles_lock:
-            # 生成新 ID
-            clone_ids = [int(p.id[1:]) for p in self._profiles.values() if p.category == "clone"]
-            next_num = max(clone_ids) + 1 if clone_ids else 1
-            new_id = f"C{next_num}"
-
-            # 音色目录（统一使用 PROJECT_ROOT）
-            voice_dir = PROJECT_ROOT / "models" / "voice_profiles"
-            voice_dir.mkdir(parents=True, exist_ok=True)
-
-            profile = VoiceProfile(
-                id=new_id,
-                name=name,
-                category="clone",
-                engine="qwen3_clone",
-                description=description,
-                ref_audio="",  # 稍后设置
-                prompt_cache="",  # 稍后设置
-                generated=False,
-            )
-
-            # 使用相对路径设置
-            profile.set_ref_audio_path(ref_audio)
-            profile.set_prompt_cache_path(str(voice_dir / f"{new_id}_prompt.pt"))
-
-            self._profiles[new_id] = profile
-
-        self.save()
-        return new_id
-
-    def add_custom_profile(
-        self,
-        name: str,
-        description: str,
-        design_instruct: str,
-        ref_audio: str = "",
-        prompt_cache: str = "",
-    ) -> str:
-        """
-        添加自定义音色（VoiceDesign 生成的音色）（线程安全）
-
-        Args:
-            name: 音色名称
-            description: 描述
-            design_instruct: VoiceDesign 自然语言描述
-            ref_audio: 参考音频路径（自动转换为相对路径）
-            prompt_cache: prompt 缓存路径（自动转换为相对路径）
-
-        Returns:
-            新音色 ID (B 系列)
-        """
-        with self._profiles_lock:
-            # 生成新 ID (B 系列)
-            custom_ids = [int(p.id[1:]) for p in self._profiles.values()
-                         if p.category == "custom"]
-            new_id = f"B{max(custom_ids) + 1 if custom_ids else 1}"
-
-            # 音色目录（统一使用 PROJECT_ROOT）
-            voice_dir = PROJECT_ROOT / "models" / "voice_profiles"
-            voice_dir.mkdir(parents=True, exist_ok=True)
-
-            profile = VoiceProfile(
-                id=new_id,
-                name=name,
-                category="custom",
-                engine="qwen3_clone",
-                description=description,
-                design_instruct=design_instruct,
-                ref_audio="",  # 稍后设置
-                prompt_cache="",  # 稍后设置
-                generated=bool(prompt_cache),
-            )
-
-            # 使用相对路径设置
-            if ref_audio:
-                profile.set_ref_audio_path(ref_audio)
-            if prompt_cache:
-                profile.set_prompt_cache_path(prompt_cache)
-
-            self._profiles[new_id] = profile
-
-        self.save()
-        return new_id
 
     def delete_profile(self, profile_id: str) -> bool:
         """

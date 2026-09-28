@@ -73,9 +73,6 @@ class ExecutorRegistry:
             entry = self._find(task_type)
             return None if entry is None else entry[1]
 
-    def registered_task_types(self) -> list[str]:
-        with self._lock:
-            return sorted([*self._exact, *self._prefix])
 
     def _find(self, task_type: str) -> tuple[str, TaskExecutor | None] | None:
         if task_type in self._exact:

@@ -45,6 +45,8 @@ ASR、TTS、LLM 等能力统一按 Provider 类别扩展，不再分别维护重
 
 ## 设计草案
 
+日常开发和发布流程见 [分支与发布约定](guides/branch-workflow.md)，本次迁移见 [2026-09-29 基线整理记录](roadmap/git-baseline-cleanup-2026-09-29.md)。
+
 - [声音库与音色生成规则（当前使用说明）](guides/voice-lab-v2.md)
 - [音色实验室 v2：完整目标与交互预览（历史设计草案）](designs/voice-lab-v2-product-preview.md)
 - [音色实验室初版专项设计（历史草案，范围已调整）](designs/voice-lab-multi-engine-design.md)

@@ -10,8 +10,6 @@ from src.api.http.dependencies import artifact_service, script_subtitle_service,
 from src.api.http.schemas.subtitles import (
     ScriptToSubtitleRequest,
     ScriptToSubtitleResponse,
-    ScriptToVttRequest,
-    ScriptToVttResponse,
     SubtitleBilingualizeRequest,
     SubtitleBilingualizeResponse,
     SubtitleDocumentModel,
@@ -190,9 +188,9 @@ def export_subtitle(
     )
 
 
-@router.post("/script-to-vtt", response_model=ScriptToVttResponse)
-def script_to_vtt(
-    body: ScriptToVttRequest,
+@router.post("/script-to-subtitle", response_model=ScriptToSubtitleResponse)
+def script_to_subtitle(
+    body: ScriptToSubtitleRequest,
     svc: ScriptSubtitleService = Depends(script_subtitle_service),
     artifact_svc: ArtifactService = Depends(artifact_service),
 ):
@@ -230,7 +228,7 @@ def script_to_vtt(
             metadata={"mode": result.mode, "line_count": result.line_count},
         )
 
-    return ScriptToVttResponse(
+    return ScriptToSubtitleResponse(
         mode=result.mode,
         output_path=result.output_path,
         text=result.text,
@@ -239,9 +237,9 @@ def script_to_vtt(
     )
 
 
-@router.post("/script-to-vtt/tasks", response_model=TaskStatusResponse, status_code=201)
-def create_script_to_vtt_task(
-    body: ScriptToVttRequest,
+@router.post("/script-to-subtitle/tasks", response_model=TaskStatusResponse, status_code=201)
+def create_script_to_subtitle_task(
+    body: ScriptToSubtitleRequest,
     svc: ScriptSubtitleService = Depends(script_subtitle_service),
 ):
     request = ScriptSubtitleRequest(
@@ -258,17 +256,3 @@ def create_script_to_vtt_task(
         debug_dir=body.debug_dir,
     )
     return TaskStatusResponse.from_task_status(svc.create_task(request))
-
-
-@router.post("/script-to-subtitle", response_model=ScriptToSubtitleResponse)
-def script_to_subtitle(
-    body: ScriptToSubtitleRequest,
-    svc: ScriptSubtitleService = Depends(script_subtitle_service),
-    artifact_svc: ArtifactService = Depends(artifact_service),
-):
-    result = script_to_vtt(
-        ScriptToVttRequest(**body.model_dump()),
-        svc=svc,
-        artifact_svc=artifact_svc,
-    )
-    return ScriptToSubtitleResponse(**result.model_dump())

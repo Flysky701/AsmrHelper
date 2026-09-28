@@ -116,7 +116,7 @@ class SubtitleBilingualizeResponse(BaseModel):
     task_id: str | None = None
 
 
-class ScriptToVttRequest(BaseModel):
+class ScriptToSubtitleRequest(BaseModel):
     script_path: str = Field(..., description="Path to the script file")
     output_path: str = Field("", description="Output subtitle file path")
     task_id: str | None = Field(None, description="Optional task to attach generated artifact")
@@ -131,17 +131,9 @@ class ScriptToVttRequest(BaseModel):
     debug_dir: str | None = Field(None, description="Debug output directory")
 
 
-class ScriptToVttResponse(BaseModel):
+class ScriptToSubtitleResponse(BaseModel):
     mode: str
     output_path: str | None = None
     text: str = ""
     line_count: int = 0
     task_id: str | None = None
-
-
-class ScriptToSubtitleRequest(ScriptToVttRequest):
-    pass
-
-
-class ScriptToSubtitleResponse(ScriptToVttResponse):
-    pass

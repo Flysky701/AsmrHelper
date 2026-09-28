@@ -241,35 +241,3 @@ class QualityChecker:
 
         # 两者都有，标记为混用
         return has_chinese and has_western
-
-    def get_summary(self, results: List[QualityCheckResult]) -> str:
-        """
-        获取质量检测摘要
-
-        Args:
-            results: 检测结果列表
-
-        Returns:
-            str: 摘要信息
-        """
-        total = len(results)
-        valid = sum(1 for r in results if r.is_valid)
-        invalid = total - valid
-
-        # 统计各类问题
-        issue_counts = {}
-        for result in results:
-            for issue in result.issues:
-                issue_counts[issue] = issue_counts.get(issue, 0) + 1
-
-        summary_parts = [
-            f"质量检测完成: {total} 条",
-            f"  有效: {valid}, 有问题: {invalid}",
-        ]
-
-        if issue_counts:
-            summary_parts.append("  问题分布:")
-            for issue, count in sorted(issue_counts.items(), key=lambda x: -x[1]):
-                summary_parts.append(f"    - {issue.value}: {count}")
-
-        return "\n".join(summary_parts)

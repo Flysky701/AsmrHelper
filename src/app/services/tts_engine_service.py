@@ -37,12 +37,6 @@ class TtsEngineService:
         descriptor = self.get_engine(engine_id)
         return descriptor.get("supported_models", [])
 
-    def get_default_voice(self, engine_id: str) -> str:
-        descriptor = self.get_engine(engine_id)
-        for opt in descriptor.get("common_option_schema", []):
-            if opt.get("name") == "voice":
-                return str(opt.get("default", ""))
-        return ""
 
     def list_voices(self, engine_id: str) -> list[dict]:
         """Return available voices for a TTS engine."""

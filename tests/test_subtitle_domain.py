@@ -249,22 +249,3 @@ class TestSubtitleWorkspaceFormats:
                 [{"start": 0.0, "end": 1.0, "text": "hello", "translation": "你好"}],
                 str(tmp_path / "captions.ass"),
             )
-
-
-class TestDeprecationWarnings:
-    """Verify that legacy modules have been removed (Phase 2 cleanup complete)."""
-
-    def test_legacy_subtitle_generator_removed(self):
-        """Legacy src.core.subtitle_generator has been deleted."""
-        from pathlib import Path
-        assert not Path("src/core/subtitle_generator.py").exists()
-
-    def test_legacy_script_processor_removed(self):
-        """Legacy src.core.script_processor has been deleted."""
-        from pathlib import Path
-        assert not Path("src/core/script_processor.py").exists()
-
-    def test_legacy_script_to_subtitle_removed(self):
-        """Legacy src.core.script_to_subtitle/ has been deleted."""
-        from pathlib import Path
-        assert not Path("src/core/script_to_subtitle/__init__.py").exists()

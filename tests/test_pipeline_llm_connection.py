@@ -1,5 +1,4 @@
 """Explicit per-run LLM selection must not mutate or fall back to global A."""
-from copy import deepcopy
 from dataclasses import asdict
 import importlib
 import json

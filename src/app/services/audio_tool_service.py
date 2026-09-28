@@ -60,21 +60,6 @@ class AudioToolService:
         self._subtitle_service = subtitle_service or get_subtitle_service()
         self._separator_runtime = separator_runtime or SeparatorEngineRuntime()
 
-    def run_tool_task(
-        self,
-        task_id: str,
-        *,
-        manage_lifecycle: bool = True,
-        cancel_event=None,
-    ) -> dict[str, Any]:
-        task_spec = self._task_service.get_task_spec(task_id)
-        if not task_spec.task_type.startswith("tool."):
-            raise AppValidationError(f"task is not a tool task: {task_id}")
-        return self.run_tool_task_spec(
-            task_spec,
-            manage_lifecycle=manage_lifecycle,
-            cancel_event=cancel_event,
-        )
 
     def run_tool_task_spec(
         self,
@@ -581,7 +566,6 @@ class AudioToolService:
             recommended_original_volume=request.original_volume,
             recommended_tts_ratio=round(recommended_ratio, 3),
         )
-
 
 
 _service: AudioToolService | None = None

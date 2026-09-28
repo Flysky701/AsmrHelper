@@ -133,7 +133,6 @@ def test_restored_history_requires_a_new_pipeline_submission(tmp_path):
     orchestrator = PipelineTaskOrchestrator(
         pipeline_service=MagicMock(),
         task_service=restarted,
-        artifact_service=MagicMock(),
     )
 
     with pytest.raises(AppValidationError, match="historical tasks cannot be retried"):

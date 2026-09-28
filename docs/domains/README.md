@@ -45,4 +45,4 @@ ASR、TTS、LLM 是 Provider 类别，不再分别维护一套重复的领域契
 - [Provider 与设置契约](../contracts/provider-v1.md)
 - [兼容与迁移说明](../contracts/compatibility.md)
 
-原 12 份细分领域设计已归档到 [历史领域文档](../archived/domains/)，不再作为当前实现约束。
+原 12 份细分领域设计已删除，可通过 Git 历史追溯。

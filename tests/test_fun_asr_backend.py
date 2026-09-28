@@ -138,7 +138,7 @@ def test_execution_profile_builder_uses_fun_asr_default_model_when_settings_hold
     from src.app.services.execution_profile_builder import ExecutionProfileBuilder
 
     settings = MagicMock()
-    settings.get_effective_settings.return_value = {
+    settings.get_settings.return_value = {
         "processing": {"asr_model": "large-v3", "vocal_model": "htdemucs"},
         "tts": {"engine": "edge"},
         "api": {"provider": "deepseek"},

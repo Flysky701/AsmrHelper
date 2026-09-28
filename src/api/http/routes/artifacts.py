@@ -9,39 +9,21 @@ from fastapi.responses import FileResponse
 
 from src.api.http.dependencies import artifact_service
 from src.api.http.schemas.artifacts import (
-    ArtifactRecordResponse,
-    ArtifactSetResponse,
-    TaskResultViewResponse,
+    ArtifactResponse,
 )
 from src.app.services import ArtifactService
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
 
-def _to_record_response(record) -> ArtifactRecordResponse:
-    return ArtifactRecordResponse.from_record(
+def _to_record_response(record) -> ArtifactResponse:
+    return ArtifactResponse.from_record(
         record,
         primary_artifact_id=record.artifact_id if record.is_primary else None,
     )
 
 
-@router.get("/by-task/{task_id}", response_model=ArtifactSetResponse)
-def get_task_artifacts_by_task(
-    task_id: str,
-    svc: ArtifactService = Depends(artifact_service),
-):
-    return ArtifactSetResponse.from_view(svc.get_task_result_view(task_id))
-
-
-@router.get("/by-task/{task_id}/result", response_model=TaskResultViewResponse)
-def get_task_result_view_by_task(
-    task_id: str,
-    svc: ArtifactService = Depends(artifact_service),
-):
-    return TaskResultViewResponse.from_view(svc.get_task_result_view(task_id))
-
-
-@router.get("/{artifact_id}", response_model=ArtifactRecordResponse)
+@router.get("/{artifact_id}", response_model=ArtifactResponse)
 def get_artifact(
     artifact_id: str,
     svc: ArtifactService = Depends(artifact_service),

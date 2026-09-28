@@ -11,8 +11,6 @@ from src.api.http.schemas.pipeline_runs import (
 )
 from src.app.dto import PipelineRequest
 from src.api.http.schemas.tasks import (
-    TaskArtifactsResponse,
-    TaskResultResponse,
     TaskStatusResponse,
 )
 from src.app.services import PipelineTaskOrchestrator
@@ -41,20 +39,3 @@ def submit_pipeline_run(
     return PipelineRunAcceptedResponse(
         task=TaskStatusResponse.from_task_status(task),
     )
-
-
-@router.get("/{task_id}", response_model=TaskResultResponse)
-def get_pipeline_run(
-    task_id: str,
-    svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator),
-):
-    task = svc.get_task(task_id)
-    return TaskResultResponse.from_view(svc.get_task_result(task.task_id))
-
-
-@router.get("/{task_id}/artifacts", response_model=TaskArtifactsResponse)
-def get_pipeline_run_artifacts(
-    task_id: str,
-    svc: PipelineTaskOrchestrator = Depends(pipeline_task_orchestrator),
-):
-    return TaskArtifactsResponse.from_view(svc.get_task_result(task_id))
