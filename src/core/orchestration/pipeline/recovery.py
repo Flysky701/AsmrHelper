@@ -31,6 +31,11 @@ class PipelineRecovery:
         self._models = {}
         self._speech_audit = None
 
+    def _uses_speech_snapshot(self):
+        # Production plans retain the concrete provider. Presence (rather than
+        # truthiness) ensures malformed snapshots fail instead of falling back.
+        return self.plan.tts.provider == "speech" or "speech_snapshot" in self.plan.tts.provider_options
+
     def _speech_identity(self):
         """Attest only to the new immutable recipe, never to global TTS defaults."""
         from src.core.speech.compiler import COMPILER_VERSION
@@ -46,6 +51,8 @@ class PipelineRecovery:
         provider_id = recipe.get("provider_id")
         if provider_id not in self._REUSABLE_SPEECH_PROVIDERS:
             raise ValueError("该语音引擎尚未通过阶段恢复审计，请建立新任务")
+        if self.plan.tts.provider not in {"speech", provider_id}:
+            raise ValueError("语音引擎与固定配置快照不符，请建立新任务")
         provider = get_provider(provider_id)
         if snapshot.get("provider_version", provider.version) != provider.version:
             raise ValueError("语音引擎版本已改变，请建立新任务")
@@ -96,7 +103,7 @@ class PipelineRecovery:
                      "export": "subtitle"}.get(stage, stage)
         binding = getattr(self.plan, attribute)
         model = getattr(binding, "model", "")
-        if stage == "tts" and self.plan.tts.provider == "speech":
+        if stage == "tts" and self._uses_speech_snapshot():
             self._speech_audit = self._speech_identity()
             # A completed synthesis must never be regenerated implicitly when
             # its producer's dependencies can no longer be attested to.
@@ -125,10 +132,10 @@ class PipelineRecovery:
     def run(self, stage, operation, results, segments, translations, by_product_dir, mix_path):
         stage_fingerprint = self._fingerprint(stage)
         reusable = (stage != "tts" or self.plan.tts.provider in self._REUSABLE_TTS_PROVIDERS
-                    or (self.plan.tts.provider == "speech" and self._speech_audit is not None))
+                    or (self._uses_speech_snapshot() and self._speech_audit is not None))
         record = (self.store.validated(self.source_task_id, stage, stage_fingerprint)
                   if self._reuse and reusable else None)
-        if (stage == "tts" and self.plan.tts.provider == "speech" and self.source_task_id
+        if (stage == "tts" and self._uses_speech_snapshot() and self.source_task_id
                 and not record and self.store.checkpoint(self.source_task_id, stage)):
             raise ValueError("已完成语音的检查点或上游结果已失效；请明确建立新任务，避免恢复时重复生成与计费")
         if record:

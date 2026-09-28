@@ -1,6 +1,6 @@
 # Task Execution V1
 
-更新时间：2026-08-19
+更新时间：2026-09-29
 
 本文收口 AsmrHelper 的长耗时任务执行边界。它复用现有 `TaskRegistry`、`TaskDispatcher`、`PipelineTaskOrchestrator` 和 `RuntimeRouter`，并以持久化 `BatchRun` 聚合多个普通 Pipeline Task；不引入新的持久执行队列或分布式调度平台。
 
@@ -14,7 +14,8 @@
 | `tool.separate/convert/split/translate_subtitle/volume_preview` | `ToolRegistry` → `AudioToolService` | 每个 Artifact 的 `task_id` |
 | `subtitle.script_to_vtt` | `ScriptSubtitleService` → `core.subtitles` | 自动生成的 TXT/VTT/SRT/LRC 只归属创建它的 Task |
 | `model_install` | `ModelService` → `ModelInstaller` | 状态与 RuntimeEvent；安装文件不伪装成音频 Artifact |
-| `voice.design/clone/preview` | `VoiceService` → `RuntimeRouter` → `qwen_tts` Worker | 参考音频、prompt cache 或 preview WAV 的 `task_id` |
+| `speech.generate` | `SpeechService` → Speech Provider（本地模型使用隔离 Worker） | Task Artifact 与实验记录关联；正式配音文件位于所属 Pipeline 任务目录 |
+| `speech.reference_analyze` | `SpeechService` → 字幕复用、停顿分析或显式 ASR | 分析进度与结构化候选结果，不自动保存声音库素材 |
 
 `ExecutorRegistry` 在提交时拒绝未知任务类型。已声明但尚未绑定 callable 的类型也不能被 Dispatcher 执行：它会在执行边界明确失败，不会永久停留在 `pending`。
 
@@ -28,9 +29,9 @@ Tool 领域入口 `POST /api/v1/tool-runs` 同样是“创建并提交”：响�
 
 字幕工坊的长耗时台本处理使用 `POST /api/v1/subtitles/script-to-subtitle/tasks`。未显式指定输出时，后端根据台本路径生成 `_cleaned.txt` 或 `_aligned.<fmt>`；进度阶段、取消、错误和 Artifact 归属均由 Task V1 管理。字幕翻译页面直接复用 `tool.translate_subtitle`，不再通过同步字幕接口伪装为后台任务。
 
-Voice Design、Clone 与 Preview 的正式 HTTP 入口也返回 TaskStatus `201`，不等待 Qwen Worker 完成。桌面端提交后进入 TaskCenter；生成的参考音频、prompt cache 和试听 WAV 通过统一 TaskResult 获取。片段分析仍是克隆表单的同步结构化查询，不伪装成可取消后台任务。
+语音生成通过 `POST /api/v1/speech/experiments/{id}/generate` 返回 TaskStatus `202`，由 `speech.generate` 执行；结果关联实验候选与任务产物。声音库辅助选段通过 `/speech/references/analyze-tasks` 返回 `202` 的分析任务，并提供阶段进度、取消和结构化候选查询。现行能力按 Provider 声明开放，旧 `/voice/*`、`/tts/*` HTTP 入口已退出。
 
-ASR、LLM 与 TTS 的单次直连接口是底层同步诊断面，不是桌面产品任务入口；它们用于 Provider 校准和真实推理探测，不承诺 Task 生命周期。任何需要进度、取消、重试和 Artifact 归属的用户操作必须走 Pipeline、Tool 或 Voice Task。
+ASR、LLM 的单次直连接口是底层同步诊断面，不是桌面产品任务入口；它们用于 Provider 校准和真实推理探测，不承诺 Task 生命周期。旧 `/tts/synthesize` 不再挂载。需要任务进度、取消和结果归属的长耗时用户操作应走 Pipeline、Tool 或 Speech Task，是否可重试或恢复由具体任务契约决定。
 
 ## 2. 状态契约
 
@@ -39,15 +40,16 @@ ASR、LLM 与 TTS 的单次直连接口是底层同步诊断面，不是桌面�
 - 取消是请求语义：`request_cancel` 只设置取消事件并返回仍为 `running` 的快照；执行器退出后 Dispatcher 才写入最终 `cancelled`。
 - 异常统一落在 `failed`，`error.stage` 使用执行时最后已知阶段，`error.code` 和 `detail` 保留可诊断信息。
 - 产物由产物服务以 `task_id` 注册；失败和取消任务不继承其他任务的产物。
-- 重试创建新 Task，原任务保持终态，新 Task 的 `retry_of_task_id` 指向原任务。重启时继续清理未完成任务；恢复的 Pipeline、Tool、模型安装和 Voice 终态历史任务均只读。
-- BatchRun 的失败项重提会依据批次保存的输入与执行配置创建新的 Pipeline Task，并把新 task_id 追加到对应条目历史；成功项不会重复执行。APP 重启时未完成子任务仍按 Task V1 清理，批次标记为 `interrupted`，用户可显式重提其中失败项，不伪装成断点续跑。
+- 普通重试创建新 Task，原任务保持终态，新 Task 的 `retry_of_task_id` 指向原任务；重启加载的历史任务不支持普通重试。
+- 重启时先将有恢复清单的未完成任务保留为 `failed / TASK_INTERRUPTED`，再清理其余未完成任务。符合条件的失败、取消或中断 Pipeline 可通过 `POST /tasks/{id}/resume` 创建新任务；输入、连接与检查点通过校验后复用已完成阶段，中断阶段重跑，不自动续跑或恢复阶段内部进度。
+- BatchRun 的失败项重提会依据批次保存的输入与执行配置创建新的 Pipeline Task，并把新 task_id 追加到对应条目历史；成功项不会重复执行。APP 重启时批次标记为 `interrupted`，用户可显式重提失败项。子任务按上述 Pipeline 恢复规则保留或清理；批次重提与单个 Pipeline 的阶段恢复是不同操作。
 
 ## 3. Pipeline 与 Worker 边界
 
 `POST /api/v1/pipeline-runs`、Pipeline V1 `execution_profile`、Pipeline 阶段处理逻辑和现有 Artifact 结构保持兼容。单文件 Pipeline、连续任务、失败隔离、取消后重提以及 Worker 异常后的人工重提均通过同一 Dispatcher 入口执行。
 
-`RuntimeRouter` 继续将 Qwen ASR/TTS 以及 Voice Design/Clone/Preview 放到隔离 Worker。Worker 异常会清理 request/response 交换文件并使当前任务明确失败；本版本不自动重启 Worker。
+ASR 通过 `RuntimeRouter` 路由隔离 Worker；当前 Speech 本地模型由 Provider 启动隔离 Worker，远端 Provider 使用外部服务。旧 Voice 执行代码不属于正式 HTTP 入口。Worker 异常使当前任务明确失败，不自动重启 Worker。
 
 ## 4. 明确不做
 
-本版本不引入 `root_task_id`、`executor_version`、CPU/GPU/网络资源标签、持久执行队列或分布式调度。`BatchRun` 仅为持久聚合与控制事实，不能绕过 TaskDispatcher，也不承诺进程重启后继续执行未完成音频。
+本版本不引入 `root_task_id`、`executor_version`、CPU/GPU/网络资源标签、持久执行队列或分布式调度。`BatchRun` 仅为持久聚合与控制事实，不能绕过 TaskDispatcher，也不在进程重启后自动继续执行未完成音频；显式 Pipeline 阶段恢复不等于自动恢复执行队列。

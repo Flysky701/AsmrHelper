@@ -1,6 +1,6 @@
 # AsmrHelper 后端能力事实清单
 
-> 更新时间：2026-08-30
+> 更新时间：2026-09-29（入口与恢复语义校正；带日期的验收记录保留原时间）
 >
 > 事实优先级：当前源码与运行探测 > 自动测试 > 真实手动验收 > 设计文档。
 > 本文只说明后端现在能做什么、当前机器是否具备条件，以及哪些接口仍只是接线或兼容入口。
@@ -41,11 +41,11 @@ Tauri / React
 | Workspace | 可解析项目工作区和输出目录 | 已实现、自动测试 | 不是多项目工作区管理器 |
 | Input | 可检查输入路径、媒体类型和伴随字幕 | 已实现、自动测试 | 不保存媒体内容，只保存资产描述 |
 | Session | Pipeline/Tool 创建时生成会话并记录输入及输出策略 | 已实现、自动测试 | 当前主要是执行上下文，不是可编辑项目文档 |
-| 单文件 Pipeline | StageProfile V1、readiness、后台执行、阶段进度、错误与产物已统一 | 默认 Edge 链路和 Qwen3-TTS 单文件链路真实验收 | 仅进程内线程，不提供跨重启续跑 |
-| 批量 Pipeline | Workbench 的多文件输入创建持久 BatchRun，记录稳定 batch_id、子任务、聚合进度、整批取消和失败项重提；每个输入仍是独立 Pipeline task，批次历史与控制统一进入 TaskCenter | BatchRun/Task 契约、桌面生产构建与本地浏览器真实渲染已通过；Tauri 原生文件选择与正式窗口交互仍需在具备 Cargo 的环境验收 | 重启后未完成批次标记 interrupted，由用户显式重提失败项；不续跑中断任务 |
-| Task | pending/running/completed/failed/cancelled/skipped、SSE RuntimeEvent、取消、重提、审核字段 | 已实现、自动测试 | Pipeline retry 创建新 task；重启后的历史任务只读 |
+| 单文件 Pipeline | StageProfile V1、readiness、后台执行、阶段进度、错误与产物已统一；保存恢复清单和阶段检查点 | 默认 Edge 链路和 Qwen3-TTS 单文件链路真实验收（历史记录见下文） | 进程内线程；支持校验后的显式阶段恢复，不自动续跑或恢复阶段内进度 |
+| 批量 Pipeline | Workbench 的多文件输入创建持久 BatchRun，记录稳定 batch_id、子任务、聚合进度、整批取消和失败项重提；每个输入仍是独立 Pipeline task，批次历史与控制统一进入 TaskCenter | BatchRun/Task 契约、桌面生产构建与本地浏览器真实渲染已通过；Tauri 原生文件选择与正式窗口交互仍需在具备 Cargo 的环境验收 | 重启后未完成批次标记 interrupted，由用户显式重提失败项；不自动续跑，单个子任务另按 Pipeline 阶段恢复规则判断 |
+| Task | pending/running/completed/failed/cancelled/skipped、SSE RuntimeEvent、取消、重提、审核字段 | 已实现、自动测试 | retry 和 Pipeline resume 均创建新 task；历史任务不支持普通 retry，但符合条件的 Pipeline 可显式 resume |
 | Queue | 可查看队列快照和 running count | 已实现 | 只是进程内低并发状态，不是持久化调度器 |
-| Persistence | SQLite 保存终态 TaskSpec、TaskStatus 和 Artifact | 已实现、重启测试通过 | 启动时删除未完成任务及其 Artifact，不恢复执行 |
+| Persistence | SQLite 保存 TaskSpec、TaskStatus、Artifact 及 Pipeline 恢复清单和阶段检查点 | 已实现，验证范围见任务恢复测试 | 启动时有恢复清单的中断任务保留为 failed / TASK_INTERRUPTED，其余未完成任务清理；不自动执行 |
 | Artifact | 按 task_id 登记主产物、字幕、中间音频和预览类型 | 已实现、批量归属验收通过 | 内部 PipelineResult 仍保留少量路径型字段 |
 | Readiness | 校验输入解码、Provider/Model、Python 依赖、系统工具、GPU 和凭据 | 已实现，Pipeline 创建及 prepare 双重检查 | 只检查任务实际选择的阶段；不会自动安装资源 |
 | Model catalog | 模型列表、状态、安装、验证、删除和卸载接口存在 | 已实现、自动测试 | “installed”和“executable”是不同状态 |
@@ -55,7 +55,7 @@ Tauri / React
 | Capability | ASR/TTS/LLM/Separator 的模型、默认值和参数 schema 可查询 | 已实现、Workbench 已消费 | 描述符表示支持范围，不表示当前环境已安装 |
 | Subtitle | load/parse/normalize/export 等短操作；字幕翻译与台本转字幕后台任务 | 台本纯文本任务已通过真实 HTTP、自动输出和 Artifact 验收；字幕翻译 Tool 已真实验收 | 完整台本对齐仍依赖可执行 ASR 与已配置 LLM |
 | Tool task | 分离、格式转换、切分、字幕翻译、音量预览均以“创建即提交”的后台任务执行并登记产物 | 五种工具已连续真实 HTTP 验收；桌面工具页已接线，当前 Tauri 页面与原生文件选择调用已确认 | 音量预览只返回分析结果，不登记文件 Artifact |
-| Voice profile | profile 列表、详情、删除、设计、克隆、分析、预览可用；Design/Clone/Preview 进入 `qwen_tts` Worker | Design、Clone、Preview 与 Analyze 均已通过正式 API 真实验收，Task/Artifact 归属正确 | 属于 Qwen3-TTS 专属扩展能力，不承诺其他 TTS Provider 具备等价功能 |
+| 声音库与音色规则 | `/speech` 管理参考录音、生成规则、连接、试音和辅助选段；能力来自多 Provider 目录 | 当前实现与旧 Voice 验收分开；下文带日期的 Qwen 验收仅说明当时链路 | 按引擎声明开放参考克隆、描述创建或预设声音，不承诺所有 Provider 能力等价；旧 `/voice`、`/tts` 不挂载 |
 
 ## 4. Provider 与模型事实
 
@@ -142,13 +142,13 @@ Fun-ASR、Qwen3-ASR、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均属于可
 
 - Workbench 可以使用：能力目录、StageProfile V1、readiness、统一文件/目录输入清单、单文件后台任务、持久 BatchRun、取消、活动任务重提和 Artifact 结果。显式文件通过输入目录 API 检查元数据和同名伴随字幕，目录支持递归扫描；合并后的清单统一执行路径去重、勾选/全选，并复用同一份 ExecutionProfile 构建逻辑。
 - Workbench 恰好选中一个输入时提交 `/pipeline-runs`；选中多个输入时必须明确提示“本次将创建批次”，再提交 `/batch-runs`。提交前的逐文件检查使用有限并发，不能让最多 500 个输入串行等待，也不能绕过后端权威 readiness 门禁。
-- TaskCenter 可以展示终态历史和活动任务；历史任务不能原地重试，只能重新提交。批次历史、总进度、整批取消和失败项重提也统一进入 TaskCenter 的批次视图。
+- TaskCenter 可以展示终态历史和活动任务；历史任务不能普通重试，符合恢复条件的 Pipeline 可显式创建阶段恢复任务，其他任务重新提交。批次历史、总进度、整批取消和失败项重提也统一进入 TaskCenter 的批次视图。
 - TaskCenter 只在进入批次视图时加载批次历史，之后只轮询当前选中的活动批次；常驻任务视图不得每隔固定时间重复拉取全部批次及全部条目。
 - TaskCenter 已按 Task V1 修正重试语义：本会话失败任务重试时创建新任务并保留 `retry_of_task_id`，旧任务不再被新 ID 覆盖；页面不再提供后端不存在的“清理/移出任务”操作。非 Pipeline 任务显示自身后端阶段，失败详情直接消费结构化错误，历史参数通过 TaskSpec 补读。
 - EnginesResources 可以展示模型与 `installed/executable` 事实；异步安装提交后进入 TaskCenter，统一展示进度、取消、错误和重试，不再由资源页维护另一套任务轮询状态。
 - SubtitleWorkshop 已有后端支撑，可在契约范围内整理，不需要重新设计后端。
-- VoiceLab 的 profile 浏览、Design、Clone、Preview 可以保留；这些是 Qwen3-TTS 专属扩展，不应显示为所有 TTS 引擎的通用能力。三项生成操作均为创建即提交的后台 Task，结果和试听产物统一从 TaskCenter 获取。
-- VoiceLab 的片段分析按后端契约提交 `subtitle_path/audio_language`，并消费 `score/recommended_indices/warnings`；它是克隆表单的同步结构化查询。设计档案的 `custom` 分类和内置预设不可删除边界已对齐。
+- 声音库负责参考录音导入、片段选择和简单处理；我的音色保存生成规则，能力按多 Provider 目录声明提供。试音使用 `speech.generate` 后台任务，辅助选段使用 `speech.reference_analyze`；规则、实验候选和任务结果分别保留，不把旧 Qwen 专属 Voice 入口视为当前通用接口。
+- 声音库辅助选段优先复用可用的 VTT/SRT；没有字幕时默认使用停顿分析，只有显式启用才运行 ASR。界面展示任务进度和结果来源，候选不会自动保存或标为已确认转录；详见 [声音库与音色生成规则](../guides/voice-lab-v2.md)。
 - AudioTools 已消费后端工具目录和任务创建接口；工具目录读取失败或未声明某项能力时，页面会禁用提交，不把客户端常量当成可用事实。
 - SubtitleWorkshop 的字幕翻译已复用 `tool.translate_subtitle`；台本转字幕使用 `subtitle.script_to_vtt` 后台任务，提交后统一到 TaskCenter 查看阶段、错误与产物。完整模式缺少音频、已有字幕模式缺少字幕时会在客户端先拦截。
 - 独立的桌面“批量处理”导航和页面已删除。目录递归扫描、文件清单、同名字幕发现、自定义输出目录和批次并行度归入 Workbench；BatchRun 总进度、整批取消、失败项重提与恢复后的历史事实归入 TaskCenter。
@@ -161,15 +161,19 @@ Fun-ASR、Qwen3-ASR、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均属于可
 3. `.runtimes/*-backup-*` 不参与当前运行，未经用户确认不删除；多余 Whisper/Qwen 权重也应在确认保留清单后处理。
 4. 后续修改 Tauri 对话框、任务状态或播放器时，重新执行正式窗口交互验收；不要用构建成功代替产品验收。
 
-## Task Execution V1 收口进度（2026-08-04）
+## 当前 Task Execution V1 边界（2026-09-29）
 
-Pipeline、Tool、模型安装和 Voice Design/Clone/Preview 已接入进程内共享的 `TaskDispatcher` 与 `ExecutorRegistry`。通用 Task HTTP 创建接口会立即提交执行；未知任务类型在创建边界拒绝，已声明但没有 callable 的类型在执行边界明确失败，不会永久停留在 `pending`。重复的 Pipeline start/execute 与 Tool 同步执行 HTTP 入口已删除，避免同一 Task 被二次接管。
+Pipeline、Tool、模型安装和 Speech 生成/参考分析已接入进程内共享的 `TaskDispatcher` 与 `ExecutorRegistry`。通用 Task HTTP 创建接口会立即提交执行；未知任务类型在创建边界拒绝，已声明但没有 callable 的类型在执行边界明确失败，不会永久停留在 `pending`。重复的 Pipeline start/execute 与 Tool 同步执行 HTTP 入口已删除，避免同一 Task 被二次接管。
 
-`/asr/transcribe`、`/llm/translate`、`/llm/operations/run` 与 `/tts/synthesize` 保留为底层引擎诊断/真实推理验收接口，调用时同步返回领域结果，不提供 Task 取消、重试或历史语义。正式桌面长任务不消费这些接口，而是通过 Pipeline、Tool 或 Voice Task 执行；桌面 API 层已删除未使用的直连封装，只保留 Workbench 需要的 TTS 音色查询。
+`/asr/transcribe`、`/llm/translate`、`/llm/operations/run` 保留为底层同步诊断接口，不提供 Task 取消、重试或历史语义。旧 `/tts/synthesize`、`/tts/*`、`/voice/*` 未挂载；当前语音连接、能力和规则使用 `/speech/*`，试音生成由 `/speech/experiments/{id}/generate` 创建 `speech.generate` 后台任务。正式桌面长任务通过 Pipeline、Tool 或 Speech Task 执行。
 
-Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时清理未完成任务的策略不变，重启后恢复的所有终态历史任务统一只读。2026-08-19 新增的 BatchRun 是持久聚合与控制事实，不是 root task 或第二套执行器；仍未引入 executor version、资源标签或分布式队列。
+Task V1 已固定终态不可变、单任务只执行一次、执行器退出后再进入最终取消状态、阶段化错误、基于 `task_id` 的产物归属，以及新重试任务的 `retry_of_task_id`。启动时先保留有恢复清单的中断任务并标记失败，再清理其余未完成任务。历史任务不可普通重试；符合条件的 Pipeline 可显式 resume 创建新任务，校验后复用已完成阶段，中断阶段重跑。BatchRun 是持久聚合与控制事实，不是第二套执行器，也不自动恢复运行；仍未引入资源标签或分布式队列。
 
-自动化基线为 `254 passed`，覆盖 Tool/字幕/Voice 创建即后台提交、自定义输出目录、台本自动输出、Artifact 归属和失效执行入口守卫。删除 3 条重复同步执行入口后，当前环境自检注册 86 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601/F401` 同步通过。
+## 历史验收记录（2026-08-04 至 2026-08-07）
+
+以下保留当时的实现、路由和测试结果，不代表当前 `/speech` 链路已重新完成同等真实验收。
+
+2026-08-04 自动化基线为 `254 passed`，覆盖 Tool/字幕/Voice 创建即后台提交、自定义输出目录、台本自动输出、Artifact 归属和失效执行入口守卫。删除 3 条重复同步执行入口后，当时环境自检注册 86 条路由；桌面前端生产构建、Python `compileall` 与 Ruff `F821/F601/F401` 同步通过。
 
 2026-08-07 使用固定非敏感日语测试句完成 `Qwen3-ASR 0.6B → DeepSeek → Qwen3 CustomVoice` 正式 Pipeline。任务 `pipeline-1` 在 `export` 阶段完成，登记混音、双语字幕、TTS WAV 和 ASR 文本四类 Artifact；ASR 文本与测试句一致，字幕包含有效中文翻译，TTS 产物为 24 kHz、6.48 秒 WAV，执行后无 Qwen Worker 残留。该验收不包含用户素材外发。
 

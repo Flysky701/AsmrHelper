@@ -413,12 +413,10 @@ class PipelineExecutor:
 
             # Get reference duration from input
             reference_duration = 0.0
-            sample_rate = 44100
             try:
                 import soundfile as sf
                 info = sf.info(plan.input_path)
                 reference_duration = info.duration
-                sample_rate = info.samplerate
             except Exception:
                 pass
 

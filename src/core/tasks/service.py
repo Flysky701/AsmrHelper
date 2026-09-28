@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime
 
 from .executors import ExecutorRegistry, build_default_executor_registry
@@ -56,7 +57,7 @@ class TaskRegistry:
             session_id=session_id,
             input_asset_id=input_asset_id,
             companion_asset_ids=list(companion_asset_ids or []),
-            execution_profile=dict(execution_profile or {}),
+            execution_profile=deepcopy(execution_profile or {}),
             priority=priority,
             dedupe_key=dedupe_key,
             retry_of_task_id=retry_of_task_id,
@@ -411,7 +412,7 @@ class TaskRegistry:
             started_at=next_started_at,
             updated_at=now,
             finished_at=next_finished_at,
-            error=None if clear_error or reset_runtime else error if error is not None else current.error,
+            error=None if clear_error or reset_runtime else deepcopy(error if error is not None else current.error),
             artifact_set_id=(
                 None
                 if reset_runtime
@@ -464,7 +465,7 @@ class TaskRegistry:
             "progress": current.progress,
         }
         if current.error is not None:
-            data["error"] = dict(current.error)
+            data["error"] = current.error
         if current.task_type == "model_install":
             spec = self._task_specs[current.task_id]
             data.update(
@@ -504,7 +505,7 @@ class TaskRegistry:
                 stage=task.stage,
                 message=message,
                 detail=detail,
-                data=dict(data or {}),
+                data=deepcopy(data or {}),
             )
         )
 
@@ -526,7 +527,7 @@ class TaskRegistry:
             started_at=task.started_at,
             updated_at=task.updated_at,
             finished_at=task.finished_at,
-            error=dict(task.error) if task.error is not None else None,
+            error=deepcopy(task.error),
             artifact_set_id=task.artifact_set_id,
             retry_of_task_id=task.retry_of_task_id,
             review_state=task.review_state,
@@ -542,7 +543,7 @@ class TaskRegistry:
             session_id=task_spec.session_id,
             input_asset_id=task_spec.input_asset_id,
             companion_asset_ids=list(task_spec.companion_asset_ids),
-            execution_profile=dict(task_spec.execution_profile),
+            execution_profile=deepcopy(task_spec.execution_profile),
             priority=task_spec.priority,
             dedupe_key=task_spec.dedupe_key,
             retry_of_task_id=task_spec.retry_of_task_id,
@@ -560,7 +561,7 @@ class TaskRegistry:
             stage=event.stage,
             message=event.message,
             detail=event.detail,
-            data=dict(event.data),
+            data=deepcopy(event.data),
         )
 
     @staticmethod

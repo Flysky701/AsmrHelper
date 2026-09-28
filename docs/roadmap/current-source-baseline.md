@@ -47,6 +47,7 @@
 src/api/http/                     FastAPI 路由、schema 和启动入口
 src/app/services/                 应用服务、任务提交和 DTO 映射
 src/core/engines/                 ASR、LLM、TTS、separator registry/runtime
+src/core/speech/                  当前语音 Provider、规则编译、素材与实验记录
 src/core/orchestration/pipeline/  Pipeline planner、executor、result mapper
 src/core/tasks/                   TaskSpec、TaskStatus、Dispatcher、ExecutorRegistry
 src/core/batches/                 BatchRun 聚合模型
@@ -96,13 +97,14 @@ desktop/src/pages/BatchProcessing.tsx
 | Tool | `POST /api/v1/tool-runs` | 返回 `201`，创建并提交后台任务 |
 | 模型安装 | `POST /api/v1/models/{model_id}/install` | 默认返回 `201` 的 TaskStatus |
 | 台本转字幕 | `POST /api/v1/subtitles/script-to-subtitle/tasks` | 后台 Task，产物归属 Task |
-| Voice Design/Clone/Preview | 对应 `/api/v1/voice/*` | 返回 `201` 的后台 Task |
+| 语音试音生成 | `POST /api/v1/speech/experiments/{id}/generate` | 返回 `202` 的 `speech.generate` 后台 Task |
+| 声音库辅助选段 | `POST /api/v1/speech/references/analyze-tasks` | 返回 `202` 的 `speech.reference_analyze` 后台 Task |
 | 任务查询 | `GET /api/v1/tasks/{task_id}` | TaskStatus 是状态事实源 |
 | 结果查询 | `GET /api/v1/tasks/{task_id}/result` 或 `/preview` | 使用 `primary_artifact_id + artifacts` |
 
 Workbench 统一整理文件选择和目录递归扫描得到的输入清单，并复用同一份 ExecutionProfile 构建逻辑。恰好一个选中输入时提交 `/pipeline-runs`；多于一个输入时先明确提示“本次将创建批次”，再提交 `/batch-runs`。独立的桌面“批量处理”页面和导航入口已删除，后端 BatchRun API、持久记录及兼容 CLI 不受影响。
 
-`/api/v1/asr/transcribe`、`/llm/translate`、`/llm/operations/run` 和 `/tts/synthesize` 是同步诊断/Provider 验收面，不是桌面长任务入口。桌面端长任务必须通过 Pipeline、Tool 或 Voice Task 提交。
+`/api/v1/asr/transcribe`、`/llm/translate`、`/llm/operations/run` 是同步诊断/Provider 验收面，不是桌面长任务入口。语音当前使用 `/api/v1/speech/*`；旧 `/api/v1/voice/*`、`/api/v1/tts/*` 未挂载，不能作为诊断入口。桌面端长任务通过 Pipeline、Tool 或 Speech Task 提交。
 
 任务审阅的规范入口是 `PATCH /api/v1/tasks/{task_id}/review`，备注使用 `PUT /api/v1/tasks/{task_id}/review-note`；旧 `POST /review-status` 和 `POST /review-note` 已移除。
 
@@ -112,8 +114,8 @@ Workbench 统一整理文件选择和目录递归扫描得到的输入清单，�
 - `pending`、`running`、`completed`、`failed`、`cancelled`、`skipped` 是任务状态；终态生命周期字段不可再被覆盖，审阅字段可独立更新。
 - 取消是协作请求，执行器退出后才写入最终 `cancelled`；重试创建新 Task，并用 `retry_of_task_id` 关联原任务。
 - Artifact 按 `task_id` 登记，公共结果使用 `primary_artifact_id`、`artifacts` 和 `warnings`，不再把 `files/primary_output` 作为公共响应契约。
-- SQLite 保存终态历史和 Artifact 索引；重启时清理未完成任务，不恢复中断执行；恢复的历史任务只读。
-- BatchRun 持久记录批次输入、子任务和聚合状态，但不成为第二套执行器；每个文件仍创建普通 Pipeline Task。批次历史、总进度、整批取消和失败项重提统一由 TaskCenter 的批次视图管理；进入该视图时加载历史，之后只轮询当前选中的活动批次，不在常驻页面持续拉取全部历史明细。APP 重启后中断批次标记为 `interrupted`，只能显式重提失败项，不伪装成断点续跑。
+- SQLite 保存任务、Artifact 索引及 Pipeline 恢复清单和阶段检查点。重启时，有恢复清单的未完成任务保留为 `failed / TASK_INTERRUPTED`，其余未完成任务清理。历史任务不能普通重试；符合条件的失败、取消或中断 Pipeline 可显式调用 `/tasks/{id}/resume` 创建新任务，校验后复用已完成阶段，中断阶段重跑。不会自动续跑，也不支持阶段内部恢复。
+- BatchRun 持久记录批次输入、子任务和聚合状态，但不成为第二套执行器；每个文件仍创建普通 Pipeline Task。批次历史、总进度、整批取消和失败项重提统一由 TaskCenter 的批次视图管理；进入该视图时加载历史，之后只轮询当前选中的活动批次，不在常驻页面持续拉取全部历史明细。APP 重启后中断批次标记为 `interrupted`，批次控制提供显式失败项重提，不自动续跑；单个子任务另按 Pipeline 阶段恢复规则判断。
 - 当前不引入持久化执行队列或分布式调度；旧同步 `POST /api/v1/pipeline/batch` 不作为桌面产品入口。
 
 ## 7. Provider 和运行时事实
@@ -121,7 +123,7 @@ Workbench 统一整理文件选择和目录递归扫描得到的输入清单，�
 当前 Registry/能力目录包含：
 
 - ASR：`faster_whisper`、`fun_asr`、`qwen3_asr`。
-- TTS：`edge`、`qwen3`、`voxcpm2`。
+- Speech 语音能力目录：`edge`、`qwen3`、`voxcpm2`、`openai_compatible`、`fish_audio`、`mimo_audio`；模式和参数按各引擎声明提供，不代表均支持克隆或声音设计。
 - LLM：`deepseek`、`openai`。
 - Separator：`demucs`。
 

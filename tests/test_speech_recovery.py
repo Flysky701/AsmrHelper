@@ -10,13 +10,16 @@ from src.app.persistence.recovery_store import file_identity
 from src.core.speech.compiler import COMPILER_VERSION
 from src.core.speech.providers import get_provider
 from src.core.orchestration.pipeline.recovery import PipelineRecovery
+from src.core.orchestration.pipeline.models import PipelineExecutionContext
+from src.core.orchestration.pipeline.planner import build_execution_plan
 
 
 recovery_setup = stage_recovery.setup
 
 
-@pytest.fixture
-def setup(recovery_setup):
+@pytest.fixture(params=["speech", "concrete"])
+def setup(recovery_setup, request):
+    recovery_setup[1].tts.provider = request.param
     return recovery_setup
 
 
@@ -30,7 +33,7 @@ def speech_plan(plan, *, provider="fish_audio", model="s2-pro", mode="hosted", k
             "connection_ref": connection["id"], "variant": {"kind": kind, "value": value, "style": "normal"},
             "language": "zh", "provider_options": {"schema_version": 1}},
         "connection": connection, "assets": assets or {}}
-    plan.tts.provider = "speech"
+    plan.tts.provider = "speech" if plan.tts.provider == "speech" else provider
     plan.tts.model = model
     plan.tts.provider_options = {"speech_snapshot": snapshot}
     return snapshot
@@ -154,3 +157,65 @@ def test_model_changes_during_inference_cannot_publish_reusable_fact(setup, tmp_
     with pytest.raises(ValueError, match="生成期间"):
         recovery.run("tts", operation, results, [], [], output_dir, tmp_path / "mix.wav")
     assert store.checkpoint("first", "tts") is None
+
+
+@pytest.mark.parametrize("provider,model,mode,value", [
+    ("fish_audio", "s2-pro", "hosted", "voice-id"),
+    ("openai_compatible", "tts-1", "hosted", "alloy"),
+    ("mimo_audio", "mimo-v2.5-tts", "hosted", "mimo_default"),
+    ("edge", "edge-tts", "builtin", "zh-CN-XiaoxiaoNeural"),
+    ("qwen3", "qwen3-custom-voice", "builtin", "Vivian"),
+    ("voxcpm2", "voxcpm2", "default", "default"),
+])
+def test_real_planner_resumes_after_mix_failure_without_resynthesis(
+        recovery_setup, tmp_path, provider, model, mode, value):
+    store, original = recovery_setup
+    model_dir = None
+    if provider in {"qwen3", "voxcpm2"}:
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text("{}")
+        (model_dir / "weights.safetensors").write_bytes(b"weights")
+    snapshot = speech_plan(original, provider=provider, model=model, mode=mode,
+                           kind=mode, value=value, model_path=model_dir)
+    profile = {"version": 1, "stages": {
+        "separate": {"enabled": False}, "export": {"enabled": False},
+        "tts": {"enabled": True, "provider": provider, "model": model,
+                "provider_options": {"speech_snapshot": snapshot}},
+    }}
+    plan = build_execution_plan(PipelineExecutionContext(
+        "first", original.input_path, original.output_dir, execution_profile=profile))
+    assert plan.tts.provider == provider
+
+    class FailMix(stage_recovery.StubExecutor):
+        def _execute_mix(self, *args):
+            self.calls.append("mix")
+            raise RuntimeError("mix interrupted")
+
+    first = FailMix()
+    with pytest.raises(RuntimeError, match="mix interrupted"):
+        first.execute(plan, recovery=PipelineRecovery(store, "first", None, plan))
+    assert first.calls == ["asr", "translate", "tts", "mix"]
+    assert store.checkpoint("first", "tts")["payload"]["speech_identity"]["provider_id"] == provider
+    resumed, result = run(store, next_plan(plan), "first", connection="")
+    assert resumed.calls == ["mix"]
+    assert Path(result["tts_audio_path"]).read_bytes() == b"complete audio"
+    assert "second" in Path(result["tts_audio_path"]).parts
+
+
+@pytest.mark.parametrize("change", ["empty", "missing", "provider_mismatch", "upstream"])
+def test_invalid_concrete_snapshot_never_regenerates_completed_audio(recovery_setup, change):
+    store, plan = recovery_setup
+    speech_plan(plan)
+    run(store, plan)
+    if change == "empty":
+        plan.tts.provider_options["speech_snapshot"] = {}
+    elif change == "missing":
+        plan.tts.provider_options["speech_snapshot"] = None
+    elif change == "provider_mismatch":
+        plan.tts.provider = "edge"
+    else:
+        Path(plan.input_path).write_bytes(b"changed input")
+    with pytest.raises(ValueError, match="新任务"):
+        run(store, next_plan(plan), "first")
+    assert store.checkpoint("second", "tts") is None

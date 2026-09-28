@@ -202,7 +202,7 @@ cp config/config.example.json config/config.json
 - **工作台** - 统一管理文件与目录输入、递归扫描、去重、全选和伴随字幕；单文件提交到 `/pipeline-runs`，多文件明确提示后提交到 `/batch-runs`
 - **任务中心** - 查看普通任务的进度、失败阶段、结构化错误与产物，并在批次视图中查看 BatchRun 历史、总进度、整批取消和失败项重提
 - **字幕工坊** - 编辑、导出、后台翻译和台本转字幕
-- **音色实验室** - Qwen3-TTS 专属的设计、克隆、片段分析和试音
+- **声音库与我的音色** - 管理克隆参考录音、按引擎能力保存音色生成规则并试音；支持多种本地及外部语音引擎，具体能力以引擎声明为准
 - **音频工具** - 五项独立 Tool Task
 - **引擎与资源 / 设置** - 查看 installed、executable、缺失依赖与凭据
 
@@ -232,13 +232,13 @@ cp config/config.example.json config/config.json
 输入音频 (.wav/.mp3/.flac/.m4a/.ogg/.aac/.wma)
     |
     v
-[1] VTT 字幕检测 (有则跳过人声分离)
+[1] 伴随字幕发现 (不自动跳过人声分离或 ASR)
     |
     v
-[2] Demucs 人声分离
+[2] 人声分离 (按所选阶段开关执行)
     |
     v
-[3] Faster-Whisper ASR (日文 -> 日语文字)
+[3] ASR 识别 → 可选字幕时间轴校准 (默认关闭，可使用伴随字幕)
     |
     v
 [4] LLM 翻译 (日文 -> 中文)
@@ -247,11 +247,13 @@ cp config/config.example.json config/config.json
 [5] TTS 合成 (中文文字 -> 语音)
     |
     v
-[6] 时间轴对齐 + 智能混音
+[6] 配音时长适配 + 混音
     |
     v
 输出: 双语双轨音频 + SRT 字幕
 ```
+
+阶段是否执行由工作台配置决定。已有字幕可在字幕工坊直接加载处理；声音库辅助选段也会优先使用可用字幕，这与正式 Pipeline 的 ASR 阶段开关相互独立。
 
 ## 开发
 
@@ -299,7 +301,7 @@ FastAPI RESTful API，提供以下端点：
 - `/api/v1/batch-runs` 及其子路径 - 创建、查询和控制持久 BatchRun
 - `/api/v1/asr/*` - 语音识别
 - `/api/v1/llm/*` - LLM 翻译
-- `/api/v1/tts/*` - 语音合成
+- `/api/v1/speech/*` - 语音连接、参考素材、音色规则及后台试音生成；旧 `/tts/*`、`/voice/*` HTTP 入口已退出
 - `/api/v1/models/*` - 模型管理
 - `/api/v1/tasks/*` - 任务管理
 - `/api/v1/artifacts/*` - 产物管理
