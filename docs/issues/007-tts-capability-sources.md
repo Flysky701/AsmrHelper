@@ -8,6 +8,8 @@
 - 新语音功能使用 `/speech/providers` 的引擎能力声明，以及命名的 speech connection。
 - 两套描述/配置并存，不等于两套合成链路都在执行。旧 `/tts`、`/voice` HTTP 入口已退出挂载；当前主流程和试听共用新合成能力。
 
+2026-09-29 架构图核对补充：`src/cli.py` 中的 `tts` 命令仍调用 `TtsEngineService.synthesize_file`，经 `ExecutionProfileBuilder` 和 `RuntimeRouter` 执行。因而“旧 HTTP 入口关闭”不代表旧执行服务已完全停用。桌面路径已统一，命令行仍有旧路径；此次为代码调用确认，未运行真实合成。讨论旧接口收口时必须包含 CLI，不能直接删除旧服务。
+
 ## 待决定的问题
 
 1. 哪些页面、脚本或现有配置仍实际依赖旧描述？先列调用方。
