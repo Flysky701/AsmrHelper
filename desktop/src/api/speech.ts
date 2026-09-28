@@ -10,8 +10,9 @@ export interface SpeechSegment { id: string; start: number; end: number; deliver
 export interface SpeechPlan { id: string; text: string; text_hash: string; segments: SpeechSegment[] }
 export interface ReferenceAsset { id: string; path: string; name?: string; notes?: string; archived?: boolean; source_path?: string; transcript: string; language: string; start?: number; end?: number; duration?: number; confirmed?: boolean }
 export interface ReferenceCandidate { start: number; end: number; text: string; score?: number; selected?: boolean; reasons?: string[] }
+export interface ReferenceAnalysis { original: ReferenceInspection; analyzed: ReferenceInspection; segments: ReferenceCandidate[]; transcript_source?: 'subtitle' | 'asr' | 'none'; subtitle?: { name: string; language: string; language_verified: boolean } | null; warnings?: string[] }
 export interface ReferenceDraft { path: string; start: number; end: number; transcript: string; language: string; confirmed: boolean; name: string; notes: string; gain_db: number; fade_in: number; fade_out: number }
-export interface ReferenceInspection extends Waveform { id: string; path: string }
+export interface ReferenceInspection extends Waveform { id: string; path: string; companion_subtitles?: { name: string; format: string }[] }
 export interface SpeechConnection { id: string; name: string; provider_id: string; deployment: 'local' | 'lan' | 'cloud'; base_url?: string; credential_configured?: boolean; timeout?: number; model_path?: string; device?: string }
 export interface SpeechTake { id: string; task_id: string; experiment_id: string; plan_id: string; segment_id: string; recipe_id: string; compiled_request: Record<string, unknown>; audio: { duration?: number; sample_rate?: number; channels?: number }; elapsed_seconds: number; status: string }
 export interface SpeechExperiment { id: string; name: string; plan_id: string; takes?: SpeechTake[]; kind?: string; task_id?: string }
@@ -52,6 +53,8 @@ export const speechApi = {
   connection: (connection: Partial<SpeechConnection> & { api_key?: string }) => api.post<SpeechConnection>('/speech/connections', connection),
   probe: (id: string, model: string, mode: string) => api.post<Record<string, unknown>>(`/speech/connections/${encodeURIComponent(id)}/probe`, { model, mode }),
   inspect: (path: string) => api.post<Waveform & { id: string; path: string }>('/speech/references/inspect', { path }),
+  analyzeTask: (path: string, language: string, require_text: boolean, subtitle?: { subtitle_text: string; subtitle_format: 'vtt' | 'srt' }) => api.post<TaskStatusResponse>('/speech/references/analyze-tasks', { path, language, require_text, separate_vocals: false, ...subtitle }),
+  analysisStatus: (id: string) => api.get<{ status: TaskStatusResponse; result: ReferenceAnalysis | null }>(`/speech/references/analyze-tasks/${encodeURIComponent(id)}`),
   analyze: (path: string, language: string, separate_vocals: boolean) => api.post<{ original: Waveform & { id: string; path: string }; analyzed: Waveform & { id: string; path: string }; segments: ReferenceCandidate[] }>('/speech/references/analyze', { path, language, separate_vocals }),
   reference: (reference: ReferenceDraft) => api.post<ReferenceAsset>('/speech/references', reference),
   previewReference: (reference: ReferenceDraft) => api.post<ReferenceInspection>('/speech/references/preview', reference),

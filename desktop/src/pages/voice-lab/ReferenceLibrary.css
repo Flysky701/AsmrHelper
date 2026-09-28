@@ -12,11 +12,12 @@
 .reference-library .reference-status.is-confirmed { color: var(--accent); }
 .reference-library .is-selected { border-color: var(--accent); background: var(--ref-soft); }
 .reference-library .reference-main { min-width: 0; }
-.reference-library .reference-steps { display: flex; gap: 28px; list-style: none; padding: 0 0 20px; margin: 0; }
-.reference-library .reference-steps li { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
-.reference-library .reference-steps li > span { display: grid; place-items: center; border: 1px solid var(--border); width: 26px; height: 26px; border-radius: 50%; background: var(--surface); }
-.reference-library .reference-steps li[aria-current] { color: var(--accent); font-weight: 600; }
-.reference-library .reference-steps li[aria-current] > span { color: white; background: var(--accent); border-color: var(--accent); }
+.reference-library .reference-workspace { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 18px; align-items: start; }
+.reference-library .reference-workspace > div { min-width: 0; }
+.reference-library .reference-workspace .panel { margin-bottom: 18px; }
+.reference-library .reference-main > .panel { margin-bottom: 18px; }
+.reference-library .reference-analysis-status { margin-top: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.reference-library .reference-analysis-status progress { width: 100%; margin-top: 10px; accent-color: var(--accent); }
 .reference-library .reference-start { text-align: center; padding: 65px 30px 35px; border-style: dashed; }
 .reference-library .reference-start-icon { display: grid; place-items: center; margin: 0 auto 22px; width: 60px; height: 60px; border-radius: 18px; color: var(--accent); background: var(--accent-soft); font-size: 29px; }
 .reference-library .reference-start h2 { font-size: 21px; }
@@ -64,6 +65,7 @@
 .reference-library .reference-busy { display: flex; align-items: center; gap: 10px; padding: 14px; background: var(--accent-soft); border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
 .reference-library .reference-spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: reference-spin 1s linear infinite; }
 @keyframes reference-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1100px) { .reference-library .reference-workspace { grid-template-columns: minmax(0, 1fr); } }
 @media (prefers-reduced-motion: reduce) { .reference-library .reference-spinner { animation: none; } }
-@media (max-width: 1100px) { .reference-library .reference-layout { grid-template-columns: 215px minmax(0, 1fr); gap: 16px; } .reference-library .reference-steps { gap: 16px; } }
+@media (max-width: 1100px) { .reference-library .reference-layout { grid-template-columns: 215px minmax(0, 1fr); gap: 16px; } }
 @media (max-width: 850px) { .reference-library .reference-layout { grid-template-columns: 1fr; } .reference-library .reference-assets { max-height: 210px; overflow: auto; } .reference-library .reference-source { flex-wrap: wrap; } .reference-library .reference-footer { flex-wrap: wrap; } .reference-library .reference-editor { padding: 18px; } .reference-library .reference-range { flex-wrap: wrap; } }

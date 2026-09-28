@@ -105,6 +105,7 @@ def build_default_executor_registry() -> ExecutorRegistry:
         "subtitle.script_to_vtt",
         "model_install",
         "speech.generate",
+        "speech.reference_analyze",
     ):
         registry.register(task_type)
     return registry

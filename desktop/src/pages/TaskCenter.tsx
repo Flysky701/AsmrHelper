@@ -376,6 +376,10 @@ function shouldSuggestProviderVerification(task: Task): boolean {
 
 function stageLabel(task: Task) {
   if (task.error?.code === 'TASK_INTERRUPTED') return '任务已中断'
+  if (task.jobType === 'reference-analyze' && !['completed', 'failed', 'cancelled', 'skipped'].includes(task.status)) {
+    const stages: Record<string, string> = { reference_analysis: '分析录音', reference_read: '读取录音', reference_subtitles: '检查已有字幕', reference_separate: '分离人声', reference_decode: '转换音频', reference_transcribe: '识别原文', reference_segment: '寻找片段', reference_score: '筛选片段' }
+    return stages[task.stage || ''] || '等待分析'
+  }
   if (task.jobType !== 'pipeline') {
     if (task.status === 'completed') return '任务已完成'
     if (task.status === 'failed') return `任务在“${task.stage || '执行'}”阶段失败`
@@ -407,6 +411,7 @@ function jobTypeLabel(jobType: JobType) {
     'voice-clone': '音色克隆',
     'voice-preview': '音色试听',
     'speech-generate': '配音候选生成',
+    'reference-analyze': '录音片段分析',
     unknown: '历史任务',
   }
 

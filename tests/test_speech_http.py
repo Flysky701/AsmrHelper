@@ -67,6 +67,195 @@ def wav():
     return buffer.getvalue()
 
 
+def test_reference_analysis_task_returns_progress_and_durable_result(speech_http, monkeypatch, tmp_path):
+    import threading
+    from src.core.tts.audio_preprocessor import AudioPreprocessor
+    client, service = speech_http
+    source = tmp_path / "reference.wav"
+    source.write_bytes(wav())
+    entered, release = threading.Event(), threading.Event()
+
+    def analyze(_self, **kwargs):
+        assert kwargs["require_text"] is False
+        kwargs["progress_callback"]("按停顿寻找片段", 30)
+        entered.set()
+        assert release.wait(5)
+        return {"segments": [{"start": 0, "end": .1, "text": ""}], "mode": "energy"}
+
+    monkeypatch.setattr(AudioPreprocessor, "analyze_segments", analyze)
+    task = post(client, "/references/analyze-tasks", {"path": str(source)}, status=202)
+    try:
+        assert entered.wait(5)
+        running = client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()
+        assert running["status"]["state"] == "running"
+        assert running["status"]["progress"] == .3
+        assert running["status"]["message"] == "按停顿寻找片段"
+        assert running["result"] is None
+    finally:
+        release.set()
+    assert wait_task(client, task["task_id"])["state"] == "completed"
+    result = client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"]
+    assert result["mode"] == "energy"
+    assert len(result["segments"]) == 1
+    assert (service.store.root / "_analyses" / (task["task_id"] + ".json")).exists()
+
+
+def test_reference_analysis_failure_is_visible_and_asr_is_opt_in(speech_http, monkeypatch, tmp_path):
+    from src.core.tts.audio_preprocessor import AudioPreprocessor
+    client, _service = speech_http
+    source = tmp_path / "reference.wav"
+    source.write_bytes(wav())
+
+    def analyze(_self, **kwargs):
+        assert kwargs["require_text"] is True
+        raise RuntimeError("识别模型尚未安装")
+
+    monkeypatch.setattr(AudioPreprocessor, "analyze_segments", analyze)
+    task = post(client, "/references/analyze-tasks", {"path": str(source), "require_text": True}, status=202)
+    assert wait_task(client, task["task_id"])["state"] == "failed"
+    result = client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()
+    assert "识别模型尚未安装" in str(result["status"]["error"])
+    assert result["result"] is None
+
+
+def test_reference_analysis_can_cancel_without_publishing_result(speech_http, monkeypatch, tmp_path):
+    import threading
+    from src.core.tts.audio_preprocessor import AudioPreprocessor
+    client, _service = speech_http
+    source = tmp_path / "reference.wav"
+    source.write_bytes(wav())
+    entered, release = threading.Event(), threading.Event()
+
+    def analyze(_self, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        kwargs["progress_callback"]("候选已生成", 100)
+        return {"segments": []}
+
+    monkeypatch.setattr(AudioPreprocessor, "analyze_segments", analyze)
+    task = post(client, "/references/analyze-tasks", {"path": str(source)}, status=202)
+    try:
+        assert entered.wait(5)
+        response = client.post("/api/v1/tasks/" + task["task_id"] + "/cancel")
+        assert response.status_code == 200, response.text
+    finally:
+        release.set()
+    assert wait_task(client, task["task_id"])["state"] == "cancelled"
+    assert client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"] is None
+
+
+def test_reference_analysis_rejects_missing_input(speech_http, tmp_path):
+    client, _service = speech_http
+    post(client, "/references/analyze-tasks", {"path": str(tmp_path / "missing.wav")}, status=422)
+
+
+def test_reference_analysis_silence_reports_no_candidates_without_loading_asr(speech_http, monkeypatch, tmp_path):
+    from src.core.tts.audio_preprocessor import AudioPreprocessor
+    client, _service = speech_http
+    source = tmp_path / "silence.wav"
+    sf.write(source, np.zeros(64000, dtype="float32"), 16000)
+
+    def forbidden_asr(*args, **kwargs):
+        pytest.fail("默认选片段不应加载 ASR")
+
+    monkeypatch.setattr(AudioPreprocessor, "_run_asr", forbidden_asr)
+    task = post(client, "/references/analyze-tasks", {"path": str(source)}, status=202)
+    status = wait_task(client, task["task_id"])
+    assert status["state"] == "failed"
+    assert "未检测到可用的非静音音频片段" in str(status["error"])
+
+
+@pytest.mark.parametrize("sidecar_suffix", [".vtt", ".wav.vtt", ".srt", ".wav.srt"])
+@pytest.mark.parametrize("language,text,end,expected_source,verified", [
+    ("en", "Hello this is the original recording.", "00:00:03.500", "subtitle", True),
+    ("auto", "Hello this is the original recording.", "00:00:03.500", "subtitle", False),
+    ("ja", "这是翻译后的中文字幕。", "00:00:03.500", "none", None),
+    ("en", "Hello this is the original recording.", "00:00:09.000", "none", None),
+])
+def test_reference_analysis_reuses_valid_sidecar_from_staged_audio(
+    speech_http, monkeypatch, tmp_path, language, text, end, expected_source, verified, sidecar_suffix,
+):
+    from src.core.tts.audio_preprocessor import AudioPreprocessor
+    client, _service = speech_http
+    source = tmp_path / "recording.wav"
+    sf.write(source, np.zeros(64000, dtype="float32"), 16000)
+    content = f"WEBVTT\n\n00:00:00.100 --> {end}\n{text}\n" if sidecar_suffix.endswith(".vtt") else f"1\n00:00:00,100 --> {end.replace('.', ',')}\n{text}\n"
+    source.with_suffix(sidecar_suffix).write_text(content, encoding="utf-8")
+    staged = post(client, "/references/inspect", {"path": str(source)})
+    assert staged["companion_subtitles"] == [{"name": "recording" + sidecar_suffix, "format": sidecar_suffix.rsplit(".", 1)[1]}]
+
+    def analyze(_self, **kwargs):
+        assert bool(kwargs["subtitle_path"]) == (expected_source == "subtitle")
+        assert kwargs["require_text"] == (expected_source == "subtitle")
+        return {"segments": [], "mode": "matched" if kwargs["subtitle_path"] else "energy"}
+
+    monkeypatch.setattr(AudioPreprocessor, "analyze_segments", analyze)
+    task = post(client, "/references/analyze-tasks", {"path": staged["path"], "language": language}, status=202)
+    assert wait_task(client, task["task_id"])["state"] == "completed"
+    result = client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"]
+    assert result["transcript_source"] == expected_source
+    assert result["warnings"]
+    if verified is not None:
+        assert result["subtitle"]["language_verified"] is verified
+
+
+def test_processed_reference_does_not_reuse_parent_subtitle_timeline(speech_http, tmp_path):
+    client, _service = speech_http
+    source = tmp_path / "recording.wav"
+    sf.write(source, np.zeros(64000, dtype="float32"), 16000)
+    source.with_suffix(".srt").write_text("1\n00:00:00,000 --> 00:00:03,500\nHello original recording.\n", encoding="utf-8")
+    staged = post(client, "/references/inspect", {"path": str(source)})
+    cropped = post(client, "/references/preview", {"path": staged["path"], "start": 1, "end": 2})
+    again = post(client, "/references/inspect", {"path": cropped["path"]})
+    assert again["companion_subtitles"] == []
+    assert again["companion_source_path"] is None
+
+
+@pytest.mark.parametrize("text,format,expected", [
+    ("WEBVTT\n\n00:00:00.000 --> 00:00:03.500\nHello from the recording.\n", "vtt", "subtitle"),
+    ("1\n00:00:00,000 --> 00:00:03,500\nHello from the recording.\n", "srt", "subtitle"),
+    ("WEBVTT\n\n00:00:00.000 --> 00:00:09.000\nOut of bounds.\n", "vtt", "none"),
+    ("not a subtitle", "srt", "none"),
+])
+def test_manual_subtitle_is_snapshotted_and_reused_without_asr(speech_http, monkeypatch, tmp_path, text, format, expected):
+    from src.core.tts.audio_preprocessor import AudioPreprocessor
+    from pathlib import Path
+    client, service = speech_http
+    source = tmp_path / "browser.wav"
+    sf.write(source, np.zeros(64000, dtype="float32"), 16000)
+
+    def analyze(_self, **kwargs):
+        if expected == "subtitle":
+            assert Path(kwargs["subtitle_path"]).read_text(encoding="utf-8") == text
+        else:
+            assert kwargs["subtitle_path"] is None
+            assert kwargs["require_text"] is False
+        return {"segments": [], "mode": "matched" if expected == "subtitle" else "energy"}
+
+    monkeypatch.setattr(AudioPreprocessor, "analyze_segments", analyze)
+    task = post(client, "/references/analyze-tasks", {
+        "path": str(source), "subtitle_text": text, "subtitle_format": format, "language": "en",
+    }, status=202)
+    assert wait_task(client, task["task_id"])["state"] == "completed"
+    spec = service.tasks.get_task_spec(task["task_id"])
+    assert spec.execution_profile["reference_analysis"]["subtitle_text"] == text
+    result = client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"]
+    assert result["transcript_source"] == expected
+    assert result["warnings"]
+    if expected == "subtitle":
+        assert result["subtitle"]["name"] == "手动加载字幕"
+
+
+@pytest.mark.parametrize("extra", [
+    {"subtitle_text": []}, {"subtitle_format": "../vtt"}, {"subtitle_text": "x" * (5 * 1024 * 1024 + 1)},
+])
+def test_manual_subtitle_rejects_invalid_transport(speech_http, tmp_path, extra):
+    client, _service = speech_http
+    source = tmp_path / "browser.wav"
+    source.write_bytes(wav())
+    post(client, "/references/analyze-tasks", {"path": str(source), **extra}, status=422)
+
+
 def test_browser_reference_upload_can_be_cropped_and_played(speech_http):
     client, service = speech_http
     response = client.post("/api/v1/speech/references/upload", params={"filename": "参考.wav"},

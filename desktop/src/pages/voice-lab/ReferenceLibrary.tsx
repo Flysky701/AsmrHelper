@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 import { speechApi } from '@/api/speech'
+import { tasksApi } from '@/api/tasks'
+import { ApiError } from '@/api/client'
+import type { TaskStatusResponse } from '@/api/types'
 import type { ReferenceAsset, ReferenceInspection, ReferenceDraft, ReferenceCandidate } from '@/api/speech'
 import { FILE_FILTERS } from '@/hooks/useFileSelector'
 import { useNavStore } from '@/stores/navStore'
@@ -20,7 +23,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   const [stored, setStored] = useState<ReferenceAsset | null>(null)
   const [source, setSource] = useState<ReferenceInspection | null>(null)
   const [draft, setDraft] = useState<Draft>(initialDraft)
-  const [step, setStep] = useState<'select' | 'details' | 'saved'>('select')
+  const [view, setView] = useState<'editor' | 'saved'>('editor')
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -29,6 +32,14 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   const [candidates, setCandidates] = useState<ReferenceCandidate[]>([])
   const [analyzed, setAnalyzed] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
+  const [analysisTask, setAnalysisTask] = useState<TaskStatusResponse | null>(null)
+  const [recognizeText, setRecognizeText] = useState(false)
+  const [analysisWarnings, setAnalysisWarnings] = useState<string[]>([])
+  const [analysisSource, setAnalysisSource] = useState('')
+  const [clock, setClock] = useState(Date.now())
+  const [trackingFailed, setTrackingFailed] = useState(false)
+  const [trackingRetry, setTrackingRetry] = useState(0)
+  const [loadedSubtitle, setLoadedSubtitle] = useState<{ name: string; subtitle_text: string; subtitle_format: 'vtt' | 'srt' } | null>(null)
   const [preview, setPreview] = useState<ReferenceInspection | null>(null)
   const [segments, setSegments] = useState<{ start: number; end: number; text: string }[]>([])
   const [loop, setLoop] = useState(false)
@@ -54,6 +65,53 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
     return () => { useNavStore.getState().setNavigationGuard(null); window.removeEventListener('beforeunload', beforeUnload) }
   }, [])
   useEffect(() => { if (!active) audio.current?.pause() }, [active])
+  useEffect(() => {
+    const taskId = analysisTask?.task_id
+    if (!taskId || !source) return
+    let mounted = true
+    let timer: ReturnType<typeof setTimeout>
+    let failures = 0
+    setTrackingFailed(false)
+    const duration = source.duration
+    async function poll() {
+      try {
+        const { status, result } = await speechApi.analysisStatus(taskId!)
+        if (!mounted) return
+        failures = 0
+        setAnalysisTask(status); setAnalysisError('')
+        if (status.state === 'completed') {
+          if (!result) { setAnalysisError('分析任务已结束，但未返回片段结果。请重新分析。'); setAnalyzed(true); return }
+          const ranked = result.segments.filter(item => Number.isFinite(item.start) && Number.isFinite(item.end) && item.start >= 0 && item.end > item.start && item.end <= duration)
+            .sort((a, b) => Number(!!b.selected) - Number(!!a.selected) || (b.score ?? 0) - (a.score ?? 0))
+          const picks: ReferenceCandidate[] = []
+          for (const item of ranked) {
+            if (picks.every(pick => Math.min(pick.end, item.end) <= Math.max(pick.start, item.start))) picks.push(item)
+            if (picks.length === 5) break
+          }
+          setCandidates(picks); setAnalyzed(true)
+          setAnalysisWarnings(result.warnings || [])
+          setAnalysisSource(result.transcript_source === 'subtitle' ? `已复用字幕：${result.subtitle?.name || '同目录字幕'}，未运行 ASR。` : result.transcript_source === 'asr' ? '原文来自本次 ASR，仍需试听核对。' : '根据停顿和音量变化选段，未运行 ASR。')
+          return
+        }
+        if (['failed', 'cancelled', 'skipped'].includes(status.state)) {
+          setAnalysisError(String(status.error?.message || status.detail || status.message || '分析已结束，未生成结果。')); setAnalyzed(true)
+          return
+        }
+      } catch (cause) {
+        if (!mounted) return
+        setAnalysisError(message(cause))
+        if (cause instanceof ApiError && cause.status === 404) {
+          setAnalysisTask(null); setAnalyzed(true)
+          setAnalysisError('分析任务已不存在，后端可能已重启。请重新分析。')
+          return
+        }
+        if (++failures >= 3) { setTrackingFailed(true); return }
+      }
+      if (mounted) timer = setTimeout(() => void poll(), 1500)
+    }
+    void poll()
+    return () => { mounted = false; clearTimeout(timer) }
+  }, [analysisTask?.task_id, trackingRetry])
 
   async function run(label: string, action: () => Promise<void>) {
     if (busy) return
@@ -69,8 +127,8 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   }
   function load(value: ReferenceInspection, name: string) {
     audio.current?.pause(); selection.current = null
-    setStored(null); setSource(value); setPreview(null); setSegments([]); setCandidates([]); setAnalyzed(false); setAnalysisError('')
-    setDraft({ ...initialDraft(), name: name.replace(/\.[^.]+$/, ''), end: value.duration }); setStep('select'); setDirty(true)
+    setStored(null); setSource(value); setPreview(null); setSegments([]); setCandidates([]); setAnalyzed(false); setAnalysisError(''); setAnalysisTask(null); setAnalysisWarnings([]); setAnalysisSource(''); setLoadedSubtitle(null); setTrackingFailed(false)
+    setDraft({ ...initialDraft(), name: name.replace(/\.[^.]+$/, ''), end: value.duration }); setView('editor'); setDirty(true)
   }
   function upload(file: File) {
     if (busy || !mayReplace()) return
@@ -105,38 +163,45 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   }
   async function analyze() {
     if (!source) return
-    await run('正在分析录音，长音频可能需要几分钟', async () => {
+    await run('正在提交片段分析', async () => {
       setAnalysisError('')
       try {
-        const result = await speechApi.analyze(source.path, draft.language, false)
-        const available = result.segments.filter(item => Number.isFinite(item.start) && Number.isFinite(item.end) && item.start >= 0 && item.end > item.start && item.end <= source.duration)
-        // Preserve source timestamps and offer alternatives without displaying the legacy quality score.
-        const ranked = [...available].sort((a, b) => Number(!!b.selected) - Number(!!a.selected) || (b.score ?? 0) - (a.score ?? 0))
-        const picks: ReferenceCandidate[] = []
-        for (const item of ranked) {
-          if (picks.every(pick => Math.min(pick.end, item.end) <= Math.max(pick.start, item.start))) picks.push(item)
-          if (picks.length === 5) break
-        }
-        setCandidates(picks); setAnalyzed(true)
+        setCandidates([]); setAnalyzed(false); setAnalysisWarnings([]); setAnalysisSource('')
+        setAnalysisTask(await speechApi.analyzeTask(source.path, draft.language, recognizeText, loadedSubtitle || undefined))
       } catch (cause) { setAnalysisError(message(cause)); setAnalyzed(true) }
     })
   }
+  const analyzing = !!analysisTask && !['completed', 'failed', 'cancelled', 'skipped'].includes(analysisTask.state)
+  useEffect(() => {
+    if (!analyzing) return
+    const timer = setInterval(() => setClock(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [analyzing])
+  const elapsed = analysisTask ? Math.max(0, Math.floor(((analysisTask.finished_at ? Date.parse(analysisTask.finished_at) : clock) - Date.parse(analysisTask.started_at || analysisTask.created_at)) / 1000)) : 0
+  const analysisLabel = analysisTask?.state === 'completed' ? '分析完成' : analysisTask?.state === 'failed' ? '分析失败' : analysisTask?.state === 'cancelled' ? '已取消' : analysisTask?.state === 'pending' ? '等待分析' : analysisTask?.message || '正在分析'
   async function save() {
     await run('正在保存录音', async () => {
       const saved = await speechApi.reference(payload())
-      setStored(saved); setDirty(false); setStep('saved'); audio.current?.pause()
+      setStored(saved); setDirty(false); setView('saved'); audio.current?.pause()
       setAllAssets(previous => [saved, ...previous.filter(item => item.id !== saved.id)])
       try { await refresh() } catch { setNotice('录音已保存，列表刷新失败；稍后可重试刷新。') }
     })
   }
   function openStored(item: ReferenceAsset) {
     if (!mayReplace()) return
-    audio.current?.pause(); setStored(item); setSource(null); setDirty(false); setStep('saved'); setNotice(''); setError('')
+    audio.current?.pause(); setStored(item); setSource(null); setDirty(false); setView('saved'); setNotice(''); setError('')
   }
 
   return <div className="reference-library">
     <input ref={fileInput} hidden type="file" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,.wma" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) upload(file) }} />
-    <input ref={subtitleInput} hidden type="file" accept=".srt,.vtt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run('读取字幕', async () => setSegments((await speechApi.subtitles(await file.text(), file.name.toLowerCase().endsWith('.vtt') ? 'vtt' : 'srt')).segments)) }} />
+    <input ref={subtitleInput} hidden type="file" accept=".srt,.vtt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run('读取字幕', async () => {
+      if (file.size > 5 * 1024 * 1024) throw new Error('字幕文件不能超过 5 MiB')
+      const subtitle_text = await file.text()
+      const subtitle_format = file.name.toLowerCase().endsWith('.vtt') ? 'vtt' : 'srt'
+      const result = await speechApi.subtitles(subtitle_text, subtitle_format)
+      setSegments(result.segments); setLoadedSubtitle({ name: file.name, subtitle_text, subtitle_format })
+      setNotice('已加载字幕，可直接选取字幕片段，或重新分析以筛选候选。')
+    }) }} />
     {error && <div className="notice error" role="alert">{error}</div>}{notice && <div className="notice" role="status">{notice}</div>}
     {busy && <div className="reference-busy" role="status"><span className="reference-spinner" />{busy}…</div>}
     <fieldset disabled={!!busy} className="lab-fieldset"><div className="reference-layout">
@@ -153,18 +218,17 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
         </button>)}</div>
       </aside>
       <section className="reference-main">
-        {step !== 'saved' && <ol className="reference-steps" aria-label="录音入库步骤">{['选择片段', '整理录音', '保存入库'].map((label, index) => <li key={label} aria-current={(step === 'select' ? 0 : 1) === index ? 'step' : undefined}><span>{index + 1}</span>{label}</li>)}</ol>}
-        {!source && step !== 'saved' && <div className="panel reference-start" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const file = event.dataTransfer.files[0]; if (file) upload(file) }}>
-          <div className="reference-start-icon" aria-hidden="true">♫</div><h2>先放入一份你喜欢的录音</h2><p>整段保存，或从长音频里选出一小段。<br />你可以自己选，也可以让程序辅助寻找。</p>
+        {!source && view !== 'saved' && <div className="panel reference-start" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const file = event.dataTransfer.files[0]; if (file) upload(file) }}>
+          <div className="reference-start-icon" aria-hidden="true">♫</div><h2>导入参考录音</h2><p>整段保存，或从长音频里选出一小段。<br />你可以自己选，也可以让程序辅助寻找。</p>
           <button className="primary" onClick={() => void chooseFile()}>选择音频文件</button><p className="muted">也可以拖入文件 · WAV / MP3 / FLAC 等<br />浏览器上传上限 100 MiB</p>
-          <div className="reference-start-tip">先存素材，再创建音色。现在不需要选择合成模型。</div>
+          <div className="reference-start-tip">录音可独立保存，需要时再用于创建音色。</div>
         </div>}
-        {source && step !== 'saved' && <>
+        {source && view !== 'saved' && <div className="reference-workspace"><div className="reference-workspace-audio">
           <section className="panel reference-editor">
-            <div className="row spread"><div><span className="reference-eyebrow">{step === 'select' ? '01 / 选择片段' : '02 / 整理录音'}</span><h2>{step === 'select' ? '找到想留下的那一段' : '给这段录音补上信息'}</h2></div><button onClick={() => step === 'details' ? setStep('select') : void chooseFile()}>{step === 'details' ? '← 返回选段' : '更换文件'}</button></div>
+            <div className="row spread"><h2>录音工作台</h2><button onClick={() => void chooseFile()}>更换文件</button></div>
             <div className="reference-source"><strong>{draft.name || '未命名录音'}</strong><span>原音 {time(source.duration)} · 已选 {(draft.end - draft.start).toFixed(1)} 秒</span></div>
             <svg className="waveform reference-waveform" viewBox="0 0 800 100" preserveAspectRatio="none" role="img" aria-label="录音波形，可拖动两端调整选区" onPointerDown={event => {
-              if (step !== 'select' || busy) return
+              if (busy) return
               const bounds = event.currentTarget.getBoundingClientRect(); const point = (event.clientX - bounds.left) / bounds.width * source.duration
               dragging.current = Math.abs(point - draft.start) < Math.abs(point - draft.end) ? 'start' : 'end'
               event.currentTarget.setPointerCapture(event.pointerId); moveSelection(event)
@@ -176,31 +240,36 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
             <div className="reference-timeline"><span>00:00</span><span>{time(source.duration)}</span></div>
             <audio controls ref={audio} src={speechApi.referenceAudio(source.id, true)} onTimeUpdate={() => { const player = audio.current; const range = selection.current; if (player && range && player.currentTime >= range.end) { if (loop) player.currentTime = range.start; else { player.pause(); selection.current = null } } }} onSeeked={() => { const range = selection.current; if (audio.current && range && (audio.current.currentTime < range.start || audio.current.currentTime > range.end)) selection.current = null }} />
             <div className="row reference-playback"><button disabled={!valid} onClick={() => play(draft.start, draft.end)}>▶ 试听选段</button><button onClick={() => play(0, source.duration)}>试听整段</button><label><input type="checkbox" checked={loop} onChange={event => setLoop(event.target.checked)} /> 循环选段</label></div>
-            {step === 'select' && <><div className="reference-range">{(['start', 'end'] as const).map(key => <label className="field" key={key}>{key === 'start' ? '起点' : '终点'}（秒）<input type="number" step=".01" min="0" max={source.duration} value={Number(draft[key].toFixed(2))} onChange={event => change({ [key]: Number(event.target.value) })} /></label>)}<button onClick={() => change({ start: 0, end: source.duration })}>使用整段</button></div><p className="muted">拖动选区两端，或填写精确时间。选中推荐后仍可微调。</p></>}
+            {<><div className="reference-range">{(['start', 'end'] as const).map(key => <label className="field" key={key}>{key === 'start' ? '起点' : '终点'}（秒）<input type="number" step=".01" min="0" max={source.duration} value={Number(draft[key].toFixed(2))} onChange={event => change({ [key]: Number(event.target.value) })} /></label>)}<button onClick={() => change({ start: 0, end: source.duration })}>使用整段</button></div><p className="muted">拖动选区两端，或填写精确时间。选中推荐后仍可微调。</p></>}
           </section>
-          {step === 'select' && <>
             <section className="panel reference-assist">
-              <div className="row spread"><div><h3>让程序帮你缩小试听范围</h3><p className="muted">根据识别结果寻找片段。推荐仅供参考，最终听一听再决定。</p></div><button onClick={() => void analyze()}>{analyzed ? '重新分析' : '帮我选片段'}</button></div>
+              <div className="row spread"><div><h3>辅助选段</h3><p className="muted">优先复用同目录同名 VTT/SRT；没有可用字幕时按停顿和音量变化选段。试听后选用，可继续微调。</p></div><button disabled={analyzing} onClick={() => void analyze()}>{analyzing ? '正在分析…' : analyzed ? '重新分析' : '帮我选片段'}</button></div>
+              {!!source.companion_subtitles?.length && <p className="notice">发现同目录字幕：{source.companion_subtitles.map(item => item.name).join('、')}。分析时先检查时间轴与语言。</p>}
+              <div className="row"><button onClick={() => subtitleInput.current?.click()}>加载已有 VTT / SRT</button><span className="muted">浏览器上传音频时，可另选字幕。</span></div>
+              {loadedSubtitle && <div className="row"><span className="muted">优先使用：{loadedSubtitle.name}</span><button onClick={() => { setLoadedSubtitle(null); setSegments([]) }}>移除字幕</button></div>}
+              <label className="reference-language"><input type="checkbox" checked={recognizeText} disabled={analyzing} onChange={event => setRecognizeText(event.target.checked)} /> 无可用字幕时运行 ASR（可能耗时数分钟）</label>
               <label className="reference-language">录音语言 <select aria-label="分析语言" value={draft.language} onChange={event => change({ language: event.target.value })}>{Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><span className="muted">不确定时可自动识别</span></label>
-              {analysisError && <p className="notice" role="alert">暂时没能完成分析。你仍可以手动选段。<details><summary>查看原因</summary>{analysisError}</details></p>}
+              {analysisTask && <div className="reference-analysis-status" role="status"><div className="row spread"><span>{analysisLabel}</span>{analyzing && <button onClick={() => void run('取消分析', async () => { setAnalysisTask(await tasksApi.cancel(analysisTask.task_id)) })}>取消分析</button>}</div><progress max={1} value={analysisTask.progress} aria-label="片段分析进度" /><p className="muted">阶段进度 {Math.round(analysisTask.progress * 100)}% · 已用时 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒</p>{analyzing && <p className="muted">百分比表示处理阶段，不是剩余时间估算。可继续试听和编辑；取消将在当前处理阶段结束后生效。</p>}</div>}
+              {analysisSource && <p className="notice">{analysisSource}</p>}
+              {analysisWarnings.map((warning, index) => <p className="notice" key={index}>{warning}</p>)}
+              {analysisError && <div className="notice error" role="alert">{analysisError}<p>你仍可以手动选段并保存。</p></div>}
+              {trackingFailed && <div className="row"><span className="muted">进度连接中断，已暂停自动重试。</span><button onClick={() => setTrackingRetry(value => value + 1)}>重新获取进度</button><button onClick={() => { setAnalysisTask(null); setTrackingFailed(false); setNotice('已结束进度跟踪，原任务可能仍在运行，可在任务中心查看。') }}>结束跟踪</button></div>}
               {analyzed && !analysisError && !candidates.length && <p className="notice">暂时没有找到候选，你可以在上方试听并手动选段。</p>}
               {candidates.length > 0 && <div className="reference-candidates">{candidates.map((candidate, index) => {
                 const selected = Math.abs(candidate.start - draft.start) < .01 && Math.abs(candidate.end - draft.end) < .01
                 return <article className={'reference-candidate ' + (selected ? 'is-selected' : '')} key={`${candidate.start}-${candidate.end}`}>
                   <div className="row spread"><strong>片段 {String(index + 1).padStart(2, '0')}</strong><span className="muted">{time(candidate.start)} — {time(candidate.end)} · {(candidate.end - candidate.start).toFixed(1)} 秒</span></div>
                   <p>{candidate.text || '尚无识别原文，可以先试听。'}</p>
-                  <div className="reference-hints"><span>原文待核对</span>{candidate.reasons?.filter(reason => !/ICL|x-vector/.test(reason)).slice(0, 2).map(reason => <span key={reason}>{/ASR 置信度/.test(reason) ? '识别原文可能有误，请试听核对' : /边界能量/.test(reason) ? '开头或结尾可能截断，请试听确认' : /信噪比/.test(reason) ? '可能存在背景干扰，请试听确认' : reason}</span>)}</div>
+                  <div className="reference-hints"><span>{candidate.text ? '原文待核对' : '未识别原文'}</span>{candidate.reasons?.filter(reason => !/ICL|x-vector/.test(reason)).slice(0, 2).map(reason => <span key={reason}>{/ASR 置信度/.test(reason) ? '识别原文可能有误，请试听核对' : /边界能量/.test(reason) ? '开头或结尾可能截断，请试听确认' : /信噪比/.test(reason) ? '可能存在背景干扰，请试听确认' : reason}</span>)}</div>
                   <div className="row"><button onClick={() => play(candidate.start, candidate.end)}>▶ 试听</button><button className={selected ? 'primary' : ''} onClick={() => change({ start: candidate.start, end: candidate.end, transcript: candidate.text || '', confirmed: false })}>{selected ? '已选用 · 可在上方微调' : '选用这段'}</button></div>
                 </article>
               })}</div>}
             </section>
-            <div className="reference-footer"><span>{valid ? `已选 ${(draft.end - draft.start).toFixed(1)} 秒；不分析也可以继续。` : '请设置有效的起止时间。'}</span><button className="primary" disabled={!valid} onClick={() => { audio.current?.pause(); setStep('details') }}>下一步：整理录音 →</button></div>
-          </>}
-          {step === 'details' && <>
-            <section className="panel"><div className="grid"><label className="field">录音名称<input value={draft.name} placeholder="例如：晚安独白 · 片段 01" onChange={event => change({ name: event.target.value })} /></label><label className="field">录音语言<select value={draft.language} onChange={event => change({ language: event.target.value })}>{Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{label}</option>)}{!languages[draft.language] && <option value={draft.language}>{draft.language}</option>}</select></label></div>
+          </div><div className="reference-workspace-details">
+            <section className="panel"><h3>录音信息</h3><div className="grid"><label className="field">录音名称<input value={draft.name} placeholder="例如：晚安独白 · 片段 01" onChange={event => change({ name: event.target.value })} /></label><label className="field">录音语言<select value={draft.language} onChange={event => change({ language: event.target.value })}>{Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{label}</option>)}{!languages[draft.language] && <option value={draft.language}>{draft.language}</option>}</select></label></div>
               <div className="row spread"><h3>录音原文 <span className="reference-optional">可选</span></h3><button onClick={() => subtitleInput.current?.click()}>从 SRT / VTT 选取</button></div><p className="muted">填写这段录音实际说出的话。不是译文，也不是希望生成的新台词。</p>
               <textarea aria-label="录音原文" rows={4} value={draft.transcript} placeholder="可以先留空。部分克隆引擎会在创建音色时要求补充原文。" onChange={event => change({ transcript: event.target.value })} />
-              {segments.length > 0 && <div className="subtitle-segments">{segments.map((segment, index) => <button key={index} disabled={segment.start < 0 || segment.end > source.duration || segment.end <= segment.start} onClick={() => { change({ start: segment.start, end: segment.end, transcript: segment.text }); setStep('select') }}>{time(segment.start)}–{time(segment.end)} · {segment.text}</button>)}</div>}
+              {segments.length > 0 && <div className="subtitle-segments">{segments.map((segment, index) => <button key={index} disabled={segment.start < 0 || segment.end > source.duration || segment.end <= segment.start} onClick={() => { change({ start: segment.start, end: segment.end, transcript: segment.text }); setView('editor') }}>{time(segment.start)}–{time(segment.end)} · {segment.text}</button>)}</div>}
               <label className="reference-confirm"><input type="checkbox" disabled={!draft.transcript.trim()} checked={draft.confirmed} onChange={event => change({ confirmed: event.target.checked })} /> 我已试听，确认原文与当前片段一致</label>
               <label className="field">备注 <span className="reference-optional">可选</span><input value={draft.notes} placeholder="记录来源、发声特点，方便以后查找" onChange={event => change({ notes: event.target.value })} /></label>
             </section>
@@ -210,9 +279,9 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
               {preview && <div className="item"><strong>处理后选段</strong><audio controls src={speechApi.referenceAudio(preview.id)} /><p className="muted">尚未保存。上方播放器仍播放处理前的原音。</p></div>}
             </details>
             <div className="reference-footer"><span>保存为独立录音，保留来源音频。</span><button className="primary" disabled={!valid || !processingValid || !draft.name.trim()} onClick={() => void save()}>保存到声音库</button></div>
-          </>}
-        </>}
-        {step === 'saved' && stored && <section className="panel reference-saved">
+          </div>
+        </div>}
+        {view === 'saved' && stored && <section className="panel reference-saved">
           <span className="reference-eyebrow">已保存的参考录音</span><div className="row spread"><h2>{stored.name || '未命名录音'}</h2><span className="pill">{stored.archived ? '已归档' : '已入库'}</span></div>
           <p className="muted">{languages[stored.language] || stored.language} · {(stored.duration ?? 0).toFixed(1)} 秒 · {stored.confirmed ? '原文已核对' : '原文待补充或核对'}</p>
           <audio controls src={speechApi.referenceAudio(stored.id)} />

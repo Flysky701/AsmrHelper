@@ -2,9 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import type { ConnectionProfile, SettingsUpdate, SettingsView } from '@/api/settings'
 import { useWorkbenchStore } from '@/stores/workbenchStore'
-import { speechApi } from '@/api/speech'
-import type { SpeechConnection, SpeechProvider } from '@/api/speech'
-import { useNavStore } from '@/stores/navStore'
+import SpeechConnections from './SpeechConnections'
 
 type Kind = 'llm'
 type Editor = ConnectionProfile & { kind: Kind; credential: string }
@@ -30,34 +28,13 @@ export default function ExternalServices() {
   const [testing, setTesting] = useState(false)
   const [discovery, setDiscovery] = useState<Discovery | null>(null)
   const [verified, setVerified] = useState<Record<string, string>>({})
-  const [speechConnections, setSpeechConnections] = useState<SpeechConnection[]>([])
-  const [speechProviders, setSpeechProviders] = useState<SpeechProvider[]>([])
-  const [speechError, setSpeechError] = useState('')
-  const [speechLoading, setSpeechLoading] = useState(true)
-  const speechGeneration = useRef(0)
   const loadGeneration = useRef(0)
   const discoveryGeneration = useRef(0)
 
   useEffect(() => {
     void load()
-    void loadSpeech()
-    return () => { loadGeneration.current += 1; discoveryGeneration.current += 1; speechGeneration.current += 1 }
+    return () => { loadGeneration.current += 1; discoveryGeneration.current += 1 }
   }, [])
-
-  async function loadSpeech() {
-    const generation = ++speechGeneration.current
-    setSpeechLoading(true)
-    setSpeechError('')
-    try {
-      const [library, descriptors] = await Promise.all([speechApi.library(), speechApi.providers()])
-      if (generation === speechGeneration.current) {
-        setSpeechConnections(library.connections)
-        setSpeechProviders(descriptors.providers)
-      }
-    } catch (cause) {
-      if (generation === speechGeneration.current) setSpeechError('无法加载语音连接：' + String(cause))
-    } finally { if (generation === speechGeneration.current) setSpeechLoading(false) }
-  }
 
   async function load() {
     const generation = ++loadGeneration.current
@@ -239,26 +216,7 @@ export default function ExternalServices() {
         {editor?.kind === kind && !editor.id && editorForm(kind)}
       </div>
     </section>)}
-    <section className="external-service-section">
-      <div className="external-service-heading">
-        <span className="external-service-tag">TTS</span>
-        <h2>外部语音合成</h2>
-        <button className="external-service-button" onClick={() => useNavStore.getState().setPage('voice-lab')}>管理声音与音色</button>
-      </div>
-      <div className="external-service-body">
-        <p className="external-service-muted">在「声音与音色」中管理参考录音和音色生成规则，工作台调用已保存的音色。</p>
-        {speechLoading ? <p className="external-service-muted">加载语音连接中…</p> : speechError ? <div role="alert"><p className="external-service-muted">{speechError}</p><button className="external-service-button" onClick={() => void loadSpeech()}>重新加载</button></div> : <>
-          {speechConnections.filter(connection => speechProviders.some(provider => provider.provider_id === connection.provider_id && provider.connection_required)).map(connection => <div className="external-service-card" key={connection.id}>
-            <div className="external-service-card-heading"><h3>{connection.name}</h3></div>
-            <p className="external-service-muted">{speechProviders.find(provider => provider.provider_id === connection.provider_id)?.name || connection.provider_id} · {{ local: '本机服务', lan: '局域网', cloud: '云端' }[connection.deployment]}</p>
-            {connection.base_url && <p className="external-service-muted">{connection.base_url}</p>}
-            <div className="external-service-muted">{connection.credential_configured ? '密钥已配置' : '未配置密钥'} · 服务可达性未验证</div>
-          </div>)}
-          {!speechConnections.some(connection => speechProviders.some(provider => provider.provider_id === connection.provider_id && provider.connection_required)) && <p className="external-service-muted">尚无新的外部语音连接。请在音色实验室创建声音与连接。</p>}
-        </>}
-        <details className="external-service-muted"><summary>已有配置的导入</summary><p>旧语音配置仍保留在原处。需通过离线导入工具显式导入到新的声音库；此页面不会自动迁移或覆盖旧数据。</p></details>
-      </div>
-    </section>
+    <SpeechConnections />
     <style>{`
       .external-services { max-width: 1040px; min-width: 0; }
       .external-service-section { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 20px; overflow: hidden; }

@@ -4,12 +4,13 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+import math
 from pathlib import Path
 import threading
 import time
 from uuid import uuid4
 
-from src.core.speech.store import SpeechStore, build_plan, validate_plan
+from src.core.speech.store import SpeechStore, build_plan, validate_plan, companion_subtitle_paths
 from src.core.speech.compiler import compile_recipe
 from src.core.speech.providers import get_provider
 from src.core.tasks import TaskDispatcher
@@ -26,6 +27,7 @@ class SpeechService:
         self._lock = threading.RLock()
         self._connection_locks = {}
         self.dispatcher.register_executor("speech.generate", self._execute)
+        self.dispatcher.register_executor("speech.reference_analyze", self._execute_reference_analysis)
 
     def library(self):
         data = {name: self.store.list(name) for name in ("voices", "recipes", "assets", "experiments", "takes", "plans", "selections", "assemblies", "connections")}
@@ -165,21 +167,159 @@ class SpeechService:
     def assets(self):
         return {a["id"]: a for a in self.store.list("assets")}
 
-    def analyze_reference(self, body):
+    def start_reference_analysis(self, body):
+        path = Path(str(body.get("path", "")))
+        if not path.is_file():
+            raise ValueError("请选择存在的录音文件")
+        for key in ("require_text", "separate_vocals"):
+            if key in body and type(body[key]) is not bool:
+                raise ValueError(f"{key} 必须是布尔值")
+        self._validate_subtitle_input(body)
+        spec, _ = self.tasks.create_task_spec(
+            task_type="speech.reference_analyze", task_source="voice-lab", session_id=uuid4().hex,
+            execution_profile={"reference_analysis": {
+                "path": str(path.resolve()), "language": body.get("language", "auto"),
+                "require_text": body.get("require_text", False),
+                "separate_vocals": body.get("separate_vocals", False),
+                "subtitle_text": body.get("subtitle_text", ""),
+                "subtitle_format": body.get("subtitle_format", "vtt"),
+            }},
+        )
+        return self.dispatcher.submit(spec.task_id)
+
+    def reference_analysis(self, task_id):
+        status = self.tasks.get_task(task_id)
+        if status.task_type != "speech.reference_analyze":
+            raise ValueError("此任务不是录音片段分析")
+        # Task lookup above validates the identifier before using it as a filename.
+        path = self.store.root / "_analyses" / (task_id + ".json")
+        result = json.loads(path.read_text(encoding="utf-8")) if status.state == "completed" and path.exists() else None
+        return status, result
+
+    def _execute_reference_analysis(self, spec, context):
+        reported = 0.0
+
+        def progress(message, percent):
+            nonlocal reported
+            if context.cancellation_requested:
+                raise RuntimeError("片段分析已取消")
+            reported = max(reported, min(percent / 100, 1.0))
+            stage = "reference_analysis"
+            for words, value in (
+                (("读取录音", "检查音频", "原始音频"), "reference_read"),
+                (("字幕",), "reference_subtitles"),
+                (("分离",), "reference_separate"),
+                (("转换",), "reference_decode"),
+                (("ASR", "识别"), "reference_transcribe"),
+                (("切割", "筛选", "合并", "VAD"), "reference_segment"),
+                (("质量", "分析完成"), "reference_score"),
+            ):
+                if any(word in message for word in words):
+                    stage = value
+                    break
+            context.update_progress(reported, message, stage=stage)
+
+        result = self.analyze_reference(spec.execution_profile["reference_analysis"], progress_callback=progress)
+        if context.cancellation_requested:
+            raise RuntimeError("片段分析已取消")
+        path = self.store.root / "_analyses" / (spec.task_id + ".json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(path)
+        return result
+
+    def analyze_reference(self, body, progress_callback=None):
         from src.core.tts.audio_preprocessor import AudioPreprocessor
+        if progress_callback:
+            progress_callback("读取录音…", 1)
         original = self.store.inspect_reference(body["path"])
         analyzed = original
         directory = Path(self.store.root) / "_staging" / uuid4().hex
         directory.mkdir(parents=True, exist_ok=True)
+        if progress_callback:
+            progress_callback("检查同目录字幕与时间范围…", 2)
+        subtitle, subtitle_path, warnings = self._reference_subtitle(original, body.get("language", "auto"), directory, body)
         if body.get("separate_vocals"):
+            if progress_callback:
+                progress_callback("正在分离人声…", 3)
             from src.config import config
             from src.core.engines import SeparatorEngineRuntime
             outputs = SeparatorEngineRuntime().separate(input_path=original["path"], output_dir=str(directory),
                 model=str(config.get("processing.vocal_model", "htdemucs")), stems=["vocals"])
             analyzed = self.store.inspect_reference(outputs["vocals"])
+
+        def analysis_progress(message, percent):
+            if subtitle and not subtitle["language_verified"] and "匹配模式" in message:
+                message = "复用字幕时间轴；字幕语言尚未与录音核验"
+            if progress_callback:
+                progress_callback(message, percent)
+
         result = AudioPreprocessor(output_dir=str(directory)).analyze_segments(
-            audio_path=analyzed["path"], audio_language=body.get("language", "zh"), require_text=True)
-        return {"original": original, "analyzed": analyzed, "segments": result.get("segments", [])}
+            audio_path=analyzed["path"],
+            audio_language=subtitle["language"] if subtitle else body.get("language", "auto"),
+            subtitle_path=subtitle_path,
+            require_text=bool(subtitle) or body.get("require_text", False), progress_callback=analysis_progress)
+        return {"original": original, "analyzed": analyzed, "segments": result.get("segments", []),
+            "mode": result.get("mode", "energy"), "warnings": warnings + result.get("warnings", []),
+            "transcript_source": "subtitle" if subtitle else "asr" if body.get("require_text") else "none",
+            "subtitle": subtitle}
+
+    @staticmethod
+    def _validate_subtitle_input(body):
+        text = body.get("subtitle_text", "")
+        if not isinstance(text, str):
+            raise ValueError("字幕内容必须是文本")
+        if len(text.encode("utf-8")) > 5 * 1024 * 1024:
+            raise ValueError("字幕超过 5 MB")
+        if body.get("subtitle_format", "vtt") not in {"vtt", "srt"}:
+            raise ValueError("字幕格式必须是 vtt 或 srt")
+
+    def _reference_subtitle(self, original, language, directory, body):
+        """Reuse only a same-name sidecar tied to unprocessed, inspected source audio."""
+        from src.core.subtitles import detect_subtitle_language, load_subtitle_with_timestamps
+        from src.core.subtitles.text_utils import normalize_language_code
+        source = original.get("companion_source_path")
+        warnings = []
+        self._validate_subtitle_input(body)
+        if body.get("subtitle_text", "").strip():
+            manual = directory / ("manual." + body.get("subtitle_format", "vtt"))
+            manual.write_text(body["subtitle_text"], encoding="utf-8")
+            # Explicitly loaded text takes precedence, even when invalid; do not
+            # silently replace the user's selection with a different sidecar.
+            candidates = [(manual, "手动加载字幕")]
+        else:
+            candidates = [(path, path.name) for path in companion_subtitle_paths(source)]
+        requested = normalize_language_code(language)
+        for candidate, name in candidates:
+            try:
+                if candidate.stat().st_size > 5 * 1024 * 1024:
+                    raise ValueError("字幕超过 5 MB")
+                # Snapshot the sidecar; validation and analysis use identical bytes.
+                staged = directory / ("companion" + candidate.suffix.lower())
+                staged.write_bytes(candidate.read_bytes())
+                entries = load_subtitle_with_timestamps(str(staged))
+                if not entries or any(
+                    not str(entry.get("text", "")).strip()
+                    or not all(math.isfinite(float(entry[key])) for key in ("start", "end"))
+                    or not 0 <= float(entry["start"]) < float(entry["end"]) <= original["duration"]
+                    for entry in entries
+                ):
+                    raise ValueError("字幕为空或时间范围超出当前录音")
+                detected = normalize_language_code(detect_subtitle_language([entry["text"] for entry in entries]))
+                if detected in {"unknown", "mixed"}:
+                    raise ValueError("无法确定字幕语言")
+                verified = requested not in {"auto", "unknown"}
+                if verified and detected != requested:
+                    raise ValueError(f"字幕语言 {detected} 与录音所选语言 {requested} 不一致，可能是译文")
+                if not verified:
+                    warnings.append(f"已复用 {name}，字幕语言尚未与录音核验；请确认是原文而非译文。")
+                else:
+                    warnings.append(f"已复用 {name}，语言与所选语言一致；仍需试听核对字幕原文。")
+                return {"name": name, "language": detected, "language_verified": verified}, str(staged), warnings
+            except (ValueError, OSError, KeyError, TypeError) as exc:
+                warnings.append(f"未使用 {name}：{exc}")
+        return None, None, warnings
 
     def create_plan(self, body):
         plan = build_plan(body["text"])

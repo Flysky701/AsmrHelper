@@ -34,6 +34,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def companion_subtitle_paths(audio_path):
+    """Recognize both recording.vtt and recording.wav.vtt sidecars."""
+    if not audio_path:
+        return []
+    audio = Path(audio_path)
+    return [candidate for suffix in (".vtt", ".srt")
+            for candidate in (Path(str(audio) + suffix), audio.with_suffix(suffix)) if candidate.is_file()]
+
+
 def _hash_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -502,6 +511,18 @@ class SpeechStore:
         original = Path(path).resolve(strict=True)
         if not original.is_file():
             raise ValueError("Reference must be an audio file")
+        original_path = str(original)
+        companion_source_path = None
+        staging = (self.root / "_staging").resolve()
+        if original.is_relative_to(staging) and (original.parent / "inspection.json").is_file():
+            inspected = self.get_inspection(original.parent.name)
+            if original not in {Path(inspected["path"]).resolve(), Path(inspected["source_path"]).resolve()}:
+                raise ValueError("Unknown staged reference file")
+            original_path = inspected["original_path"]
+            if not inspected.get("processing"):
+                companion_source_path = inspected.get("companion_source_path", original_path)
+        elif not original.is_relative_to(self.root.resolve()):
+            companion_source_path = original_path
         parent_asset = next((a for a in self.list("assets") if Path(a.get("path", "")).resolve() == original), None)
         id = str(uuid4())
         directory = self.root / "_staging" / id
@@ -523,9 +544,14 @@ class SpeechStore:
             record = {"id": id, "path": str(playable), "source_path": str(copied),
                       "parent_asset_id": parent_asset["id"] if parent_asset else None,
                       "source_playback_path": str(playable), "source_playback_sha256": _hash_file(playable),
-                      "original_path": str(original), "duration": frames / rate,
+                      "original_path": original_path, "companion_source_path": companion_source_path,
+                      "duration": frames / rate,
                       "sample_rate": rate, "channels": channels, "peaks": peaks,
                       "sha256": _hash_file(playable), "source_sha256": _hash_file(copied), "staged": True}
+            record["companion_subtitles"] = [
+                {"name": candidate.name, "format": candidate.suffix[1:]}
+                for candidate in companion_subtitle_paths(companion_source_path)
+            ]
             self._atomic_json(directory / "inspection.json", record)
             return record
         except Exception:

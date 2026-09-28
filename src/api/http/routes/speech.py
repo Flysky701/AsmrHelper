@@ -145,6 +145,17 @@ def analyze_reference(body: dict, svc=Depends(get_speech_service)):
     return call(svc.analyze_reference, body)
 
 
+@router.post("/references/analyze-tasks", status_code=202)
+def start_reference_analysis(body: dict, svc=Depends(get_speech_service)):
+    return TaskStatusResponse.from_task_status(call(svc.start_reference_analysis, body))
+
+
+@router.get("/references/analyze-tasks/{task_id}")
+def reference_analysis(task_id: str, svc=Depends(get_speech_service)):
+    status, result = call(svc.reference_analysis, task_id)
+    return {"status": TaskStatusResponse.from_task_status(status), "result": result}
+
+
 @router.post("/references")
 def reference(body: dict, svc=Depends(get_speech_service)):
     return _process_reference(body, svc)
