@@ -463,10 +463,11 @@ class PipelineService:
         speech_stage = execution_profile.get("stages", {}).get("tts", {})
         if speech_stage and speech_stage.get("enabled", True):
             from .speech_service import get_speech_service
-            recipe_id = speech_stage.get("options", {}).get("speech_recipe_id")
-            if not recipe_id:
-                raise AppValidationError("请在音色实验室保存配方，并在工作台选择配方后提交")
-            speech_stage["provider_options"] = {"speech_snapshot": get_speech_service().snapshot(recipe_id)}
+            try:
+                snapshot = get_speech_service().pipeline_snapshot(speech_stage)
+            except (ValueError, KeyError, FileNotFoundError) as exc:
+                raise AppValidationError(str(exc)) from exc
+            speech_stage["provider_options"] = {"speech_snapshot": snapshot}
         task_spec, _ = self._task_service.create_task_spec(
             task_type="pipeline",
             task_source=task_source,

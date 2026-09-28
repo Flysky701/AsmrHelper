@@ -161,18 +161,18 @@ class ResourceService:
                     from .speech_service import get_speech_service
                     from src.core.speech.providers import get_provider
                     speech = get_speech_service()
-                    recipe_id = stage.get("options", {}).get("speech_recipe_id")
-                    if not recipe_id:
-                        raise ValueError("请先在音色实验室保存并选择配音配方")
-                    snapshot = speech.snapshot(recipe_id)
+                    snapshot = speech.pipeline_snapshot(stage)
                     context = speech.connection_context(snapshot["connection"])
                     context.update(model=snapshot["recipe"]["model"], mode=snapshot["recipe"]["mode"])
                     readiness = get_provider(snapshot["recipe"]["provider_id"]).probe(context)
                     if not readiness.get("ready"):
                         raise ValueError(readiness.get("detail") or "配方所需运行环境未就绪")
                 except (ValueError, KeyError, FileNotFoundError) as exc:
-                    issues.append(self._issue(stage="tts", category="tts", provider="speech", model=None,
-                        code="SPEECH_RECIPE_NOT_READY", requirement="speech_recipe", message=str(exc), action="voice-lab"))
+                    uses_rule = bool(stage.get("options", {}).get("speech_recipe_id"))
+                    issues.append(self._issue(stage="tts", category="tts", provider=str(stage.get("provider", "")), model=stage.get("model"),
+                        code="SPEECH_RECIPE_NOT_READY" if uses_rule else "SPEECH_SOURCE_NOT_READY",
+                        requirement="speech_recipe" if uses_rule else "speech_source", message=str(exc),
+                        action="voice-lab" if uses_rule else "engines"))
                 continue
 
             provider = str(stage.get("provider") or "").strip()

@@ -57,7 +57,7 @@ MODES = {
         {"id": "builtin", "variant_kinds": ["builtin"], "models": ["qwen3-custom-voice"]},
         {"id": "reference", "variant_kinds": ["reference"], "models": ["qwen3-base"]},
         {"id": "design", "variant_kinds": ["design"], "models": ["qwen3-voice-design"]}],
-    "voxcpm2": [{"id": mode, "variant_kinds": [mode], "models": ["voxcpm2"]} for mode in ("reference", "design")],
+    "voxcpm2": [{"id": mode, "variant_kinds": [mode], "models": ["voxcpm2"]} for mode in ("default", "reference", "design")],
 }
 _LOCAL_LOCK = threading.Lock()
 EMOTIONS = {"neutral", "happy", "sad", "angry", "excited", "calm", "nervous", "relaxed"}
@@ -89,12 +89,31 @@ class SpeechProvider:
         modes = deepcopy(self.modes)
         for mode in modes:
             mode["capabilities"] = self.capabilities(mode["models"][0] if mode["models"] else None, mode["id"])
+            mode["voice_sources"] = self.voice_sources(mode["id"])
         return deepcopy({"provider_id": self.provider_id, "name": {"fish_audio": "Fish Audio", "edge": "Edge TTS",
             "qwen3": "Qwen3 TTS", "voxcpm2": "VoxCPM2", "openai_compatible": "OpenAI 兼容语音"}.get(self.provider_id, getattr(self, "name", self.provider_id)),
             "version": self.version, "contract_version": 1, "remote": self.remote,
             "connection_required": self.http,
             "modes": modes, "options_schema": {"type": "object", "additionalProperties": False,
             "properties": self.options_schema}, "capabilities": self.capabilities()})
+
+    def voice_sources(self, mode):
+        """Offline catalog from actual engine presets; never invent hosted IDs."""
+        presets, default = [], None
+        if self.provider_id == "edge" and mode == "builtin":
+            from src.core.tts import EdgeTTSEngine
+            presets, default = EdgeTTSEngine.list_voices(), "zh-CN-XiaoxiaoNeural"
+        elif self.provider_id == "qwen3" and mode == "builtin":
+            from src.core.tts import Qwen3TTSEngine
+            presets, default = Qwen3TTSEngine.list_voices(), "Vivian"
+        elif self.provider_id == "voxcpm2" and mode == "default":
+            default = "default"
+        return {"kind": mode, "presets": presets, "default": default,
+                "required": default is None,
+                "allow_custom": mode != "default" and not (self.provider_id == "qwen3" and mode == "builtin"),
+                "description": "文本驱动，无固定说话人保证" if mode == "default" else
+                    {"hosted": "填写服务端真实 Voice ID", "reference": "选择参考音频素材",
+                     "design": "填写声音描述", "builtin": "选择引擎预设音色"}.get(mode, "")}
 
     def _options(self, recipe):
         options = recipe.get("provider_options", {})
@@ -135,6 +154,11 @@ class SpeechProvider:
             raise ProviderError("invalid_model", "模型与引擎模式不匹配")
         if not isinstance(variant.get("value"), str) or not variant["value"].strip() or variant.get("style", "normal") not in STYLE_TEXT:
             raise ProviderError("invalid_variant", "声音版本必须有明确来源和有效风格")
+        if variant["kind"] == "default" and variant["value"] != "default":
+            raise ProviderError("invalid_variant", "默认发声不能指定虚构音色")
+        if self.provider_id == "qwen3" and recipe["mode"] == "builtin":
+            if variant["value"] not in {v["id"] for v in self.voice_sources("builtin")["presets"]}:
+                raise ProviderError("invalid_variant", "请选择 Qwen CustomVoice 的真实预设音色")
         if self.http and not recipe.get("connection_ref"):
             raise ProviderError("connection_missing", "请明确选择外部连接")
         if variant["kind"] == "reference":

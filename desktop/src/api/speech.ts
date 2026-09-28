@@ -2,8 +2,14 @@ import { api, apiUrl } from './client'
 import type { TaskStatusResponse } from './types'
 
 export type Delivery = 'normal' | 'soft' | 'whisper'
-export type VariantKind = 'hosted' | 'builtin' | 'reference' | 'design'
+export type VariantKind = 'hosted' | 'builtin' | 'reference' | 'design' | 'default'
 export interface VoiceVariant { kind: VariantKind; value: string; style: Delivery }
+export interface WorkbenchSpeechSource {
+  mode: string
+  variant: Pick<VoiceVariant, 'kind' | 'value'>
+  connection_ref?: string
+  provider_options?: Record<string, unknown>
+}
 export interface SpeechVoice { id: string; name: string; description: string; bindings: { provider_id: string; variants: VoiceVariant[] }[]; default_binding: string }
 export interface SpeechRecipe { id: string; revision: number; name: string; description?: string; voice_id: string; provider_id: string; model: string; mode: string; connection_ref: string; variant: VoiceVariant; language: string; provider_options: Record<string, unknown>; archived?: boolean; default_delivery?: Delivery; default_emotion?: string; default_pause_ms?: number }
 export interface SpeechSegment { id: string; start: number; end: number; delivery: Delivery; emotion: string; pause_ms: number }
@@ -19,7 +25,21 @@ export interface SpeechExperiment { id: string; name: string; plan_id: string; t
 export interface TakeSelection { experiment_id: string; segment_id: string; take_id: string }
 export interface SpeechAssembly { id: string; experiment_id: string; revision?: number; audio?: Record<string, unknown>; status?: string }
 export interface OptionSchema { type?: string; title?: string; description?: string; enum?: (string | number)[]; default?: unknown; minimum?: number; maximum?: number; const?: unknown }
-export interface SpeechProvider { provider_id: string; name: string; remote: boolean; version: string; connection_required: boolean; modes: { id: string; variant_kinds: VariantKind[]; models: string[]; capabilities?: Record<string, unknown> }[]; options_schema: { properties: Record<string, OptionSchema> }; capabilities: Record<string, unknown> }
+export interface SpeechMode {
+  id: string
+  variant_kinds: VariantKind[]
+  models: string[]
+  capabilities?: Record<string, unknown>
+  voice_sources?: {
+    kind: string
+    presets: { id: string; name?: string; language?: string }[]
+    default: string | null
+    required: boolean
+    allow_custom: boolean
+    description: string
+  }
+}
+export interface SpeechProvider { provider_id: string; name: string; remote: boolean; version: string; connection_required: boolean; modes: SpeechMode[]; options_schema: { properties: Record<string, OptionSchema> }; capabilities: Record<string, unknown> }
 export interface SpeechLibrary { voices: SpeechVoice[]; recipes: SpeechRecipe[]; assets: ReferenceAsset[]; experiments: SpeechExperiment[]; takes: SpeechTake[]; plans: SpeechPlan[]; selections: TakeSelection[]; assemblies: SpeechAssembly[]; connections: SpeechConnection[] }
 export interface Waveform { id?: string; duration: number; peaks: number[] }
 

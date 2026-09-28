@@ -334,6 +334,77 @@ class SpeechService:
     def snapshot(self, recipe_id):
         recipe = self.store.get("recipes", recipe_id)
         connection = self.store.get("connections", recipe["connection_ref"])
+        return self._snapshot_recipe(recipe, connection)
+
+    def pipeline_snapshot(self, stage):
+        """Resolve either an optional saved rule or a task-owned engine recipe.
+
+        No voice/rule/connection is created by readiness or task submission.
+        Existing task snapshots remain on the recovery path, never re-resolved.
+        """
+        options = stage.get("options", {})
+        provider_id, model = stage.get("provider"), stage.get("model")
+        recipe_id = options.get("speech_recipe_id")
+        if recipe_id:
+            recipe = self.store.get("recipes", recipe_id)
+            if provider_id not in (None, "", "speech", recipe["provider_id"]):
+                raise ValueError("自定义规则与当前 TTS 引擎不兼容")
+            if model not in (None, "", "default", recipe["model"]):
+                raise ValueError("自定义规则与当前 TTS 模型不兼容")
+            if options.get("speech_source"):
+                raise ValueError("自定义规则和直接声音来源不能同时指定")
+            return self.snapshot(recipe_id)
+        provider = get_provider(provider_id)
+        source = options.get("speech_source", {})
+        if not isinstance(source, dict) or set(source) - {"mode", "variant", "connection_ref", "provider_options"}:
+            raise ValueError("直接声音配置包含未知字段")
+        mode = source.get("mode")
+        if not mode:
+            compatible = [m for m in provider.modes if not model or model == "default" or not m["models"] or model in m["models"]]
+            mode = next((m["id"] for m in compatible if provider.voice_sources(m["id"])["default"] is not None), None)
+            if not mode and len(compatible) == 1:
+                mode = compatible[0]["id"]
+        descriptor = next((m for m in provider.modes if m["id"] == mode), None)
+        if descriptor is None:
+            raise ValueError("请选择当前引擎的发声模式")
+        if not model or model == "default":
+            if len(descriptor["models"]) != 1:
+                raise ValueError("请明确选择 TTS 模型")
+            model = descriptor["models"][0]
+        catalog = provider.voice_sources(mode)
+        variant = deepcopy(source.get("variant"))
+        if variant is None:
+            value = (options.get("voice") if mode == "builtin" else None) or catalog["default"]
+            if not value:
+                raise ValueError(catalog["description"] or "请指定声音来源")
+            variant = {"kind": mode, "value": value}
+        connection_ref = source.get("connection_ref")
+        if connection_ref:
+            connection = self.store.get("connections", connection_ref)
+        elif provider.http:
+            raise ValueError("请选择外部语音服务连接")
+        else:
+            connection = {"id": "engine-default-" + provider_id, "revision": 1,
+                          "provider_id": provider_id, "deployment": "cloud" if provider.remote else "local"}
+        parameters = deepcopy(source.get("provider_options", {"schema_version": 1}))
+        if not isinstance(parameters, dict):
+            raise ValueError("引擎参数必须是对象")
+        if "speed" in options and "speed" in provider.options_schema and "speed" not in parameters:
+            parameters["speed"] = options["speed"]
+        recipe = {"id": "pipeline-" + uuid4().hex, "revision": 1, "name": "主流程引擎配置",
+                  "provider_id": provider_id, "model": model, "mode": mode,
+                  "connection_ref": connection["id"], "variant": variant,
+                  "language": options.get("language", "auto"), "provider_options": parameters}
+        if isinstance(variant, dict) and variant.get("kind") == "reference":
+            asset = self.store.get("assets", variant.get("value"))
+            if asset.get("archived"):
+                raise ValueError("参考素材已归档，请选择可用素材")
+            if provider.capabilities(model, mode)["reference"].get("transcript_required") and asset.get("confirmed") is not True:
+                raise ValueError("此引擎需要已核对转录的参考素材")
+        return self._snapshot_recipe(recipe, connection)
+
+    def _snapshot_recipe(self, recipe, connection):
+        recipe, connection = deepcopy(recipe), deepcopy(connection)
         if connection["provider_id"] != recipe["provider_id"]:
             raise ValueError("连接已更换引擎，请保存新的配方")
         assets = self.assets()
@@ -346,6 +417,11 @@ class SpeechService:
         ready = get_provider(recipe["provider_id"]).probe(context)
         if not ready.get("ready"):
             raise ValueError(ready.get("detail") or "配方所需连接或运行环境未就绪")
+        # Pin resolved local paths, so later runtime/model settings cannot redirect a task.
+        if not get_provider(recipe["provider_id"]).remote:
+            for field in ("model_path", "runtime"):
+                if ready.get(field):
+                    connection[field] = ready[field]
         return {"recipe": recipe, "connection": connection, "assets": selected_assets,
                 "compiler_version": requests[0]["compiler_version"], "provider_version": requests[0]["provider_version"]}
 

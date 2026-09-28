@@ -10,9 +10,8 @@ import type { SettingsView } from '@/api/settings'
 import RemoteModelSelect from '@/components/RemoteModelSelect'
 import MixPreview from '@/components/MixPreview'
 import { resourcesApi } from '@/api/resources'
-import { speechApi } from '@/api/speech'
-import type { SpeechRecipe } from '@/api/speech'
-import { useSpeechDraftStore } from '@/stores/speechDraftStore'
+import WorkbenchSpeech from '@/components/WorkbenchSpeech'
+import type { WorkbenchSpeechResolution } from '@/components/WorkbenchSpeech'
 import type {
   CapabilityDescriptorResponse,
   CapabilityOptionResponse,
@@ -927,12 +926,8 @@ export default function Workbench() {
       setSwitchingConnection(false)
     }
   }
-  const { recipeId, recipe, setRecipe, clear: clearRecipe } = useSpeechDraftStore()
-  const [speechRecipes, setSpeechRecipes] = useState<SpeechRecipe[]>([])
-  const [speechRecipeError, setSpeechRecipeError] = useState('')
-  const [speechRecipesLoading, setSpeechRecipesLoading] = useState(false)
-  const [speechReload, setSpeechReload] = useState(0)
-  const selectedRecipe = speechRecipes.find(item => item.id === recipeId) ?? recipe
+  const [speechConfig, setSpeechConfig] = useState<WorkbenchSpeechResolution | null>(null)
+  const selectedRecipe = speechConfig?.recipe
   const [readinessIssues, setReadinessIssues] = useState<TaskReadinessIssueResponse[]>([])
   const [checkingReadiness, setCheckingReadiness] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -1027,33 +1022,9 @@ export default function Workbench() {
   }, [])
 
   useEffect(() => {
-    if (!stageFlags.tts) return
-    let cancelled = false
-    setSpeechRecipesLoading(true)
-    speechApi.rules().then(library => {
-      if (cancelled) return
-      setSpeechRecipes(library.recipes)
-      const currentId = useSpeechDraftStore.getState().recipeId
-      if (currentId && !library.recipes.some(item => item.id === currentId)) {
-        clearRecipe()
-        setSpeechRecipeError('所选音色已更新或归档，请重新选择')
-      } else {
-        setSpeechRecipeError('')
-      }
-    }).catch(error => {
-      if (cancelled) return
-      setSpeechRecipes([])
-      setSpeechRecipeError(`音色加载失败：${error instanceof Error ? error.message : String(error)}`)
-    }).finally(() => {
-      if (!cancelled) setSpeechRecipesLoading(false)
-    })
-    return () => { cancelled = true }
-  }, [stageFlags.tts, speechReload, clearRecipe])
-
-  useEffect(() => {
     setReadinessIssues([])
     setSubmissionError('')
-  }, [preset, params, capabilityOptions, selectedInputPaths, recipeId])
+  }, [preset, params, capabilityOptions, selectedInputPaths, speechConfig])
 
   const runningCount = tasks.filter((task) => task.status === 'running').length
   const pendingCount = tasks.filter((task) => task.status === 'pending').length
@@ -1240,8 +1211,8 @@ export default function Workbench() {
       submitLockRef.current
     ) return
 
-    if (stageFlags.tts && (!recipeId || !speechRecipes.some(item => item.id === recipeId))) {
-      setSubmissionError('请先保存音色生成规则，并在这里选择用于配音的音色')
+    if (stageFlags.tts && (!speechConfig?.stage || speechConfig.error)) {
+      setSubmissionError(speechConfig?.error || '正在读取配音引擎能力，请稍后重试')
       return
     }
 
@@ -1255,12 +1226,8 @@ export default function Workbench() {
         capabilities,
         capabilityOptions,
       })
-      executionProfile.stages.tts = {
-        enabled: stageFlags.tts,
-        provider: 'speech',
-        model: null,
-        options: stageFlags.tts ? { speech_recipe_id: recipeId } : {},
-        provider_options: {},
+      if (stageFlags.tts && speechConfig?.stage) {
+        executionProfile.stages.tts = structuredClone(speechConfig.stage)
       }
 
       setCheckingReadiness(true)
@@ -1344,7 +1311,7 @@ export default function Workbench() {
           source_lang: params.sourceLang,
           target_lang: params.targetLang,
           use_vocal_separator: stageFlags.separate,
-          speech_recipe_id: stageFlags.tts ? recipeId : null,
+          speech_recipe_id: stageFlags.tts ? selectedRecipe?.id ?? null : null,
           speech_recipe_name: stageFlags.tts ? selectedRecipe?.name : null,
           vocal_model: params.vocalModel,
           asr_model: params.asrModel,
@@ -1452,7 +1419,7 @@ export default function Workbench() {
           ? `${optionLabel(LANG_OPTIONS, params.sourceLang)} → ${optionLabel(LANG_OPTIONS, params.targetLang)}`
           : '源语言与目标语言相同，自动跳过')
       : '当前预设不执行',
-    tts: stageFlags.tts ? (selectedRecipe ? `${selectedRecipe.name} · 修订 ${selectedRecipe.revision} · ${selectedRecipe.provider_id}` : '请选择已保存的配音音色') : '当前预设不执行',
+    tts: stageFlags.tts ? speechConfig?.summary || '请选择配音引擎' : '当前预设不执行',
     mix: stageFlags.mix
       ? `原声 ${Math.round(params.originalVolume * 100)}% · 配音 ${Math.round(params.ttsVolumeRatio * 100)}%`
       : '当前预设不执行',
@@ -1464,7 +1431,7 @@ export default function Workbench() {
       ? `Whisper ${params.asrModel.slice('faster-whisper-'.length)}` : params.asrModel,
     align: 'Qwen 0.6B',
     translate: `${optionLabel(LANG_OPTIONS, params.sourceLang).replace(/\s*\([^)]*\)/g, '')} → ${optionLabel(LANG_OPTIONS, params.targetLang).replace(/\s*\([^)]*\)/g, '')}`,
-    tts: selectedRecipe ? `${selectedRecipe.name} · r${selectedRecipe.revision}` : '待选择音色',
+    tts: speechConfig?.summary || '待选择引擎',
     mix: `原声 ${Math.round(params.originalVolume * 100)}% · 配音 ${Math.round(params.ttsVolumeRatio * 100)}%`,
     export: 'SRT + 文本',
   }
@@ -1502,7 +1469,7 @@ export default function Workbench() {
       ? [{ label: '目标语言', value: optionLabel(LANG_OPTIONS, params.targetLang) }]
       : []),
     ...(stageFlags.tts
-      ? [{ label: '配音音色', value: selectedRecipe ? `${selectedRecipe.name} · 修订 ${selectedRecipe.revision}` : '尚未选择' }]
+      ? [{ label: '配音配置', value: speechConfig?.summary || '尚未选择' }]
       : []),
     ...(stageFlags.translate
       ? [{ label: '翻译提供方', value: optionLabel(translateProviderOptions, params.translateProvider) }]
@@ -1915,30 +1882,9 @@ export default function Workbench() {
           <Section title="模型与引擎" open={modelExpanded} onToggle={toggleModel}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
               {stageFlags.tts ? (
-                <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 10 }}>
-                  <SelectField
-                    title="配音音色"
-                    hint={speechRecipeError || '选择保存的音色生成规则；提交后固定配置，不受后续编辑影响'}
-                    value={recipeId ?? ''}
-                    disabled={submitting || speechRecipesLoading}
-                    options={[
-                      { value: '', label: speechRecipesLoading ? '正在加载音色…' : '请选择配音音色' },
-                      ...speechRecipes.map(item => ({ value: item.id, label: `${item.name} · 修订 ${item.revision} · ${item.provider_id}` })),
-                    ]}
-                    onChange={value => {
-                      const next = speechRecipes.find(item => item.id === value)
-                      if (next) setRecipe(next)
-                      else clearRecipe()
-                    }}
-                  />
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    <ActionButton variant="ghost" disabled={submitting} onClick={() => setPage('voice-lab')}>管理声音与音色</ActionButton>
-                    <ActionButton variant="ghost" disabled={submitting || speechRecipesLoading} onClick={() => setSpeechReload(value => value + 1)}>刷新音色</ActionButton>
-                  </div>
-                  {selectedRecipe ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                    {selectedRecipe.model} · {selectedRecipe.variant.kind === 'reference' ? '参考克隆' : selectedRecipe.variant.kind === 'design' ? '描述创建' : '已保存音色'} · {selectedRecipe.language}
-                  </div> : null}
-                </div>
+                <WorkbenchSpeech disabled={submitting} language={params.targetLang}
+                  preferredProvider={params.ttsEngine} preferredVoice={params.ttsVoice}
+                  onChange={setSpeechConfig} />
               ) : null}
               {stageFlags.asr ? (
                 <>

@@ -11,7 +11,7 @@ import CandidateAudio from './CandidateAudio'
 import './VoiceLab.css'
 
 const emptyLibrary: SpeechLibrary = { voices: [], recipes: [], assets: [], experiments: [], takes: [], plans: [], selections: [], assemblies: [], connections: [] }
-const variantNames = { hosted: '服务端音色 ID', builtin: '内置说话人 ID', reference: '参考素材', design: '声音描述' }
+const variantNames = { hosted: '服务端音色 ID', builtin: '内置说话人 ID', reference: '参考素材', design: '声音描述', default: '引擎默认声音' }
 const modeNames: Record<string, string> = { hosted: '服务端音色', builtin: '内置声音', reference: '参考声音克隆', design: '声音设计' }
 const deploymentNames = { local: '本机', lan: '局域网', cloud: '云端' }
 const optionNames: Record<string, string> = { speed: '语速', temperature: '采样温度', top_p: '采样范围（top_p）', style_description: '风格描述', tag_density: '标签密度', device: '运算设备', cfg_value: '引导强度', inference_timesteps: '推理步数' }
