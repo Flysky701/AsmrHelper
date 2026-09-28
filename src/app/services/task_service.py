@@ -483,6 +483,10 @@ def get_task_dispatcher():
                     "speech.generate",
                     lambda spec, context: _lazy_speech_executor(spec, context),
                 )
+                _dispatcher.register_executor(
+                    "speech.reference_analyze",
+                    lambda spec, context: _lazy_reference_analysis_executor(spec, context),
+                )
     return _dispatcher
 
 
@@ -514,3 +518,9 @@ def _lazy_speech_executor(task_spec, context):
     from .speech_service import get_speech_service
 
     return get_speech_service()._execute(task_spec, context)
+
+
+def _lazy_reference_analysis_executor(task_spec, context):
+    from .speech_service import get_speech_service
+
+    return get_speech_service()._execute_reference_analysis(task_spec, context)
