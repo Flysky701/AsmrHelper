@@ -3,6 +3,7 @@ import { speechApi } from '@/api/speech'
 import type { SpeechConnection, SpeechProvider } from '@/api/speech'
 
 type Editor = Partial<SpeechConnection> & { name: string; provider_id: string; deployment: SpeechConnection['deployment']; api_key: string }
+const FISH_BASE_URL = 'https://api.fish.audio/v1'
 
 export default function SpeechConnections() {
   const [connections, setConnections] = useState<SpeechConnection[]>([])
@@ -30,9 +31,9 @@ export default function SpeechConnections() {
     setNotice('')
     setEditor(connection ? {
       id: connection.id, name: connection.name, provider_id: connection.provider_id,
-      deployment: connection.deployment, base_url: connection.base_url || '',
-      timeout: connection.timeout || 60, credential_configured: connection.credential_configured, api_key: '',
-    } : { name: '', provider_id: providers.find(item => item.provider_id === 'openai_compatible')?.provider_id || providers[0]?.provider_id || '', deployment: 'cloud', base_url: '', timeout: 60, api_key: '' })
+      deployment: connection.deployment, base_url: connection.base_url || (connection.provider_id === 'fish_audio' ? FISH_BASE_URL : ''),
+      credential_configured: connection.credential_configured, api_key: '',
+    } : { name: '', provider_id: providers.find(item => item.provider_id === 'openai_compatible')?.provider_id || providers[0]?.provider_id || '', deployment: 'cloud', base_url: '', api_key: '' })
   }
 
   async function save() {
@@ -46,8 +47,8 @@ export default function SpeechConnections() {
       // Omit blank credentials and non-editable settings to preserve the saved connection.
       const saved = await speechApi.connection({
         ...(editor.id ? { id: editor.id } : {}), name: editor.name.trim(),
-        provider_id: editor.provider_id, deployment: editor.deployment,
-        base_url: editor.base_url.trim(), timeout: editor.timeout,
+        provider_id: editor.provider_id, deployment: editor.provider_id === 'fish_audio' ? 'cloud' : editor.deployment,
+        base_url: editor.base_url.trim(),
         ...(editor.api_key ? { api_key: editor.api_key } : {}),
       })
       setConnections(current => [...current.filter(item => item.id !== saved.id), saved])
@@ -91,14 +92,14 @@ export default function SpeechConnections() {
       {editor && <fieldset disabled={!!busy} className="external-service-editor">
         <div className="external-service-card-heading"><h3>{editor.id ? '编辑语音服务' : '添加语音服务'}</h3><button className="external-service-button" onClick={() => setEditor(null)}>收起</button></div>
         <label className="external-service-field">连接名称<input value={editor.name} maxLength={80} onChange={event => setEditor({ ...editor, name: event.target.value })} placeholder="例如：日常配音" /></label>
-        <label className="external-service-field">接口协议<select value={editor.provider_id} disabled={!!editor.id} onChange={event => setEditor({ ...editor, provider_id: event.target.value, base_url: '', api_key: '' })}>
+        <label className="external-service-field">接口协议<select value={editor.provider_id} disabled={!!editor.id} onChange={event => setEditor({ ...editor, provider_id: event.target.value, base_url: event.target.value === 'fish_audio' ? FISH_BASE_URL : '', deployment: 'cloud', api_key: '' })}>
           {providers.map(item => <option key={item.provider_id} value={item.provider_id}>{item.name}</option>)}
         </select></label>
-        <label className="external-service-field">运行位置<select value={editor.deployment} onChange={event => setEditor({ ...editor, deployment: event.target.value as SpeechConnection['deployment'] })}><option value="cloud">云端</option><option value="lan">局域网</option><option value="local">本机服务</option></select></label>
+        {editor.provider_id !== 'fish_audio' && <label className="external-service-field">运行位置<select value={editor.deployment} onChange={event => setEditor({ ...editor, deployment: event.target.value as SpeechConnection['deployment'] })}><option value="cloud">云端</option><option value="lan">局域网</option><option value="local">本机服务</option></select></label>}
         <label className="external-service-field">API 地址<input value={editor.base_url || ''} onChange={event => setEditor({ ...editor, base_url: event.target.value })} placeholder="填写服务商文档中的 API 基础地址" /></label>
+        {editor.provider_id === 'fish_audio' && <p className="external-service-muted">已预填 Fish Audio 官方云端地址，可直接填写密钥保存。</p>}
         <label className="external-service-field">API 密钥<input type="password" autoComplete="off" value={editor.api_key} onChange={event => setEditor({ ...editor, api_key: event.target.value })} placeholder={editor.credential_configured ? '已配置；留空保持此连接的密钥' : '输入 API 密钥'} /></label>
         {editor.id && <p className="external-service-muted">更换 API 地址时需重新填写密钥。</p>}
-        <details><summary>高级设置</summary><label className="external-service-field" style={{ marginTop: 12 }}>请求超时（秒）<input type="number" min={1} max={600} value={editor.timeout ?? 60} onChange={event => setEditor({ ...editor, timeout: Number(event.target.value) })} /></label></details>
         <div className="external-service-actions" style={{ marginTop: 20 }}><button className="external-service-button external-service-primary" onClick={() => void save()}>{busy || '保存服务'}</button><button className="external-service-button" onClick={() => setEditor(null)}>取消</button></div>
       </fieldset>}
       <p className="external-service-muted">“检查配置”仅检查已保存的地址与凭据是否齐备，不会发起语音合成或验证服务可达性。</p>
