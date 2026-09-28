@@ -5,10 +5,11 @@ interface Props {
   provider: string
   value: string
   onChange: (value: string) => void
+  connectionRef?: string
 }
 
 /** Catalog results belong to the selected endpoint; never substitute a static list. */
-export default function RemoteModelSelect({ provider, value, onChange }: Props) {
+export default function RemoteModelSelect({ provider, value, onChange, connectionRef }: Props) {
   const [models, setModels] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -20,14 +21,15 @@ export default function RemoteModelSelect({ provider, value, onChange }: Props) 
     setError('')
     setLoading(false)
     return () => { generation.current += 1 }
-  }, [provider])
+  }, [provider, connectionRef])
 
   const refresh = async () => {
     const request = ++generation.current
     setLoading(true)
     setError('')
     try {
-      const response = await settingsApi.listModels(provider)
+      const response = await settingsApi.listModels(provider,
+        connectionRef ? { active_connections: { llm: connectionRef } } : undefined)
       if (request !== generation.current) return
       setModels(response.models)
       if (response.models.length === 0) setError('服务未返回模型列表，请到设置中核对。')

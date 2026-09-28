@@ -177,6 +177,19 @@ class ResourceService:
 
             provider = str(stage.get("provider") or "").strip()
             requested_model = str(stage.get("model") or "").strip() or None
+            explicit_llm = category == "llm" and "connection_ref" in stage.get("options", {})
+            if explicit_llm:
+                from src.config import config
+                from src.task_connection_context import resolve_task_settings
+                try:
+                    selected_settings = resolve_task_settings(config.to_dict(), profile)
+                    if requested_model in (None, "default"):
+                        requested_model = selected_settings["api"][f"{provider}_model"]
+                except (ValueError, TypeError) as exc:
+                    issues.append(self._issue(stage=stage_name, category=category, provider=provider,
+                        model=requested_model, code="LLM_CONNECTION_NOT_READY", requirement="llm_connection",
+                        message=str(exc), action="settings"))
+                    continue
             try:
                 descriptor = self._descriptor_service.get_descriptor(category, provider)
             except Exception:
@@ -310,6 +323,10 @@ class ResourceService:
                         )
                 continue
 
+            # Named remote connections were validated above. Global model status
+            # checks would accidentally inspect another connection's credentials.
+            if explicit_llm:
+                continue
             candidates = [
                 model
                 for model in models

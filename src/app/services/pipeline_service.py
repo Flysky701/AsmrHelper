@@ -460,6 +460,16 @@ class PipelineService:
         execution_profile = self._resolve_execution_profile(request)
         from copy import deepcopy
         execution_profile = deepcopy(execution_profile)
+        from src.task_connection_context import resolve_task_settings
+        from src.config import config
+        try:
+            selected_settings = resolve_task_settings(config.to_dict(), execution_profile)
+        except ValueError as exc:
+            raise AppValidationError(str(exc)) from exc
+        translate_stage = execution_profile.get("stages", {}).get("translate", {})
+        if translate_stage.get("enabled", True) and translate_stage.get("options", {}).get("connection_ref"):
+            if translate_stage.get("model") in (None, "", "default"):
+                translate_stage["model"] = selected_settings["api"][f"{translate_stage['provider']}_model"]
         speech_stage = execution_profile.get("stages", {}).get("tts", {})
         if speech_stage and speech_stage.get("enabled", True):
             from .speech_service import get_speech_service

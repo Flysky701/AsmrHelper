@@ -55,7 +55,8 @@ class TaskService:
         with self._lock:
             from src.config import config
 
-            settings = config.to_dict()
+            from src.task_connection_context import resolve_task_settings
+            settings = resolve_task_settings(config.to_dict(), execution_profile)
             connections = capture_connections(settings)
             from src.recovery_connections import capture_recovery_connections
             speech_snapshot = (execution_profile or {}).get("stages", {}).get("tts", {}).get("provider_options", {}).get("speech_snapshot")

@@ -121,12 +121,13 @@ export function buildPipelineExecutionProfile({
       translate: {
         enabled: stageFlags.translate,
         provider: params.translateProvider,
-        model: params.translateModel.trim() || llmDescriptor?.default_model || null,
+        model: params.translateModel.trim() || (params.translateConnectionId ? null : llmDescriptor?.default_model || null),
         options: {
           source_lang: params.sourceLang,
           target_lang: params.targetLang,
           preserve_timestamps: true,
           ...llmCommonOptions,
+          ...(params.translateConnectionId ? { connection_ref: params.translateConnectionId } : {}),
         },
         provider_options: {},
       },

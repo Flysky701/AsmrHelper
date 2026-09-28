@@ -18,6 +18,7 @@ export interface WorkbenchParams {
   alignSubtitles: boolean
   translateProvider: string
   translateModel: string
+  translateConnectionId?: string
   ttsSpeed: number
   originalVolume: number
   ttsVolumeRatio: number
@@ -39,6 +40,7 @@ const DEFAULT_PARAMS: WorkbenchParams = {
   alignSubtitles: false,
   translateProvider: 'deepseek',
   translateModel: 'deepseek-chat',
+  translateConnectionId: '',
   ttsSpeed: 1.0,
   originalVolume: 0.85,
   ttsVolumeRatio: 0.5,

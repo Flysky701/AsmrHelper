@@ -902,29 +902,13 @@ export default function Workbench() {
   const [capabilities, setCapabilities] = useState<CapabilityDescriptorResponse[]>([])
   const [capabilityError, setCapabilityError] = useState('')
   const [connections, setConnections] = useState<SettingsView['connection_profiles'] | null>(null)
-  const [switchingConnection, setSwitchingConnection] = useState(false)
-  const connectionSwitchRef = useRef(false)
-
-  const selectConnection = async (kind: 'llm', id: string) => {
-    if (connectionSwitchRef.current || submitting) return
-    connectionSwitchRef.current = true
-    setSwitchingConnection(true)
-    try {
-      const { settings } = await settingsApi.update({ active_connections: { [kind]: id } })
-      setConnections(settings.connection_profiles)
-      if (kind === 'llm') {
-        const provider = settings.providers.default_llm
-        updateParam('translateProvider', provider)
-        updateParam('translateModel', provider === 'openai' ? settings.providers.openai.model : settings.providers.deepseek.model)
-      }
-      setCapabilities(await capabilitiesApi.list())
-      setCapabilityError('')
-    } catch (error) {
-      setCapabilityError(`连接配置切换失败：${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      connectionSwitchRef.current = false
-      setSwitchingConnection(false)
-    }
+  const selectConnection = (id: string) => {
+    if (submitting) return
+    const selected = connections?.llm.find(item => item.id === id)
+    if (!selected) return
+    updateParam('translateConnectionId', id)
+    updateParam('translateProvider', selected.provider)
+    updateParam('translateModel', selected.model || '')
   }
   const [speechConfig, setSpeechConfig] = useState<WorkbenchSpeechResolution | null>(null)
   const selectedRecipe = speechConfig?.recipe
@@ -998,7 +982,14 @@ export default function Workbench() {
         if (cancelled) return
         const store = useWorkbenchStore.getState()
         setConnections(settings.connection_profiles)
-        if (settings.connection_profiles || !store.llmSelectionInitialized) {
+        if (settings.connection_profiles && !store.params.translateConnectionId) {
+          const selected = settings.connection_profiles.llm.find(item => item.id === settings.connection_profiles.active_llm)
+          if (selected) {
+            store.updateParam('translateConnectionId', selected.id)
+            store.updateParam('translateProvider', selected.provider)
+            store.updateParam('translateModel', selected.model || '')
+          }
+        } else if (!settings.connection_profiles && !store.llmSelectionInitialized) {
           const provider = settings.providers.default_llm
           const model = provider === 'openai' ? settings.providers.openai.model : settings.providers.deepseek.model
           store.updateParam('translateProvider', provider)
@@ -1207,9 +1198,13 @@ export default function Workbench() {
       selectedInputs.length === 0 ||
       !currentPreset ||
       discoveringInputs ||
-      connectionSwitchRef.current ||
       submitLockRef.current
     ) return
+
+    if (stageFlags.translate && connections && !connections.llm.some(item => item.id === params.translateConnectionId)) {
+      setSubmissionError('本次翻译连接已不可用，请重新选择')
+      return
+    }
 
     if (stageFlags.tts && (!speechConfig?.stage || speechConfig.error)) {
       setSubmissionError(speechConfig?.error || '正在读取配音引擎能力，请稍后重试')
@@ -1517,7 +1512,7 @@ export default function Workbench() {
           </ActionButton>
           <ActionButton
             variant="primary"
-            disabled={selectedInputs.length === 0 || submitting || switchingConnection || discoveringInputs || !!capabilityError || !currentPreset}
+            disabled={selectedInputs.length === 0 || submitting || discoveringInputs || !!capabilityError || !currentPreset}
             onClick={handleExecute}
           >
             <PlayIcon />
@@ -1908,10 +1903,10 @@ export default function Workbench() {
               ) : null}
               {stageFlags.translate ? (
                 <>
-                  {connections ? <SelectField title="翻译连接配置" hint="在引擎与资源的外部服务中管理" disabled={submitting || switchingConnection}
-                    value={connections.active_llm}
+                  {connections ? <SelectField title="翻译连接配置" hint="仅用于本次任务或批次；全局默认在外部服务中管理" disabled={submitting}
+                    value={params.translateConnectionId || ''}
                     options={connections.llm.map(item => ({ value: item.id, label: item.name }))}
-                    onChange={value => void selectConnection('llm', value)} /> : <SelectField
+                    onChange={selectConnection} /> : <SelectField
                     title="翻译提供方"
                     value={params.translateProvider}
                     options={translateProviderOptions}
@@ -1921,7 +1916,7 @@ export default function Workbench() {
                       if (defaultModel) updateParam('translateModel', defaultModel)
                     }}
                   />}
-                  <RemoteModelSelect key={`${connections?.active_llm}:${switchingConnection}`} provider={params.translateProvider} value={params.translateModel}
+                  <RemoteModelSelect key={params.translateConnectionId} connectionRef={params.translateConnectionId} provider={params.translateProvider} value={params.translateModel}
                     onChange={value => updateParam('translateModel', value)} />
                 </>
               ) : null}

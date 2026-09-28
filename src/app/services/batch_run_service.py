@@ -48,6 +48,7 @@ class BatchRunService:
         self._batches: dict[str, BatchRunRecord] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._cancel_events: dict[str, threading.Event] = {}
+        self._llm_snapshots: dict[str, dict] = {}
 
         if self._state_store is not None:
             for record in self._state_store.load_batch_runs():
@@ -139,6 +140,21 @@ class BatchRunService:
 
         created_at = _now()
         batch_id = f"batch-{uuid4().hex[:12]}"
+        execution_profile = deepcopy(execution_profile)
+        translation = execution_profile["stages"].get("translate", {})
+        selected_settings = None
+        if translation.get("enabled", True) and "connection_ref" in translation.get("options", {}):
+            from src.config import config
+            from src.task_connection_context import resolve_task_settings, capture_connections
+            from src.recovery_connections import capture_recovery_connections
+            try:
+                selected_settings = resolve_task_settings(config.to_dict(), execution_profile)
+                execution_profile["llm_connection_record"] = capture_recovery_connections(
+                    selected_settings, capture_connections(selected_settings), include_tts=False)
+            except ValueError as exc:
+                raise AppValidationError(str(exc)) from exc
+            if translation.get("model") in (None, "", "default"):
+                translation["model"] = selected_settings["api"][f"{translation['provider']}_model"]
         record = BatchRunRecord(
             batch_id=batch_id,
             name=name.strip() or f"批量任务 {created_at[:16]}",
@@ -163,6 +179,9 @@ class BatchRunService:
         )
 
         with self._lock:
+            if selected_settings is not None:
+                self._llm_snapshots[batch_id] = {key: deepcopy(selected_settings.get(key, {}))
+                    for key in ("api", "external_tts", "connection_profiles")}
             self._batches[batch_id] = record
             self._cancel_events[batch_id] = threading.Event()
             self._save_locked(record)
@@ -296,15 +315,27 @@ class BatchRunService:
         item: BatchRunItem,
     ) -> None:
         try:
-            task = self._pipeline_orchestrator.submit_task(
-                PipelineRequest(
-                    input_path=item.input_path,
-                    output_dir=record.output_dir,
-                    companion_paths=list(item.companion_paths),
-                    execution_profile=deepcopy(record.execution_profile),
-                ),
-                task_source=f"batch-run:{record.batch_id}",
-            )
+            from src.task_connection_context import connection_context, resolve_task_settings
+            snapshot = self._llm_snapshots.get(record.batch_id)
+            if snapshot is None and record.execution_profile.get("llm_connection_record"):
+                from src.config import config
+                from src.recovery_connections import restore_recovery_connections
+                settings = config.to_dict()
+                restore_recovery_connections(record.execution_profile["llm_connection_record"], settings)
+                selected = resolve_task_settings(settings, record.execution_profile)
+                snapshot = {key: deepcopy(selected.get(key, {}))
+                    for key in ("api", "external_tts", "connection_profiles")}
+                self._llm_snapshots[record.batch_id] = snapshot
+            with connection_context(snapshot):
+                task = self._pipeline_orchestrator.submit_task(
+                    PipelineRequest(
+                        input_path=item.input_path,
+                        output_dir=record.output_dir,
+                        companion_paths=list(item.companion_paths),
+                        execution_profile=deepcopy(record.execution_profile),
+                    ),
+                    task_source=f"batch-run:{record.batch_id}",
+                )
             item.current_task_id = task.task_id
             item.task_ids.append(task.task_id)
             item.state = task.state
