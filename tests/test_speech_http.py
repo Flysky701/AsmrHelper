@@ -36,6 +36,15 @@ def post(client, path, body, status=200):
     return response.json()
 
 
+def test_experiment_cannot_override_task_media_root(speech_http, tmp_path):
+    client, service = speech_http
+    plan = post(client, "/plans", {"text": "测试。"})
+    post(client, "/experiments", {"name": "Test", "plan_id": plan["id"],
+        "kind": "formal", "media_root": str(tmp_path / "unexpected")}, status=422)
+    assert service.store.list("experiments") == []
+    assert not (tmp_path / "unexpected").exists()
+
+
 def setup_fish(client):
     connection = post(client, "/connections", {"name": "Fish test", "provider_id": "fish_audio", "deployment": "cloud",
         "base_url": "https://fish.invalid/v1", "api_key": "never-expose-this-key"})

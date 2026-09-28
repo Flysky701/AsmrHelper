@@ -1,5 +1,7 @@
 """Integration checks for durable candidates and frozen formal dubbing requests."""
 from copy import deepcopy
+from pathlib import Path
+from types import SimpleNamespace
 import json
 import numpy as np
 import pytest
@@ -51,6 +53,8 @@ def test_candidates_are_distinct_and_recipe_revision_pinned(lab):
     assert first["processing"][1]["take_id"] == second["processing"][1]["take_id"]
     assert first["processing"][0]["take_id"] != second["processing"][0]["take_id"]
     assert service.store.get("assemblies", first["id"])["processing"] == first["processing"]
+    assert all(Path(take["audio_path"]).is_relative_to(service.store.root) for take in takes)
+    assert Path(first["audio_path"]).is_relative_to(service.store.root)
 
 
 def test_connection_edit_never_changes_snapshot_or_exposes_key(lab):
@@ -81,6 +85,68 @@ def test_formal_dubbing_uses_same_compiler_and_runner(lab, tmp_path):
     assert assembly["processing"][0]["start"] == .5
     assert calls[0]["recipe_id"] == recipe["id"]
     assert sf.info(tmp_path / "formal.wav").duration == 2
+    experiment = service.store.get("experiments", assembly["experiment_id"])
+    media_root = Path(experiment["media_root"])
+    assert media_root.is_relative_to(tmp_path / "speech")
+    assert Path(assembly["audio_path"]).is_relative_to(media_root)
+    assert all(Path(take["audio_path"]).is_relative_to(media_root) for take in service.experiment(experiment["id"])["takes"])
+    assert not (service.store.root / "audio").exists()
+    assert not (service.store.root / "assemblies").exists()
+
+
+def test_formal_regeneration_alignment_and_remix_stay_in_task_directory(lab, tmp_path, monkeypatch):
+    service, recipe, _ = lab
+    # Use real small WAV files; stub time stretching to test path ownership
+    # without requiring an installed FFmpeg or calling a remote model.
+    def stretch(command, **kwargs):
+        sf.write(command[-1], np.zeros(1200, dtype="float32"), 24000)
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr("subprocess.run", stretch)
+    monkeypatch.setattr("src.utils.get_ffmpeg", lambda: "ffmpeg")
+    task_dir = tmp_path / "task-one" / "BY_Product"
+    task_dir.mkdir(parents=True)
+    snapshot = service.snapshot(recipe["id"])
+    first = service.synthesize_timeline(snapshot,
+        [{"text": "你好。", "start_time": 0, "end_time": .05}], task_dir / "tts_output.wav", "task-one")
+    experiment = service.store.get("experiments", first["experiment_id"])
+    root = Path(experiment["media_root"])
+    assert root.is_relative_to(task_dir)
+    assert Path(first["processing"][0]["aligned_path"]).is_relative_to(root / "aligned")
+
+    spec = SimpleNamespace(task_id="regenerate", execution_profile={
+        "requests": service.compile(recipe["id"], experiment["plan_id"]), "snapshot": snapshot,
+        "experiment_id": experiment["id"], "plan_id": experiment["plan_id"]})
+    takes = service._execute(spec, SimpleNamespace(cancellation_requested=False, update_progress=lambda *a, **k: None))
+    assert Path(takes[0]["audio_path"]).is_relative_to(root)
+    service.select({"experiment_id": experiment["id"], "segment_id": takes[0]["segment_id"], "take_id": takes[0]["id"]})
+    source = tmp_path / "source.wav"
+    sf.write(source, np.zeros(2400, dtype="float32"), 24000)
+    service.record_formal_mix(experiment["id"], source,
+        {"original_volume": .85, "tts_volume_ratio": .5, "tts_delay_ms": 0})
+    def mix(self, original_path, tts_path, output_path):
+        import shutil
+        shutil.copyfile(tts_path, output_path)
+    monkeypatch.setattr("src.mixer.Mixer.mix", mix)
+    rebuilt = service.assemble(experiment["id"])
+    assert Path(rebuilt["audio_path"]).is_relative_to(root)
+    assert Path(rebuilt["mixed_path"]).is_relative_to(root)
+    assert Path(first["audio_path"]).is_file()
+    for directory in ("audio", "aligned", "assemblies"):
+        assert not (service.store.root / directory).exists()
+
+
+def test_legacy_formal_experiment_keeps_library_paths(lab):
+    service, recipe, _ = lab
+    plan = service.create_plan({"text": "旧任务。"})
+    experiment = service.store.create("experiments", {"name": "Old formal", "kind": "formal", "plan_id": plan["id"]})
+    spec = SimpleNamespace(task_id="legacy", execution_profile={
+        "requests": service.compile(recipe["id"], plan["id"]), "snapshot": service.snapshot(recipe["id"]),
+        "experiment_id": experiment["id"], "plan_id": plan["id"]})
+    takes = service._execute(spec, SimpleNamespace(cancellation_requested=False, update_progress=lambda *a, **k: None))
+    assert Path(takes[0]["audio_path"]).is_relative_to(service.store.root / "audio")
+    service.select({"experiment_id": experiment["id"], "segment_id": takes[0]["segment_id"], "take_id": takes[0]["id"]})
+    assembly = service.assemble(experiment["id"])
+    assert Path(assembly["audio_path"]).is_relative_to(service.store.root / "assemblies")
 
 
 def test_invalid_plan_does_not_persist(lab):

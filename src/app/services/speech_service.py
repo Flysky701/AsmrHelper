@@ -444,9 +444,18 @@ class SpeechService:
 
     def _execute(self, spec, context):
         data = spec.execution_profile
+        experiment = self.store.get("experiments", data["experiment_id"])
         return self.run_requests(data["requests"], data["snapshot"], task_id=spec.task_id,
             experiment_id=data["experiment_id"], plan_id=data["plan_id"],
-            cancel_check=lambda: context.cancellation_requested, progress=context.update_progress)
+            cancel_check=lambda: context.cancellation_requested, progress=context.update_progress,
+            media_root=self._experiment_media_root(experiment))
+
+    def _experiment_media_root(self, experiment):
+        # Existing records retain their original paths; only new formal runs
+        # carry a task-owned media root. Laboratory audio stays in the library.
+        if experiment.get("kind") == "formal" and experiment.get("media_root"):
+            return Path(experiment["media_root"])
+        return Path(self.store.root)
 
     def synthesize_timeline(self, snapshot, segments, output_path, task_id, cancel_check=lambda: False, reference_duration=0):
         """Formal dubbing uses the identical compiler/runner as laboratory takes."""
@@ -463,20 +472,23 @@ class SpeechService:
             timeline[sid] = {"start": segment["start_time"], "end": segment["end_time"]}
             cursor = end
         plan = self.store.create("plans", plan)
-        experiment = self.store.create("experiments", {"name": f"正式配音 {task_id}", "plan_id": plan["id"],
-            "task_id": task_id, "kind": "formal", "snapshot": snapshot, "timeline": timeline, "reference_duration": reference_duration})
+        experiment_id = uuid4().hex
+        media_root = Path(output_path).resolve().parent / "speech" / experiment_id
+        experiment = self.store.create("experiments", {"id": experiment_id, "name": f"正式配音 {task_id}", "plan_id": plan["id"],
+            "task_id": task_id, "kind": "formal", "media_root": str(media_root),
+            "snapshot": snapshot, "timeline": timeline, "reference_duration": reference_duration})
         requests = compile_recipe(snapshot["recipe"], plan, snapshot["assets"])
         if requests[0]["compiler_version"] != snapshot["compiler_version"]:
             raise ValueError("编译器版本已改变，请重新提交任务")
         if requests[0]["provider_version"] != snapshot.get("provider_version"):
             raise ValueError("引擎版本已改变，请重新提交任务")
         takes = self.run_requests(requests, snapshot, task_id=task_id, experiment_id=experiment["id"],
-            plan_id=plan["id"], cancel_check=cancel_check)
+            plan_id=plan["id"], cancel_check=cancel_check, media_root=media_root)
         for take in takes:
             self.select({"experiment_id": experiment["id"], "segment_id": take["segment_id"], "take_id": take["id"]})
         return self.assemble(experiment["id"], output_path=output_path, timeline=timeline, reference_duration=reference_duration)
 
-    def run_requests(self, requests, snapshot, *, task_id, experiment_id, plan_id, cancel_check=lambda: False, progress=None):
+    def run_requests(self, requests, snapshot, *, task_id, experiment_id, plan_id, cancel_check=lambda: False, progress=None, media_root=None):
         context = self.connection_context(snapshot["connection"])
         context["assets"] = deepcopy(snapshot["assets"])
         outputs = []
@@ -490,7 +502,7 @@ class SpeechService:
                 raise InterruptedError("已取消，后续台词未生成")
             provider = get_provider(request["provider_id"])
             take_id = uuid4().hex
-            output = Path(self.store.root) / "audio" / (take_id + ".wav")
+            output = Path(media_root if media_root is not None else self.store.root) / "audio" / (take_id + ".wav")
             output.parent.mkdir(parents=True, exist_ok=True)
             started = time.monotonic()
             try:
@@ -562,7 +574,7 @@ class SpeechService:
         return self.store.update("experiments", experiment_id, {"mix_context": {
             "source_path": str(source), "source_sha256": digest.hexdigest(), **mix_options}})
 
-    def _align_take(self, take, slot_duration):
+    def _align_take(self, take, slot_duration, *, media_root=None):
         """Derived duration-fit audio; raw takes remain immutable and reusable."""
         import soundfile as sf
         import subprocess
@@ -574,7 +586,7 @@ class SpeechService:
         if ratio == 1:
             return take["audio_path"], ratio
         key = hashlib.sha256(f"{take['id']}:{slot_duration:.9f}:atempo-v1".encode()).hexdigest()
-        target = Path(self.store.root) / "aligned" / (key + ".wav")
+        target = Path(media_root if media_root is not None else self.store.root) / "aligned" / (key + ".wav")
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             steps, factor = [], ratio
@@ -600,6 +612,7 @@ class SpeechService:
         from scipy.signal import resample_poly
         from math import gcd
         experiment = self.experiment(experiment_id)
+        media_root = self._experiment_media_root(experiment)
         timeline = timeline if timeline is not None else experiment.get("timeline")
         reference_duration = reference_duration or experiment.get("reference_duration", 0)
         plan = self.store.get("plans", experiment["plan_id"])
@@ -610,7 +623,7 @@ class SpeechService:
             if take is None:
                 raise ValueError("请先为每句台词选择真实候选")
             pause = take["compiled_request"].get("pause_ms", 0) / 1000
-            aligned_path, ratio = self._align_take(take, timeline[segment["id"]]["end"] - timeline[segment["id"]]["start"] - pause) if timeline else (take["audio_path"], 1)
+            aligned_path, ratio = self._align_take(take, timeline[segment["id"]]["end"] - timeline[segment["id"]]["start"] - pause, media_root=media_root) if timeline else (take["audio_path"], 1)
             audio, source_rate = sf.read(aligned_path, dtype="float32", always_2d=True)
             audio = audio.mean(axis=1)
             if source_rate != rate:
@@ -629,7 +642,7 @@ class SpeechService:
         for start, audio in chunks:
             mixed[start:start + len(audio)] += audio
         assembly_id = uuid4().hex
-        target = Path(self.store.root) / "assemblies" / (assembly_id + ".wav")
+        target = media_root / "assemblies" / (assembly_id + ".wav")
         target.parent.mkdir(parents=True, exist_ok=True)
         sf.write(target, np.clip(mixed, -1, 1), rate, subtype="PCM_16")
         mixed_path = None

@@ -221,6 +221,8 @@ def reference_audio(asset_id: str, source: bool = False, download: bool = False,
 
 @router.post("/experiments")
 def experiment(body: dict, svc=Depends(get_speech_service)):
+    if "media_root" in body:
+        raise HTTPException(422, "正式配音文件目录由任务创建，不能在试听中指定")
     call(svc.store.get, "plans", required(body, "plan_id"))
     return call(svc.store.create, "experiments", body)
 
