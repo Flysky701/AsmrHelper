@@ -181,7 +181,7 @@ class BatchRunService:
         with self._lock:
             if selected_settings is not None:
                 self._llm_snapshots[batch_id] = {key: deepcopy(selected_settings.get(key, {}))
-                    for key in ("api", "external_tts", "connection_profiles")}
+                    for key in ("api", "connection_profiles")}
             self._batches[batch_id] = record
             self._cancel_events[batch_id] = threading.Event()
             self._save_locked(record)
@@ -324,7 +324,7 @@ class BatchRunService:
                 restore_recovery_connections(record.execution_profile["llm_connection_record"], settings)
                 selected = resolve_task_settings(settings, record.execution_profile)
                 snapshot = {key: deepcopy(selected.get(key, {}))
-                    for key in ("api", "external_tts", "connection_profiles")}
+                    for key in ("api", "connection_profiles")}
                 self._llm_snapshots[record.batch_id] = snapshot
             with connection_context(snapshot):
                 task = self._pipeline_orchestrator.submit_task(

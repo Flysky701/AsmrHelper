@@ -26,7 +26,7 @@ def project_profiles(settings, include_env=True):
     if "connection_profiles" not in settings:
         return settings
     profiles = settings["connection_profiles"]
-    for kind in ("llm", "tts"):
+    for kind in ("llm",):
         selected = next((p for p in profiles[kind] if p["id"] == profiles[f"active_{kind}"]), None)
         if selected is None:
             raise ValueError("所选连接配置不存在")
@@ -38,32 +38,28 @@ def project_profiles(settings, include_env=True):
                 api[f"{provider}_{field}"] = selected.get(field, "")
             if include_env and selected["id"] == f"legacy-{provider}" and os.environ.get(f"{provider.upper()}_API_KEY"):
                 api[f"{provider}_api_key"] = os.environ[f"{provider.upper()}_API_KEY"]
-        else:
-            settings["external_tts"] = {k: deepcopy(v) for k, v in selected.items() if k not in ("id", "name", "provider")}
     return settings
 
 
 def public_profiles(settings):
     profiles = profiles_for(settings)
-    for kind in ("llm", "tts"):
-        allowed = ("id", "name", "provider", "base_url", "model") if kind == "llm" else (
-            "id", "name", "provider", "base_url", "model", "voice", "api_format", "instructions"
-        )
-        result = []
-        for profile in profiles[kind]:
-            item = {key: profile.get(key, "") for key in allowed}
-            if kind == "tts":
-                item["api_format"] = profile.get("api_format") or "speech"
-            secret = profile.get("api_key")
-            if kind == "llm" and profile["id"] == f"legacy-{profile['provider']}":
-                secret = os.environ.get(f"{profile['provider'].upper()}_API_KEY") or secret
-            item["credential_configured"] = bool(secret)
-            result.append(item)
-        profiles[kind] = result
-    return profiles
+    result = []
+    for profile in profiles["llm"]:
+        item = {key: profile.get(key, "") for key in ("id", "name", "provider", "base_url", "model")}
+        secret = profile.get("api_key")
+        if profile["id"] == f"legacy-{profile['provider']}":
+            secret = os.environ.get(f"{profile['provider'].upper()}_API_KEY") or secret
+        item["credential_configured"] = bool(secret)
+        result.append(item)
+    return {"llm": result, "active_llm": profiles["active_llm"]}
 
 
 def update_profiles(base, request, legacy_updates):
+    if ("external_tts" in legacy_updates
+            or "tts" in request.get("active_connections", {})
+            or isinstance(request.get("connection_profile"), dict)
+            and request["connection_profile"].get("kind") == "tts"):
+        raise ValueError("旧 TTS 配置只读，请使用 Speech 命名连接")
     profiles = profiles_for(base)
     # Legacy clients edit the selected profile for the corresponding provider.
     api = legacy_updates.get("api", {})
@@ -77,20 +73,18 @@ def update_profiles(base, request, legacy_updates):
                     selected[field] = api[f"{provider}_{field}"]
             if api.get("provider") == provider:
                 profiles["active_llm"] = selected["id"]
-    if "external_tts" in legacy_updates:
-        next(p for p in profiles["tts"] if p["id"] == profiles["active_tts"]).update(legacy_updates["external_tts"])
     selection = request.get("active_connections", {})
     if not isinstance(selection, dict):
         raise ValueError("active_connections 必须是对象")
-    for kind in ("llm", "tts"):
+    for kind in ("llm",):
         if kind in selection:
             if not any(p["id"] == selection[kind] for p in profiles[kind]):
                 raise ValueError("所选连接配置不存在")
             profiles[f"active_{kind}"] = selection[kind]
     if "connection_profile" in request:
         draft = request["connection_profile"]
-        if not isinstance(draft, dict) or draft.get("kind") not in ("llm", "tts"):
-            raise ValueError("连接类型必须是 llm 或 tts")
+        if not isinstance(draft, dict) or draft.get("kind") != "llm":
+            raise ValueError("连接类型必须是 llm；TTS 请使用 Speech")
         kind = draft["kind"]
         existing = next((p for p in profiles[kind] if p["id"] == draft.get("id")), None)
         if draft.get("id") and existing is None:
@@ -105,7 +99,6 @@ def update_profiles(base, request, legacy_updates):
             raise ValueError("不支持的服务提供商")
         if existing and provider != existing["provider"]:
             raise ValueError("更换提供商请新建配置")
-        previous = deepcopy(existing) if existing else {}
         profile = existing if existing is not None else {"id": uuid4().hex, "api_key": ""}
         profile.update(name=name.strip(), provider=provider)
         for field in (("base_url", "model") if kind == "llm" else (
@@ -126,26 +119,6 @@ def update_profiles(base, request, legacy_updates):
         credential = draft.get("credential")
         if credential is not None and not isinstance(credential, str):
             raise ValueError("API Key 必须是字符串")
-        if kind == "tts":
-            api_format = profile.get("api_format") or "speech"
-            if api_format not in ("speech", "mimo_chat", "fish"):
-                raise ValueError("不支持的 TTS 接口格式")
-            profile["api_format"] = api_format
-            if api_format == "fish":
-                if not all(profile.get(key) for key in ("base_url", "model", "voice")):
-                    raise ValueError("Fish Audio 配置需要 API 地址、模型和音色 ID")
-                if profile.get("instructions"):
-                    raise ValueError("Fish Audio 不支持独立语音指令字段，请在合成文本中使用官方支持的标签")
-            before_url = urlsplit(previous.get("base_url", ""))
-            after_url = urlsplit(profile.get("base_url", ""))
-            changed_service = (
-                (before_url.scheme, before_url.netloc) != (after_url.scheme, after_url.netloc)
-                or (previous.get("api_format") or "speech") != api_format
-            )
-            if previous.get("api_key") and changed_service and (
-                not credential or not credential.strip() or credential == "***configured***"
-            ):
-                raise ValueError("更换 TTS 服务地址或协议后，请重新填写对应服务的 API Key")
         if credential and credential.strip() and credential != "***configured***":
             profile["api_key"] = credential.strip()
         if existing is None:

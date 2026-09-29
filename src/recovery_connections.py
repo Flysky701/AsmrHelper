@@ -56,7 +56,7 @@ def _project(settings, references):
     return result
 
 
-def capture_recovery_connections(settings: dict, snapshot: dict, *, include_tts: bool = True) -> dict:
+def capture_recovery_connections(settings: dict, snapshot: dict, *, include_tts: bool = False) -> dict:
     """Capture references; never write credentials or arbitrary nested values.
 
     ``settings`` must include connection_profiles when named profiles are used;
@@ -90,14 +90,12 @@ def capture_recovery_connections(settings: dict, snapshot: dict, *, include_tts:
                                    "fingerprint": _digest(effective, salt)})
                 break
     template = {}
-    for section in ("api", "external_tts"):
+    for section in (("api", "external_tts") if include_tts else ("api",)):
         template[section] = {
             key: ({"value": deepcopy(value)} if _safe_field(key, value) else {"digest": _digest(value, salt)})
             for key, value in snapshot.get(section, {}).items()
         }
-    if not include_tts:
-        template["external_tts"] = {}
-    record = {"schema_version": 1, "salt": salt, "selected": selected,
+    record = {"schema_version": 1 if include_tts else 2, "salt": salt, "selected": selected,
               "references": references, "template": template}
     # Reject mismatched capture inputs immediately, rather than persisting an
     # attempt that can never be resumed with its original settings.
@@ -113,12 +111,13 @@ def restore_recovery_connections(record: dict, settings: dict) -> dict:
     Errors intentionally exclude actual values and secrets.
     """
     try:
-        if record["schema_version"] != 1:
+        if record["schema_version"] not in (1, 2):
             raise ValueError("unsupported schema")
         salt = record["salt"]
         if not isinstance(salt, str) or len(salt) != 64:
             raise ValueError("invalid salt")
-        if set(record["template"]) != {"api", "external_tts"}:
+        expected_sections = {"api", "external_tts"} if record["schema_version"] == 1 else {"api"}
+        if set(record["template"]) != expected_sections:
             raise ValueError("invalid template")
         if set(record["selected"]) not in ({"llm", "tts"}, {"llm"}):
             raise ValueError("invalid selected kinds")

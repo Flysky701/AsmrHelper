@@ -60,7 +60,7 @@ def resolve_task_settings(settings: dict, execution_profile: dict | None) -> dic
 
 def capture_connections(settings: dict) -> dict:
     """Copy complete sections, including absence, to avoid fallback leakage."""
-    return {key: deepcopy(settings.get(key, {})) for key in ("api", "external_tts")}
+    return {key: deepcopy(settings.get(key, {})) for key in ("api",)}
 
 
 @contextmanager

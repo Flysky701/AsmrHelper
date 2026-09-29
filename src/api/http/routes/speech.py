@@ -32,6 +32,20 @@ def providers():
     return {"providers": list_providers()}
 
 
+@router.get("/legacy-import")
+def preview_legacy_import(svc=Depends(get_speech_service)):
+    from src.config import config
+    from src.app.services.legacy_speech_import import inspect_legacy
+    return call(inspect_legacy, config.to_dict(), svc)
+
+
+@router.post("/legacy-import")
+def import_legacy_connections(svc=Depends(get_speech_service)):
+    from src.config import config
+    from src.app.services.legacy_speech_import import import_legacy
+    return call(import_legacy, config.to_dict(), svc)
+
+
 @router.get("/library")
 def library(svc=Depends(get_speech_service)):
     return svc.library()

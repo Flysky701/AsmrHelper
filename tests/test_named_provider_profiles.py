@@ -95,19 +95,10 @@ def test_env_applies_only_to_legacy_profiles_and_is_not_persisted(service, monke
 
 
 def test_tts_profile_does_not_inherit_hidden_fields_or_secret(service):
-    result = service.update_settings({"connection_profile": {
-        "kind": "tts", "name": "Studio", "base_url": "https://speech.invalid/v1", "credential": "studio-secret",
-    }})
-    selected = result["connection_profiles"]["active_tts"]
-    assert service.config.get("external_tts.api_key") == "studio-secret"
-    assert not service.config.get("external_tts.model")
-    assert result["external_tts"]["api_format"] == "speech"
-    assert "studio-secret" not in json.dumps(result)
-    service.update_settings({"connection_profile": {"kind": "tts", "id": selected, "name": "Studio 2", "credential": ""}})
-    assert service.config.get("external_tts.api_key") == "studio-secret"
-    service.update_settings({"active_connections": {"tts": "legacy-tts"}})
-    assert service.config.get("external_tts.model") == "voice-model"
-    assert service.config.get("external_tts.api_key") == "tts-old"
+    before = deepcopy(service.config.get_file_config())
+    with pytest.raises(AppValidationError, match="Speech"):
+        service.update_settings({"connection_profile": {"kind": "tts", "name": "old"}})
+    assert service.config.get_file_config() == before
 
 
 def test_legacy_updates_target_selected_profile(service):
@@ -151,22 +142,10 @@ def fish_profile(**overrides):
 
 
 def test_fish_profile_roundtrip_and_task_snapshot(service):
-    from src.task_connection_context import capture_connections
-    result = service.update_settings({"connection_profile": fish_profile()})
-    selected = result["connection_profiles"]["active_tts"]
-    profile = next(p for p in result["connection_profiles"]["tts"] if p["id"] == selected)
-    assert profile["api_format"] == "fish"
-    assert profile["model"] == "s2.1-pro-free"
-    assert profile["voice"] == "my-reference-id"
-    assert "fish-test-secret" not in json.dumps(result)
-    service.config.reload()
-    assert service.get_settings() == result
-    snapshot = capture_connections(service.get_settings(masked=False))
-    service.update_settings({"active_connections": {"tts": "legacy-tts"}})
-    assert snapshot["external_tts"]["api_format"] == "fish"
-    assert snapshot["external_tts"]["voice"] == "my-reference-id"
-    service.update_settings({"active_connections": {"tts": selected}})
-    assert service.config.get("external_tts.api_key") == "fish-test-secret"
+    before = deepcopy(service.config.get_file_config())
+    with pytest.raises(AppValidationError, match="Speech"):
+        service.update_settings({"connection_profile": {"kind": "tts", "name": "old"}})
+    assert service.config.get_file_config() == before
 
 
 @pytest.mark.parametrize("overrides", [
@@ -181,13 +160,7 @@ def test_invalid_fish_profile_is_not_saved(service, overrides):
 
 
 def test_fish_profile_host_change_requires_fresh_key(service):
-    result = service.update_settings({"connection_profile": fish_profile()})
-    selected = result["connection_profiles"]["active_tts"]
-    service.update_settings({"connection_profile": {"kind": "tts", "id": selected,
-                            "name": "Fish renamed", "credential": ""}})
-    assert service.config.get("external_tts.api_key") == "fish-test-secret"
     before = deepcopy(service.config.get_file_config())
-    with pytest.raises(AppValidationError, match="重新填写"):
-        service.update_settings({"connection_profile": {"kind": "tts", "id": selected,
-                                "base_url": "https://another.invalid/v1", "credential": ""}})
+    with pytest.raises(AppValidationError, match="Speech"):
+        service.update_settings({"connection_profile": {"kind": "tts", "name": "old"}})
     assert service.config.get_file_config() == before

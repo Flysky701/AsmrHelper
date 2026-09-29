@@ -100,7 +100,7 @@ def test_explicit_resume_creates_attempt_and_preserves_original_connections_and_
     with restored.connection_context(resumed.task_id):
         assert config.get("api.deepseek_api_key") == "original-llm-secret"
         assert config.get("api.deepseek_model") == "original-model"
-        assert config.get("external_tts.api_key") == "original-tts-secret"
+        assert config.get("external_tts.api_key") is None  # New attempts do not project legacy TTS
     assert config.get("api.deepseek_api_key") == "other-llm-secret"
     with pytest.raises(AppValidationError, match="已有"):
         _resume(restored, spec.task_id)

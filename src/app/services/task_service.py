@@ -59,8 +59,7 @@ class TaskService:
             settings = resolve_task_settings(config.to_dict(), execution_profile)
             connections = capture_connections(settings)
             from src.recovery_connections import capture_recovery_connections
-            speech_snapshot = (execution_profile or {}).get("stages", {}).get("tts", {}).get("provider_options", {}).get("speech_snapshot")
-            connection_record = capture_recovery_connections(settings, connections, include_tts=not bool(speech_snapshot))
+            connection_record = capture_recovery_connections(settings, connections, include_tts=False)
             try:
                 result = self._registry.create_task_spec(
                     task_type=task_type,

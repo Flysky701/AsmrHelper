@@ -56,11 +56,6 @@ class Config:
                 "deepseek_base_url": "https://api.deepseek.com",
                 "openai_base_url": "https://api.openai.com/v1",
             },
-            "tts": {
-                "engine": "edge",
-                "voice": "zh-CN-XiaoxiaoNeural",
-                "speed": 1.0,
-            },
             "paths": {
                 "output_dir": "",
                 "vtt_dir": "",
@@ -216,14 +211,7 @@ class Config:
         if provider and not self._get_api_key_from_mapping(target, provider):
             errors.append(f"API provider '{provider}' 的 API Key 未设置")
 
-        # 验证 TTS 配置
-        tts_engine = self._get_from_mapping(target, "tts.engine", "")
-        if tts_engine not in ("edge", "qwen3", "voxcpm2", "openai_compatible"):
-            errors.append(f"不支持的 TTS 引擎: {tts_engine}")
-
-        speed = self._get_from_mapping(target, "tts.speed", 1.0)
-        if not self._is_number(speed) or speed < 0.1 or speed > 3.0:
-            errors.append(f"tts.speed 必须在 0.1-3.0 之间，当前: {speed}")
+        # Legacy TTS fields are retained for import/history, not runtime validation.
 
         # 验证音量配置
         orig_vol = self._get_from_mapping(target, "processing.original_volume", 0.85)

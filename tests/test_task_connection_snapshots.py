@@ -36,7 +36,7 @@ def test_queued_task_keeps_connections_but_unrelated_settings_stay_live(monkeypa
     dispatcher.register_executor("pipeline", lambda spec: config.to_dict())
     result = dispatcher.run(spec.task_id)
     assert result["api"] == _settings("first")["api"]
-    assert result["external_tts"] == _settings("first")["external_tts"]
+    assert result["external_tts"] == _settings("second")["external_tts"]  # Not a runtime TTS source
     assert result["paths"] == _settings("second")["paths"]
     assert config.get("api.deepseek_api_key") == "secret-second"
 
@@ -57,8 +57,8 @@ def test_retry_keeps_original_connections_and_context_resets_after_failure(monke
         dispatcher.run(spec.task_id)
     assert config.get("api.deepseek_api_key") == "secret-second"
     retry = service.retry_task(spec.task_id)
-    dispatcher.register_executor("pipeline", lambda spec: config.get("external_tts.api_key"))
-    assert dispatcher.run(retry.task_id) == "tts-secret-first"
+    dispatcher.register_executor("pipeline", lambda spec: config.get("api.deepseek_api_key"))
+    assert dispatcher.run(retry.task_id) == "secret-first"
 
 
 def test_parallel_running_tasks_do_not_share_or_leak_connections(monkeypatch):

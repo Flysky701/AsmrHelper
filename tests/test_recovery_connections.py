@@ -4,8 +4,17 @@ import json
 import pytest
 
 from src.provider_profiles import project_profiles
-from src.recovery_connections import capture_recovery_connections, restore_recovery_connections
-from src.task_connection_context import capture_connections
+from src.recovery_connections import capture_recovery_connections as capture_current, restore_recovery_connections
+# Version-1 fixtures exercise historical records; new tasks use version 2.
+def capture_connections(settings):
+    profile = settings["connection_profiles"]["tts"][0]
+    return {"api": deepcopy(settings["api"]), "external_tts": {
+        k: deepcopy(v) for k, v in profile.items() if k not in ("id", "name", "provider")}}
+
+
+def capture_recovery_connections(settings, snapshot):
+    return capture_current(settings, snapshot, include_tts=True)
+
 
 
 def _settings():

@@ -254,7 +254,6 @@ class SettingsService:
             "providers": {
                 "default_llm": api.get("provider", "deepseek"),
             },
-            "tts": deepcopy(settings.get("tts", {})),
             "paths": deepcopy(settings.get("paths", {})),
             "processing": deepcopy(settings.get("processing", {})),
         }
@@ -264,12 +263,6 @@ class SettingsService:
                 "model": api.get(f"{provider}_model") or LLM_DEFAULT_MODELS[provider],
                 "credential_configured": bool(api.get(f"{provider}_api_key")),
             }
-        external = settings.get("external_tts", {})
-        public["external_tts"] = {
-            key: external.get(key, "") for key in ("base_url", "model", "voice", "instructions")
-        }
-        public["external_tts"]["api_format"] = external.get("api_format", "speech")
-        public["external_tts"]["credential_configured"] = bool(external.get("api_key"))
         public["connection_profiles"] = public_profiles(settings)
         return public
 
@@ -283,39 +276,9 @@ class SettingsService:
             raise AppValidationError("settings 必须是对象")
 
         internal: dict[str, Any] = {}
-        external = updates.get("external_tts")
-        if isinstance(external, dict):
-            mapped = {}
-            for key in ("base_url", "model", "voice", "api_format", "instructions"):
-                if key in external:
-                    if not isinstance(external[key], str):
-                        raise AppValidationError(f"external_tts.{key} 必须是字符串")
-                    mapped[key] = external[key].strip()
-            if mapped.get("api_format", "speech") not in ("speech", "mimo_chat", "fish"):
-                raise AppValidationError("不支持的 TTS 接口格式")
-            if mapped.get("base_url"):
-                from urllib.parse import urlsplit
-
-                url = urlsplit(mapped["base_url"])
-                if (
-                    url.scheme not in ("http", "https")
-                    or not url.hostname
-                    or url.username
-                    or url.password
-                    or url.query
-                    or url.fragment
-                ):
-                    raise AppValidationError(
-                        "外部 TTS 地址必须是 HTTP(S) 基础地址，不包含凭据、查询参数或片段"
-                    )
-            credential = external.get("credential")
-            if credential not in ("", _MASKED_VALUE, None):
-                if not isinstance(credential, str):
-                    raise AppValidationError("TTS API Key 必须是字符串")
-                if credential.strip():
-                    mapped["api_key"] = credential.strip()
-            internal["external_tts"] = mapped
-        for section in ("tts", "paths", "processing"):
+        if "external_tts" in updates or "tts" in updates:
+            raise AppValidationError("旧 TTS 配置已只读，请通过 Speech 命名连接配置或导入旧配置")
+        for section in ("paths", "processing"):
             value = updates.get(section)
             if isinstance(value, dict):
                 internal[section] = deepcopy(value)

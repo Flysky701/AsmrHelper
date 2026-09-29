@@ -6,11 +6,6 @@
         "deepseek_base_url": "https://api.deepseek.com",
         "openai_base_url": "https://api.openai.com/v1"
     },
-    "tts": {
-        "engine": "edge",
-        "voice": "zh-CN-XiaoxiaoNeural",
-        "speed": 1.0
-    },
     "paths": {
         "output_dir": "",
         "vtt_dir": "",
