@@ -135,6 +135,7 @@ def test_pipeline_submission_embeds_snapshot_without_creating_rule(speech, monke
     tasks.create_task_spec.return_value = (Mock(task_id="task-test"), Mock())
     catalog = Mock()
     catalog.inspect_paths.return_value = [Mock(asset_id="input", absolute_path="input.wav")]
+    catalog.discover_companions.return_value = []
     service = PipelineService(task_service=tasks, resource_service=Mock(), workspace_service=Mock(),
         input_catalog_service=catalog, session_service=Mock(), artifact_service=Mock(), executor=Mock())
     profile = {"version": 1, "stages": {"tts": {"enabled": True, "provider": "edge", "model": "edge-tts",

@@ -163,6 +163,25 @@ def test_changed_companion_invalidates_checkpoint(setup, tmp_path):
     assert executor.calls == ["asr", "translate", "tts"]
 
 
+@pytest.mark.parametrize("has_companion", [True, False])
+def test_subtitle_policy_invalidates_only_legacy_companion_checkpoints(setup, tmp_path, has_companion):
+    from src.app.persistence.recovery_store import file_identity, fingerprint
+    store, plan = setup
+    plan.alignment.enabled = True
+    if has_companion:
+        companion = tmp_path / "audio.vtt"
+        companion.write_text("translated sidecar", encoding="utf-8")
+        plan.companion_subtitle_path = str(companion)
+    recovery = PipelineRecovery(store, "first", None, plan, "connection-a")
+    # Reproduce the exact pre-policy upstream serialization and write durable
+    # stage records, including an alignment which predates language checking.
+    recovery._upstream = fingerprint({"version": 1, "input": file_identity(plan.input_path),
+        "companion": file_identity(plan.companion_subtitle_path) if has_companion else None})
+    StubExecutor().execute(plan, recovery=recovery)
+    executor, _ = run(store, next_plan(plan), "first")
+    assert executor.calls == (["asr", "align", "translate", "tts"] if has_companion else [])
+
+
 def test_restored_final_outputs_belong_to_new_attempt(setup):
     store, plan = setup
     plan.mix.enabled = True

@@ -35,6 +35,7 @@ class BatchDiscoveredFileResponse(BaseModel):
     name: str
     size_bytes: int = Field(ge=0)
     companion_paths: list[str] = Field(default_factory=list)
+    companion_subtitles: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class BatchDiscoverResponse(BaseModel):

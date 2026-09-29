@@ -148,6 +148,7 @@ export interface BatchDiscoveredFileResponse {
   name: string
   size_bytes: number
   companion_paths: string[]
+  companion_subtitles?: import('@/domain/workbenchInput').CompanionSubtitle[]
 }
 
 export interface BatchDiscoverResponse {

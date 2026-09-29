@@ -256,6 +256,13 @@ class PipelineExecutor:
         from src.core.engines.asr import AsrEngineRuntime
 
         asr_text_path = by_product_dir / "asr_result.txt"
+        companion = self._load_source_companion(plan, results)
+        if companion:
+            asr_text_path.write_text("\n".join(entry["text"] for entry in companion), encoding="utf-8")
+            results["transcript_path"] = str(asr_text_path)
+            results["steps"]["asr"] = {"duration": 0.0, "segments": len(companion),
+                                       "output": str(asr_text_path), "reused_subtitle": plan.companion_subtitle_path}
+            return companion
         t1 = time.time()
         try:
             recognizer = self._asr or AsrEngineRuntime()
@@ -288,16 +295,42 @@ class PipelineExecutor:
 
         return segments
 
+    @staticmethod
+    def _load_source_companion(plan, results):
+        from src.core.subtitles.companions import inspect_subtitle, is_source_subtitle
+        if not plan.companion_subtitle_path or Path(plan.companion_subtitle_path).suffix.lower() == ".txt":
+            return []
+        inspection = inspect_subtitle(plan.companion_subtitle_path)
+        results["companion_subtitle"] = {key: value for key, value in inspection.items() if key != "segments"}
+        if not is_source_subtitle(inspection, plan.source_lang):
+            results["companion_subtitle"]["reason"] = inspection["reason"] or "字幕与原音频语言不一致，保留 ASR 原文识别"
+            return []
+        try:
+            import soundfile as sf
+            duration = sf.info(plan.input_path).duration
+            if any(float(entry["end"]) > duration + 0.1 for entry in inspection["segments"]):
+                raise ValueError("字幕时间轴超出音频范围")
+        except (OSError, RuntimeError, ValueError) as exc:
+            results["companion_subtitle"]["reason"] = f"无法验证字幕时间轴：{exc}"
+            return []
+        results["companion_subtitle"]["reused"] = True
+        return inspection["segments"]
+
     def _execute_alignment(self, plan, segments, by_product_dir, results):
         from src.core.engines.alignment import AlignmentRuntime
-        from src.core.subtitles import SubtitleExporter, load_subtitle_with_timestamps
+        from src.core.subtitles import SubtitleExporter
 
         if plan.companion_subtitle_path:
             source = Path(plan.companion_subtitle_path)
             if source.suffix.lower() == ".txt":
-                segments = [{"text": source.read_text(encoding="utf-8").strip()}]
+                from src.core.subtitles.companions import conservative_text_language
+                from src.core.subtitles.text_utils import normalize_language_code
+                text = source.read_text(encoding="utf-8").strip()
+                language = conservative_text_language([text])
+                if language not in {"unknown", "mixed"} and language == normalize_language_code(plan.source_lang):
+                    segments = [{"text": text}]
             else:
-                segments = load_subtitle_with_timestamps(str(source))
+                segments = self._load_source_companion(plan, results) or segments
         original = by_product_dir / "alignment_original.json"
         original.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
         started = time.time()

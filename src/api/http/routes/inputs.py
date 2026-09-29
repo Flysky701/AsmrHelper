@@ -50,7 +50,9 @@ def discover_companions(
     svc: InputCatalogService = Depends(input_catalog_service),
 ):
     companions = svc.discover_companions(body.asset_id)
+    from src.core.subtitles.companions import subtitle_summary
     return DiscoverCompanionsResponse(
         primary_asset_id=body.asset_id,
         suggested_companions=[_to_asset_response(asset) for asset in companions],
+        companion_subtitles=[subtitle_summary(asset.absolute_path) for asset in companions if asset.kind == "subtitle"],
     )

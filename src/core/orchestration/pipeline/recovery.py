@@ -26,8 +26,13 @@ class PipelineRecovery:
         self.plan = plan
         self.connection_fingerprint = connection_fingerprint
         self._reuse = bool(source_task_id)
-        self._upstream = fingerprint({"version": 1, "input": file_identity(plan.input_path),
-            "companion": file_identity(plan.companion_subtitle_path) if plan.companion_subtitle_path else None})
+        upstream = {"version": 1, "input": file_identity(plan.input_path),
+                    "companion": file_identity(plan.companion_subtitle_path) if plan.companion_subtitle_path else None}
+        if plan.companion_subtitle_path:
+            # Older checkpoints could align translated sidecars without checking
+            # their language. Keep the historical hash unchanged for other tasks.
+            upstream["subtitle_policy_version"] = 1
+        self._upstream = fingerprint(upstream)
         self._models = {}
         self._speech_audit = None
 

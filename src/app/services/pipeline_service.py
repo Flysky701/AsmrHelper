@@ -184,7 +184,7 @@ class PipelineService:
             if target_lang not in SUPPORTED_LANGUAGE_CODES:
                 raise AppValidationError(f"unsupported target_lang: {target_lang}")
 
-            companion_vtt_path = self._resolve_companion_subtitle_path(session.companion_asset_ids)
+            companion_vtt_path = self._resolve_companion_subtitle_path(session.companion_asset_ids, source_lang)
             context = PipelineExecutionContext(
                 task_id=task_spec.task_id,
                 input_path=input_asset.absolute_path,
@@ -416,7 +416,7 @@ class PipelineService:
         source_lang, target_lang = self._resolve_profile_languages(
             execution_profile
         )
-        companion_vtt_path = self._resolve_companion_subtitle_path(session.companion_asset_ids)
+        companion_vtt_path = self._resolve_companion_subtitle_path(session.companion_asset_ids, source_lang)
 
         context = PipelineExecutionContext(
             task_id=task_spec.task_id,
@@ -441,6 +441,9 @@ class PipelineService:
         companion_paths = list(request.companion_paths)
         if request.vtt_path and request.vtt_path not in companion_paths:
             companion_paths.append(request.vtt_path)
+        if not companion_paths:
+            companion_paths = [asset.absolute_path for asset in
+                               self._input_catalog_service.discover_companions(primary_asset.asset_id)]
         companion_asset_ids: list[str] = []
         if companion_paths:
             companion_assets = self._input_catalog_service.inspect_paths(companion_paths)
@@ -638,12 +641,16 @@ class PipelineService:
             },
         }
 
-    def _resolve_companion_subtitle_path(self, companion_asset_ids: list[str]) -> str | None:
+    def _resolve_companion_subtitle_path(self, companion_asset_ids: list[str], source_lang: str = "auto") -> str | None:
+        from src.core.subtitles.companions import inspect_subtitle, is_source_subtitle
+        fallback = None
         for asset_id in companion_asset_ids:
             asset = self._input_catalog_service.get_asset(asset_id)
             if asset.kind == "subtitle" or Path(asset.absolute_path).suffix.lower() == ".txt":
-                return asset.absolute_path
-        return None
+                fallback = fallback or asset.absolute_path
+                if asset.kind == "subtitle" and is_source_subtitle(inspect_subtitle(asset.absolute_path), source_lang):
+                    return asset.absolute_path
+        return fallback
 
     @staticmethod
     def _resolve_profile_languages(execution_profile: dict[str, Any]) -> tuple[str, str]:

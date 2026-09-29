@@ -34,3 +34,4 @@ class DiscoverCompanionsRequest(BaseModel):
 class DiscoverCompanionsResponse(BaseModel):
     primary_asset_id: str
     suggested_companions: list[InputAssetResponse] = Field(default_factory=list)
+    companion_subtitles: list[dict] = Field(default_factory=list)

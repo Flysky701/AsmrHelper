@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.utils import find_subtitle_file
+from src.core.subtitles.companions import discover_subtitles
 
 from .models import InputAsset
 
@@ -43,9 +43,7 @@ class InputCatalog:
         path = Path(asset.absolute_path)
         discovered: list[InputAsset] = []
         if asset.kind == "audio" and path.exists():
-            subtitle_path = find_subtitle_file(path)
-            if subtitle_path is not None:
-                discovered.extend(self.inspect_paths([str(subtitle_path)]))
+            discovered.extend(self.inspect_paths([str(candidate) for candidate in discover_subtitles(path)]))
         return discovered
 
     def _build_asset(self, raw_path: str) -> InputAsset:

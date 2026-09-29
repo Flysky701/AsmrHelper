@@ -79,6 +79,7 @@ def test_pipeline_default_model_resolves_B_before_submission(monkeypatch):
     tasks, catalog = Mock(), Mock()
     tasks.create_task_spec.return_value = (Mock(task_id="test"), Mock())
     catalog.inspect_paths.return_value = [Mock(asset_id="input", absolute_path="input.wav")]
+    catalog.discover_companions.return_value = []
     pipeline = PipelineService(task_service=tasks, resource_service=Mock(), workspace_service=Mock(),
         input_catalog_service=catalog, session_service=Mock(), artifact_service=Mock(), executor=Mock())
     source = profile()

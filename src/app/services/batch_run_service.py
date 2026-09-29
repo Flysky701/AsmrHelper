@@ -85,6 +85,7 @@ class BatchRunService:
                 "name": path.name,
                 "size_bytes": path.stat().st_size,
                 "companion_paths": self._discover_companions(path),
+                "companion_subtitles": self._subtitle_summaries(path),
             }
             for path in paths
         ]
@@ -504,11 +505,13 @@ class BatchRunService:
 
     @staticmethod
     def _discover_companions(path: Path) -> list[str]:
-        for suffix in SUBTITLE_EXTENSIONS:
-            candidate = path.with_suffix(suffix)
-            if candidate.exists() and candidate.is_file():
-                return [str(candidate.resolve())]
-        return []
+        from src.core.subtitles.companions import discover_subtitles
+        return [str(candidate.resolve()) for candidate in discover_subtitles(path)]
+
+    @staticmethod
+    def _subtitle_summaries(path: Path) -> list[dict]:
+        from src.core.subtitles.companions import subtitle_summary
+        return [subtitle_summary(candidate) for candidate in BatchRunService._discover_companions(path)]
 
 
 _service: BatchRunService | None = None

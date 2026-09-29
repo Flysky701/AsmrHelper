@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { WorkbenchInputItem } from '@/domain/workbenchInput'
+import type { CompanionSubtitle, WorkbenchInputItem } from '@/domain/workbenchInput'
 
 export interface InspectInputsRequest {
   paths: string[]
@@ -30,6 +30,7 @@ export interface DiscoverCompanionsRequest {
 export interface DiscoverCompanionsResponse {
   primary_asset_id: string
   suggested_companions: InputAssetResponse[]
+  companion_subtitles?: CompanionSubtitle[]
 }
 
 export interface ResolveInputsResult {
@@ -86,10 +87,13 @@ async function resolveItems(
   const inspected = await inspect(paths)
   const resolved = await mapWithConcurrency(inspected.assets, companionConcurrency, async (asset) => {
     let companionPaths: string[] = []
+    let companionSubtitles: CompanionSubtitle[] = []
     let warning = ''
     if (asset.kind === 'audio' && asset.exists) {
       try {
-        companionPaths = (await discoverCompanions(asset.asset_id)).suggested_companions
+        const discovered = await discoverCompanions(asset.asset_id)
+        companionSubtitles = discovered.companion_subtitles ?? []
+        companionPaths = discovered.suggested_companions
           .map((companion) => companion.absolute_path)
       } catch (error) {
         warning = `${asset.display_name || asset.absolute_path} 的伴随字幕发现失败：${error instanceof Error ? error.message : String(error)}`
@@ -102,6 +106,7 @@ async function resolveItems(
         name: asset.display_name,
         size: asset.size_bytes,
         companionPaths,
+        companionSubtitles,
       },
       warning,
     }

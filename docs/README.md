@@ -2,6 +2,7 @@
 
 ## 使用参考与目录约定
 
+- [工作台输入与伴随字幕](guides/workbench.md)
 - [音色描述词指南](guides/voice-description.md)
 - [历史模型下载备注](references/model-notes.md)：安装信息以 `config/models.yaml` 为准。
 - [待评估模型](roadmap/future-models.md)

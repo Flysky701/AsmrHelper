@@ -37,6 +37,7 @@ import {
   fileName,
   inputPathKey,
   mergeInputItems,
+  companionDescription,
   pathToInput,
   type WorkbenchInputItem,
 } from '@/domain/workbenchInput'
@@ -1680,7 +1681,7 @@ export default function Workbench() {
                           {item.path}
                         </div>
                         <div style={{ marginTop: 4, fontSize: 10, color: 'var(--muted)' }}>
-                          {formatInputSize(item.size)}{item.companionPaths.length > 0 ? ` · 已发现字幕 ${fileName(item.companionPaths[0] ?? '')}` : ' · 无伴随字幕'}
+                          {formatInputSize(item.size)} · {companionDescription(item, params.sourceLang, params.targetLang)}
                         </div>
                       </div>
                       <button
