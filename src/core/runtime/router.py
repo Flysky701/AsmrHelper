@@ -26,7 +26,6 @@ class RuntimeRouter:
         "fun_asr": "fun_asr",
         "qwen3_asr": "qwen_asr",
     }
-    _TTS_PROFILES = {"qwen3": "qwen_tts", "voxcpm2": "voxcpm2"}
 
     def __init__(
         self,
@@ -35,9 +34,6 @@ class RuntimeRouter:
     ) -> None:
         self.resolver = resolver or get_runtime_profile_resolver()
         self.project_root = (project_root or PROJECT_ROOT).resolve()
-
-    def tts_profile(self, provider: str) -> str | None:
-        return self._TTS_PROFILES.get(provider)
 
     def asr_profile(self, provider: str) -> str | None:
         return self._ASR_PROFILES.get(provider)
@@ -51,30 +47,8 @@ class RuntimeRouter:
             self.asr_profile(provider),
         )
 
-    def synthesize_text(self, payload: dict[str, Any]) -> str:
-        result = self._run_worker("tts.synthesize_text", payload, self.tts_profile(str(payload["profile"]["provider"])))
-        return str(result["output_path"])
-
     def align_file(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._run_worker("alignment.align_file", payload, "qwen_asr")
-
-    def synthesize_segments(self, payload: dict[str, Any]) -> str:
-        result = self._run_worker(
-            "tts.synthesize_segments",
-            payload,
-            self.tts_profile(str(payload["profile"]["provider"])),
-        )
-        return str(result["output_path"])
-
-    def design_voice(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._run_worker("voice.design", payload, "qwen_tts")
-
-    def clone_voice(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._run_worker("voice.clone", payload, "qwen_tts")
-
-    def preview_voice(self, payload: dict[str, Any]) -> str:
-        result = self._run_worker("voice.preview", payload, "qwen_tts")
-        return str(result["output_path"])
 
     def _run_worker(
         self,

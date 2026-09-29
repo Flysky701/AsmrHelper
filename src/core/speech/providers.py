@@ -104,8 +104,8 @@ class SpeechProvider:
             from src.core.tts import EdgeTTSEngine
             presets, default = EdgeTTSEngine.list_voices(), "zh-CN-XiaoxiaoNeural"
         elif self.provider_id == "qwen3" and mode == "builtin":
-            from src.core.tts import Qwen3TTSEngine
-            presets, default = Qwen3TTSEngine.list_voices(), "Vivian"
+            from .qwen_catalog import list_qwen_voices
+            presets, default = list_qwen_voices(), "Vivian"
         elif self.provider_id == "voxcpm2" and mode == "default":
             default = "default"
         return {"kind": mode, "presets": presets, "default": default,

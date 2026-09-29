@@ -13,13 +13,19 @@ PROTOCOLS = {"speech": "openai_compatible", "fish": "fish_audio", "mimo_chat": "
 
 def _sources(settings):
     result = []
-    profiles = settings.get("connection_profiles", {})
-    for index, item in enumerate(profiles.get("tts", [])):
-        if isinstance(item, dict):
-            result.append(("profile:" + str(item.get("id") or index), item))
+    profiles = settings.get("connection_profiles")
+    rows = profiles.get("tts", []) if isinstance(profiles, dict) else []
+    if not isinstance(rows, list):
+        result.append(("connection_profiles.tts", None))
+        rows = []
+    for index, item in enumerate(rows):
+        result.append(("profile:" + str(item.get("id") or index) if isinstance(item, dict)
+                       else "profile:" + str(index), item if isinstance(item, dict) else None))
     external = settings.get("external_tts")
     if isinstance(external, dict) and any(external.values()):
         result.append(("external_tts", external))
+    elif "external_tts" in settings and not isinstance(external, dict):
+        result.append(("external_tts", None))
     return result
 
 
@@ -28,7 +34,12 @@ def inspect_legacy(settings, service):
                if item.get("kind") == "legacy_tts_connection"}
     result = []
     for source, raw in _sources(settings):
-        provider = PROTOCOLS.get(raw.get("api_format") or "speech")
+        malformed = raw is None
+        raw = raw or {}
+        protocol = raw.get("api_format", "speech")
+        if protocol is None or protocol == "":
+            protocol = "speech"
+        provider = PROTOCOLS.get(protocol) if isinstance(protocol, str) else None
         url = raw.get("base_url", "")
         try:
             parsed = urlsplit(url)
@@ -36,7 +47,8 @@ def inspect_legacy(settings, service):
                 (parsed.username, parsed.password, parsed.query, parsed.fragment))
         except (ValueError, TypeError):
             valid = False
-        reason = None if provider and valid else "协议或地址无法可靠转换，原配置保留"
+        valid = valid and isinstance(raw.get("api_key", ""), str) and not malformed
+        reason = None if provider and valid else "配置结构、凭据类型、协议或地址无法可靠转换，原配置保留"
         old = imports.get(source)
         result.append({"source": source, "provider_id": provider,
                        "name": str(raw.get("name") or "旧外部语音"),
@@ -51,9 +63,9 @@ def inspect_legacy(settings, service):
 
 
 def import_legacy(settings, service):
-    # Serialize same-process import requests; each store write also takes its
-    # file lock. An interrupted import is reported, never overwritten on retry.
-    with service.store._thread_lock:
+    # Separate transaction lock serializes imports across processes without
+    # nesting the store's own file lock. Interrupted imports never overwrite.
+    with service.store._locked(".legacy-import.lock"):
         sources = dict(_sources(settings))
         report = inspect_legacy(settings, service)
         for item in report["entries"]:

@@ -64,7 +64,7 @@ class CapabilityDescriptorService:
         category: str | None = None,
         provider: str | None = None,
     ) -> list[dict[str, Any]]:
-        descriptors = self._descriptors
+        descriptors = self._descriptors + self._speech_descriptors()
         if category is not None:
             descriptors = [item for item in descriptors if item["category"] == category]
         if provider is not None:
@@ -74,25 +74,6 @@ class CapabilityDescriptorService:
     @staticmethod
     def _with_model_defaults(item: dict[str, Any]) -> dict[str, Any]:
         result = deepcopy(item)
-        if result["category"] == "tts" and result["provider"] == "openai_compatible":
-            from src.config import config
-
-            result["default_model"] = config.get("external_tts.model") or "default"
-            result["supported_models"] = [result["default_model"]]
-            if config.get("external_tts.api_format") == "fish":
-                result["display_name"] = "外部 TTS / Fish Audio"
-            for option in result["common_option_schema"]:
-                if option["name"] == "voice":
-                    option["default"] = config.get("external_tts.voice") or ""
-                if (
-                    option["name"] == "speed"
-                    and config.get("external_tts.api_format") == "mimo_chat"
-                ):
-                    option.update(
-                        {"min": 1.0, "max": 1.0, "description": "MiMo 使用语音指令控制语速"}
-                    )
-                if option["name"] == "speed" and config.get("external_tts.api_format") == "fish":
-                    option.update({"min": 0.5, "max": 2.0})
         if result["category"] == "llm":
             from src.config import config
 
@@ -106,7 +87,7 @@ class CapabilityDescriptorService:
 
 
     def get_descriptor(self, category: str, provider: str) -> dict[str, Any]:
-        for item in self._descriptors:
+        for item in self._descriptors + self._speech_descriptors():
             if item["category"] == category and item["provider"] == provider:
                 return self._with_model_defaults(item)
         raise AppValidationError(f"capability descriptor not found: {category}/{provider}")
@@ -167,228 +148,39 @@ class CapabilityDescriptorService:
             if max_value is not None and value > max_value:
                 raise AppValidationError(f"{label}.{name} must be <= {max_value}")
 
+    @staticmethod
+    def _speech_descriptors() -> list[dict[str, Any]]:
+        """Compatibility projection only: Speech owns all engine rules."""
+        from src.core.speech.providers import list_providers
+
+        results = []
+        for provider in list_providers():
+            modes = provider["modes"]
+            models = list(dict.fromkeys(model for mode in modes for model in mode["models"]))
+            default_mode = next((mode for mode in modes if mode["voice_sources"].get("default") is not None), modes[0])
+            common = [_option("language", "string", default="auto"),
+                      _option("voice", "string", default=default_mode["voice_sources"].get("default"))]
+            options = []
+            for name, rule in provider["options_schema"]["properties"].items():
+                entry = _option(name, rule["type"], default=rule.get("default"),
+                                enum=rule.get("enum", [rule["const"]] if "const" in rule else []),
+                                min_value=rule.get("minimum"), max_value=rule.get("maximum"))
+                (common if name == "speed" else options).append(entry)
+            kinds = {mode["id"] for mode in modes}
+            results.append({"category": "tts", "provider": provider["provider_id"],
+                "display_name": provider["name"], "kind": "cloud" if provider["remote"] else "local",
+                "supported_models": models, "default_model": default_mode["models"][0] if default_mode["models"] else "",
+                "common_option_schema": common, "provider_option_schema": options,
+                "supports": {"synthesize": True, "voice_list": any(m["voice_sources"]["presets"] for m in modes),
+                    "voice_clone": "reference" in kinds, "voice_design": "design" in kinds,
+                    "preview": True, "streaming": provider["capabilities"]["streaming"]}})
+        return results
+
     def _build_descriptors(self) -> list[dict[str, Any]]:
         from src.core.engines.llm import get_llm_registry
 
         llm_registry = get_llm_registry()
         descriptors = [
-            {
-                "category": "tts",
-                "provider": "openai_compatible",
-                "display_name": "外部 TTS / OpenAI 兼容",
-                "kind": "cloud",
-                "supported_models": ["default"],
-                "default_model": "default",
-                "common_option_schema": [
-                    _option("voice", "string", default=""),
-                    _option("speed", "number", default=1.0, min_value=0.25, max_value=4.0),
-                    _option("language", "string", default="auto"),
-                ],
-                "provider_option_schema": [],
-                "supports": {"synthesize": True, "voice_clone": False},
-            },
-            {
-                "category": "tts",
-                "provider": "edge",
-                "display_name": "Edge TTS",
-                "kind": "cloud",
-                "supported_models": ["default"],
-                "default_model": "default",
-                "common_option_schema": [
-                    _option(
-                        "voice",
-                        "string",
-                        required=True,
-                        default="zh-CN-XiaoxiaoNeural",
-                        description="TTS voice",
-                    ),
-                    _option(
-                        "speed",
-                        "number",
-                        required=False,
-                        default=1.0,
-                        min_value=0.5,
-                        max_value=2.0,
-                        description="Speech speed multiplier mapped to Edge rate",
-                    ),
-                ],
-                "provider_option_schema": [
-                    _option(
-                        "proxy",
-                        "string",
-                        required=False,
-                        description="Optional HTTP proxy, for example http://127.0.0.1:7890",
-                    ),
-                ],
-                "supports": {
-                    "voice_list": True,
-                    "voice_clone": False,
-                    "preview": False,
-                    "streaming": False,
-                },
-                "runtime_requirements": {
-                    "python_modules": ["edge_tts"],
-                    "system_tools": [],
-                },
-            },
-            {
-                "category": "tts",
-                "provider": "qwen3",
-                "display_name": "Qwen3 TTS",
-                "kind": "local",
-                "supported_models": [
-                    "qwen3-custom-voice",
-                    "qwen3-voice-design",
-                    "qwen3-base",
-                ],
-                "default_model": "qwen3-custom-voice",
-                "common_option_schema": [
-                    _option(
-                        "voice",
-                        "string",
-                        required=False,
-                        default="Vivian",
-                        description="Preset voice or speaker",
-                    ),
-                    _option(
-                        "speed",
-                        "number",
-                        required=False,
-                        default=1.0,
-                        description="Synthesis speed",
-                    ),
-                    _option(
-                        "language",
-                        "string",
-                        required=False,
-                        default="auto",
-                        enum=["auto", "zh", "en", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"],
-                        description="Target synthesis language",
-                    ),
-                ],
-                "provider_option_schema": [
-                    _option(
-                        "voice_profile_id",
-                        "string",
-                        required=False,
-                        description="Custom profile identifier",
-                    ),
-                    _option(
-                        "speaking_style",
-                        "string",
-                        required=False,
-                        default="normal",
-                        enum=["normal", "soft", "whisper"],
-                        description="Experimental delivery style (Qwen3 preset voices only)",
-                    ),
-                    _option(
-                        "instruct",
-                        "string",
-                        required=False,
-                        description="Additional delivery instruction (Qwen3 preset voices only)",
-                    ),
-                    _option(
-                        "emotion",
-                        "string",
-                        required=False,
-                        description="Optional synthesis emotion",
-                    ),
-                    _option(
-                        "temperature",
-                        "number",
-                        required=False,
-                        description="Optional model temperature",
-                    ),
-                ],
-                "supports": {
-                    "voice_list": True,
-                    "voice_clone": True,
-                    "preview": True,
-                    "streaming": False,
-                },
-            },
-            {
-                "category": "tts",
-                "provider": "voxcpm2",
-                "display_name": "VoxCPM2",
-                "kind": "local",
-                "supported_models": ["voxcpm2"],
-                "default_model": "voxcpm2",
-                "common_option_schema": [
-                    _option(
-                        "voice",
-                        "string",
-                        required=False,
-                        default="default",
-                        description="Voice mode: default / voice_design / voice_clone",
-                    ),
-                ],
-                "provider_option_schema": [
-                    _option(
-                        "model_dir",
-                        "string",
-                        required=False,
-                        description="Local model directory or HuggingFace repo id (default: openbmb/VoxCPM2)",
-                    ),
-                    _option(
-                        "cfg_value",
-                        "number",
-                        required=False,
-                        default=2.0,
-                        description="Classifier-free guidance scale",
-                    ),
-                    _option(
-                        "inference_timesteps",
-                        "integer",
-                        required=False,
-                        default=10,
-                        description="Diffusion inference steps (10=fast, 20=quality)",
-                    ),
-                    _option(
-                        "load_denoiser",
-                        "boolean",
-                        required=False,
-                        default=False,
-                        description="加载可选参考音频降噪组件，需要额外模型；普通文本合成不需要",
-                    ),
-                    _option(
-                        "device_map",
-                        "string",
-                        required=False,
-                        default="auto",
-                        description="Device map for model loading",
-                    ),
-                    _option(
-                        "reference_wav_path",
-                        "string",
-                        required=False,
-                        description="Reference audio path for voice cloning",
-                    ),
-                    _option(
-                        "prompt_wav_path",
-                        "string",
-                        required=False,
-                        description="Prompt audio path for ultimate cloning (same as reference for max fidelity)",
-                    ),
-                    _option(
-                        "prompt_text",
-                        "string",
-                        required=False,
-                        description="Transcript of prompt audio for ultimate cloning",
-                    ),
-                ],
-                "supports": {
-                    "voice_list": True,
-                    "voice_clone": True,
-                    "voice_design": True,
-                    "ultimate_clone": True,
-                    "preview": True,
-                    "streaming": True,
-                    "multilingual": True,
-                    "languages": 30,
-                    "sample_rate": 48000,
-                },
-            },
             {
                 "category": "llm",
                 "provider": "deepseek",

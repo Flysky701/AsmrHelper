@@ -292,37 +292,6 @@ class ResourceService:
                 )
                 continue
 
-            if category == "tts" and provider == "openai_compatible":
-                from src.config import config
-
-                for key, label in (
-                    ("base_url", "API 地址"),
-                    ("api_key", "API Key"),
-                    ("model", "模型 ID"),
-                    ("voice", "音色 ID"),
-                ):
-                    value = common_options.get("voice") if key == "voice" else None
-                    if key == "model" and requested_model not in (None, "default"):
-                        value = requested_model
-                    if not str(value or config.get(f"external_tts.{key}") or "").strip():
-                        issues.append(
-                            self._issue(
-                                stage=stage_name,
-                                category=category,
-                                provider=provider,
-                                model=resolved_model,
-                                code=(
-                                    "CREDENTIAL_MISSING"
-                                    if key == "api_key"
-                                    else "CONFIGURATION_MISSING"
-                                ),
-                                requirement=f"external_tts.{key}",
-                                message=f"请在引擎与资源的外部服务中填写 TTS 的{label}",
-                                action="settings",
-                            )
-                        )
-                continue
-
             # Named remote connections were validated above. Global model status
             # checks would accidentally inspect another connection's credentials.
             if explicit_llm:

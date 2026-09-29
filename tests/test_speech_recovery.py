@@ -219,3 +219,40 @@ def test_invalid_concrete_snapshot_never_regenerates_completed_audio(recovery_se
     with pytest.raises(ValueError, match="新任务"):
         run(store, next_plan(plan), "first")
     assert store.checkpoint("second", "tts") is None
+
+
+@pytest.mark.parametrize('corrupt_audio', [False, True])
+def test_pre_cleanup_speech_checkpoint_restores_without_regenerating_or_breaking_chain(recovery_setup, corrupt_audio):
+    """Persist the exact former planner binding, then resume using current planner."""
+    store, original = recovery_setup
+    snapshot = speech_plan(original)
+    profile = {'version': 1, 'source_lang': 'ja', 'target_lang': 'zh', 'stages': {
+        'separate': {'enabled': False}, 'export': {'enabled': False},
+        'tts': {'enabled': True, 'provider': 'fish_audio', 'model': 's2-pro',
+                'options': {'speech_recipe_id': 'recipe'},
+                'provider_options': {'speech_snapshot': snapshot}},
+    }}
+    current = build_execution_plan(PipelineExecutionContext('first', original.input_path, original.output_dir,
+                                                           execution_profile=profile))
+    assert current.tts.common_options == {'speech_recipe_id': 'recipe'}
+    assert set(current.tts.provider_options) == {'speech_snapshot'}
+    legacy = deepcopy(current)
+    legacy.tts.common_options = {'voice': 'zh-CN-XiaoxiaoNeural', 'speed': 1.0, 'language': 'zh'}
+    legacy.tts.provider_options['voice_profile_id'] = None
+    first, _ = run(store, legacy)
+    assert first.calls == ['asr', 'translate', 'tts', 'mix']
+    old_tts_hash = store.checkpoint('first', 'tts')['fingerprint']
+    old_mix_hash = store.checkpoint('first', 'mix')['fingerprint']
+    if corrupt_audio:
+        Path(store.checkpoint('first', 'tts')['files'][0]['path']).write_bytes(b'corrupt')
+        with pytest.raises(ValueError, match='新任务'):
+            run(store, next_plan(current), 'first')
+        assert store.checkpoint('second', 'tts') is None
+    else:
+        resumed, result = run(store, next_plan(current), 'first')
+        assert resumed.calls == []
+        assert Path(result['tts_audio_path']).read_bytes() == b'complete audio'
+        assert store.checkpoint('second', 'tts')['fingerprint'] == old_tts_hash
+        assert store.checkpoint('second', 'mix')['fingerprint'] == old_mix_hash
+        third, _ = run(store, next_plan(current, 'third'), 'second')
+        assert third.calls == []

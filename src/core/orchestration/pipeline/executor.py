@@ -22,7 +22,7 @@ class PipelineExecutor:
     This is the new primary execution path that replaces the legacy
     Pipeline class. Each stage is executed through its corresponding
     EngineRuntime (SeparatorEngineRuntime, AsrEngineRuntime,
-    LlmOperationRuntime, TtsEngineRuntime) plus the Mixer.
+    LlmOperationRuntime) plus SpeechService and the Mixer.
     """
 
     def __init__(
@@ -32,7 +32,6 @@ class PipelineExecutor:
         asr=None,
         aligner=None,
         llm=None,
-        tts=None,
         mixer_factory=None,
         cancel_event: threading.Event | None = None,
     ) -> None:
@@ -42,7 +41,6 @@ class PipelineExecutor:
             separator: SeparatorEngineRuntime instance or mock
             asr: AsrEngineRuntime instance or mock
             llm: LlmOperationRuntime instance or mock
-            tts: TtsEngineRuntime instance or mock
             mixer_factory: Callable that creates a Mixer given (original_volume, tts_volume_ratio, tts_delay_ms)
             cancel_event: Optional threading.Event for cooperative cancellation
         """
@@ -50,7 +48,6 @@ class PipelineExecutor:
         self._asr = asr
         self._aligner = aligner
         self._llm = llm
-        self._tts = tts
         self._mixer_factory = mixer_factory
         self._cancel_event = cancel_event
 

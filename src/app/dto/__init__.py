@@ -26,19 +26,6 @@ from .audio_tools import (
 )
 from .batch_pipeline import BatchItemResult, BatchPipelineRequest, BatchPipelineResult
 from .script_subtitle import ScriptSubtitleRequest, ScriptSubtitleResult
-from .voice import (
-    SegmentAnalyzeRequest,
-    SegmentAnalyzeResult,
-    SegmentInfo,
-    VoiceCloneRequest,
-    VoiceCloneResult,
-    VoiceDesignRequest,
-    VoiceDesignResult,
-    VoiceProfileSummary,
-    VoiceProfileView,
-    VoicePreviewRequest,
-    VoicePreviewResult,
-)
 
 __all__ = [
     "SubtitleSegment",
@@ -68,17 +55,6 @@ __all__ = [
     "ScriptSubtitleResult",
     "VolumePreviewRequest",
     "VolumePreviewResult",
-    "SegmentAnalyzeRequest",
-    "SegmentAnalyzeResult",
-    "SegmentInfo",
-    "VoiceCloneRequest",
-    "VoiceCloneResult",
-    "VoiceDesignRequest",
-    "VoiceDesignResult",
-    "VoiceProfileSummary",
-    "VoiceProfileView",
-    "VoicePreviewRequest",
-    "VoicePreviewResult",
     "TaskStatus",
     "RuntimeEvent",
     "TranslationResult",
@@ -101,8 +77,11 @@ class PipelineRequest:
     source_lang: str = "ja"
     target_lang: str = "zh"
     use_vocal_separator: bool = True
-    tts_engine: str = "edge"
-    tts_voice: str = "zh-CN-XiaoxiaoNeural"
+    tts_engine: str = ""
+    tts_voice: str = ""
+    tts_model: str = ""
+    tts_connection_ref: Optional[str] = None
+    speech_recipe_id: Optional[str] = None
     vocal_model: str = "htdemucs"
     asr_model: str = "faster-whisper-base"
     translate_provider: str = "deepseek"

@@ -343,9 +343,16 @@ class SpeechService:
         Existing task snapshots remain on the recovery path, never re-resolved.
         """
         options = stage.get("options", {})
+        if not isinstance(options, dict) or set(options) - {"speech_recipe_id", "speech_source", "voice", "speed", "language"}:
+            raise ValueError("语音配置包含未支持的选项，请选择明确的 Speech 规则或声音来源")
+        legacy_parameters = stage.get("provider_options", {})
+        if not isinstance(legacy_parameters, dict) or set(legacy_parameters) - {"speech_snapshot"}:
+            raise ValueError("引擎参数应放入 speech_source.provider_options，不能使用旧 TTS 参数层")
         provider_id, model = stage.get("provider"), stage.get("model")
         recipe_id = options.get("speech_recipe_id")
         if recipe_id:
+            if set(options) - {"speech_recipe_id"}:
+                raise ValueError("保存的规则不能同时附带声音、语速、语言或直接来源覆盖")
             recipe = self.store.get("recipes", recipe_id)
             if provider_id not in (None, "", "speech", recipe["provider_id"]):
                 raise ValueError("自定义规则与当前 TTS 引擎不兼容")
@@ -378,6 +385,8 @@ class SpeechService:
             if not value:
                 raise ValueError(catalog["description"] or "请指定声音来源")
             variant = {"kind": mode, "value": value}
+        if "voice" in options and (not isinstance(variant, dict) or options["voice"] != variant.get("value")):
+            raise ValueError("音色参数与当前声音来源不一致，请只保留一种明确来源")
         connection_ref = source.get("connection_ref")
         if connection_ref:
             connection = self.store.get("connections", connection_ref)
@@ -389,7 +398,11 @@ class SpeechService:
         parameters = deepcopy(source.get("provider_options", {"schema_version": 1}))
         if not isinstance(parameters, dict):
             raise ValueError("引擎参数必须是对象")
-        if "speed" in options and "speed" in provider.options_schema and "speed" not in parameters:
+        if "speed" in options:
+            if "speed" not in provider.options_schema:
+                raise ValueError("当前引擎不支持语速参数，请使用其声明的演绎选项")
+            if "speed" in parameters and parameters["speed"] != options["speed"]:
+                raise ValueError("重复语速参数不一致，请只保留一个值")
             parameters["speed"] = options["speed"]
         recipe = {"id": "pipeline-" + uuid4().hex, "revision": 1, "name": "主流程引擎配置",
                   "provider_id": provider_id, "model": model, "mode": mode,
@@ -456,6 +469,42 @@ class SpeechService:
         if experiment.get("kind") == "formal" and experiment.get("media_root"):
             return Path(experiment["media_root"])
         return Path(self.store.root)
+
+    def synthesize_text(self, snapshot, text, output_path):
+        """Synchronous standalone entry using the same compiler and take runner."""
+        import soundfile as sf
+        target = Path(output_path).resolve()
+        formats = {".wav": "WAV", ".flac": "FLAC", ".ogg": "OGG", ".mp3": "MP3"}
+        format_name = formats.get(target.suffix.lower())
+        if not format_name or format_name not in sf.available_formats():
+            raise ValueError("输出扩展名须为当前音频库支持的 WAV、FLAC、OGG 或 MP3")
+        requests = compile_recipe(snapshot["recipe"], build_plan(text), snapshot["assets"])
+        if any(r["compiler_version"] != snapshot["compiler_version"] or
+               r["provider_version"] != snapshot["provider_version"] for r in requests):
+            raise ValueError("语音快照版本已改变，请重新提交")
+        plan = self.store.create("plans", build_plan(text))
+        # Compile against the saved plan so every take points at its actual segment.
+        requests = compile_recipe(snapshot["recipe"], plan, snapshot["assets"])
+        task_id = "speech-cli-" + uuid4().hex
+        experiment_id = uuid4().hex
+        media_root = target.parent / "speech" / experiment_id
+        experiment = self.store.create("experiments", {"id": experiment_id, "name": "命令行配音",
+            "kind": "formal", "task_id": task_id, "media_root": str(media_root),
+            "plan_id": plan["id"], "snapshot": snapshot})
+        takes = self.run_requests(requests, snapshot, task_id=task_id, experiment_id=experiment_id,
+            plan_id=plan["id"], media_root=media_root)
+        for take in takes:
+            self.select({"experiment_id": experiment_id, "segment_id": take["segment_id"], "take_id": take["id"]})
+        assembly = self.assemble(experiment["id"])
+        samples, rate = sf.read(assembly["audio_path"], dtype="float32")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name("." + target.name + "." + uuid4().hex + ".tmp")
+        try:
+            sf.write(temporary, samples, rate, format=format_name)
+            temporary.replace(target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return str(target)
 
     def synthesize_timeline(self, snapshot, segments, output_path, task_id, cancel_check=lambda: False, reference_duration=0):
         """Formal dubbing uses the identical compiler/runner as laboratory takes."""

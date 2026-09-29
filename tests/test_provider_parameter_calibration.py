@@ -11,7 +11,6 @@ from src.app.errors import AppValidationError
 from src.app.services.capability_descriptor_service import CapabilityDescriptorService
 from src.app.services.resource_service import ResourceService
 from src.core.engines.asr.service import AsrEngineRuntime
-from src.core.engines.tts.service import TtsEngineRuntime
 
 
 def test_faster_whisper_descriptor_matches_supported_runtime_options() -> None:
@@ -175,90 +174,12 @@ def test_faster_whisper_no_word_confidence_complements_no_speech_probability(
     assert _entry_confidence(entries[0]) == pytest.approx(0.1)
 
 
-@pytest.mark.parametrize(
-    ("speed", "expected_rate"),
-    [
-        (0.5, "-50%"),
-        (1.0, "+0%"),
-        (1.25, "+25%"),
-        (2.0, "+100%"),
-    ],
-)
-def test_edge_speed_is_mapped_to_upstream_rate(
-    speed: float,
-    expected_rate: str,
-) -> None:
-    kwargs = TtsEngineRuntime._build_engine_kwargs(
-        "edge",
-        {
-            "common_options": {
-                "voice": "zh-CN-XiaoxiaoNeural",
-                "speed": speed,
-            },
-            "provider_options": {},
-        },
-    )
-
-    assert kwargs == {
-        "voice": "zh-CN-XiaoxiaoNeural",
-        "rate": expected_rate,
-    }
 
 
-def test_edge_runtime_forwards_optional_proxy() -> None:
-    kwargs = TtsEngineRuntime._build_engine_kwargs(
-        "edge",
-        {
-            "common_options": {
-                "voice": "zh-CN-XiaoxiaoNeural",
-                "speed": 1.0,
-            },
-            "provider_options": {
-                "proxy": "http://127.0.0.1:7890",
-            },
-        },
-    )
-
-    assert kwargs["proxy"] == "http://127.0.0.1:7890"
 
 
-def test_qwen_runtime_forwards_target_language() -> None:
-    kwargs = TtsEngineRuntime._build_engine_kwargs(
-        "qwen3",
-        {
-            "common_options": {
-                "voice": "Ono_Anna",
-                "speed": 1.0,
-                "language": "ja",
-            },
-            "provider_options": {"voice_profile_id": "C1"},
-        },
-    )
-
-    assert kwargs["language"] == "ja"
-    assert kwargs["voice_profile_id"] == "C1"
 
 
-def test_voxcpm_runtime_prefers_managed_model_path(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import src.core.engines.tts.service as service_module
-
-    monkeypatch.setattr(
-        service_module,
-        "resolve_model_reference",
-        lambda model_id: r"E:\Projects\AsmrHelper\models\voxcpm2",
-    )
-    kwargs = TtsEngineRuntime._build_engine_kwargs(
-        "voxcpm2",
-        {
-            "model": "voxcpm2",
-            "common_options": {"voice": "default"},
-            "provider_options": {},
-        },
-    )
-
-    assert kwargs["model_dir"] == r"E:\Projects\AsmrHelper\models\voxcpm2"
 
 
 def test_capability_validation_rejects_invalid_calibrated_options() -> None:
@@ -272,7 +193,7 @@ def test_capability_validation_rejects_invalid_calibrated_options() -> None:
             provider_options={"beam_size": 0},
         )
 
-    with pytest.raises(AppValidationError, match="speed must be <= 2.0"):
+    with pytest.raises(AppValidationError, match="speed must be <= 2"):
         service.validate_options(
             category="tts",
             provider="edge",
@@ -423,41 +344,3 @@ def test_readiness_rejects_invalid_edge_speed_before_runtime(tmp_path, monkeypat
     assert result["ready"] is False
     assert result["issues"][0]["code"] == "SPEECH_RECIPE_NOT_READY"
     assert "speed" in result["issues"][0]["message"]
-
-
-def test_generic_tts_provider_is_adapted_to_pipeline_segments(tmp_path) -> None:
-    import numpy as np
-    import soundfile as sf
-
-    class TextOnlyEngine:
-        def synthesize(self, text, output_path):
-            sf.write(output_path, np.full(800, 0.25, dtype="float32"), 8000)
-            return output_path
-
-    class Registry:
-        def get(self, name, **kwargs):
-            assert name == "text_only"
-            return TextOnlyEngine()
-
-    output_path = tmp_path / "tts.wav"
-    runtime = TtsEngineRuntime(registry=Registry())
-    runtime.synthesize_segments(
-        segments=[
-            {"text": "first", "start_time": 0.0, "end_time": 0.1},
-            {"text": "second", "start_time": 0.2, "end_time": 0.3},
-        ],
-        output_dir=str(tmp_path),
-        output_path=str(output_path),
-        profile={
-            "provider": "text_only",
-            "model": "text-only",
-            "common_options": {"voice": "default", "speed": 1.0},
-            "provider_options": {},
-        },
-        reference_duration=0.5,
-        sample_rate=16000,
-    )
-
-    info = sf.info(str(output_path))
-    assert info.samplerate == 16000
-    assert info.frames == 8000

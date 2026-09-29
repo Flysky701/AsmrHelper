@@ -313,8 +313,12 @@ class ModelService:
             raise AppValidationError(f"model '{model_id}' has no provider, cannot unload")
 
         try:
-            registry = self._get_registry(category)
-            registry.unload(provider)
+            if category == "tts":
+                from src.core.speech.providers import get_provider
+                get_provider(provider).release()
+            else:
+                registry = self._get_registry(category)
+                registry.unload(provider)
             self._try_clear_gpu()
         except Exception as exc:
             raise AppExecutionError(f"failed to unload model '{model_id}': {exc}") from exc
@@ -334,6 +338,9 @@ class ModelService:
         try:
             for registry in self._all_registries():
                 registry.unload_all()
+            from src.core.speech.providers import get_provider, list_providers
+            for descriptor in list_providers():
+                get_provider(descriptor["provider_id"]).release()
             self._try_clear_gpu()
         except Exception as exc:
             raise AppExecutionError(f"failed to unload all models: {exc}") from exc
@@ -356,13 +363,11 @@ class ModelService:
     @staticmethod
     def _get_registry(category: str):
         """Get the engine registry for a given category."""
-        from src.core.engines.tts import get_tts_registry
         from src.core.engines.asr import get_asr_registry
         from src.core.engines.llm import get_llm_registry
         from src.core.engines.separator import get_separator_registry
 
         registries = {
-            "tts": get_tts_registry,
             "asr": get_asr_registry,
             "llm": get_llm_registry,
             "separator": get_separator_registry,
@@ -375,12 +380,11 @@ class ModelService:
     @staticmethod
     def _all_registries():
         """Return all engine registry instances."""
-        from src.core.engines.tts import get_tts_registry
         from src.core.engines.asr import get_asr_registry
         from src.core.engines.llm import get_llm_registry
         from src.core.engines.separator import get_separator_registry
 
-        return [get_tts_registry(), get_asr_registry(), get_llm_registry(), get_separator_registry()]
+        return [get_asr_registry(), get_llm_registry(), get_separator_registry()]
 
     @staticmethod
     def _try_clear_gpu():

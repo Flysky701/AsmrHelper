@@ -1,119 +1,116 @@
-"""TTS engine registry and execution service."""
-
+"""Command-line compatibility facade over the single Speech execution service."""
 from __future__ import annotations
 
-import threading
 from pathlib import Path
+import threading
 from typing import Any
-
-from src.core.engines import TtsEngineRuntime
 
 from ..dto import SynthesisResult
 from ..errors import AppExecutionError, AppValidationError
-from .capability_descriptor_service import CapabilityDescriptorService, get_capability_descriptor_service
-from .execution_profile_builder import ExecutionProfileBuilder, get_execution_profile_builder
+from .capability_descriptor_service import get_capability_descriptor_service
 
 
 class TtsEngineService:
-    """Resolve TTS providers through a stable registry facade."""
+    """Keep standalone TTS callers on the same snapshots/compiler/runner as desktop."""
 
-    def __init__(
-        self,
-        capability_service: CapabilityDescriptorService | None = None,
-        profile_builder: ExecutionProfileBuilder | None = None,
-        runtime: TtsEngineRuntime | None = None,
-    ) -> None:
+    def __init__(self, capability_service=None, speech_service=None):
         self._capability_service = capability_service or get_capability_descriptor_service()
-        self._profile_builder = profile_builder or get_execution_profile_builder()
-        self._runtime = runtime or TtsEngineRuntime()
+        self._speech_service = speech_service
 
-    def list_engines(self) -> list[dict[str, Any]]:
+    @property
+    def speech(self):
+        if self._speech_service is None:
+            from .speech_service import get_speech_service
+            self._speech_service = get_speech_service()
+        return self._speech_service
+
+    def list_engines(self):
         return self._capability_service.list_descriptors(category="tts")
 
-    def get_engine(self, engine_id: str) -> dict[str, Any]:
+    def get_engine(self, engine_id):
         return self._capability_service.get_descriptor("tts", engine_id)
 
-    def list_supported_models(self, engine_id: str) -> list[str]:
-        descriptor = self.get_engine(engine_id)
-        return descriptor.get("supported_models", [])
+    def list_supported_models(self, engine_id):
+        return self.get_engine(engine_id)["supported_models"]
 
+    def list_voices(self, engine_id):
+        from src.core.speech.providers import get_provider
+        return [voice for mode in get_provider(engine_id).describe()["modes"]
+                for voice in mode["voice_sources"]["presets"]]
 
-    def list_voices(self, engine_id: str) -> list[dict]:
-        """Return available voices for a TTS engine."""
-        from src.core.engines.tts.registry import get_tts_registry
-        registry = get_tts_registry()
-        return registry.list_voices(engine_id)
+    def engine_supports(self, engine_id, feature):
+        return bool(self.get_engine(engine_id)["supports"].get(feature, False))
 
-    def engine_supports(self, engine_id: str, feature: str) -> bool:
-        descriptor = self.get_engine(engine_id)
-        return bool(descriptor.get("supports", {}).get(feature, False))
-
-    def synthesize_file(
-        self,
-        input_path: str,
-        output_path: str,
-        provider: str | None = None,
-        voice: str | None = None,
-    ) -> SynthesisResult:
-        """Convenience wrapper: read text file and synthesize."""
-        source_path = Path(input_path)
-        if not source_path.exists():
+    def synthesize_file(self, input_path, output_path, provider=None, voice=None,
+                        model=None, connection_ref=None, recipe_id=None):
+        source = Path(input_path)
+        if not source.is_file():
             raise AppValidationError(f"input file does not exist: {input_path}")
-        text = source_path.read_text(encoding="utf-8")
-        common_options: dict[str, Any] = {}
-        if voice is not None:
-            common_options["voice"] = voice
-        return self.synthesize_text(
-            text=text,
-            output_path=output_path,
-            provider=provider,
-            common_options=common_options if common_options else None,
-        )
+        return self.synthesize_text(text=source.read_text(encoding="utf-8"), output_path=output_path,
+            provider=provider, model=model, common_options={"voice": voice} if voice else {},
+            connection_ref=connection_ref, recipe_id=recipe_id)
 
-    def synthesize_text(
-        self,
-        *,
-        text: str,
-        output_path: str,
-        provider: str | None = None,
-        model: str | None = None,
-        common_options: dict[str, Any] | None = None,
-        provider_options: dict[str, Any] | None = None,
-    ) -> SynthesisResult:
-        profile = self._profile_builder.build(
-            category="tts",
-            provider=provider,
-            model=model,
-            common_options=common_options,
-            provider_options=provider_options,
-        )
-        engine_id = profile["provider"]
-        voice = str(profile["common_options"].get("voice", ""))
-
+    def synthesize_text(self, *, text: str, output_path: str, provider=None, model=None,
+                        common_options: dict[str, Any] | None = None,
+                        provider_options: dict[str, Any] | None = None,
+                        connection_ref=None, recipe_id=None):
         try:
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            result_path = self._runtime.synthesize_text(
-                text=text,
-                output_path=output_path,
-                profile=profile,
-            )
-        except ValueError as exc:
+            stage = self.build_stage(provider=provider, model=model, common_options=common_options,
+                provider_options=provider_options, connection_ref=connection_ref, recipe_id=recipe_id)
+            snapshot = self.speech.pipeline_snapshot(stage)
+            result_path = self.speech.synthesize_text(snapshot, text, output_path)
+        except AppValidationError:
+            raise
+        except (ValueError, KeyError, FileNotFoundError) as exc:
             raise AppValidationError(str(exc)) from exc
         except Exception as exc:
             raise AppExecutionError(str(exc)) from exc
-
-        return SynthesisResult(
-            engine=engine_id,
-            voice=voice,
-            output_path=result_path,
-        )
+        return SynthesisResult(engine=snapshot["recipe"]["provider_id"],
+            voice=snapshot["recipe"]["variant"]["value"], output_path=result_path)
 
 
-_service: TtsEngineService | None = None
+    def build_stage(self, *, provider=None, model=None, common_options=None,
+                    provider_options=None, connection_ref=None, recipe_id=None):
+        """Single explicit adapter for retained flat CLI/DTO options."""
+        from src.core.speech.providers import get_provider
+        common, parameters = dict(common_options or {}), dict(provider_options or {})
+        if set(common) - {"voice", "language", "speed"}:
+            raise AppValidationError("Unsupported legacy TTS options; select a saved Speech rule instead")
+        if recipe_id and (connection_ref or common or parameters):
+            raise AppValidationError("A saved rule cannot be combined with connection or voice overrides")
+        if recipe_id:
+            stage = {"provider": provider, "model": model, "options": {"speech_recipe_id": recipe_id}}
+        else:
+            if connection_ref:
+                connection = self.speech.store.get("connections", connection_ref)
+                if provider and connection["provider_id"] != provider:
+                    raise ValueError("Selected connection and engine differ")
+                provider = connection["provider_id"]
+            provider = provider or "edge"
+            engine = get_provider(provider)
+            if "speed" in common and "speed" not in engine.options_schema:
+                raise ValueError("This provider does not support speed; use its Speech rule options")
+            if common.get("voice") and not any(m["id"] in {"builtin", "hosted"} for m in engine.modes):
+                if common["voice"] != engine.voice_sources("default").get("default"):
+                    raise ValueError("This engine requires a saved Speech rule for a custom voice")
+            source = {"provider_options": {"schema_version": 1, **parameters}}
+            if connection_ref:
+                source["connection_ref"] = connection_ref
+            # Hosted IDs have no built-in catalog and must always be explicit.
+            if engine.http and common.get("voice"):
+                modes = [m for m in engine.modes if not model or model in m["models"] or not m["models"]]
+                if len(modes) != 1:
+                    raise ValueError("Select a model or saved rule to identify the voice mode")
+                source.update(mode=modes[0]["id"], variant={"kind": modes[0]["id"], "value": common["voice"]})
+            stage = {"provider": provider, "model": model, "options": {**common, "speech_source": source}}
+        return stage
+
+
+_service = None
 _lock = threading.Lock()
 
 
-def get_tts_engine_service() -> TtsEngineService:
+def get_tts_engine_service():
     global _service
     if _service is None:
         with _lock:

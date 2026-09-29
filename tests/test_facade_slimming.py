@@ -11,7 +11,7 @@ class TestModelServiceUnload:
     """Verify model unloading delegates to the selected engine registry."""
 
 
-    def test_unload_uses_registry(self):
+    def test_tts_unload_uses_speech_provider(self):
         from src.app.services.model_service import ModelService
 
         mock_core = MagicMock()
@@ -26,13 +26,13 @@ class TestModelServiceUnload:
 
         service = ModelService(core_service=mock_core)
 
-        mock_registry = MagicMock()
+        mock_provider = MagicMock()
         with patch(
-            "src.app.services.model_service.ModelService._get_registry", return_value=mock_registry
+            "src.core.speech.providers.get_provider", return_value=mock_provider
         ):
             result = service.unload_model("edge-tts")
 
-        mock_registry.unload.assert_called_once_with("edge")
+        mock_provider.release.assert_called_once_with()
         assert result.action == "unload"
         assert result.success is True
 

@@ -9,7 +9,6 @@ __version__ = "0.2.0"
 __all__ = [
     "ASRRecognizer",
     "Mixer",
-    "TTSEngine",
     "Translator",
     "VocalSeparator",
 ]
@@ -17,7 +16,6 @@ __all__ = [
 _EXPORTS = {
     "ASRRecognizer": ("src.core", "ASRRecognizer"),
     "Mixer": ("src.core", "Mixer"),
-    "TTSEngine": ("src.core", "TTSEngine"),
     "Translator": ("src.core", "Translator"),
     "VocalSeparator": ("src.core", "VocalSeparator"),
 }

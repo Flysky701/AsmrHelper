@@ -1,4 +1,4 @@
-"""Run with .runtimes/qwen_tts/Scripts/python.exe; uses local models offline."""
+"""Run with the project Python; Speech uses the isolated Qwen worker offline."""
 from __future__ import annotations
 
 import argparse
@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import time
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -21,24 +22,36 @@ def main() -> None:
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     import numpy as np
     import soundfile as sf
-    import torch
-    from src.core.engines.tts.service import TtsEngineRuntime
+    from src.app.services.speech_service import get_speech_service
+    from src.core.speech.compiler import compile_recipe
+    from src.core.speech.store import build_plan
 
     args.output.mkdir(parents=True, exist_ok=True)
-    runtime = TtsEngineRuntime(enable_runtime_routing=False)
+    service = get_speech_service()
+    snapshot = service.pipeline_snapshot({"provider": "qwen3", "model": "qwen3-custom-voice",
+                                          "options": {"voice": "Vivian", "language": "zh"}})
     results = []
     for style in ("normal", "soft", "whisper"):
-        torch.manual_seed(42)
-        if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats()
         target = args.output / f"{style}.wav"
         started = time.perf_counter()
-        runtime.synthesize_text(
-            text=args.text, output_path=str(target),
-            profile={"provider": "qwen3", "model": "qwen3-custom-voice",
-                     "common_options": {"voice": "Vivian", "language": "zh"},
-                     "provider_options": {"speaking_style": style}},
-        )
+        plan = build_plan(args.text)
+        for segment in plan["segments"]:
+            segment["delivery"] = style
+        plan = service.store.create("plans", plan)
+        experiment_id = uuid4().hex
+        task_id = "speech-probe-" + experiment_id
+        media_root = args.output.resolve() / "speech" / experiment_id
+        service.store.create("experiments", {"id": experiment_id, "name": f"Qwen {style} probe",
+            "kind": "formal", "task_id": task_id, "media_root": str(media_root),
+            "plan_id": plan["id"], "snapshot": snapshot})
+        requests = compile_recipe(snapshot["recipe"], plan, snapshot["assets"])
+        takes = service.run_requests(requests, snapshot, task_id=task_id,
+            experiment_id=experiment_id, plan_id=plan["id"], media_root=media_root)
+        for take in takes:
+            service.select({"experiment_id": experiment_id, "segment_id": take["segment_id"], "take_id": take["id"]})
+        assembly = service.assemble(experiment_id)
+        samples, rate = sf.read(assembly["audio_path"])
+        sf.write(target, samples, rate)
         elapsed = time.perf_counter() - started
         audio, sr = sf.read(target, always_2d=True)
         if not audio.size or not np.isfinite(audio).all() or not np.any(audio):
@@ -47,11 +60,9 @@ def main() -> None:
                         "seconds": len(audio) / sr, "sample_rate": sr,
                         "channels": audio.shape[1], "elapsed_seconds": elapsed,
                         "rms": float(np.sqrt(np.mean(audio ** 2))),
-                        "peak": float(np.max(np.abs(audio))),
-                        "peak_cuda_gib": torch.cuda.max_memory_allocated() / 1024**3
-                        if torch.cuda.is_available() else None})
+                        "peak": float(np.max(np.abs(audio)))})
         (args.output / "results.json").write_text(
-            json.dumps({"text": args.text, "seed": 42, "results": results},
+            json.dumps({"text": args.text, "execution": "Speech isolated worker", "results": results},
                        ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps(results[-1], ensure_ascii=False), flush=True)
 

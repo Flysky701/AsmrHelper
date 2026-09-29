@@ -11,12 +11,9 @@ __all__ = [
     "LlmRegistry",
     "SeparatorEngineRuntime",
     "SeparatorRegistry",
-    "TtsEngineRuntime",
-    "TtsRegistry",
     "get_asr_registry",
     "get_llm_registry",
     "get_separator_registry",
-    "get_tts_registry",
 ]
 
 _EXPORTS = {
@@ -26,12 +23,9 @@ _EXPORTS = {
     "LlmRegistry": ("src.core.engines.llm", "LlmRegistry"),
     "SeparatorEngineRuntime": ("src.core.engines.separator", "SeparatorEngineRuntime"),
     "SeparatorRegistry": ("src.core.engines.separator", "SeparatorRegistry"),
-    "TtsEngineRuntime": ("src.core.engines.tts", "TtsEngineRuntime"),
-    "TtsRegistry": ("src.core.engines.tts", "TtsRegistry"),
     "get_asr_registry": ("src.core.engines.asr", "get_asr_registry"),
     "get_llm_registry": ("src.core.engines.llm", "get_llm_registry"),
     "get_separator_registry": ("src.core.engines.separator", "get_separator_registry"),
-    "get_tts_registry": ("src.core.engines.tts", "get_tts_registry"),
 }
 
 

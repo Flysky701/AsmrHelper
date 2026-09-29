@@ -402,7 +402,6 @@ class TestTtsRoutes:
                 "supports": {"voice_list": True, "preview": True},
             }
         ]
-        client.app.dependency_overrides[dependencies.tts_engine_service] = _mock_dep(mock_svc)
 
         resp = client.get("/api/v1/tts/engines")
         assert resp.status_code == 404
@@ -417,7 +416,6 @@ class TestTtsRoutes:
                 "language": "zh-CN",
             }
         ]
-        client.app.dependency_overrides[dependencies.tts_engine_service] = _mock_dep(mock_svc)
 
         resp = client.get("/api/v1/tts/engines/edge/voices")
 
@@ -431,7 +429,6 @@ class TestTtsRoutes:
         result_mock.voice = "zh-CN-XiaoxiaoNeural"
         result_mock.output_path = "/test/output.wav"
         mock_svc.synthesize_text.return_value = result_mock
-        client.app.dependency_overrides[dependencies.tts_engine_service] = _mock_dep(mock_svc)
 
         # Create a real input file since the route checks existence
         input_file = tmp_path / "text.txt"
@@ -732,7 +729,6 @@ class TestVoiceTaskRoutes:
             progress=0.1,
             created_at="2026-08-07T00:00:00+00:00",
         )
-        client.app.dependency_overrides[dependencies.voice_service] = _mock_dep(mock_svc)
 
         response = client.post(path, json=payload)
 
@@ -747,7 +743,6 @@ class TestVoiceTaskRoutes:
     ])
     def test_removed_voice_library_routes_are_not_compatibility_aliases(self, client, method, path):
         service = MagicMock()
-        client.app.dependency_overrides[dependencies.voice_service] = _mock_dep(service)
         response = client.request(method, path)
         assert response.status_code == 404
         assert service.mock_calls == []

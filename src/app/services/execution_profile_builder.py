@@ -34,7 +34,8 @@ class ExecutionProfileBuilder:
         common_options: dict[str, Any] | None = None,
         provider_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        settings = self.settings_service.get_settings(masked=False)
+        # Speech owns TTS defaults; legacy settings are historical only.
+        settings = {} if category == "tts" else self.settings_service.get_settings(masked=False)
 
         # Resolve model first so provider can be inferred from model_id.
         resolved_model = model or self._default_model(category, settings=settings)
@@ -87,7 +88,7 @@ class ExecutionProfileBuilder:
             if model.startswith("qwen3-asr-"):
                 return "qwen3_asr"
         if category == "tts":
-            return settings.get("tts", {}).get("engine", "edge")
+            return "edge"
         if category == "llm":
             return settings.get("api", {}).get("provider", "deepseek")
         if category == "asr":
@@ -143,10 +144,7 @@ class ExecutionProfileBuilder:
 
     def _validate_supported_model(self, descriptor: dict[str, Any], model: str):
         # Remote endpoints own their model catalog; built-in names are suggestions.
-        if descriptor["category"] == "llm" or (descriptor["category"], descriptor["provider"]) == (
-            "tts",
-            "openai_compatible",
-        ):
+        if descriptor["category"] == "llm":
             return
         supported = descriptor.get("supported_models", [])
         if supported and model not in supported:

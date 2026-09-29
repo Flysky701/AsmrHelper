@@ -77,8 +77,7 @@ def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp
         resources = Mock()
         resources.check_task_readiness.return_value = {"ready": True}
         resources.ensure_workspace.return_value = {"output_dir": tmp_path / "output"}
-        executor = PipelineExecutor(asr=SimpleNamespace(transcribe_file=transcribe_file),
-                                    tts=SimpleNamespace(synthesize_segments=tts_function))
+        executor = PipelineExecutor(asr=SimpleNamespace(transcribe_file=transcribe_file))
         service = PipelineService(task_service=task_service, resource_service=resources,
                                   workspace_service=workspace_service, input_catalog_service=catalog,
                                   session_service=sessions, artifact_service=artifacts, executor=executor)

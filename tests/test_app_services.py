@@ -202,7 +202,7 @@ class TestSettingsService:
         service = SettingsService(config_manager=FailingConfig())
 
         with pytest.raises(AppExecutionError, match="configuration is read-only"):
-            service.update_settings({"tts": {"speed": 1.25}})
+            service.update_settings({"paths": {"output_dir": "test-output"}})
 
 
 def test_config_save_is_atomic_and_propagates_replace_failure(tmp_path, monkeypatch):

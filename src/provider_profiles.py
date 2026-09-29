@@ -5,7 +5,7 @@ from uuid import uuid4
 from urllib.parse import urlsplit
 
 
-def profiles_for(settings):
+def profiles_for(settings, *, include_legacy_tts=False):
     from src.core.engines.llm.registry import LLM_DEFAULT_MODELS
 
     if isinstance(settings.get("connection_profiles"), dict):
@@ -16,9 +16,13 @@ def profiles_for(settings):
         llm.append({"id": f"legacy-{provider}", "name": "DeepSeek" if provider == "deepseek" else "OpenAI 兼容",
                     "provider": provider, "base_url": api.get(f"{provider}_base_url", ""),
                     "model": api.get(f"{provider}_model") or LLM_DEFAULT_MODELS[provider], "api_key": api.get(f"{provider}_api_key", "")})
-    tts = deepcopy(settings.get("external_tts", {}))
-    tts.update(id="legacy-tts", name="外部语音", provider="openai_compatible")
-    return {"llm": llm, "tts": [tts], "active_llm": f"legacy-{api.get('provider', 'deepseek')}", "active_tts": "legacy-tts"}
+    result = {"llm": llm, "active_llm": f"legacy-{api.get('provider', 'deepseek')}"}
+    if include_legacy_tts:
+        raw = settings.get("external_tts")
+        tts = deepcopy(raw) if isinstance(raw, dict) else {}
+        tts.update(id="legacy-tts", name="外部语音", provider="openai_compatible")
+        result.update(tts=[tts], active_tts="legacy-tts")
+    return result
 
 
 def project_profiles(settings, include_env=True):
@@ -55,8 +59,11 @@ def public_profiles(settings):
 
 
 def update_profiles(base, request, legacy_updates):
+    selection = request.get("active_connections", {})
+    if not isinstance(selection, dict):
+        raise ValueError("active_connections 必须是对象")
     if ("external_tts" in legacy_updates
-            or "tts" in request.get("active_connections", {})
+            or "tts" in selection
             or isinstance(request.get("connection_profile"), dict)
             and request["connection_profile"].get("kind") == "tts"):
         raise ValueError("旧 TTS 配置只读，请使用 Speech 命名连接")
@@ -94,16 +101,14 @@ def update_profiles(base, request, legacy_updates):
             raise ValueError("配置名称须为 1–80 个字符")
         if any(p["name"].casefold() == name.strip().casefold() and p is not existing for p in profiles[kind]):
             raise ValueError("配置名称已存在")
-        provider = draft.get("provider", existing.get("provider") if existing else ("deepseek" if kind == "llm" else "openai_compatible"))
-        if provider not in (("deepseek", "openai") if kind == "llm" else ("openai_compatible",)):
+        provider = draft.get("provider", existing.get("provider") if existing else "deepseek")
+        if provider not in ("deepseek", "openai"):
             raise ValueError("不支持的服务提供商")
         if existing and provider != existing["provider"]:
             raise ValueError("更换提供商请新建配置")
         profile = existing if existing is not None else {"id": uuid4().hex, "api_key": ""}
         profile.update(name=name.strip(), provider=provider)
-        for field in (("base_url", "model") if kind == "llm" else (
-            "base_url", "model", "voice", "api_format", "instructions"
-        )):
+        for field in ("base_url", "model"):
             if field in draft:
                 if not isinstance(draft[field], str):
                     raise ValueError(f"{field} 必须是字符串")

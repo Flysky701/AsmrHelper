@@ -476,6 +476,8 @@ class PipelineService:
                 snapshot = get_speech_service().pipeline_snapshot(speech_stage)
             except (ValueError, KeyError, FileNotFoundError) as exc:
                 raise AppValidationError(str(exc)) from exc
+            speech_stage["provider"] = snapshot["recipe"]["provider_id"]
+            speech_stage["model"] = snapshot["recipe"]["model"]
             speech_stage["provider_options"] = {"speech_snapshot": snapshot}
         task_spec, _ = self._task_service.create_task_spec(
             task_type="pipeline",
@@ -556,6 +558,21 @@ class PipelineService:
                 )
             return profile
 
+        if request.voice_profile_id:
+            raise AppValidationError("旧音色档案不能直接用于新任务，请导入并选择 Speech 生成规则")
+        from .tts_engine_service import get_tts_engine_service
+        options = {} if request.speech_recipe_id else {"language": request.target_lang}
+        if request.tts_voice:
+            options["voice"] = request.tts_voice
+        if request.tts_speed != 1:
+            options["speed"] = request.tts_speed
+        try:
+            tts_stage = get_tts_engine_service().build_stage(provider=request.tts_engine or None,
+                model=request.tts_model or None, common_options=options,
+                provider_options=request.engine_params.get(request.tts_engine, {}),
+                connection_ref=request.tts_connection_ref, recipe_id=request.speech_recipe_id)
+        except (ValueError, KeyError, FileNotFoundError) as exc:
+            raise AppValidationError(str(exc)) from exc
         return {
             "version": 1,
             "source_lang": request.source_lang,
@@ -595,20 +612,7 @@ class PipelineService:
                     },
                     "provider_options": {},
                 },
-                "tts": {
-                    "enabled": True,
-                    "provider": request.tts_engine,
-                    "model": None,
-                    "options": {
-                        "voice": request.tts_voice,
-                        "voice_profile_id": request.voice_profile_id,
-                        "speed": request.tts_speed,
-                        "language": request.target_lang,
-                    },
-                    "provider_options": {
-                        **request.engine_params.get(request.tts_engine, {}),
-                    },
-                },
+                "tts": {"enabled": True, **tts_stage},
                 "mix": {
                     "enabled": True,
                     "provider": "ffmpeg",

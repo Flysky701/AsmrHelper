@@ -26,7 +26,6 @@ __all__ = [
     "TaskService",
     "ToolRegistry",
     "TtsEngineService",
-    "VoiceService",
     "WorkspaceService",
     "get_asr_engine_service",
     "get_artifact_service",
@@ -50,7 +49,6 @@ __all__ = [
     "get_task_dispatcher",
     "get_tool_registry",
     "get_tts_engine_service",
-    "get_voice_service",
     "get_workspace_service",
 ]
 
@@ -94,7 +92,6 @@ _EXPORTS = {
     "TaskService": ("src.app.services.task_service", "TaskService"),
     "ToolRegistry": ("src.app.services.tool_registry", "ToolRegistry"),
     "TtsEngineService": ("src.app.services.tts_engine_service", "TtsEngineService"),
-    "VoiceService": ("src.app.services.voice_service", "VoiceService"),
     "WorkspaceService": ("src.app.services.workspace_service", "WorkspaceService"),
     "get_asr_engine_service": ("src.app.services.asr_engine_service", "get_asr_engine_service"),
     "get_artifact_service": ("src.app.services.artifact_service", "get_artifact_service"),
@@ -145,7 +142,6 @@ _EXPORTS = {
     "get_task_dispatcher": ("src.app.services.task_service", "get_task_dispatcher"),
     "get_tool_registry": ("src.app.services.tool_registry", "get_tool_registry"),
     "get_tts_engine_service": ("src.app.services.tts_engine_service", "get_tts_engine_service"),
-    "get_voice_service": ("src.app.services.voice_service", "get_voice_service"),
     "get_workspace_service": ("src.app.services.workspace_service", "get_workspace_service"),
 }
 

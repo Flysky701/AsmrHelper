@@ -152,9 +152,9 @@ class SpeechStore:
             self._thread_lock = _LOCKS.setdefault(str(self.root).casefold(), threading.RLock())
 
     @contextmanager
-    def _locked(self):
+    def _locked(self, lock_name=".store.lock"):
         with self._thread_lock:
-            with (self.root / ".store.lock").open("a+b") as handle:
+            with (self.root / lock_name).open("a+b") as handle:
                 handle.seek(0, os.SEEK_END)
                 if handle.tell() == 0:
                     handle.write(b"0")

@@ -57,3 +57,24 @@ def test_new_settings_and_task_context_ignore_legacy_tts():
             service._to_internal_updates(update)
     assert capture_connections({"api": {"provider": "deepseek"}, "external_tts": {"api_key": "old"}}) == {
         "api": {"provider": "deepseek"}}
+
+
+@pytest.mark.parametrize("bad", [{"api_format": []}, {"api_format": {"bad": True}},
+                                  {"api_key": ["bad"]}, None])
+def test_malformed_entry_retained_without_blocking_import(service, bad):
+    value = {"base_url": "https://bad.example", **bad} if isinstance(bad, dict) else bad
+    # A falsey list is still an invalid explicit protocol, not the default.
+    settings = {"connection_profiles": {"tts": [value,
+        {"id": "valid", "api_format": "speech", "base_url": "https://valid.example"}]}}
+    original = deepcopy(settings)
+    report = import_legacy(settings, service)
+    assert [x["status"] for x in report["entries"]] == ["retained", "imported"]
+    assert len(service.store.list("connections")) == 1
+    assert settings == original
+
+
+def test_new_llm_profiles_do_not_inspect_invalid_legacy_tts():
+    from src.provider_profiles import profiles_for
+    profiles = profiles_for({"external_tts": None})
+    assert profiles["active_llm"] == "legacy-deepseek"
+    assert "tts" not in profiles

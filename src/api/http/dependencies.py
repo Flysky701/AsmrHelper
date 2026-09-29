@@ -23,8 +23,6 @@ from src.app.services import (
     get_task_service,
     get_task_dispatcher,
     get_tool_registry,
-    get_tts_engine_service,
-    get_voice_service,
     get_workspace_service,
 )
 
@@ -47,10 +45,6 @@ def artifact_service():
 
 def llm_capability_service():
     return get_llm_capability_service()
-
-
-def tts_engine_service():
-    return get_tts_engine_service()
 
 
 def model_service():
@@ -90,10 +84,6 @@ def pipeline_task_orchestrator():
 
 def script_subtitle_service():
     return get_script_subtitle_service()
-
-
-def voice_service():
-    return get_voice_service()
 
 
 def tool_registry():

@@ -87,11 +87,16 @@ def test_capability_descriptors_have_valid_model_and_option_contracts() -> None:
     for descriptor in descriptors:
         label = f"{descriptor['category']}/{descriptor['provider']}"
         supported_models = descriptor["supported_models"]
-        assert supported_models, f"{label} must advertise at least one model"
+        if descriptor["category"] == "tts":
+            from src.core.speech.providers import get_provider
+            modes = get_provider(descriptor["provider"]).describe()["modes"]
+            assert supported_models == list(dict.fromkeys(model for mode in modes for model in mode["models"]))
+        else:
+            assert supported_models, f"{label} must advertise at least one model"
         assert len(supported_models) == len(set(supported_models)), (
             f"{label} contains duplicate supported model ids"
         )
-        assert descriptor["default_model"] in supported_models, (
+        assert (descriptor["default_model"] in supported_models if supported_models else descriptor["default_model"] == ""), (
             f"{label} default_model must be included in supported_models"
         )
 

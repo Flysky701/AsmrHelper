@@ -272,3 +272,33 @@ def test_local_cancellation_terminates_isolated_worker(monkeypatch, tmp_path):
     assert error.value.code == "cancelled"
     assert state["terminated"] and state["waited"]
     assert not providers._LOCAL_LOCK.locked()
+
+
+def test_local_worker_abnormal_exit_reports_error_and_cleans_exchange(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from pathlib import Path
+    from src.core.speech import providers
+    provider = get_provider('qwen3')
+    source = recipe('qwen3', mode='builtin', model='qwen3-custom-voice', connection_ref=None,
+                    variant={'kind': 'builtin', 'value': 'Vivian', 'style': 'normal'})
+    request = compile_recipe(source, plan(), {})[0]
+    monkeypatch.setattr(provider, '_local_settings', lambda *args:
+        (Path('custom-python.exe'), str(tmp_path), SimpleNamespace(subprocess_env=lambda: {})))
+    exchange = []
+    class FailedProcess:
+        returncode = 23
+        def poll(self):
+            return self.returncode
+    def popen(command, **kwargs):
+        assert 'src.core.speech.local_worker' in command
+        request_path = Path(command[-1])
+        assert request_path.is_file()
+        exchange.append(request_path.parent)
+        return FailedProcess()
+    monkeypatch.setattr(providers.subprocess, 'Popen', popen)
+    with pytest.raises(ProviderError) as error:
+        provider.synthesize(request, tmp_path / 'failed.wav', {}, lambda: False)
+    assert error.value.code == 'local_failed'
+    assert exchange and all(not directory.exists() for directory in exchange)
+    assert not providers._LOCAL_LOCK.locked()
+    assert not (tmp_path / 'failed.wav').exists()

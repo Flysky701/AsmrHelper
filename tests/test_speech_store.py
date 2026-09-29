@@ -307,3 +307,30 @@ def test_import_aborts_before_mutations_when_backup_fails(tmp_path, monkeypatch)
     with pytest.raises(OSError):
         import_library(store, voices_path=voices)
     assert not store.path.exists()
+
+
+@pytest.mark.parametrize("confirmed", [False, True])
+def test_legacy_clone_json_audio_and_cache_remain_unchanged_after_import(tmp_path, confirmed):
+    original_audio = _audio(tmp_path)
+    cache = tmp_path / "old-prompt.pt"
+    cache.write_bytes(b"opaque legacy cache: must not execute")
+    manifest = tmp_path / "clone-manifest.json"
+    manifest.write_text('{"legacy":true}', encoding="utf-8")
+    source = tmp_path / "voice_profiles.json"
+    source.write_text(json.dumps({"profiles": [{"id": "old-clone", "name": "Legacy",
+        "engine": "qwen3_clone", "category": "clone", "ref_audio": str(original_audio),
+        "prompt_cache": str(cache), "clone_manifest": str(manifest)}]}), encoding="utf-8")
+    originals = {path: path.read_bytes() for path in (source, original_audio, cache, manifest)}
+    store = SpeechStore(tmp_path / "library")
+    mappings = {"old-clone": {"confirmed": True, "transcript": "真实参考文本", "language": "zh",
+                              "start": .25, "end": .75}} if confirmed else {}
+    report = import_library(store, voices_path=source, reference_map=mappings)
+    assert all(path.read_bytes() == content for path, content in originals.items())
+    assert Path(report["backup"], "manifest.json").is_file()
+    assert len(report["voices"]) == int(confirmed)
+    assert len(report["unmapped"]) == int(not confirmed)
+    assert len(store.list("assets")) == int(confirmed)
+    if confirmed:
+        asset = store.list("assets")[0]
+        assert asset["confirmed"] and asset["transcript"] == "真实参考文本"
+        assert Path(asset["path"]).resolve() != original_audio.resolve()

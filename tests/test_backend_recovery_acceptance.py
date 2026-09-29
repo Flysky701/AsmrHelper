@@ -241,7 +241,7 @@ def test_worker_abnormal_exit_is_reported_and_exchange_files_are_cleaned(
     monkeypatch,
 ):
     resolver = RuntimeProfileResolver(project_root=tmp_path)
-    profile = resolver.resolve("qwen_tts")
+    profile = resolver.resolve("qwen_asr")
     profile.python_executable.parent.mkdir(parents=True)
     profile.python_executable.write_bytes(b"python")
     router = RuntimeRouter(resolver=resolver, project_root=tmp_path)
@@ -256,11 +256,11 @@ def test_worker_abnormal_exit_is_reported_and_exchange_files_are_cleaned(
     )
 
     with pytest.raises(RuntimeWorkerError, match="terminated unexpectedly"):
-        router.synthesize_text(
+        router.transcribe_file(
             {
-                "text": "hello",
+                "input_path": str(tmp_path / "input.wav"),
                 "output_path": str(tmp_path / "result.wav"),
-                "profile": {"provider": "qwen3"},
+                "profile": {"provider": "qwen3_asr"},
             }
         )
 

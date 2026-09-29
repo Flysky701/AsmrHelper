@@ -63,7 +63,7 @@ def capture_recovery_connections(settings: dict, snapshot: dict, *, include_tts:
     ``snapshot`` is the private api/external_tts snapshot captured for the task.
     Call at task creation, before users can change connection definitions.
     """
-    profiles = profiles_for(settings)
+    profiles = profiles_for(settings, include_legacy_tts=include_tts)
     salt = secrets.token_hex(32)
     references = []
     kinds = ("llm", "tts") if include_tts else ("llm",)
@@ -125,7 +125,7 @@ def restore_recovery_connections(record: dict, settings: dict) -> dict:
             selected_refs = [ref for ref in record["references"] if ref["kind"] == kind and ref.get("selected")]
             if len(selected_refs) != 1 or selected_refs[0]["id"] != record["selected"][kind]:
                 raise ValueError("invalid selected reference")
-        profiles = profiles_for(settings)
+        profiles = profiles_for(settings, include_legacy_tts="tts" in record["selected"])
         resolved = []
         for ref in record["references"]:
             profile = next((p for p in profiles[ref["kind"]] if p["id"] == ref["id"]), None)

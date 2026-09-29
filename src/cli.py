@@ -129,8 +129,11 @@ def pipeline_group():
 @click.option("--output", "-o", "output_dir", default=None, help="Output directory")
 @click.option("--source-lang", default="ja", help="Source language code (ja/zh/en)")
 @click.option("--target-lang", default="zh", help="Target language code")
-@click.option("--tts-engine", default="edge", type=click.Choice(["edge", "qwen3", "voxcpm2"]), help="TTS engine")
-@click.option("--tts-voice", default="zh-CN-XiaoxiaoNeural", help="TTS voice")
+@click.option("--tts-engine", default=None, help="Speech provider ID")
+@click.option("--tts-model", default=None, help="Speech model ID")
+@click.option("--tts-connection", default=None, help="Named Speech connection ID")
+@click.option("--speech-recipe", default=None, help="Saved Speech generation rule ID")
+@click.option("--tts-voice", default=None, help="TTS built-in or hosted voice ID")
 @click.option("--vocal-model", default="htdemucs", help="Separator model")
 @click.option("--asr-model", default="faster-whisper-base", help="ASR model id")
 @click.option("--translate-provider", default="deepseek", help="Translation provider")
@@ -143,6 +146,9 @@ def pipeline_run(
     target_lang: str,
     tts_engine: str,
     tts_voice: str,
+    tts_model: Optional[str],
+    tts_connection: Optional[str],
+    speech_recipe: Optional[str],
     vocal_model: str,
     asr_model: str,
     translate_provider: str,
@@ -155,8 +161,11 @@ def pipeline_run(
         output_dir=output_dir or "",
         source_lang=source_lang,
         target_lang=target_lang,
-        tts_engine=tts_engine,
-        tts_voice=tts_voice,
+        tts_engine=tts_engine or "",
+        tts_voice=tts_voice or "",
+        tts_model=tts_model or "",
+        tts_connection_ref=tts_connection,
+        speech_recipe_id=speech_recipe,
         vocal_model=vocal_model,
         asr_model=asr_model,
         translate_provider=translate_provider,
@@ -240,9 +249,13 @@ def translate_cmd(input_path: str, output_path: Optional[str], provider: str, so
 @cli.command(name="tts")
 @click.option("--input", "-i", "input_path", required=True, help="Input text file path")
 @click.option("--output", "-o", "output_path", required=True, help="Output audio file path")
-@click.option("--engine", default="edge", type=click.Choice(["edge", "qwen3", "voxcpm2"]), help="TTS engine")
+@click.option("--engine", default=None, help="Speech provider ID (defaults to Edge without a connection/rule)")
 @click.option("--voice", default=None, help="TTS voice")
-def tts_cmd(input_path: str, output_path: str, engine: str, voice: Optional[str]):
+@click.option("--model", default=None, help="Model ID declared by the selected Speech provider")
+@click.option("--connection", "connection_ref", default=None, help="Saved Speech connection ID")
+@click.option("--recipe", "recipe_id", default=None, help="Saved Speech generation rule ID")
+def tts_cmd(input_path: str, output_path: str, engine: Optional[str], voice: Optional[str],
+            model: Optional[str], connection_ref: Optional[str], recipe_id: Optional[str]):
     """Run standalone TTS through the application API layer."""
     click.echo(f"Synthesizing audio: {input_path}")
     result = _run_app_command(
@@ -251,6 +264,9 @@ def tts_cmd(input_path: str, output_path: str, engine: str, voice: Optional[str]
         output_path=output_path,
         provider=engine,
         voice=voice,
+        model=model,
+        connection_ref=connection_ref,
+        recipe_id=recipe_id,
     )
 
     _emit_saved_output(result.output_path)

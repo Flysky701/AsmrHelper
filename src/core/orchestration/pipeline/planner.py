@@ -70,27 +70,16 @@ def _build_translation(profile: dict[str, Any], pipeline_opts: dict[str, Any], *
     )
 
 
-def _build_tts(profile: dict[str, Any], pipeline_opts: dict[str, Any], *, enabled: bool) -> StageBinding:
+def _build_tts(profile: dict[str, Any], *, enabled: bool) -> StageBinding:
+    """Speech submission has already resolved defaults and pinned its snapshot."""
     tts_profile = dict(profile.get("tts", {}))
-    common = dict(tts_profile.get("common_options", {}))
-    provider_opts = dict(tts_profile.get("provider_options", {}))
-    # Keep the V1 common option compatible with runtimes that still read it
-    # from provider_options during the transition.
-    if "voice_profile_id" not in provider_opts:
-        provider_opts["voice_profile_id"] = common.get(
-            "voice_profile_id", pipeline_opts.get("voice_profile_id")
-        )
     return StageBinding(
         kind=StageKind.TTS,
-        provider=tts_profile.get("provider", pipeline_opts.get("tts_engine", "edge")),
-        model=tts_profile.get("model", "default"),
+        provider=tts_profile.get("provider") or "",
+        model=tts_profile.get("model") or "",
         enabled=enabled,
-        common_options={
-            "voice": common.get("voice", pipeline_opts.get("tts_voice", "zh-CN-XiaoxiaoNeural")),
-            "speed": float(common.get("speed", pipeline_opts.get("tts_speed", 1.0))),
-            "language": common.get("language", pipeline_opts.get("target_lang", "auto")),
-        },
-        provider_options=provider_opts,
+        common_options=dict(tts_profile.get("common_options", {})),
+        provider_options=dict(tts_profile.get("provider_options", {})),
     )
 
 
@@ -207,7 +196,7 @@ def build_execution_plan(context: PipelineExecutionContext) -> PipelineExecution
         alignment=StageBinding(kind=StageKind.ALIGN, provider="qwen3_forced_aligner",
             model="qwen3-forced-aligner-0.6b", enabled=stage_flags["align"]),
         translation=_build_translation(stage_profiles, pipeline_opts, enabled=stage_flags["translation"]),
-        tts=_build_tts(stage_profiles, pipeline_opts, enabled=stage_flags["tts"]),
+        tts=_build_tts(stage_profiles, enabled=stage_flags["tts"]),
         mix=_build_mix(
             stage_profiles,
             pipeline_opts,

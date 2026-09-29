@@ -1,7 +1,5 @@
-from src.core.engines.tts.service import TtsEngineRuntime
 from src.core.resources.model_service import ModelService
 from src.core.runtime.profiles import RuntimeProfileResolver
-from src.core.runtime.router import RuntimeRouter
 from types import SimpleNamespace
 import sys
 
@@ -19,27 +17,6 @@ def test_voxcpm_catalog_and_bootstrap_use_isolated_cuda_runtime(tmp_path, monkey
     assert str(profile.python_executable) in commands[0]
 
 
-def test_voxcpm_synthesis_does_not_import_engine_in_main_process(tmp_path, monkeypatch):
-    router = RuntimeRouter(project_root=tmp_path)
-    captured = []
-
-    def worker(operation, payload, profile_id):
-        captured.append((operation, payload, profile_id))
-        return {"output_path": str(tmp_path / "speech.wav")}
-
-    class Registry:
-        def get(self, *args, **kwargs):
-            raise AssertionError("VoxCPM must not load into the main CPU environment")
-
-    monkeypatch.setattr(router, "_run_worker", worker)
-    runtime = TtsEngineRuntime(registry=Registry(), runtime_router=router)
-    output = runtime.synthesize_text(
-        text="你好", output_path=str(tmp_path / "speech.wav"),
-        profile={"provider": "voxcpm2", "model": "voxcpm2", "common_options": {}, "provider_options": {}},
-    )
-    assert output == str(tmp_path / "speech.wav")
-    assert captured[0][0] == "tts.synthesize_text"
-    assert captured[0][2] == "voxcpm2"
 
 
 def test_windows_voxcpm_uses_eager_inference_and_selected_device(monkeypatch):
@@ -54,4 +31,3 @@ def test_windows_voxcpm_uses_eager_inference_and_selected_device(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
     VoxCPM2Engine(model_dir="local-model", device_map="cuda:0")
     assert captured == {"device": "cuda:0", "load_denoiser": False, "optimize": False}
-    assert TtsEngineRuntime._build_engine_kwargs("voxcpm2", {"model": "voxcpm2"})["load_denoiser"] is False

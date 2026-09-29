@@ -110,9 +110,29 @@ class PipelineRecovery:
             prior = self.store.checkpoint(self.source_task_id, "tts") if self.source_task_id else None
             if prior and prior.get("payload", {}).get("speech_identity") != self._speech_audit:
                 raise ValueError("语音快照、引擎版本、素材或模型已改变；不能复用或自动重做已完成语音，请明确建立新任务")
-            return fingerprint({"version": 2, "stage": stage, "binding": asdict(binding),
+            identity = {"version": 2, "stage": stage, "binding": asdict(binding),
                 "speech_identity": self._speech_audit, "upstream": self._upstream,
-                "language": [self.plan.source_lang, self.plan.target_lang]})
+                "language": [self.plan.source_lang, self.plan.target_lang]}
+            current = fingerprint(identity)
+            if prior and prior.get("fingerprint") != current:
+                # Read-only compatibility for checkpoints written before the
+                # 2026-09-30 planner cleanup. These fixed values reproduce that
+                # historical serialization only; they never configure synthesis.
+                # Full speech identity was attested above; validated() still
+                # checks immutable audio below. Keep this old hash in the chain
+                # so already-completed downstream checkpoints remain reusable.
+                legacy_binding = deepcopy(identity["binding"])
+                common = legacy_binding["common_options"]
+                legacy_binding["common_options"] = {
+                    "voice": common.get("voice", "zh-CN-XiaoxiaoNeural"),
+                    "speed": float(common.get("speed", 1.0)),
+                    "language": common.get("language", self.plan.target_lang),
+                }
+                legacy_binding["provider_options"].setdefault("voice_profile_id", common.get("voice_profile_id"))
+                legacy = fingerprint({**identity, "binding": legacy_binding})
+                if prior.get("fingerprint") == legacy:
+                    return legacy
+            return current
         if model and model not in self._models:
             from src.core.resources.model_reference import resolve_model_reference
             reference = resolve_model_reference(model)

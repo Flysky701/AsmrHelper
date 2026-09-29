@@ -161,7 +161,7 @@ class TestPipelineExecutorStages:
         monkeypatch.setattr("src.app.services.speech_service.get_speech_service", lambda: speech)
         cancellation = threading.Event()
 
-        executor = PipelineExecutor(asr=mock_asr, llm=mock_llm, tts=mock_tts)
+        executor = PipelineExecutor(asr=mock_asr, llm=mock_llm)
         results = executor.execute(plan, cancel_event=cancellation)
 
         mock_tts.synthesize_segments.assert_not_called()
@@ -186,7 +186,7 @@ class TestPipelineExecutorStages:
 
         plan = _make_plan(tmp_path, separation=False)
         executor = PipelineExecutor(
-            asr=mock_asr, llm=mock_llm, tts=mock_tts, mixer_factory=mock_mixer_factory
+            asr=mock_asr, llm=mock_llm, mixer_factory=mock_mixer_factory
         )
         results = executor.execute(plan)
 
@@ -199,7 +199,7 @@ class TestPipelineExecutorErrorHandling:
     def test_tts_without_frozen_recipe_never_calls_legacy_engine(self, tmp_path, mock_asr, mock_tts):
         (tmp_path / "input.wav").write_bytes(b"audio")
         plan = _make_plan(tmp_path, separation=False, translation=False, mix=False)
-        result = PipelineExecutor(asr=mock_asr, tts=mock_tts).execute(plan)
+        result = PipelineExecutor(asr=mock_asr).execute(plan)
         assert "配方快照" in result["step_errors"]["tts"]
         mock_tts.synthesize_segments.assert_not_called()
 
@@ -258,7 +258,7 @@ class TestPipelineExecutorProgressCallback:
 
         executor = PipelineExecutor(
             separator=mock_separator, asr=mock_asr, llm=mock_llm,
-            tts=mock_tts, mixer_factory=mock_mixer_factory,
+            mixer_factory=mock_mixer_factory,
         )
         executor.execute(plan, progress_callback=lambda msg: messages.append(msg))
 
