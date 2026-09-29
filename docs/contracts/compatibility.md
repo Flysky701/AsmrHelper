@@ -69,6 +69,6 @@
 台本请求与响应统一为 `ScriptToSubtitleRequest/Response`，因为输出支持 VTT、SRT 和 LRC。
 内部已持久化的任务类型 `subtitle.script_to_vtt` 保留，避免改动已有任务历史。
 
-ASR/TTS/LLM 的同步诊断、字幕同步编辑、模型状态与能力目录的职责不同，保留各自入口。
+ASR/LLM 的同步诊断、字幕同步编辑、模型状态与能力目录的职责不同，保留各自入口。TTS 统一到 Speech；旧 TTS 配置和命令兼容边界以 [统一 TTS 指南](../guides/tts.md) 为准。
 CLI 的批量执行仍使用原应用服务；本轮只删除无人调用的同步批量 HTTP 入口。
 历史设计和旧验收材料通过 Git 历史追溯，不在工作树保留归档副本。

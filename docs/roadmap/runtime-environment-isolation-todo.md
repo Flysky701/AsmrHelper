@@ -1,4 +1,6 @@
-# 运行环境隔离进度
+# 运行环境隔离进度（历史验收快照）
+
+> 本页记录截至 2026-08-18 的实施与真实验收，不代表本轮环境或新 Speech 已完成同样验收。TTS RuntimeRouter、旧 `/tts/synthesize` 及 StageProfile Worker 已退出；当前路径和能力以 [统一 TTS 指南](../guides/tts.md) 为准。本地 Speech 引擎通过专用 `local_worker` 执行，VoxCPM2 也已有独立运行环境；以下 TODO 仅保留历史状态。
 
 > 状态：隔离运行时主路径已实施；`qwen_tts`、`qwen_asr` 和 `fun_asr` 环境已按项目内 Python 重建。Qwen 双 Worker 主链路已验收，Fun-ASR Nano 已完成独立运行时真实转写。
 

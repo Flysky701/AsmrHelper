@@ -13,6 +13,8 @@
 
 ## 当前权威文档
 
+TTS 的唯一当前入口是 [统一 TTS 指南](guides/tts.md)，其中链接声音库操作及迁移边界。其余文档只描述各自领域，不重复维护 TTS 参数、服务枚举或默认值。
+
 建议按以下顺序阅读：
 
 1. [当前源码基线](roadmap/current-source-baseline.md)：当前分支源码、入口、删除项、限制和验证状态。
@@ -32,7 +34,7 @@
 
 - [领域边界总览](domains/README.md)：输入、任务、Pipeline、Provider、文本资产和产物预览的责任划分。
 
-ASR、TTS、LLM 等能力统一按 Provider 类别扩展，不再分别维护重复的跨层契约。
+ASR、LLM 等通用能力按 Provider 契约扩展；TTS 以 Speech Provider 为唯一能力来源，接入规则见统一 TTS 指南。
 
 ## 路线图与进度
 

@@ -15,3 +15,5 @@
 - [Provider 与设置契约](../contracts/provider-v1.md)
 - [兼容与迁移说明](../contracts/compatibility.md)
 - [当前源代码基线](../roadmap/current-source-baseline.md)
+
+2026-09-30 将旧音色设计、命名连接设计、旧外部 TTS/Edge 参数记录及迁移前架构图归档到 `designs/`、`providers/`、`diagrams/`。原路径保留导向页，替代入口为 [统一 TTS 指南](../guides/tts.md)。

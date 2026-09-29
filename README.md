@@ -174,8 +174,6 @@ cp config/config.example.json config/config.json
 | -------------------------- | ---------------------------------------- | ------------------------ |
 | `api.provider`           | 翻译服务 (deepseek/openai)               | `deepseek`             |
 | `api.deepseek_api_key`   | DeepSeek API Key                         |                          |
-| `tts.engine`             | TTS 引擎 (edge/qwen3)                    | `edge`                 |
-| `tts.voice`              | Edge-TTS 音色                            | `zh-CN-XiaoxiaoNeural` |
 | `processing.vocal_model` | 人声分离模型                             | `htdemucs`             |
 | `processing.asr_model`   | ASR 模型大小 (tiny/base/medium/large-v3) | `base`                 |
 
@@ -188,12 +186,9 @@ cp config/config.example.json config/config.json
 
 环境变量优先级高于配置文件。
 
-## TTS 引擎对比
+## 语音合成配置
 
-| 引擎      | 质量 | 速度 | GPU       | 说明                         |
-| --------- | ---- | ---- | --------- | ---------------------------- |
-| `edge`  | 一般 | 快   | 不需要    | 微软免费 TTS，适合快速体验   |
-| `qwen3` | 高   | 慢   | 需要 CUDA | Qwen3-TTS，支持音色设计/克隆 |
+语音合成统一使用 Speech 引擎能力、命名连接及可选音色规则。不要用旧 `tts` / `external_tts` 字段配置新任务。配置、命令行、迁移和开发接入均见 [统一 TTS 指南](docs/guides/tts.md)；声音库操作见 [声音库与音色生成规则](docs/guides/voice-lab-v2.md)。
 
 ## GUI 界面
 
@@ -288,7 +283,7 @@ MIT License
 
 - `asr/` - ASR 语音识别，支持 Faster-Whisper、Fun-ASR、Qwen3-ASR
 - `engines/llm/` - 翻译引擎，支持 DeepSeek/OpenAI，包含缓存和术语库
-- `tts/` - 语音合成，支持 Edge-TTS、Qwen3-TTS、VoxCPM2
+- `speech/` - 统一语音能力、编译与引擎执行；`tts/` 仅保留共用底层适配、语言归一和参考录音处理
 - `vocal_separator/` - Demucs 人声分离
 - `orchestration/` - 流水线编排，使用 PipelineExecutor 执行
 - `engines/` - 引擎运行时，统一管理各引擎生命周期

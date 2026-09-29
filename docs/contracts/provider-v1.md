@@ -94,17 +94,19 @@ Provider 测试请求与响应：
 
 当前 DeepSeek/OpenAI 均按 OpenAI-compatible 接口执行带超时的轻量模型列表请求。测试可使用尚未保存的草稿凭据和 Base URL；失败返回稳定 `error_code`，不得在响应中回显凭据。
 
-## 3. 能力描述
+## 3. 通用能力描述
+
+TTS 不使用本节的独立声明方式，统一由 Speech Provider 产生；配置、执行与兼容边界见 [统一 TTS 指南](../guides/tts.md)。以下示例为非 TTS 的通用结构。
 
 ```json
 {
-  "category": "tts",
-  "provider": "edge",
+  "category": "llm",
+  "provider": "deepseek",
   "models": [],
   "default_model": null,
   "options": [
     {
-      "name": "voice",
+      "name": "temperature",
       "type": "string",
       "required": true,
       "default": null,
@@ -163,7 +165,7 @@ Provider 测试请求与响应：
 
 ## 7. 当前稳定标识
 
-- TTS：`edge`、`qwen3`、`voxcpm2`
+- TTS：由 `/speech/providers` 返回，参见统一 TTS 指南，不在此重复枚举。
 - ASR：`faster_whisper`、`fun_asr`、`qwen3_asr`
 - 分离：Provider 为 `demucs`，模型为 `htdemucs`
 - 翻译：`deepseek`、`openai`

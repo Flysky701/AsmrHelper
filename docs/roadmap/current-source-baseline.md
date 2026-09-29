@@ -15,9 +15,9 @@
 
 - 导航、工作台与任务中心移除装饰性英文标题及重复说明。
 - 设置仅显示选中服务商字段，LLM 模型由远端探测取得，保留折叠的手填入口；LLM/TTS 连接可命名保存并在工作台选择。
-- 新增 `openai_compatible` TTS，界面仅展示命名配置、地址和凭据；底层保留模型、音色和指令参数，当前不展示猜测的选项。适配器支持 `/audio/speech` 及聊天音频响应，复用现有时间线适配器。
+- TTS 能力、命名连接、有效执行入口与旧配置迁移统一见 [TTS 指南](../guides/tts.md)。通用能力接口只做 Speech 目录兼容投影。
 - 流水线加入默认关闭的 Qwen 对齐阶段；任务中心支持显式阶段恢复，已完成阶段经检查后复用，中断阶段重跑，不包含阶段内恢复。
-- 配置方式及接口边界见 [外部 TTS](../providers/openai-compatible-tts.md)。本次外部接口验证使用模拟响应，不代表用户账户上的真实合成验收。
+- 外部语音接口的模拟响应验证不代表真实账户上的合成验收；本轮证据单独记录，不沿用历史验收结论。
 - 版本整理后的拟提交代码快照回归 `530 passed`；TypeScript 与 Vite 生产构建通过。未重建 Tauri release，未进行真实模型推理或付费接口验收。恢复失效规则尚有正确性缺口，见 [本轮版本与验收记录](version-management-2026-09-23.md)。
 
 ## 1. 本文定位
@@ -46,7 +46,7 @@
 ```text
 src/api/http/                     FastAPI 路由、schema 和启动入口
 src/app/services/                 应用服务、任务提交和 DTO 映射
-src/core/engines/                 ASR、LLM、TTS、separator registry/runtime
+src/core/engines/                 ASR、LLM、separator registry/runtime 与共享模型适配
 src/core/speech/                  当前语音 Provider、规则编译、素材与实验记录
 src/core/orchestration/pipeline/  Pipeline planner、executor、result mapper
 src/core/tasks/                   TaskSpec、TaskStatus、Dispatcher、ExecutorRegistry
@@ -123,7 +123,7 @@ Workbench 统一整理文件选择和目录递归扫描得到的输入清单，�
 当前 Registry/能力目录包含：
 
 - ASR：`faster_whisper`、`fun_asr`、`qwen3_asr`。
-- Speech 语音能力目录：`edge`、`qwen3`、`voxcpm2`、`openai_compatible`、`fish_audio`、`mimo_audio`；模式和参数按各引擎声明提供，不代表均支持克隆或声音设计。
+- Speech 语音能力目录以 `/speech/providers` 为准；模式、模型与参数不在基线文档重复枚举。
 - LLM：`deepseek`、`openai`。
 - Separator：`demucs`。
 
