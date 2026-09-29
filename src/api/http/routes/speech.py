@@ -170,6 +170,11 @@ def reference_analysis(task_id: str, svc=Depends(get_speech_service)):
     return {"status": TaskStatusResponse.from_task_status(status), "result": result}
 
 
+@router.post("/references/transcribe-tasks", status_code=202)
+def start_reference_transcription(body: dict, svc=Depends(get_speech_service)):
+    return TaskStatusResponse.from_task_status(call(svc.start_reference_transcription, body))
+
+
 @router.post("/references")
 def reference(body: dict, svc=Depends(get_speech_service)):
     return _process_reference(body, svc)

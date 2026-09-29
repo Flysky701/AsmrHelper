@@ -8,6 +8,8 @@ import type { ReferenceAsset, ReferenceInspection, ReferenceDraft, ReferenceCand
 import { FILE_FILTERS } from '@/hooks/useFileSelector'
 import { useNavStore } from '@/stores/navStore'
 import './ReferenceLibrary.css'
+import ClipTranscription from './ClipTranscription'
+import { playbackBoundary } from './referencePlayback'
 
 type Props = { assets: ReferenceAsset[]; refresh: () => Promise<void>; onUse: (asset: ReferenceAsset) => void; onBusy: (value: boolean) => void; active: boolean }
 type Draft = Omit<ReferenceDraft, 'path'>
@@ -45,6 +47,10 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   const [loop, setLoop] = useState(false)
   const audio = useRef<HTMLAudioElement>(null)
   const selection = useRef<{ start: number; end: number } | null>(null)
+  const wholePlayback = useRef(false)
+  const playbackFrame = useRef(0)
+  const playbackBounds = useRef({ start: 0, end: 0, loop: false })
+  playbackBounds.current = { start: draft.start, end: draft.end, loop }
   const dragging = useRef<'start' | 'end' | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const subtitleInput = useRef<HTMLInputElement>(null)
@@ -65,6 +71,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
     return () => { useNavStore.getState().setNavigationGuard(null); window.removeEventListener('beforeunload', beforeUnload) }
   }, [])
   useEffect(() => { if (!active) audio.current?.pause() }, [active])
+  useEffect(() => () => cancelAnimationFrame(playbackFrame.current), [])
   useEffect(() => {
     const taskId = analysisTask?.task_id
     if (!taskId || !source) return
@@ -121,12 +128,12 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   }
   function mayReplace() { return !dirty || window.confirm('当前录音还没有保存。放弃修改并打开另一段录音？') }
   function change(patch: Partial<Draft>) {
-    audio.current?.pause(); selection.current = null
+    audio.current?.pause(); selection.current = null; wholePlayback.current = false
     setDraft(value => ({ ...value, ...patch, confirmed: patch.confirmed ?? (patch.start !== undefined || patch.end !== undefined || patch.transcript !== undefined || patch.language !== undefined ? false : value.confirmed) }))
     setDirty(true); setPreview(null)
   }
   function load(value: ReferenceInspection, name: string) {
-    audio.current?.pause(); selection.current = null
+    audio.current?.pause(); selection.current = null; wholePlayback.current = false
     setStored(null); setSource(value); setPreview(null); setSegments([]); setCandidates([]); setAnalyzed(false); setAnalysisError(''); setAnalysisTask(null); setAnalysisWarnings([]); setAnalysisSource(''); setLoadedSubtitle(null); setTrackingFailed(false)
     setDraft({ ...initialDraft(), name: name.replace(/\.[^.]+$/, ''), end: value.duration }); setView('editor'); setDirty(true)
   }
@@ -149,10 +156,33 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   const processingValid = draft.gain_db >= -24 && draft.gain_db <= 12 && draft.fade_in >= 0 && draft.fade_out >= 0 && draft.fade_in + draft.fade_out <= draft.end - draft.start
   const payload = (): ReferenceDraft => ({ ...draft, path: source!.path })
   const found = allAssets.filter(item => `${item.name || ''} ${item.notes || ''} ${item.transcript || ''}`.toLowerCase().includes(query.toLowerCase()))
-  function play(start: number, end: number) {
+  function play(start: number, end: number, whole = false) {
     if (!audio.current) return
+    wholePlayback.current = whole
     selection.current = { start, end }; audio.current.currentTime = start
     void audio.current.play().catch(cause => setError(message(cause)))
+  }
+  function enforcePlayback() {
+    const player = audio.current
+    if (!player || wholePlayback.current) return
+    const range = selection.current || playbackBounds.current
+    const action = playbackBoundary(player.currentTime, range, playbackBounds.current.loop, !player.paused)
+    if (action.pause) player.pause()
+    if (action.seek !== undefined && player.currentTime !== action.seek) player.currentTime = action.seek
+  }
+  function onPlayerPlay() {
+    const player = audio.current
+    if (!player) return
+    const range = selection.current || playbackBounds.current
+    if (!wholePlayback.current && (player.currentTime < range.start || player.currentTime >= range.end)) player.currentTime = range.start
+    cancelAnimationFrame(playbackFrame.current)
+    const tick = () => { enforcePlayback(); if (!player.paused) playbackFrame.current = requestAnimationFrame(tick) }
+    tick()
+  }
+  function onPlayerEnded() {
+    const range = selection.current || playbackBounds.current
+    if (!wholePlayback.current && playbackBounds.current.loop && range.end > range.start) play(range.start, range.end)
+    else { wholePlayback.current = false; selection.current = null }
   }
   function moveSelection(event: PointerEvent<SVGSVGElement>) {
     if (!source || !dragging.current || busy) return
@@ -189,7 +219,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   }
   function openStored(item: ReferenceAsset) {
     if (!mayReplace()) return
-    audio.current?.pause(); setStored(item); setSource(null); setDirty(false); setView('saved'); setNotice(''); setError('')
+    audio.current?.pause(); setAnalysisTask(null); setStored(item); setSource(null); setDirty(false); setView('saved'); setNotice(''); setError('')
   }
 
   return <div className="reference-library">
@@ -238,12 +268,13 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
               {[draft.start, draft.end].map((point, index) => <g key={index}><line x1={point / source.duration * 800} x2={point / source.duration * 800} y1="0" y2="100" stroke="var(--accent)" strokeWidth="3" /><rect x={Math.max(0, Math.min(790, point / source.duration * 800 - 5))} y="35" width="10" height="30" rx="4" fill="var(--accent)" /></g>)}
             </svg>
             <div className="reference-timeline"><span>00:00</span><span>{time(source.duration)}</span></div>
-            <audio controls ref={audio} src={speechApi.referenceAudio(source.id, true)} onTimeUpdate={() => { const player = audio.current; const range = selection.current; if (player && range && player.currentTime >= range.end) { if (loop) player.currentTime = range.start; else { player.pause(); selection.current = null } } }} onSeeked={() => { const range = selection.current; if (audio.current && range && (audio.current.currentTime < range.start || audio.current.currentTime > range.end)) selection.current = null }} />
-            <div className="row reference-playback"><button disabled={!valid} onClick={() => play(draft.start, draft.end)}>▶ 试听选段</button><button onClick={() => play(0, source.duration)}>试听整段</button><label><input type="checkbox" checked={loop} onChange={event => setLoop(event.target.checked)} /> 循环选段</label></div>
+            <audio controls ref={audio} src={speechApi.referenceAudio(source.id, true)} onPlay={onPlayerPlay} onPause={() => cancelAnimationFrame(playbackFrame.current)} onTimeUpdate={enforcePlayback} onSeeked={enforcePlayback} onEnded={onPlayerEnded} />
+            <div className="row reference-playback"><button disabled={!valid} onClick={() => play(draft.start, draft.end)}>▶ 试听选段</button><button onClick={() => play(0, source.duration, true)}>试听整段</button><label><input type="checkbox" checked={loop} onChange={event => setLoop(event.target.checked)} /> 循环选段</label></div>
+            <p className="muted">播放器默认播放框选范围；“试听整段”可临时播放完整录音。</p>
             {<><div className="reference-range">{(['start', 'end'] as const).map(key => <label className="field" key={key}>{key === 'start' ? '起点' : '终点'}（秒）<input type="number" step=".01" min="0" max={source.duration} value={Number(draft[key].toFixed(2))} onChange={event => change({ [key]: Number(event.target.value) })} /></label>)}<button onClick={() => change({ start: 0, end: source.duration })}>使用整段</button></div><p className="muted">拖动选区两端，或填写精确时间。选中推荐后仍可微调。</p></>}
           </section>
             <section className="panel reference-assist">
-              <div className="row spread"><div><h3>辅助选段</h3><p className="muted">优先复用同目录同名 VTT/SRT；没有可用字幕时按停顿和音量变化选段。试听后选用，可继续微调。</p></div><button disabled={analyzing} onClick={() => void analyze()}>{analyzing ? '正在分析…' : analyzed ? '重新分析' : '帮我选片段'}</button></div>
+              <div className="row spread"><div><h3>辅助选段</h3><p className="muted">仅复用语言与录音一致的 VTT/SRT；译文和无法确定语言的字幕不会代替原文。没有可用字幕时按停顿和音量变化选段。</p></div><button disabled={analyzing} onClick={() => void analyze()}>{analyzing ? '正在分析…' : analyzed ? '重新分析' : '帮我选片段'}</button></div>
               {!!source.companion_subtitles?.length && <p className="notice">发现同目录字幕：{source.companion_subtitles.map(item => item.name).join('、')}。分析时先检查时间轴与语言。</p>}
               <div className="row"><button onClick={() => subtitleInput.current?.click()}>加载已有 VTT / SRT</button><span className="muted">浏览器上传音频时，可另选字幕。</span></div>
               {loadedSubtitle && <div className="row"><span className="muted">优先使用：{loadedSubtitle.name}</span><button onClick={() => { setLoadedSubtitle(null); setSegments([]) }}>移除字幕</button></div>}
@@ -269,6 +300,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
             <section className="panel"><h3>录音信息</h3><div className="grid"><label className="field">录音名称<input value={draft.name} placeholder="例如：晚安独白 · 片段 01" onChange={event => change({ name: event.target.value })} /></label><label className="field">录音语言<select value={draft.language} onChange={event => change({ language: event.target.value })}>{Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{label}</option>)}{!languages[draft.language] && <option value={draft.language}>{draft.language}</option>}</select></label></div>
               <div className="row spread"><h3>录音原文 <span className="reference-optional">可选</span></h3><button onClick={() => subtitleInput.current?.click()}>从 SRT / VTT 选取</button></div><p className="muted">填写这段录音实际说出的话。不是译文，也不是希望生成的新台词。</p>
               <textarea aria-label="录音原文" rows={4} value={draft.transcript} placeholder="可以先留空。部分克隆引擎会在创建音色时要求补充原文。" onChange={event => change({ transcript: event.target.value })} />
+              <ClipTranscription key={source.id} path={source.path} start={draft.start} end={draft.end} language={draft.language} transcript={draft.transcript} valid={valid} onResult={transcript => change({ transcript, confirmed: false })} />
               {segments.length > 0 && <div className="subtitle-segments">{segments.map((segment, index) => <button key={index} disabled={segment.start < 0 || segment.end > source.duration || segment.end <= segment.start} onClick={() => { change({ start: segment.start, end: segment.end, transcript: segment.text }); setView('editor') }}>{time(segment.start)}–{time(segment.end)} · {segment.text}</button>)}</div>}
               <label className="reference-confirm"><input type="checkbox" disabled={!draft.transcript.trim()} checked={draft.confirmed} onChange={event => change({ confirmed: event.target.checked })} /> 我已试听，确认原文与当前片段一致</label>
               <label className="field">备注 <span className="reference-optional">可选</span><input value={draft.notes} placeholder="记录来源、发声特点，方便以后查找" onChange={event => change({ notes: event.target.value })} /></label>

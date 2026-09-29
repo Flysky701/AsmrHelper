@@ -177,7 +177,8 @@ def test_reference_analysis_silence_reports_no_candidates_without_loading_asr(sp
 @pytest.mark.parametrize("sidecar_suffix", [".vtt", ".wav.vtt", ".srt", ".wav.srt"])
 @pytest.mark.parametrize("language,text,end,expected_source,verified", [
     ("en", "Hello this is the original recording.", "00:00:03.500", "subtitle", True),
-    ("auto", "Hello this is the original recording.", "00:00:03.500", "subtitle", False),
+    ("ja", "これは録音の原文です。よろしくお願いします。", "00:00:03.500", "subtitle", True),
+    ("auto", "Hello this is the original recording.", "00:00:03.500", "none", None),
     ("ja", "这是翻译后的中文字幕。", "00:00:03.500", "none", None),
     ("en", "Hello this is the original recording.", "00:00:09.000", "none", None),
 ])
@@ -218,6 +219,119 @@ def test_processed_reference_does_not_reuse_parent_subtitle_timeline(speech_http
     again = post(client, "/references/inspect", {"path": cropped["path"]})
     assert again["companion_subtitles"] == []
     assert again["companion_source_path"] is None
+
+
+@pytest.mark.parametrize("language,text", [
+    ("ja", "これは原文です。\n这是中文字幕翻译。"),
+    ("ja", "这是中文字幕翻译，只有一个の字。\n另外一句也是中文字幕。"),
+    ("ja", "这是中文字幕翻译，只有一个の字。"),
+    ("auto", "Hello from this recording."),
+    ("ja", "This is an English translation."),
+])
+def test_uncertain_or_translated_subtitles_do_not_block_requested_asr(speech_http, monkeypatch, tmp_path, language, text):
+    from src.core.tts.audio_preprocessor import AudioPreprocessor
+    client, _service = speech_http
+    source = tmp_path / "recording.wav"
+    sf.write(source, np.zeros(64000, dtype="float32"), 16000)
+    source.with_suffix(".vtt").write_text(f"WEBVTT\n\n00:00:00.000 --> 00:00:03.500\n{text}\n", encoding="utf-8")
+
+    def analyze(_self, **kwargs):
+        assert kwargs["subtitle_path"] is None
+        assert kwargs["require_text"] is True
+        assert kwargs["audio_language"] == language
+        return {"segments": [{"start": 0, "end": 3, "text": "ASR original"}], "mode": "asr"}
+
+    monkeypatch.setattr(AudioPreprocessor, "analyze_segments", analyze)
+    task = post(client, "/references/analyze-tasks", {"path": str(source), "language": language, "require_text": True}, status=202)
+    assert wait_task(client, task["task_id"])["state"] == "completed"
+    result = client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"]
+    assert result["transcript_source"] == "asr"
+    assert result["subtitle"] is None
+    assert result["warnings"]
+
+
+def test_selection_asr_only_reads_crop_ignores_subtitles_and_requires_confirmation(speech_http, monkeypatch, tmp_path):
+    from src.core.engines.asr.service import AsrEngineRuntime
+    from types import SimpleNamespace
+    client, service = speech_http
+    source = tmp_path / "recording.wav"
+    samples = np.concatenate([np.zeros(16000), np.full(16000, .25), np.zeros(16000)]).astype("float32")
+    sf.write(source, samples, 16000)
+    source.with_suffix(".vtt").write_text("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nwrong translation\n", encoding="utf-8")
+    calls = []
+
+    def transcribe(_self, **kwargs):
+        crop, rate = sf.read(kwargs["input_path"])
+        assert rate == 16000 and len(crop) == 16000
+        assert np.allclose(crop, .25)
+        assert kwargs["profile"]["common_options"]["language"] == "ja"
+        calls.append(kwargs["input_path"])
+        return SimpleNamespace(segments=[SimpleNamespace(start=0, end=1, text="本当の原文です。")])
+
+    monkeypatch.setattr(AsrEngineRuntime, "transcribe_file", transcribe)
+    task = post(client, "/references/transcribe-tasks", {"path": str(source), "start": 1, "end": 2, "language": "ja"}, status=202)
+    assert wait_task(client, task["task_id"])["state"] == "completed"
+    result = client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"]
+    assert result["transcript"] == "本当の原文です。"
+    assert result["confirmed"] is False
+    assert result["start"] == 1 and result["end"] == 2
+    assert result["segments"][0]["start"] == 1 and result["segments"][0]["end"] == 2
+    assert len(calls) == 1
+    assert service.store.list("assets") == []
+
+
+@pytest.mark.parametrize("start,end", [(1, 1), (-1, 1), (2, 1)])
+def test_selection_asr_rejects_invalid_interval(speech_http, tmp_path, start, end):
+    client, _service = speech_http
+    source = tmp_path / "recording.wav"
+    source.write_bytes(wav())
+    post(client, "/references/transcribe-tasks", {"path": str(source), "start": start, "end": end}, status=422)
+
+
+def test_selection_asr_cancellation_discards_late_result(speech_http, monkeypatch, tmp_path):
+    import threading
+    from src.core.tts.audio_preprocessor import AudioPreprocessor
+    client, service = speech_http
+    source = tmp_path / "recording.wav"
+    source.write_bytes(wav())
+    entered, release = threading.Event(), threading.Event()
+
+    def transcribe(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return [{"start": 0, "end": .1, "text": "late"}]
+
+    monkeypatch.setattr(AudioPreprocessor, "_run_asr", transcribe)
+    task = post(client, "/references/transcribe-tasks", {"path": str(source), "start": 0, "end": .1}, status=202)
+    try:
+        assert entered.wait(5)
+        assert client.post("/api/v1/tasks/" + task["task_id"] + "/cancel").status_code == 200
+    finally:
+        release.set()
+    assert wait_task(client, task["task_id"])["state"] == "cancelled"
+    assert not (service.store.root / "_analyses" / (task["task_id"] + ".json")).exists()
+
+
+def test_selection_asr_bounds_and_engine_failure_are_visible(speech_http, monkeypatch, tmp_path):
+    from src.core.tts.audio_preprocessor import AudioPreprocessor
+    client, _service = speech_http
+    source = tmp_path / "recording.wav"
+    source.write_bytes(wav())
+    calls = []
+
+    def transcribe(*args, **kwargs):
+        calls.append(True)
+        raise RuntimeError("ASR 模型未安装")
+
+    monkeypatch.setattr(AudioPreprocessor, "_run_asr", transcribe)
+    task = post(client, "/references/transcribe-tasks", {"path": str(source), "start": 0, "end": 1}, status=202)
+    assert wait_task(client, task["task_id"])["state"] == "failed"
+    assert not calls
+    task = post(client, "/references/transcribe-tasks", {"path": str(source), "start": 0, "end": .1}, status=202)
+    status = wait_task(client, task["task_id"])
+    assert status["state"] == "failed" and "ASR 模型未安装" in str(status["error"])
+    assert len(calls) == 1
+    assert client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"] is None
 
 
 @pytest.mark.parametrize("text,format,expected", [

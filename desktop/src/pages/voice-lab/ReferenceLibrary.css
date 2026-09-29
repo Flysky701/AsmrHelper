@@ -53,6 +53,8 @@
 .reference-library .reference-footer > button { flex-shrink: 0; padding: 10px 18px; }
 .reference-library .reference-optional { color: var(--muted); font-size: 11px; font-weight: 400; }
 .reference-library .reference-confirm { display: flex; align-items: center; gap: 7px; font-size: 12px; margin: 14px 0 22px; }
+.reference-library .reference-clip-asr { margin-top: 12px; }
+.reference-library .reference-clip-asr .notice { white-space: pre-wrap; overflow-wrap: anywhere; }
 .reference-library .reference-processing summary { cursor: pointer; font-size: 13px; }
 .reference-library .reference-processing summary > span { margin-left: 10px; }
 .reference-library .reference-processing[open] summary { margin-bottom: 20px; }

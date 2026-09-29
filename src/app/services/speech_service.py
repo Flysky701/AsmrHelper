@@ -196,6 +196,59 @@ class SpeechService:
         result = json.loads(path.read_text(encoding="utf-8")) if status.state == "completed" and path.exists() else None
         return status, result
 
+    def start_reference_transcription(self, body):
+        """Explicit selection ASR never consults companion subtitles."""
+        path = Path(str(body.get("path", "")))
+        if not path.is_file():
+            raise ValueError("请选择存在的录音文件")
+        start, end = float(body.get("start", -1)), float(body.get("end", -1))
+        if not all(math.isfinite(v) for v in (start, end)) or not 0 <= start < end:
+            raise ValueError("请选择有效的识别片段")
+        language = body.get("language", "auto")
+        if not isinstance(language, str) or not language.strip():
+            raise ValueError("请选择录音语言")
+        spec, _ = self.tasks.create_task_spec(
+            task_type="speech.reference_analyze", task_source="voice-lab", session_id=uuid4().hex,
+            execution_profile={"reference_analysis": {
+                "operation": "transcribe_selection", "path": str(path.resolve()),
+                "start": start, "end": end, "language": language,
+            }},
+        )
+        return self.dispatcher.submit(spec.task_id)
+
+    def transcribe_reference_selection(self, body, progress_callback):
+        import soundfile as sf
+        from tempfile import TemporaryDirectory
+        from src.core.tts.audio_preprocessor import AudioPreprocessor
+
+        progress_callback("读取录音并裁剪所选片段…", 1)
+        original = self.store.inspect_reference(body["path"])
+        start, end = body["start"], body["end"]
+        if end > original["duration"]:
+            raise ValueError("识别片段超出录音时间范围")
+        staging = self.store.root / "_staging"
+        staging.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(prefix="selection-asr-", dir=staging) as temporary:
+            with sf.SoundFile(original["path"]) as audio:
+                first, last = round(start * audio.samplerate), round(end * audio.samplerate)
+                if last <= first:
+                    raise ValueError("识别片段未包含音频采样")
+                audio.seek(first)
+                samples = audio.read(last - first, dtype="float32", always_2d=True)
+                crop = Path(temporary) / "selection.wav"
+                sf.write(crop, samples.mean(axis=1), audio.samplerate, subtype="PCM_16")
+            progress_callback("已裁剪所选片段，准备 ASR 识别…", 20)
+            segments = AudioPreprocessor(output_dir=temporary)._run_asr(
+                str(crop), language=body["language"], progress_callback=progress_callback)
+            progress_callback("ASR 识别完成，请试听核对原文", 100)
+            transcript = " ".join(str(segment.get("text", "")).strip() for segment in segments).strip()
+            if not transcript:
+                raise ValueError("所选片段未识别到原文，请调整选段或录音语言")
+            return {"transcript": transcript, "confirmed": False, "transcript_source": "asr",
+                "start": start, "end": end, "language": body["language"],
+                "segments": [{**segment, "start": start + max(0, min(end - start, float(segment["start"]))),
+                    "end": start + max(0, min(end - start, float(segment["end"])))} for segment in segments]}
+
     def _execute_reference_analysis(self, spec, context):
         reported = 0.0
 
@@ -219,7 +272,9 @@ class SpeechService:
                     break
             context.update_progress(reported, message, stage=stage)
 
-        result = self.analyze_reference(spec.execution_profile["reference_analysis"], progress_callback=progress)
+        body = spec.execution_profile["reference_analysis"]
+        operation = self.transcribe_reference_selection if body.get("operation") == "transcribe_selection" else self.analyze_reference
+        result = operation(body, progress_callback=progress)
         if context.cancellation_requested:
             raise RuntimeError("片段分析已取消")
         path = self.store.root / "_analyses" / (spec.task_id + ".json")
@@ -277,7 +332,7 @@ class SpeechService:
 
     def _reference_subtitle(self, original, language, directory, body):
         """Reuse only a same-name sidecar tied to unprocessed, inspected source audio."""
-        from src.core.subtitles import detect_subtitle_language, load_subtitle_with_timestamps
+        from src.core.subtitles.companions import inspect_subtitle, is_source_subtitle
         from src.core.subtitles.text_utils import normalize_language_code
         source = original.get("companion_source_path")
         warnings = []
@@ -298,7 +353,10 @@ class SpeechService:
                 # Snapshot the sidecar; validation and analysis use identical bytes.
                 staged = directory / ("companion" + candidate.suffix.lower())
                 staged.write_bytes(candidate.read_bytes())
-                entries = load_subtitle_with_timestamps(str(staged))
+                inspection = inspect_subtitle(staged)
+                if not inspection["valid"]:
+                    raise ValueError(inspection["reason"])
+                entries = inspection["segments"]
                 if not entries or any(
                     not str(entry.get("text", "")).strip()
                     or not all(math.isfinite(float(entry[key])) for key in ("start", "end"))
@@ -306,17 +364,15 @@ class SpeechService:
                     for entry in entries
                 ):
                     raise ValueError("字幕为空或时间范围超出当前录音")
-                detected = normalize_language_code(detect_subtitle_language([entry["text"] for entry in entries]))
+                detected = inspection["language"]
                 if detected in {"unknown", "mixed"}:
                     raise ValueError("无法确定字幕语言")
-                verified = requested not in {"auto", "unknown"}
-                if verified and detected != requested:
+                if requested in {"auto", "unknown"}:
+                    raise ValueError("录音语言尚未确定，不能将字幕当作原文；请明确语言或使用 ASR")
+                if not is_source_subtitle(inspection, requested):
                     raise ValueError(f"字幕语言 {detected} 与录音所选语言 {requested} 不一致，可能是译文")
-                if not verified:
-                    warnings.append(f"已复用 {name}，字幕语言尚未与录音核验；请确认是原文而非译文。")
-                else:
-                    warnings.append(f"已复用 {name}，语言与所选语言一致；仍需试听核对字幕原文。")
-                return {"name": name, "language": detected, "language_verified": verified}, str(staged), warnings
+                warnings.append(f"已复用 {name}，语言与所选语言一致；仍需试听核对字幕原文。")
+                return {"name": name, "language": detected, "language_verified": True}, str(staged), warnings
             except (ValueError, OSError, KeyError, TypeError) as exc:
                 warnings.append(f"未使用 {name}：{exc}")
         return None, None, warnings

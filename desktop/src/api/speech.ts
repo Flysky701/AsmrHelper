@@ -16,6 +16,7 @@ export interface SpeechSegment { id: string; start: number; end: number; deliver
 export interface SpeechPlan { id: string; text: string; text_hash: string; segments: SpeechSegment[] }
 export interface ReferenceAsset { id: string; path: string; name?: string; notes?: string; archived?: boolean; source_path?: string; transcript: string; language: string; start?: number; end?: number; duration?: number; confirmed?: boolean }
 export interface ReferenceCandidate { start: number; end: number; text: string; score?: number; selected?: boolean; reasons?: string[] }
+export interface ReferenceTranscription { transcript: string; confirmed: false; start: number; end: number; language: string }
 export interface ReferenceAnalysis { original: ReferenceInspection; analyzed: ReferenceInspection; segments: ReferenceCandidate[]; transcript_source?: 'subtitle' | 'asr' | 'none'; subtitle?: { name: string; language: string; language_verified: boolean } | null; warnings?: string[] }
 export interface ReferenceDraft { path: string; start: number; end: number; transcript: string; language: string; confirmed: boolean; name: string; notes: string; gain_db: number; fade_in: number; fade_out: number }
 export interface ReferenceInspection extends Waveform { id: string; path: string; companion_subtitles?: { name: string; format: string }[] }
@@ -92,6 +93,8 @@ export const speechApi = {
   inspect: (path: string) => api.post<Waveform & { id: string; path: string }>('/speech/references/inspect', { path }),
   analyzeTask: (path: string, language: string, require_text: boolean, subtitle?: { subtitle_text: string; subtitle_format: 'vtt' | 'srt' }) => api.post<TaskStatusResponse>('/speech/references/analyze-tasks', { path, language, require_text, separate_vocals: false, ...subtitle }),
   analysisStatus: (id: string) => api.get<{ status: TaskStatusResponse; result: ReferenceAnalysis | null }>(`/speech/references/analyze-tasks/${encodeURIComponent(id)}`),
+  transcribeTask: (path: string, start: number, end: number, language: string) => api.post<TaskStatusResponse>('/speech/references/transcribe-tasks', { path, start, end, language }),
+  transcriptionStatus: (id: string) => api.get<{ status: TaskStatusResponse; result: ReferenceTranscription | null }>(`/speech/references/analyze-tasks/${encodeURIComponent(id)}`),
   analyze: (path: string, language: string, separate_vocals: boolean) => api.post<{ original: Waveform & { id: string; path: string }; analyzed: Waveform & { id: string; path: string }; segments: ReferenceCandidate[] }>('/speech/references/analyze', { path, language, separate_vocals }),
   reference: (reference: ReferenceDraft) => api.post<ReferenceAsset>('/speech/references', reference),
   previewReference: (reference: ReferenceDraft) => api.post<ReferenceInspection>('/speech/references/preview', reference),
