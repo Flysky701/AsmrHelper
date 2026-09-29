@@ -1220,10 +1220,8 @@ export default function Workbench() {
         stageFlags,
         capabilities,
         capabilityOptions,
+        speechStage: speechConfig?.stage ?? null,
       })
-      if (stageFlags.tts && speechConfig?.stage) {
-        executionProfile.stages.tts = structuredClone(speechConfig.stage)
-      }
 
       setCheckingReadiness(true)
       setReadinessIssues([])
@@ -1878,7 +1876,7 @@ export default function Workbench() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
               {stageFlags.tts ? (
                 <WorkbenchSpeech disabled={submitting} language={params.targetLang}
-                  preferredProvider={params.ttsEngine} preferredVoice={params.ttsVoice}
+                  preferredProvider={params.ttsEngine}
                   onChange={setSpeechConfig} />
               ) : null}
               {stageFlags.asr ? (

@@ -21,11 +21,10 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="workbench-speech-field"><span>{label}</span>{children}</label>
 }
 
-export default function WorkbenchSpeech({ disabled, language, preferredProvider, preferredVoice, onChange }: {
+export default function WorkbenchSpeech({ disabled, language, preferredProvider, onChange }: {
   disabled: boolean
   language: string
   preferredProvider: string
-  preferredVoice: string
   onChange: (resolution: WorkbenchSpeechResolution) => void
 }) {
   const { engine, recipeId, recipe: draftRecipe, setEngine, setRecipe, clear } = useSpeechDraftStore()
@@ -53,8 +52,6 @@ export default function WorkbenchSpeech({ disabled, language, preferredProvider,
           const provider = catalog.value.providers.find(item => item.provider_id === preferredProvider) ?? catalog.value.providers[0]
           if (provider) {
             const next = initialSpeechEngine(provider)
-            const mode = provider.modes.find(item => item.id === next.mode)
-            if (provider.provider_id === preferredProvider && mode?.voice_sources?.presets.some(item => item.id === preferredVoice)) next.value = preferredVoice
             setEngine(next)
           }
         }
@@ -75,7 +72,7 @@ export default function WorkbenchSpeech({ disabled, language, preferredProvider,
       setLoading(false)
     })
     return () => { cancelled = true }
-  }, [reload, preferredProvider, preferredVoice, setEngine])
+  }, [reload, preferredProvider, setEngine])
 
   const provider = providers.find(item => item.provider_id === engine?.providerId)
   const models = [...new Set(provider?.modes.flatMap(mode => mode.models) ?? [])]

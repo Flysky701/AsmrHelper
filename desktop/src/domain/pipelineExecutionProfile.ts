@@ -1,6 +1,7 @@
 import type {
   CapabilityDescriptorResponse,
   PipelineExecutionProfileRequest,
+  StageProfileRequest,
 } from '@/api/types'
 import type { PipelineStageId } from '@/domain/pipelinePreset'
 import type { WorkbenchParams } from '@/stores/workbenchStore'
@@ -57,20 +58,22 @@ export function buildPipelineExecutionProfile({
   stageFlags,
   capabilities,
   capabilityOptions,
+  speechStage,
 }: {
   params: WorkbenchParams
   stageFlags: PipelineStageFlags
   capabilities: CapabilityDescriptorResponse[]
   capabilityOptions: Record<string, Record<string, unknown>>
+  speechStage: StageProfileRequest | null
 }): PipelineExecutionProfileRequest {
+  if (stageFlags.tts && !speechStage?.enabled) {
+    throw new Error('请先完成配音引擎配置')
+  }
   const asrDescriptor = capabilities.find(
     (item) => item.category === 'asr' && item.provider === params.asrProvider,
   )
   const llmDescriptor = capabilities.find(
     (item) => item.category === 'llm' && item.provider === params.translateProvider,
-  )
-  const ttsDescriptor = capabilities.find(
-    (item) => item.category === 'tts' && item.provider === params.ttsEngine,
   )
   const asrProviderOptions = stageFlags.asr
     ? optionPayload(asrDescriptor, 'provider', capabilityOptions)
@@ -78,14 +81,6 @@ export function buildPipelineExecutionProfile({
   const llmCommonOptions = stageFlags.translate
     ? optionPayload(llmDescriptor, 'common', capabilityOptions)
     : {}
-  const ttsProviderOptions = stageFlags.tts
-    ? optionPayload(ttsDescriptor, 'provider', capabilityOptions)
-    : {}
-  if (params.voiceProfileId) {
-    ttsProviderOptions.voice_profile_id = params.voiceProfileId
-  } else {
-    delete ttsProviderOptions.voice_profile_id
-  }
 
   return {
     version: 1,
@@ -131,16 +126,12 @@ export function buildPipelineExecutionProfile({
         },
         provider_options: {},
       },
-      tts: {
-        enabled: stageFlags.tts,
-        provider: params.ttsEngine,
-        model: ttsDescriptor?.default_model || null,
-        options: {
-          voice: params.ttsVoice,
-          speed: params.ttsSpeed,
-          language: params.targetLang,
-        },
-        provider_options: ttsProviderOptions,
+      tts: stageFlags.tts && speechStage ? structuredClone(speechStage) : {
+        enabled: false,
+        provider: 'speech',
+        model: null,
+        options: {},
+        provider_options: {},
       },
       mix: {
         enabled: stageFlags.mix,

@@ -10,7 +10,6 @@ export interface WorkbenchParams {
   sourceLang: string
   targetLang: string
   ttsEngine: string
-  ttsVoice: string
   vocalProvider: string
   vocalModel: string
   asrProvider: string
@@ -19,12 +18,10 @@ export interface WorkbenchParams {
   translateProvider: string
   translateModel: string
   translateConnectionId?: string
-  ttsSpeed: number
   originalVolume: number
   ttsVolumeRatio: number
   ttsDelay: number
   useVocalSeparator: boolean
-  voiceProfileId: string | null
   skipExisting: boolean
 }
 
@@ -32,7 +29,6 @@ const DEFAULT_PARAMS: WorkbenchParams = {
   sourceLang: 'ja',
   targetLang: 'zh',
   ttsEngine: 'edge',
-  ttsVoice: 'zh-CN-XiaoxiaoNeural',
   vocalProvider: 'demucs',
   vocalModel: 'htdemucs',
   asrProvider: 'faster_whisper',
@@ -41,12 +37,10 @@ const DEFAULT_PARAMS: WorkbenchParams = {
   translateProvider: 'deepseek',
   translateModel: 'deepseek-chat',
   translateConnectionId: '',
-  ttsSpeed: 1.0,
   originalVolume: 0.85,
   ttsVolumeRatio: 0.5,
   ttsDelay: 0.0,
   useVocalSeparator: true,
-  voiceProfileId: null,
   skipExisting: false,
 }
 

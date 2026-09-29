@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { speechApi } from '@/api/speech'
-import type { SpeechConnection, SpeechProvider } from '@/api/speech'
+import type { LegacySpeechImportReport, SpeechConnection, SpeechProvider } from '@/api/speech'
 
 type Editor = Partial<SpeechConnection> & { name: string; provider_id: string; deployment: SpeechConnection['deployment']; api_key: string }
 const FISH_BASE_URL = 'https://api.fish.audio/v1'
@@ -14,6 +14,17 @@ export default function SpeechConnections() {
   const [busy, setBusy] = useState('')
   const [editor, setEditor] = useState<Editor | null>(null)
   const [checks, setChecks] = useState<Record<string, string>>({})
+  const [legacyReport, setLegacyReport] = useState<LegacySpeechImportReport | null>(null)
+  const [legacyError, setLegacyError] = useState('')
+
+  async function loadLegacyReport() {
+    try {
+      setLegacyReport(await speechApi.legacyImportReport())
+      setLegacyError('')
+    } catch {
+      setLegacyError('旧配置导入清单暂时无法读取，现有语音服务不受影响。')
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -25,7 +36,24 @@ export default function SpeechConnections() {
     } catch (cause) { setError('无法加载语音服务：' + String(cause)) }
     finally { setLoading(false) }
   }
-  useEffect(() => { void load() }, [])
+  useEffect(() => { void load(); void loadLegacyReport() }, [])
+
+  async function importLegacy() {
+    setBusy('导入中…')
+    setLegacyError('')
+    try {
+      setLegacyReport(await speechApi.importLegacy())
+      // Refresh only the connection list; importing never selects a service or changes a draft.
+      try {
+        setConnections((await speechApi.library()).connections)
+        setNotice('旧配置导入已处理。请查看各项结果；需要使用时再选择导入的服务。')
+      } catch {
+        setLegacyError('导入已处理，但服务列表刷新失败，请重新加载列表查看。')
+      }
+    } catch {
+      setLegacyError('旧配置导入未完成，请刷新清单后重试。')
+    } finally { setBusy('') }
+  }
 
   function edit(connection?: SpeechConnection) {
     setNotice('')
@@ -103,7 +131,20 @@ export default function SpeechConnections() {
         <div className="external-service-actions" style={{ marginTop: 20 }}><button className="external-service-button external-service-primary" onClick={() => void save()}>{busy || '保存服务'}</button><button className="external-service-button" onClick={() => setEditor(null)}>取消</button></div>
       </fieldset>}
       <p className="external-service-muted">“检查配置”仅检查已保存的地址与凭据是否齐备，不会发起语音合成或验证服务可达性。</p>
-      <details className="external-service-muted"><summary>已有配置的导入</summary><p>旧语音配置仍保留在原处，可通过离线导入工具导入服务连接；此页面不会自动迁移或覆盖旧数据。</p></details>
+      {legacyError && <div role="alert" className="external-service-muted"><p>{legacyError}</p><button className="external-service-button" disabled={!!busy} onClick={() => { void loadLegacyReport(); void load() }}>重新加载</button></div>}
+      {!!legacyReport?.entries.length && <details className="external-service-muted">
+        <summary>导入旧语音配置（{legacyReport.entries.length} 项）</summary>
+        <p>仅新增可确认的服务连接，保留旧配置，不覆盖已有服务，也不改变当前选择。</p>
+        {legacyReport.note && <p>{legacyReport.note}</p>}
+        {legacyReport.entries.map((entry, index) => <div className="external-service-card" key={`${entry.source}-${index}`}>
+          <div className="external-service-card-heading"><h3>{entry.name || '未命名旧配置'}</h3><span>{{ ready: '可导入', retained: '保留原配置', imported: '已导入' }[entry.status]}</span></div>
+          <p>{providers.find(provider => provider.provider_id === entry.provider_id)?.name || entry.provider_id || '未识别的协议'} · {entry.credential_configured ? '密钥已配置' : '未配置密钥'}</p>
+          {entry.reason && <p>{entry.reason}</p>}
+          {!!entry.retained_fields.length && <p>保留在旧配置中的字段：{entry.retained_fields.join('、')}</p>}
+        </div>)}
+        {legacyReport.legacy_local_settings_retained && <p>旧本地引擎设置保留在原处，未自动转换。</p>}
+        <button className="external-service-button" disabled={loading || !!busy || !legacyReport.entries.some(entry => entry.status === 'ready')} onClick={() => void importLegacy()}>{busy === '导入中…' ? busy : '导入可转换的服务'}</button>
+      </details>}
     </div>
   </section>
 }

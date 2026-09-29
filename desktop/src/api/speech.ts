@@ -20,6 +20,21 @@ export interface ReferenceAnalysis { original: ReferenceInspection; analyzed: Re
 export interface ReferenceDraft { path: string; start: number; end: number; transcript: string; language: string; confirmed: boolean; name: string; notes: string; gain_db: number; fade_in: number; fade_out: number }
 export interface ReferenceInspection extends Waveform { id: string; path: string; companion_subtitles?: { name: string; format: string }[] }
 export interface SpeechConnection { id: string; name: string; provider_id: string; deployment: 'local' | 'lan' | 'cloud'; base_url?: string; credential_configured?: boolean; timeout?: number; model_path?: string; device?: string }
+export interface LegacySpeechImportEntry {
+  source: string
+  name: string
+  provider_id: string
+  status: 'ready' | 'retained' | 'imported'
+  connection_id: string
+  credential_configured: boolean
+  reason: string
+  retained_fields: string[]
+}
+export interface LegacySpeechImportReport {
+  entries: LegacySpeechImportEntry[]
+  legacy_local_settings_retained: boolean
+  note: string
+}
 export interface SpeechTake { id: string; task_id: string; experiment_id: string; plan_id: string; segment_id: string; recipe_id: string; compiled_request: Record<string, unknown>; audio: { duration?: number; sample_rate?: number; channels?: number }; elapsed_seconds: number; status: string }
 export interface SpeechExperiment { id: string; name: string; plan_id: string; takes?: SpeechTake[]; kind?: string; task_id?: string }
 export interface TakeSelection { experiment_id: string; segment_id: string; take_id: string }
@@ -51,6 +66,8 @@ async function patchSpeech<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const speechApi = {
+  legacyImportReport: () => api.get<LegacySpeechImportReport>('/speech/legacy-import'),
+  importLegacy: () => api.post<LegacySpeechImportReport>('/speech/legacy-import', {}),
   rules: (includeArchived = false) => api.get<{ recipes: SpeechRecipe[] }>(`/speech/rules?include_archived=${includeArchived}`),
   archiveRule: (id: string) => api.delete(`/speech/rules/${encodeURIComponent(id)}`),
   restoreRule: (id: string) => patchSpeech(`/speech/rules/${encodeURIComponent(id)}`, { archived: false }),

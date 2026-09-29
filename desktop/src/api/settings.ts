@@ -14,36 +14,18 @@ export interface ConnectionProfile {
   provider: string
   base_url: string
   model?: string
-  api_format?: 'speech' | 'mimo_chat' | 'fish'
-  voice?: string
-  instructions?: string
   credential_configured: boolean
 }
 
 export interface SettingsView {
   connection_profiles: {
     llm: ConnectionProfile[]
-    tts: ConnectionProfile[]
     active_llm: string
-    active_tts: string
-  }
-  external_tts: {
-    base_url: string
-    model: string
-    voice: string
-    api_format: 'speech' | 'mimo_chat' | 'fish'
-    instructions: string
-    credential_configured: boolean
   }
   providers: {
     default_llm: string
     deepseek: ProviderSettings
     openai: ProviderSettings
-  }
-  tts: {
-    engine: string
-    voice: string
-    speed: number
   }
   paths: {
     output_dir: string
@@ -66,25 +48,20 @@ export interface SettingsResponse {
 
 export type SettingsUpdate = {
   connection_profile?: {
-    kind: 'llm' | 'tts'
+    kind: 'llm'
     id?: string
     name: string
     provider?: string
     base_url?: string
     model?: string
-    api_format?: 'speech' | 'mimo_chat' | 'fish'
-    voice?: string
-    instructions?: string
     credential?: string
   }
-  active_connections?: { llm?: string; tts?: string }
-  external_tts?: Partial<SettingsView['external_tts']> & { credential?: string }
+  active_connections?: { llm?: string }
   providers?: {
     default_llm?: string
     deepseek?: Partial<ProviderSettings>
     openai?: Partial<ProviderSettings>
   }
-  tts?: Partial<SettingsView['tts']>
   paths?: Partial<SettingsView['paths']>
   processing?: Partial<SettingsView['processing']>
 }
