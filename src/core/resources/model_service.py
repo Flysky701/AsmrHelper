@@ -62,6 +62,8 @@ class ModelService:
 
     def verify(self, model_id: Optional[str] = None) -> Dict[str, bool]:
         entries = [self.get_model(model_id)] if model_id else [entry for entry in self.list_models() if entry.kind == "local"]
+        for profile in {entry.runtime_profile for entry in entries if entry.kind == "local"}:
+            self.runtime_resolver.clear_probe_cache(profile or "main")
         return {entry.id: self.installer.verify_local_model(entry) for entry in entries if entry.kind == "local"}
 
     def install(

@@ -9,11 +9,13 @@ import sys
 import threading
 import time
 import uuid
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 from src.config import PROJECT_ROOT
+from .probe_cache import ProbeCache, signature
 
 
 logger = logging.getLogger(__name__)
@@ -36,8 +38,6 @@ class RuntimeProfile:
 class RuntimeProfileResolver:
     """Resolve named Python environments without persisting machine paths."""
 
-    _PROBE_CACHE_TTL_SECONDS = 300.0
-
     _PROFILE_EXTRAS = {
         "qwen_tts": "qwen3",
         "qwen_asr": "qwen_asr",
@@ -58,8 +58,9 @@ class RuntimeProfileResolver:
 
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = (project_root or PROJECT_ROOT).resolve()
-        self._probe_cache: dict[tuple[str, str], tuple[float, bool]] = {}
-        self._probe_errors: dict[tuple[str, str], tuple[float, str]] = {}
+        self._probe_cache = ProbeCache(self.project_root)
+        self._probe_records: dict[tuple[str, str], dict] = {}
+        self._probe_flights: dict[str, threading.RLock] = {}
         self._probe_lock = threading.Lock()
 
     def resolve(self, profile_id: str | None) -> RuntimeProfile:
@@ -240,6 +241,10 @@ class RuntimeProfileResolver:
         return max(capabilities, default=None)
 
     def check_modules(self, profile_id: str | None, modules: Iterable[str]) -> bool:
+        with self._flight_lock(profile_id):
+            return self._check_modules(profile_id, modules)
+
+    def _check_modules(self, profile_id: str | None, modules: Iterable[str]) -> bool:
         profile = self.resolve(profile_id)
         if not profile.python_executable.is_file():
             return False
@@ -274,8 +279,9 @@ class RuntimeProfileResolver:
                 check=False,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            detail = f"runtime module probe failed: {exc}"
-            logger.warning("%s profile=%s modules=%s", detail, profile.id, ",".join(unique_modules))
+            detail = (f"runtime module probe failed: {profile.id} 依赖导入超过 30 秒，尚未确认可用性。"
+                      if isinstance(exc, subprocess.TimeoutExpired) else f"runtime module probe failed: {exc}")
+            logger.warning("%s profile=%s modules=%s error=%s", detail, profile.id, ",".join(unique_modules), exc)
             self._set_cached_probe_error(cache_key, detail)
             raise RuntimeProbeError(detail) from exc
         if result.returncode != 0:
@@ -295,6 +301,10 @@ class RuntimeProfileResolver:
             raise RuntimeProbeError(detail) from exc
 
     def has_cuda(self, profile_id: str | None) -> bool:
+        with self._flight_lock(profile_id):
+            return self._has_cuda(profile_id)
+
+    def _has_cuda(self, profile_id: str | None) -> bool:
         profile = self.resolve(profile_id)
         if not profile.python_executable.is_file():
             return False
@@ -319,8 +329,9 @@ class RuntimeProfileResolver:
                 check=False,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            detail = f"runtime CUDA probe failed: {exc}"
-            logger.warning("%s profile=%s", detail, profile.id)
+            detail = (f"runtime CUDA probe failed: {profile.id} CUDA 检查超过 30 秒，尚未确认可用性。"
+                      if isinstance(exc, subprocess.TimeoutExpired) else f"runtime CUDA probe failed: {exc}")
+            logger.warning("%s profile=%s error=%s", detail, profile.id, exc)
             self._set_cached_probe_error(cache_key, detail)
             raise RuntimeProbeError(detail) from exc
         available = result.returncode == 0
@@ -329,38 +340,52 @@ class RuntimeProfileResolver:
 
     def clear_probe_cache(self, profile_id: str | None = None) -> None:
         normalized = self.resolve(profile_id).id if profile_id is not None else None
+        profiles = [normalized] if normalized is not None else sorted(set(self._ALIASES.values()))
+        # Finish any in-flight result before invalidating it, so an old probe
+        # cannot repopulate a cache just cleared by installation or verification.
+        with ExitStack() as stack:
+            for profile in profiles:
+                stack.enter_context(self._flight_lock(profile))
+            with self._probe_lock:
+                self._probe_records = {key: value for key, value in self._probe_records.items()
+                                       if normalized is not None and key[0] != normalized}
+                self._probe_cache.clear(normalized)
+
+    def _flight_lock(self, profile_id):
+        normalized = self.resolve(profile_id).id
         with self._probe_lock:
-            if normalized is None:
-                self._probe_cache.clear()
-                self._probe_errors.clear()
-            else:
-                self._probe_cache = {
-                    key: value for key, value in self._probe_cache.items() if key[0] != normalized
-                }
-                self._probe_errors = {
-                    key: value for key, value in self._probe_errors.items() if key[0] != normalized
-                }
+            return self._probe_flights.setdefault(normalized, threading.RLock())
 
     def _get_cached_probe(self, key: tuple[str, str]) -> bool | None:
         with self._probe_lock:
-            cached = self._probe_cache.get(key)
-            cached_error = self._probe_errors.get(key)
-        now = time.monotonic()
-        if cached_error is not None and now - cached_error[0] <= self._PROBE_CACHE_TTL_SECONDS:
-            raise RuntimeProbeError(cached_error[1])
-        if cached is None or now - cached[0] > self._PROBE_CACHE_TTL_SECONDS:
-            return None
-        return cached[1]
+            fingerprint = signature(self.resolve(key[0]), self.project_root)
+            cached = self._probe_records.get(key)
+            if not cached or cached.get("signature") != fingerprint:
+                cached = self._probe_cache.read(key, fingerprint)
+            if not cached:
+                return None
+            self._probe_records[key] = cached
+        if "error" in cached:
+            try:
+                checked = time.strftime("%Y-%m-%d %H:%M", time.localtime(cached["checked_at"]))
+            except (KeyError, TypeError, ValueError, OverflowError, OSError):
+                checked = "时间未知"
+            raise RuntimeProbeError(f"{cached['error']}（上次检测：{checked}；点击“验证”重新检测）")
+        return cached["available"]
 
     def _set_cached_probe(self, key: tuple[str, str], value: bool) -> None:
         with self._probe_lock:
-            self._probe_cache[key] = (time.monotonic(), value)
-            self._probe_errors.pop(key, None)
+            record = {"version": 1, "signature": signature(self.resolve(key[0]), self.project_root),
+                      "checked_at": time.time(), "available": value}
+            self._probe_records[key] = record
+            self._probe_cache.write(key, record)
 
     def _set_cached_probe_error(self, key: tuple[str, str], detail: str) -> None:
         with self._probe_lock:
-            self._probe_errors[key] = (time.monotonic(), detail)
-            self._probe_cache.pop(key, None)
+            record = {"version": 1, "signature": signature(self.resolve(key[0]), self.project_root),
+                      "checked_at": time.time(), "error": detail}
+            self._probe_records[key] = record
+            self._probe_cache.write(key, record)
 
     def subprocess_env(self) -> dict[str, str]:
         env = os.environ.copy()

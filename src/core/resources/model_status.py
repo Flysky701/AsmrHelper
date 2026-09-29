@@ -72,8 +72,10 @@ class ModelStatusResolver:
         provider_verifications: ProviderVerificationRegistry | None = None,
     ) -> None:
         self._import_checker = import_checker or self._can_import
+        self._cached_imports = import_checker is None
         self._tool_checker = tool_checker or self._has_system_tool
         self._gpu_checker = gpu_checker or self._has_cuda_gpu
+        self._cached_gpu = gpu_checker is None
         self._runtime_resolver = runtime_resolver or get_runtime_profile_resolver()
         self._provider_verifications = (
             provider_verifications or get_provider_verification_registry()
@@ -256,7 +258,7 @@ class ModelStatusResolver:
         unique_modules = list(dict.fromkeys(modules))
         missing_modules: list[str] = []
         combined_import_failed = False
-        if not runtime_missing and runtime.isolated and runtime.python_executable.is_file():
+        if not runtime_missing and (runtime.isolated or self._cached_imports) and runtime.python_executable.is_file():
             if not self._runtime_resolver.check_modules(runtime.id, unique_modules):
                 combined_import_failed = True
                 missing_modules = [
@@ -300,7 +302,7 @@ class ModelStatusResolver:
         if entry.requires_gpu and not runtime_missing:
             has_gpu = (
                 self._runtime_resolver.has_cuda(runtime.id)
-                if runtime.isolated and runtime.python_executable.is_file()
+                if (runtime.isolated or self._cached_gpu) and runtime.python_executable.is_file()
                 else self._gpu_checker()
             )
             if not has_gpu:
