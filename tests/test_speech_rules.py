@@ -42,8 +42,8 @@ def test_rule_creates_voice_and_preserves_immutable_revisions(rules):
 
 @pytest.mark.parametrize("change", [
     {"mode": "builtin"}, {"model": "qwen3-base"}, {"name": " "}, {"description": {}},
-    {"default_delivery": "whisper"}, {"default_emotion": "neutral"},
-    {"variant": {"kind": "design", "value": "清晰女声", "style": "whisper"}},
+    {"default_delivery": "invented"}, {"default_emotion": "invented"},
+    {"variant": {"kind": "design", "value": "清晰女声", "style": "invented"}},
     {"provider_options": {"schema_version": 1, "invented": True}},
 ])
 def test_invalid_rule_does_not_leave_orphan_voice(rules, change):

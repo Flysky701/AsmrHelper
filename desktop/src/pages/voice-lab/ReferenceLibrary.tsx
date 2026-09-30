@@ -197,7 +197,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
         <label className="reference-archive"><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)} /> 显示已归档</label>
         {listError && <p className="error" role="alert">录音列表加载失败，可点击页面右上角刷新。</p>}
         {!found.length && !listError && <div className="empty">{query ? <>没有匹配的录音。<button onClick={() => setQuery('')}>清空搜索</button></> : source ? '还没有保存的录音。当前片段保存后会出现在这里。' : '还没有参考录音。导入一份音频，保存你想留下的声音。'}</div>}
-        <div className="reference-assets">{found.map(item => <button key={item.id} className={'reference-asset ' + (stored?.id === item.id ? 'is-selected' : '')} onClick={() => openStored(item)}>
+        <div className="reference-assets">{found.map(item => <button key={item.id} className={'reference-asset ' + (stored?.id === item.id ? 'is-selected' : '')} aria-current={stored?.id === item.id ? 'true' : undefined} onClick={() => { openStored(item); setLibraryOpen(false) }}>
           <strong>{item.name || '未命名录音'}</strong><span>{languages[item.language] || item.language} · {(item.duration ?? 0).toFixed(1)} 秒{item.archived ? ' · 已归档' : ''}</span>
           <span className={'reference-status ' + (item.confirmed ? 'is-confirmed' : '')}>{!item.transcript ? '原文待补充' : item.confirmed ? '原文已核对' : '原文待核对'}</span>
         </button>)}</div>
@@ -287,10 +287,10 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
         {view === 'saved' && stored && <section className="panel reference-saved">
           <span className="reference-eyebrow">已保存的参考录音</span><div className="row spread"><h2>{stored.name || '未命名录音'}</h2><span className="pill">{stored.archived ? '已归档' : '已入库'}</span></div>
           <p className="muted">{languages[stored.language] || stored.language} · {(stored.duration ?? 0).toFixed(1)} 秒 · {stored.confirmed ? '原文已核对' : '原文待补充或核对'}</p>
-          <audio controls src={speechApi.referenceAudio(stored.id)} />
+          <audio controls preload="none" src={speechApi.referenceAudio(stored.id)} />
           <div className="reference-saved-transcript"><h3>录音原文</h3><p>{stored.transcript || '尚未填写原文。'}</p>{stored.notes && <p className="muted">备注：{stored.notes}</p>}</div>
-          <div className="row"><button className="primary" disabled={stored.archived} onClick={() => onUse(stored)}>用于创建音色 →</button><button onClick={() => void chooseFile()}>继续添加录音</button></div>
-          <details className="reference-more"><summary>录音管理</summary><form key={stored.id + (stored.name || '') + (stored.notes || '')} onSubmit={event => {
+          <div className="row"><button className="primary" disabled={stored.archived} onClick={() => onUse(stored)}>用此录音创建音色</button></div>
+          <details className="reference-more"><summary>更多：录音管理</summary><form key={stored.id + (stored.name || '') + (stored.notes || '')} onSubmit={event => {
             event.preventDefault(); const fields = new FormData(event.currentTarget)
             void run('更新信息', async () => { const updated = await speechApi.updateReference(stored.id, { name: String(fields.get('name') || ''), notes: String(fields.get('notes') || '') }); setStored(updated); await refresh(); setNotice('名称与备注已更新。') })
           }}><label className="field">名称<input name="name" required defaultValue={stored.name || ''} /></label><label className="field">备注<input name="notes" defaultValue={stored.notes || ''} /></label><button type="submit">更新名称与备注</button><p className="muted">修改原文或音频时，可通过“截取／处理为新录音”另存新条目。</p></form><div className="row"><a href={speechApi.referenceAudio(stored.id, false, true)} download>导出录音</a><button onClick={() => void run('载入录音', async () => {

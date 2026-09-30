@@ -19,7 +19,7 @@ def execute(payload):
         reference = payload["references"].get(variant["value"]) if variant["kind"] == "reference" else None
         engine = VoxCPM2Engine(model_dir=payload["model_path"], cfg_value=options["cfg_value"],
             inference_timesteps=options["inference_timesteps"], load_denoiser=False,
-            device_map=options["device"], reference_wav_path=reference)
+            device_map=payload.get("device", options.get("device", "auto")), reference_wav_path=reference)
         instruction = "，".join(part for part in [variant["value"] if variant["kind"] == "design" else "", params["instruction"]] if part)
         text = f"({instruction}){request['text']}" if instruction else request["text"]
         engine.synthesize(text, output)
@@ -28,7 +28,7 @@ def execute(payload):
         from qwen_tts import Qwen3TTSModel
         from src.core.tts import normalize_qwen3_language
 
-        device = options["device"]
+        device = payload.get("device", options.get("device", "cuda:0"))
         if device == "auto":
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
         precision = payload.get("precision", "auto")
@@ -38,9 +38,14 @@ def execute(payload):
             dtype=dtype)
         arguments = {"text": request["text"], "language": normalize_qwen3_language(params["language"]),
             "temperature": options["temperature"], "top_p": options["top_p"]}
+        for key in ("do_sample", "top_k", "repetition_penalty", "max_new_tokens"):
+            if key in options:
+                arguments[key] = options[key]
         if variant["kind"] == "reference":
             wavs, rate = model.generate_voice_clone(**arguments,
-                ref_audio=payload["references"][variant["value"]], ref_text=params["reference_transcript"])
+                ref_audio=payload["references"][variant["value"]],
+                ref_text=None if options.get("x_vector_only_mode", False) else params["reference_transcript"],
+                x_vector_only_mode=options.get("x_vector_only_mode", False))
         elif variant["kind"] == "design":
             instruction = "，".join(x for x in [variant["value"], params["instruction"]] if x)
             wavs, rate = model.generate_voice_design(**arguments, instruct=instruction)

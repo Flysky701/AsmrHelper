@@ -7,9 +7,9 @@ from src.app.services.pipeline_service import PipelineService
 
 
 ALLOWED_PRESET_STAGES = {
-    "separation",
+    "separate",
     "asr",
-    "translation",
+    "translate",
     "tts",
     "mix",
     "export",
@@ -31,12 +31,19 @@ def _make_pipeline_service() -> PipelineService:
 def test_builtin_presets_expose_only_verified_closed_loops():
     presets = PresetCatalogService().list_presets()
 
-    assert [preset["id"] for preset in presets] == ["asmr_bilingual", "asr_only"]
+    assert [preset["id"] for preset in presets] == [
+        "audio_subtitles", "subtitle_translation", "subtitle_speech", "audio_translation_speech",
+        "asmr_bilingual", "asr_only",
+    ]
     assert {preset["id"]: preset["stages"] for preset in presets} == {
+        "audio_subtitles": ["asr", "export"],
+        "subtitle_translation": ["translate", "export"],
+        "subtitle_speech": ["tts"],
+        "audio_translation_speech": ["asr", "translate", "tts", "export"],
         "asmr_bilingual": [
-            "separation",
+            "separate",
             "asr",
-            "translation",
+            "translate",
             "tts",
             "mix",
             "export",
@@ -54,6 +61,8 @@ def test_builtin_preset_stages_are_known_unique_and_described():
         assert preset["stages"]
         assert len(preset["stages"]) == len(set(preset["stages"]))
         assert set(preset["stages"]) <= ALLOWED_PRESET_STAGES
+        assert preset["outputs"] and set(preset["outputs"]) <= set(preset["stages"])
+        assert preset["builtin"] and preset["revision"] == 1
 
 
 def test_pipeline_service_keeps_preset_catalog_compatibility():

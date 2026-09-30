@@ -10,3 +10,10 @@
 .workbench-speech details { margin-top:12px; }
 .workbench-speech summary { font-size:13px; color:var(--muted); cursor:pointer; margin-bottom:12px; }
 .workbench-speech button:disabled,.workbench-speech fieldset:disabled { opacity:.6; }
+.workbench-speech-preview { margin-top:16px; padding:16px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--panel-muted); min-width:0; }
+.workbench-speech-preview h4 { margin:0 0 10px; font-size:14px; overflow-wrap:anywhere; }
+.workbench-speech-preview p { margin:8px 0; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+.workbench-speech-preview pre { max-height:180px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; padding:10px; font-size:12px; background:var(--surface); border-radius:6px; }
+.workbench-speech-preview .workbench-speech-actions button { border:1px solid var(--border); border-radius:6px; padding:8px 12px; background:var(--surface); }
+.workbench-speech-preview .workbench-speech-actions button:first-child { color:var(--fg); border-color:var(--accent); }
+.workbench-speech button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }

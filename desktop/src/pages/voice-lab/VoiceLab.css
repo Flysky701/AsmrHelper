@@ -1,6 +1,6 @@
 .speech-lab { height: 100%; overflow: auto; color: var(--fg); background: var(--bg); }
-.speech-lab header { padding: 24px 28px 0; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
-.speech-lab h1 { margin: 0; font-size: 25px; }
+.speech-lab header { padding: 24px 24px 0; background: var(--bg); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
+.speech-lab h1 { margin: 0; font-size: 26px; }
 .speech-lab h2 { margin: 0 0 16px; font-size: 18px; }
 .speech-lab h3 { margin: 0 0 10px; font-size: 15px; }
 .speech-lab p { line-height: 1.6; }
@@ -10,8 +10,8 @@
 .speech-lab .tabs { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
 .speech-lab .tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 12px 16px; background: transparent; }
 .speech-lab .tabs button[aria-selected=true] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 650; }
-.speech-lab main { padding: 24px 28px; max-width: 1400px; margin: auto; }
-.speech-lab .columns { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(0, 1.7fr); gap: 20px; align-items: start; }
+.speech-lab main { padding: 24px; max-width: 1400px; margin: auto; min-width: 0; container: voice-content / inline-size; }
+.speech-lab .columns { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
 .speech-lab .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 18px; min-width: 0; }
 .speech-lab .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
 .speech-lab label.field { display: grid; align-content: start; gap: 6px; margin-bottom: 14px; font-size: 13px; }
@@ -33,4 +33,53 @@
 .speech-lab audio { width: 100%; margin-top: 8px; }
 .speech-lab .segment { border-left: 3px solid var(--accent); padding: 14px 16px; margin-bottom: 12px; background: var(--panel-muted); border-radius: 0 8px 8px 0; }
 .speech-lab .waveform { width: 100%; height: 100px; background: var(--panel-muted); border-radius: 8px; display: block; }
-@media (max-width: 850px) { .speech-lab .columns { grid-template-columns: 1fr; } .speech-lab main { padding: 16px; } .speech-lab header { padding: 18px 16px 0; } .speech-lab .tabs { gap: 0; } .speech-lab .tabs button { padding: 10px 8px; } }
+@media (max-width: 600px) { .speech-lab main { padding: 16px; } .speech-lab header { padding: 18px 16px 0; } .speech-lab .tabs { gap: 0; } .speech-lab .tabs button { padding: 10px 8px; } }
+
+.speech-lab .voice-sidebar { padding: 20px; }
+.speech-lab .voice-sidebar h2 { margin: 0; font-size: 16px; }
+.speech-lab .voice-sidebar > input { margin-top: 16px; }
+.speech-lab .voice-archive { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; margin: 14px 0; }
+.speech-lab .voice-list { display: grid; gap: 10px; }
+.speech-lab button.voice-list-item { display: grid; gap: 8px; width: 100%; text-align: left; padding: 15px 12px; }
+.speech-lab .voice-list-item strong, .speech-lab .reference-asset strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-weight: 600; line-height: 1.5; }
+.speech-lab .voice-list-item > span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.speech-lab .voice-list-item.is-selected { border-color: var(--accent); background: var(--panel-muted); }
+.speech-lab .voice-status { justify-self: start; padding: 3px 6px; border-radius: 4px; background: var(--panel-muted); }
+.speech-lab .voice-detail { padding: 24px; }
+.speech-lab .voice-detail-heading { align-items: flex-start; }
+.speech-lab .voice-detail-heading > div { flex: 1; min-width: 0; }
+.speech-lab .voice-detail-heading h2 { margin-bottom: 4px; font-size: 20px; overflow-wrap: anywhere; }
+.speech-lab .voice-detail-heading p { margin: 0 0 16px; }
+.speech-lab .voice-more { flex-shrink: 0; font-size: 13px; }
+.speech-lab .voice-more summary { cursor: pointer; padding: 5px; }
+.speech-lab .voice-more button { display: block; margin-top: 8px; }
+.speech-lab .recipe-section { padding: 20px 0; border-top: 1px solid var(--border); }
+.speech-lab .recipe-section h3 { margin: 0 0 16px; font-size: 15px; }
+.speech-lab .recipe-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.speech-lab .recipe-wide { grid-column: 1 / -1; }
+.speech-lab .recipe-reference { padding-top: 6px; font-size: 13px; }
+.speech-lab .recipe-reference audio, .speech-lab .reference-saved audio { display: block; height: 40px; }
+.speech-lab .reference-inline-transcript { font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; max-height: 150px; overflow-y: auto; }
+.speech-lab .connection-summary strong { font-size: 13px; overflow-wrap: anywhere; }
+.speech-lab .connection-controls { margin: 14px 0; }
+.speech-lab .recipe-advanced, .speech-lab .recipe-capabilities { margin-top: 18px; font-size: 13px; }
+.speech-lab .recipe-advanced summary, .speech-lab .recipe-capabilities summary { cursor: pointer; }
+.speech-lab .recipe-advanced[open] summary { margin-bottom: 16px; }
+.speech-lab .performance-options { margin-top: 16px; }
+.speech-lab .recipe-actions { border-top: 1px solid var(--border); padding-top: 20px; }
+.speech-lab .recipe-actions p:last-child { margin-bottom: 0; }
+.speech-lab .voice-list-toggle { display: none; }
+.speech-lab button:focus-visible, .speech-lab summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@container voice-content (max-width: 860px) {
+  .speech-lab .columns { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .speech-lab .voice-list-toggle { display: block; justify-self: start; }
+  .speech-lab .voice-sidebar { display: none; margin: 0; }
+  .speech-lab .voice-sidebar.is-open { display: block; }
+  .speech-lab .voice-list { max-height: 250px; overflow: auto; }
+}
+@container voice-content (max-width: 520px) {
+  .speech-lab .recipe-fields { grid-template-columns: minmax(0, 1fr); }
+  .speech-lab .voice-detail { padding: 18px; }
+  .speech-lab .recipe-actions .row { align-items: stretch; }
+  .speech-lab .recipe-actions button { flex: 1 1 150px; }
+}

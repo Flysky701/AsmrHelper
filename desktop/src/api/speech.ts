@@ -13,6 +13,13 @@ export interface WorkbenchSpeechSource {
 }
 export interface SpeechVoice { id: string; name: string; description: string; bindings: { provider_id: string; variants: VoiceVariant[] }[]; default_binding: string }
 export interface SpeechRecipe { id: string; revision: number; name: string; description?: string; voice_id: string; provider_id: string; model: string; mode: string; connection_ref: string; variant: VoiceVariant; language: string; provider_options: Record<string, unknown>; archived?: boolean; default_delivery?: Delivery; default_emotion?: string; default_pause_ms?: number }
+export type SpeechRecipeDraft = Pick<SpeechRecipe, 'name' | 'description' | 'provider_id' | 'model' | 'mode' | 'connection_ref' | 'variant' | 'language' | 'provider_options' | 'default_delivery' | 'default_emotion' | 'default_pause_ms'>
+export type SpeechRecipeInput = { recipe_id: string; recipe_draft?: never } | { recipe_draft: SpeechRecipeDraft; recipe_id?: never }
+export function speechRecipeDraft(recipe: SpeechRecipe): SpeechRecipeDraft {
+  return { name: recipe.name, description: recipe.description, provider_id: recipe.provider_id, model: recipe.model, mode: recipe.mode,
+    connection_ref: recipe.connection_ref, variant: { ...recipe.variant }, language: recipe.language, provider_options: structuredClone(recipe.provider_options),
+    default_delivery: recipe.default_delivery, default_emotion: recipe.default_emotion, default_pause_ms: recipe.default_pause_ms }
+}
 export interface SpeechSegment { id: string; start: number; end: number; delivery: Delivery; emotion: string; pause_ms: number }
 export interface SpeechPlan { id: string; text: string; text_hash: string; segments: SpeechSegment[] }
 export interface ReferenceAsset { id: string; path: string; name?: string; notes?: string; archived?: boolean; source_path?: string; transcript: string; language: string; start?: number; end?: number; duration?: number; confirmed?: boolean }
@@ -38,11 +45,11 @@ export interface LegacySpeechImportReport {
   legacy_local_settings_retained: boolean
   note: string
 }
-export interface SpeechTake { id: string; task_id: string; experiment_id: string; plan_id: string; segment_id: string; recipe_id: string; compiled_request: Record<string, unknown>; audio: { duration?: number; sample_rate?: number; channels?: number }; elapsed_seconds: number; status: string }
+export interface SpeechTake { id: string; task_id: string; experiment_id: string; plan_id: string; segment_id: string; recipe_id: string; recipe_snapshot?: SpeechRecipe; compiled_request: Record<string, unknown>; audio: { duration?: number; sample_rate?: number; channels?: number }; elapsed_seconds: number; status: string }
 export interface SpeechExperiment { id: string; name: string; plan_id: string; takes?: SpeechTake[]; kind?: string; task_id?: string }
 export interface TakeSelection { experiment_id: string; segment_id: string; take_id: string }
 export interface SpeechAssembly { id: string; experiment_id: string; revision?: number; audio?: Record<string, unknown>; status?: string }
-export interface OptionSchema { type?: string; title?: string; description?: string; enum?: (string | number)[]; default?: unknown; minimum?: number; maximum?: number; const?: unknown }
+export interface OptionSchema { type?: string; title?: string; description?: string; enum?: (string | number)[]; default?: unknown; minimum?: number; maximum?: number; maxLength?: number; const?: unknown; applies_to_modes?: string[] }
 export interface SpeechMode {
   id: string
   variant_kinds: VariantKind[]
@@ -81,7 +88,7 @@ export const speechApi = {
       ...(recipe.id ? { id: recipe.id } : {}), name: recipe.name, description: recipe.description || '', provider_id: recipe.provider_id,
       model: recipe.model, mode: recipe.mode, connection_ref: recipe.connection_ref,
       variant: { kind: recipe.variant.kind, value: recipe.variant.value }, language: recipe.language,
-      provider_options: recipe.provider_options,
+      provider_options: recipe.provider_options, default_delivery: recipe.default_delivery, default_emotion: recipe.default_emotion, default_pause_ms: recipe.default_pause_ms,
     })
   },
   providers: () => api.get<{ providers: SpeechProvider[] }>('/speech/providers'),
@@ -117,9 +124,12 @@ export const speechApi = {
   waveform: (id: string) => api.get<Waveform>(`/speech/references/${encodeURIComponent(id)}/waveform`),
   referenceAudio: (id: string, source = false, download = false) => apiUrl(`/speech/references/${encodeURIComponent(id)}/audio?source=${source}&download=${download}`),
   compile: (recipe_id: string, plan_id: string) => api.post<{ requests: Record<string, unknown>[] }>('/speech/compile', { recipe_id, plan_id }),
+  compileDraft: (recipe: SpeechRecipeInput, plan_id: string) => api.post<{ requests: Record<string, unknown>[] }>('/speech/compile', { ...recipe, plan_id }),
   experiment: (name: string, plan_id: string) => api.post<SpeechExperiment>('/speech/experiments', { name, plan_id }),
   getExperiment: (id: string) => api.get<SpeechExperiment>(`/speech/experiments/${encodeURIComponent(id)}`),
   generate: (id: string, recipe_id: string, plan_id: string, segment_id?: string) => api.post<TaskStatusResponse>(`/speech/experiments/${encodeURIComponent(id)}/generate`, { recipe_id, plan_id, ...(segment_id ? { segment_id } : {}) }),
+  generateDraft: (id: string, recipe: SpeechRecipeInput, plan_id: string, segment_id?: string) => api.post<TaskStatusResponse>(`/speech/experiments/${encodeURIComponent(id)}/generate`, { ...recipe, plan_id, ...(segment_id ? { segment_id } : {}) }),
+  ruleFromTake: (takeId: string, name: string) => api.post<SpeechRecipe>(`/speech/takes/${encodeURIComponent(takeId)}/rule`, { name }),
   select: (selection: TakeSelection) => api.post<TakeSelection>('/speech/selections', selection),
   takeAudio: (id: string) => apiUrl(`/speech/takes/${encodeURIComponent(id)}/audio`),
   assembly: (experiment_id: string) => api.post<SpeechAssembly>('/speech/assemblies', { experiment_id }),

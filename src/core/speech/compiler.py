@@ -21,6 +21,8 @@ def compile_recipe(recipe: dict, plan: dict, assets: dict[str, dict]) -> list[di
     text = plan["text"]
     if plan.get("text_hash") != text_hash(text):
         raise ProviderError("text_changed", "台词摘要与原文不符")
+    if "use_recipe_defaults" in plan and type(plan["use_recipe_defaults"]) is not bool:
+        raise ProviderError("invalid_plan", "use_recipe_defaults 必须是布尔值")
     if not recipe.get("id") or type(recipe.get("revision")) is not int:
         raise ProviderError("invalid_recipe", "配方必须具有 ID 和修订号")
     provider = get_provider(recipe.get("provider_id"))
@@ -32,6 +34,10 @@ def compile_recipe(recipe: dict, plan: dict, assets: dict[str, dict]) -> list[di
     for segment in segments:
         if not isinstance(segment, dict):
             raise ProviderError("invalid_plan", "片段必须是对象")
+        if plan.get("use_recipe_defaults") is True:
+            segment = {**segment, "delivery": recipe.get("default_delivery", "normal"),
+                       "emotion": recipe.get("default_emotion", "neutral"),
+                       "pause_ms": recipe.get("default_pause_ms", 0)}
         start, end, sid = segment.get("start"), segment.get("end"), segment.get("id")
         if not isinstance(sid, str) or not sid or sid in ids:
             raise ProviderError("invalid_plan", "片段 ID 必须唯一且非空")

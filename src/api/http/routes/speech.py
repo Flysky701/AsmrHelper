@@ -137,7 +137,11 @@ def performance(body: dict, svc=Depends(get_speech_service)):
 
 @router.post("/compile")
 def compile_plan(body: dict, svc=Depends(get_speech_service)):
-    return {"requests": call(svc.compile, required(body, "recipe_id"), required(body, "plan_id"))}
+    if set(body) - {"recipe_id", "recipe_draft", "plan_id"}:
+        raise HTTPException(422, "编译请求包含未知字段")
+    if ("recipe_id" in body) == ("recipe_draft" in body):
+        raise HTTPException(422, "recipe_id 与 recipe_draft 必须且只能提供一个")
+    return {"requests": call(svc.compile, body.get("recipe_id"), required(body, "plan_id"), body.get("recipe_draft"))}
 
 
 @router.post("/references/inspect")
@@ -282,6 +286,11 @@ def generate(experiment_id: str, body: dict, svc=Depends(get_speech_service)):
 @router.post("/selections")
 def select(body: dict, svc=Depends(get_speech_service)):
     return call(svc.select, body)
+
+
+@router.post("/takes/{take_id}/rule")
+def rule_from_take(take_id: str, body: dict, svc=Depends(get_speech_service)):
+    return call(svc.save_rule_from_take, take_id, body)
 
 
 @router.get("/takes/{take_id}/audio")

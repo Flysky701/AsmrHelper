@@ -138,7 +138,12 @@ export interface PresetItem {
   label: string
   description: string
   stages: string[]
+  outputs: string[]
+  revision: number
+  builtin: boolean
 }
+
+export type FlowPresetDraft = Pick<PresetItem, 'label' | 'description' | 'stages' | 'outputs'>
 
 export interface PipelinePresetsResponse {
   presets: PresetItem[]

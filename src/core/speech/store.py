@@ -87,8 +87,10 @@ def validate_plan(text: str, proposed: dict) -> dict:
         raise ValueError("Plan text must not be empty")
     if not isinstance(proposed, dict):
         raise ValueError("Plan must be an object")
-    if set(proposed) - {"id", "text", "text_hash", "segments", "revision", "created_at", "updated_at", "previous_id"}:
+    if set(proposed) - {"id", "text", "text_hash", "segments", "revision", "created_at", "updated_at", "previous_id", "use_recipe_defaults"}:
         raise ValueError("Plans may contain only original text, offsets and intentions")
+    if "use_recipe_defaults" in proposed and type(proposed["use_recipe_defaults"]) is not bool:
+        raise ValueError("use_recipe_defaults must be a boolean")
     text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     if proposed.get("text", text) != text or proposed.get("text_hash", text_hash) != text_hash:
         raise ValueError("A plan cannot replace the original text")
@@ -120,7 +122,8 @@ def validate_plan(text: str, proposed: dict) -> dict:
         cursor = end
     if cursor != len(text):
         raise ValueError("Plan dropped text")
-    return {"id": str(uuid4()), "text": text, "text_hash": text_hash, "segments": normalized}
+    return {"id": str(uuid4()), "text": text, "text_hash": text_hash, "segments": normalized,
+            **({"use_recipe_defaults": proposed["use_recipe_defaults"]} if "use_recipe_defaults" in proposed else {})}
 
 
 def build_plan(text: str) -> dict:
@@ -275,7 +278,7 @@ class SpeechStore:
 
     @staticmethod
     def _variant(variant: dict) -> None:
-        if not isinstance(variant, dict) or variant.get("kind") not in {"hosted", "builtin", "reference", "design"}:
+        if not isinstance(variant, dict) or variant.get("kind") not in {"hosted", "builtin", "reference", "design", "default"}:
             raise ValueError("Invalid voice variant")
         if not isinstance(variant.get("value"), str) or not variant["value"].strip():
             raise ValueError("Voice variant value is required")

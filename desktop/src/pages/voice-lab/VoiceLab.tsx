@@ -1,6 +1,9 @@
+import SpeechOptionsFields from '@/components/SpeechOptionsFields'
+import FishVoicePicker from '@/components/FishVoicePicker'
+import { availableSpeechOptions, speechOptionsIssue } from '@/domain/speechAdvancedOptions'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { speechApi } from '@/api/speech'
+import { speechApi, speechRecipeDraft } from '@/api/speech'
 import type { ReferenceAsset, SpeechConnection, SpeechLibrary, SpeechPlan, SpeechProvider, SpeechRecipe, SpeechTake, VoiceVariant } from '@/api/speech'
 import { tasksApi } from '@/api/tasks'
 import type { TaskStatusResponse } from '@/api/types'
@@ -12,9 +15,11 @@ import './VoiceLab.css'
 
 const emptyLibrary: SpeechLibrary = { voices: [], recipes: [], assets: [], experiments: [], takes: [], plans: [], selections: [], assemblies: [], connections: [] }
 const variantNames = { hosted: '服务端音色 ID', builtin: '内置说话人 ID', reference: '参考素材', design: '声音描述', default: '引擎默认声音' }
-const modeNames: Record<string, string> = { hosted: '服务端音色', builtin: '内置声音', reference: '参考声音克隆', design: '声音设计' }
+const modeNames: Record<string, string> = { default: '引擎默认声音', hosted: '服务端音色', builtin: '内置声音', reference: '参考声音克隆', design: '声音设计' }
 const deploymentNames = { local: '本机', lan: '局域网', cloud: '云端' }
-const optionNames: Record<string, string> = { speed: '语速', temperature: '采样温度', top_p: '采样范围（top_p）', style_description: '风格描述', tag_density: '标签密度', device: '运算设备', cfg_value: '引导强度', inference_timesteps: '推理步数' }
+const languageNames: Record<string, string> = { auto: '自动识别', zh: '中文', en: '英语', ja: '日语', ko: '韩语', fr: '法语', de: '德语', es: '西班牙语', it: '意大利语', pt: '葡萄牙语', ru: '俄语' }
+const deliveryNames = { normal: '普通', soft: '轻柔', whisper: '耳语' }
+const emotionNames: Record<string, string> = { neutral: '中性', happy: '开心', sad: '悲伤', angry: '生气', excited: '兴奋', calm: '平静', nervous: '紧张', relaxed: '放松' }
 const blankRecipe = (): SpeechRecipe => ({ id: '', revision: 0, name: '', voice_id: '', provider_id: '', model: '', mode: '', connection_ref: '', variant: { kind: 'reference', value: '', style: 'normal' }, language: 'zh', provider_options: { schema_version: 1 } })
 function Field({ title, children }: { title: string; children: ReactNode }) { return <label className="field">{title}{children}</label> }
 function json(value: unknown) { return JSON.stringify(value, null, 2) }
@@ -28,6 +33,8 @@ export default function VoiceLab() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [showArchivedRules, setShowArchivedRules] = useState(false)
+  const [voiceListOpen, setVoiceListOpen] = useState(false)
+  const [voiceQuery, setVoiceQuery] = useState('')
   const [referenceBusy, setReferenceBusy] = useState(false)
   const [ruleList, setRuleList] = useState<SpeechRecipe[]>([])
   const [recipe, setRecipe] = useState<SpeechRecipe>(blankRecipe)
@@ -44,19 +51,47 @@ export default function VoiceLab() {
   const [tasks, setTasks] = useState<TaskStatusResponse[]>([])
   const [equalLoudness, setEqualLoudness] = useState(false)
   const [comparison, setComparison] = useState<string[]>([])
+  const [presetTakeId, setPresetTakeId] = useState('')
+  const [presetName, setPresetName] = useState('')
   const alive = useRef(true)
   const provider = providers.find(item => item.provider_id === recipe.provider_id)
   const connectionProvider = providers.find(item => item.provider_id === connection.provider_id)
   const selectedMode = provider?.modes.find(mode => mode.id === recipe.mode)
   const experiment = library.experiments.find(item => item.id === experimentId)
   const takes = library.takes.filter(item => item.experiment_id === experimentId)
-  const legacyRule = !!recipe.id && (!['reference', 'design'].includes(recipe.mode) || !!library.voices.find(item => item.id === recipe.voice_id)?.bindings.length || recipe.variant.style !== 'normal')
+  const legacyRule = !!recipe.id && (!!library.voices.find(item => item.id === recipe.voice_id)?.bindings.length || recipe.variant.style !== 'normal')
   const adoptable = !!recipe.id && !recipeDirty && !recipe.archived
   const localProvider = provider?.remote === false
   const localKey = JSON.stringify([recipe.provider_id, recipe.model, recipe.mode])
   const currentLocalResolution = localResolution?.key === localKey && (!recipe.connection_ref || localResolution.connectionId === recipe.connection_ref) ? localResolution : null
   const selectedConnection = library.connections.find(item => item.id === recipe.connection_ref)
-  const showConnectionChoice = !localProvider || advancedConnection || (!!recipe.connection_ref && selectedConnection?.deployment !== 'local')
+  const engineDefaultConnection = !!provider && !provider.connection_required && recipe.connection_ref === `engine-default-${provider.provider_id}`
+  const showConnectionChoice = advancedConnection || (!!provider?.connection_required && !recipe.connection_ref) || (!!recipe.connection_ref && !selectedConnection && !engineDefaultConnection) || (localProvider && !!selectedConnection && selectedConnection.deployment !== 'local')
+  const referenceAsset = recipe.variant.kind === 'reference' ? library.assets.find(item => item.id === recipe.variant.value) : undefined
+  const visibleRules = ruleList.filter(item => (showArchivedRules || !item.archived) && (item.name + ' ' + (item.description || '')).toLocaleLowerCase().includes(voiceQuery.toLocaleLowerCase()))
+  const sourceRequired = selectedMode?.voice_sources?.required ?? recipe.variant.kind !== 'default'
+  const savedLegacyDevice = !!recipe.id && !recipeDirty && (recipe.provider_id === 'qwen3' ? ['cpu', 'cuda:0'] : recipe.provider_id === 'voxcpm2' ? ['auto', 'cpu', 'cuda:0'] : []).includes(String(recipe.provider_options.device))
+  const checkedOptions = savedLegacyDevice ? Object.fromEntries(Object.entries(recipe.provider_options).filter(([key]) => key !== 'device')) : recipe.provider_options
+  const configurationReason = !provider ? '请选择引擎。' : !recipe.model.trim() ? '请选择模型。' : !selectedMode ? '请选择该引擎支持的生成方式。'
+    : ((provider.connection_required || localProvider || recipe.connection_ref) && !selectedConnection && !engineDefaultConnection) || (selectedConnection && selectedConnection.provider_id !== provider.provider_id) ? '请确认属于当前引擎的运行连接。'
+    : sourceRequired && !recipe.variant.value.trim() ? '请补充所选方式要求的声音来源。'
+    : recipe.variant.kind === 'reference' && (!referenceAsset || referenceAsset.archived) ? '参考录音不存在或已归档。'
+    : recipe.provider_id === 'qwen3' && recipe.mode === 'reference' && recipe.provider_options.x_vector_only_mode !== true && (!referenceAsset?.transcript.trim() || !referenceAsset.confirmed) ? 'Qwen参考克隆需要已核对原文，或在高级选项中启用“仅使用声音特征”。'
+    : speechOptionsIssue(provider, recipe.mode, checkedOptions, recipe.model)
+  const saveReason = legacyRule ? '历史音色保持只读，可复制为新规则。' : !recipe.name.trim() ? '请填写音色名称。' : configurationReason
+  const performance = selectedMode?.capabilities || provider?.capabilities || {}
+  const deliveryCapabilities = (performance.delivery || {}) as Record<string, { support?: string }>
+  const directDeliveries = Object.keys(deliveryNames).filter(value => value === 'normal' || deliveryCapabilities[value]?.support === 'direct')
+  const supportsEmotion = (performance.emotion as { support?: string } | undefined)?.support === 'direct'
+  const defaultDelivery = recipe.default_delivery || 'normal'
+  const defaultEmotion = recipe.default_emotion || 'neutral'
+  const performanceIssue = !directDeliveries.includes(defaultDelivery) && recipe.variant.style !== defaultDelivery ? '当前生成方式不支持此发声方式，请改回普通或选择兼容引擎。'
+    : !supportsEmotion && defaultEmotion !== 'neutral' ? '当前生成方式不支持独立情绪参数，请改回中性。' : ''
+  const auditionReason = recipe.archived ? '已归档音色需先恢复。' : configurationReason || performanceIssue
+  const presetTake = library.takes.find(item => item.id === presetTakeId)
+  const recipeInput = () => recipe.id && !recipeDirty ? { recipe_id: recipe.id } : { recipe_draft: { ...speechRecipeDraft(recipe), name: recipe.name.trim() || '未保存试听' } }
+
+  const useReason = recipe.archived ? '已归档音色需先恢复。' : !recipe.id || recipeDirty ? '可先试听当前草稿；保存后可用于工作台。保存不会运行模型。' : '已保存；试听和工作台运行时仍会检查所需模型与连接。'
 
   const refresh = useCallback(async () => {
     const [result, rules] = await Promise.all([speechApi.library(), speechApi.rules(true)])
@@ -123,11 +158,12 @@ export default function VoiceLab() {
   function changeProvider(id: string, variant?: VoiceVariant) {
     setShowConnection(false); setAdvancedConnection(false); setProbeResult(null)
     const descriptor = providers.find(item => item.provider_id === id)
-    const mode = descriptor?.modes.find(item => variant && item.variant_kinds.includes(variant.kind)) || descriptor?.modes.find(item => ['reference', 'design'].includes(item.id))
+    const retainedVariant = variant || (recipe.variant.kind === 'reference' && recipe.variant.value && descriptor?.modes.some(item => item.variant_kinds.includes('reference')) ? recipe.variant : undefined)
+    const mode = descriptor?.modes.find(item => retainedVariant && item.variant_kinds.includes(retainedVariant.kind)) || descriptor?.modes.find(item => ['reference', 'design'].includes(item.id)) || descriptor?.modes[0]
     const options: Record<string, unknown> = { schema_version: 1 }
-    Object.entries(descriptor?.options_schema.properties || {}).forEach(([key, field]) => { if (field.default !== undefined) options[key] = field.default })
+    availableSpeechOptions(descriptor, mode?.id || '', mode?.models[0] || '').forEach(([key, field]) => { if (field.default !== undefined) options[key] = field.default })
     editRecipe({ provider_id: id, mode: mode?.id || '', model: mode?.models[0] || '', connection_ref: '',
-      variant: variant || { kind: mode?.variant_kinds[0] || 'hosted', value: '', style: 'normal' }, provider_options: options })
+      variant: retainedVariant || { kind: mode?.variant_kinds[0] || 'hosted', value: mode?.voice_sources?.default || '', style: 'normal' }, provider_options: options, default_delivery: 'normal', default_emotion: 'neutral', default_pause_ms: 0 })
   }
   function editConnection() {
     const item = library.connections.find(value => value.id === recipe.connection_ref)
@@ -143,7 +179,7 @@ export default function VoiceLab() {
     setRecipe(saved); setRecipeDirty(false); await refresh(); setNotice('已保存音色修订 ' + saved.revision)
   }
   async function generate(segmentId?: string) {
-    if (!adoptable || !script.trim()) throw new Error('请选择已保存音色并填写试音台词')
+    if (auditionReason || !script.trim()) throw new Error(auditionReason || '请填写试音台词')
     const currentPlan = plan && plan.text === script ? plan : await speechApi.plan({ text: script })
     setPlan(currentPlan)
     let id = experimentId
@@ -151,25 +187,74 @@ export default function VoiceLab() {
       const created = await speechApi.experiment((recipe.name || '试音') + ' · ' + new Date().toLocaleString(), currentPlan.id)
       id = created.id; setExperimentId(id); setComparison([])
     }
-    const task = await speechApi.generate(id, recipe.id, currentPlan.id, segmentId)
+    const task = await speechApi.generateDraft(id, recipeInput(), currentPlan.id, segmentId)
     setTasks(previous => [...previous, task]); await refresh(); setTab(2)
     setNotice('已提交新候选任务，已有结果会保留。')
   }
-  function useRecipe(item: SpeechRecipe) { setRecipe(structuredClone(item)); setRecipeDirty(false); setCompiled(null) }
+  function useRecipe(item: SpeechRecipe) { setRecipe(structuredClone(item)); setRecipeDirty(false); setCompiled(null); setAdvancedConnection(false); setShowConnection(false); setVoiceListOpen(false); setNotice('') }
   async function adoptRecipe(take: SpeechTake) {
-    const saved = library.recipes.find(item => item.id === take.recipe_id)
-    const takePlan = library.plans.find(item => item.id === take.plan_id)
-    const intent = takePlan?.segments.find(item => item.id === take.segment_id)
-    if (!saved || !intent) throw new Error('此候选的音色规则或试音文本不可用')
-    useRecipe(saved); setNotice('已载入此候选使用的音色规则；未采用试音音频')
+    const saved = take.recipe_snapshot || library.recipes.find(item => item.id === take.recipe_id)
+    if (!saved) throw new Error('此候选的生成配置不可用，不能用当前表单替代历史配置')
+    if (recipeDirty && !window.confirm('当前生成设置尚未保存，使用该候选的冻结配置替换草稿？')) return
+    setRecipe({ ...structuredClone(saved), id: '', revision: 0, voice_id: '', archived: false })
+    setRecipeDirty(true); setCompiled(null); setNotice('已载入该候选生成时的配置；这是新草稿，已有音色不变。')
+  }
+  async function saveTakePreset() {
+    if (!presetTakeId || !presetName.trim()) throw new Error('请选择试听结果并填写预设名称')
+    const saved = await speechApi.ruleFromTake(presetTakeId, presetName.trim())
+    await refresh(); setPresetTakeId(''); setPresetName('')
+    setNotice(`已保存TTS高级预设“${saved.name}”。可在工作台为兼容引擎选择，当前表单保持不变。`)
+  }
+  function changeMode(id: string) {
+    const mode = provider?.modes.find(item => item.id === id)
+    if (!mode) return
+    const supported = new Set(availableSpeechOptions(provider, id, mode.models[0] || '').map(([key]) => key))
+    const removed = Object.keys(recipe.provider_options).filter(key => key !== 'schema_version' && !supported.has(key))
+    editRecipe({ mode: id, model: mode.models[0] || '', variant: { kind: mode.variant_kinds[0] || 'default', value: mode.voice_sources?.default || '', style: 'normal' },
+      provider_options: Object.fromEntries(Object.entries(recipe.provider_options).filter(([key]) => key === 'schema_version' || supported.has(key))) })
+    if (removed.length) setNotice('生成方式已切换，已移除不适用的参数：' + removed.join('、'))
+  }
+  function advancedFields() {
+    return <>
+      {recipe.provider_id === 'qwen3' && recipe.mode === 'reference' && <p className="muted">Qwen Base 的参考克隆本身就是 Zero-shot，无需训练。默认需要参考音频和已核对原文；“仅使用声音特征”可免原文，仍需参考音频。</p>}
+      {savedLegacyDevice && <p className="muted">历史规则的设备设置会在执行副本中保留。编辑新参数时，请先在连接中设置相应设备，再明确移除旧设备字段；原规则保持不变。</p>}
+      <SpeechOptionsFields provider={provider} mode={recipe.mode} model={recipe.model} values={checkedOptions} onChange={provider_options => editRecipe({ provider_options: savedLegacyDevice ? { ...provider_options, device: recipe.provider_options.device } : provider_options })} />
+      <div className="recipe-fields performance-options">
+        {(directDeliveries.length > 1 || defaultDelivery !== 'normal') && <Field title="默认发声方式"><select value={defaultDelivery} onChange={event => editRecipe({ default_delivery: event.target.value as SpeechRecipe['default_delivery'] })}>
+          {!directDeliveries.includes(defaultDelivery) && <option value={defaultDelivery}>{deliveryNames[defaultDelivery]}（需要兼容声音来源）</option>}{directDeliveries.map(value => <option key={value} value={value}>{deliveryNames[value as keyof typeof deliveryNames]}</option>)}</select></Field>}
+        {(supportsEmotion || defaultEmotion !== 'neutral') && <Field title="默认情绪"><select value={defaultEmotion} onChange={event => editRecipe({ default_emotion: event.target.value })}>{Object.entries(emotionNames).filter(([value]) => supportsEmotion || value === 'neutral' || value === defaultEmotion).map(([value, label]) => <option key={value} value={value} disabled={!supportsEmotion && value !== 'neutral'}>{label}</option>)}</select></Field>}
+        {(performance.pause as { support?: string } | undefined)?.support === 'postprocess' && <Field title="句后停顿（毫秒）"><input type="number" min={0} max={30000} step={1} value={recipe.default_pause_ms || 0} onChange={event => editRecipe({ default_pause_ms: Number(event.target.value) })} /></Field>}
+      </div>
+      {performanceIssue && <p className="error" role="alert">{performanceIssue}</p>}
+      <p className="muted">参数按当前引擎执行；设备和模型路径在连接设置中管理。工作台还会按时间轴处理音频，不保证与试听逐字节相同。</p>
+    </>
+  }
+
+  function newRecipe() {
+    if (recipeDirty && !window.confirm('当前音色尚未保存，创建新音色将替换草稿。继续？')) return
+    setRecipe(blankRecipe()); setRecipeDirty(false); setShowConnection(false); setAdvancedConnection(false); setNotice(''); setVoiceListOpen(false)
   }
   function useReference(item: ReferenceAsset) {
-    if (recipe.provider_id && recipe.variant.kind === 'reference') editRecipe({ variant: { kind: 'reference', value: item.id, style: 'normal' } })
-    else {
-      const descriptor = providers.find(p => p.modes.some(mode => mode.id === 'reference'))
-      setRecipe({ ...blankRecipe(), name: item.name || '参考音色', provider_id: descriptor?.provider_id || '', mode: 'reference', model: descriptor?.modes.find(mode => mode.id === 'reference')?.models[0] || '', variant: { kind: 'reference', value: item.id, style: 'normal' } }); setRecipeDirty(true)
-    }
-    setTab(1); setNotice('已选用录音，请选择引擎连接并保存音色。')
+    if (recipeDirty && !window.confirm('当前音色尚未保存，使用此录音创建新音色将替换草稿。继续？')) return
+    const available = providers.filter(value => value.modes.some(mode => mode.id === 'reference'))
+    const descriptor = available.find(value => value.provider_id === recipe.provider_id) || (available.length === 1 ? available[0] : undefined)
+    const mode = descriptor?.modes.find(value => value.id === 'reference')
+    const options: Record<string, unknown> = { schema_version: 1 }
+    availableSpeechOptions(descriptor, mode?.id || '', mode?.models[0] || '').forEach(([key, field]) => { if (field.default !== undefined) options[key] = field.default })
+    setRecipe({ ...blankRecipe(), name: item.name || '参考音色', provider_id: descriptor?.provider_id || '', mode: descriptor ? 'reference' : '',
+      model: mode?.models.includes(recipe.model) ? recipe.model : mode?.models[0] || '',
+      connection_ref: descriptor?.provider_id === recipe.provider_id ? recipe.connection_ref : '',
+      variant: { kind: 'reference', value: item.id, style: 'normal' }, language: item.language || 'auto', provider_options: options })
+    setRecipeDirty(true); setShowConnection(false); setAdvancedConnection(false); setVoiceListOpen(false); setCompiled(null)
+    setTab(1); setNotice('已用此录音创建新音色草稿，原音色不会被覆盖。')
+  }
+  async function toggleArchive() {
+    const { id, archived } = recipe
+    if (archived) await speechApi.restoreRule(id)
+    else await speechApi.archiveRule(id)
+    setRecipe(previous => previous.id === id ? { ...previous, archived: !archived } : previous)
+    await refresh()
+    setNotice(archived ? '音色已恢复。' : '音色已归档，可在列表中显示已归档音色后恢复。')
   }
 
   return <div className="speech-lab">
@@ -179,41 +264,77 @@ export default function VoiceLab() {
     <main>{error && <div role="alert" className="notice error">{error}</div>}{notice && <div role="status" className="notice">{notice}</div>}{busy && <p role="status" className="muted">{busy}…</p>}
       <div hidden={tab !== 0}><ReferenceLibrary active={tab === 0} assets={library.assets} refresh={refresh} onUse={useReference} onBusy={setReferenceBusy} /></div>
       <fieldset className="lab-fieldset" disabled={!!busy}>
-      {tab === 1 && <div className="columns"><aside className="panel"><div className="row spread"><h2>我的音色</h2><button onClick={() => { setRecipe(blankRecipe()); setRecipeDirty(false); setShowConnection(false); setNotice('') }}>新建音色</button></div><p className="muted">每个音色是一份命名生成规则，保存后即可在工作台调用。试音是可选项。</p>{!ruleList.length && <p className="empty">尚未保存音色。选择参考录音或描述希望生成的声音。</p>}<label><input type="checkbox" checked={showArchivedRules} onChange={event => setShowArchivedRules(event.target.checked)} /> 显示已归档</label>{ruleList.filter(item => showArchivedRules || !item.archived).map(item => <div className={'item ' + (recipe.id === item.id ? 'selected' : '')} key={item.id}><button onClick={() => useRecipe(item)}>{item.archived ? '已归档 · ' : ''}{item.name}</button><p className="muted">{providers.find(p => p.provider_id === item.provider_id)?.name || item.provider_id} · {modeNames[item.mode] || item.mode} · r{item.revision}</p>{item.archived ? <button onClick={() => void run('恢复音色', async () => { await speechApi.restoreRule(item.id); await refresh() })}>恢复</button> : <button onClick={() => void run('归档音色', async () => { await speechApi.archiveRule(item.id); await refresh() })}>归档</button>}</div>)}</aside><div>
-        {legacyRule && <div className="notice">这是历史音色，可直接试音或送入工作台，原配置保持只读。{['reference', 'design'].includes(recipe.mode) && <button onClick={() => { setRecipe({ ...blankRecipe(), name: recipe.name + '（副本）', provider_id: recipe.provider_id, model: recipe.model, mode: recipe.mode, connection_ref: recipe.connection_ref, variant: { ...recipe.variant, style: 'normal' }, language: recipe.language, provider_options: { ...recipe.provider_options } }); setRecipeDirty(true); setNotice('已创建独立草稿，不继承旧的发声、情绪或停顿默认值。') }}>复制为新规则</button>}<button disabled={!adoptable} onClick={() => setTab(2)}>试音</button></div>}
-        <fieldset className="lab-fieldset" disabled={legacyRule}>
-        <section className="panel"><h2>音色生成规则 {recipe.id && <span className="pill">r{recipe.revision}{recipeDirty ? ' · 有未保存修改' : ''}</span>}</h2><div className="grid">
-          <Field title="音色名称"><input value={recipe.name} onChange={event => editRecipe({ name: event.target.value })} /></Field>
-          <Field title="备注"><input value={recipe.description || ''} onChange={event => editRecipe({ description: event.target.value })} /></Field>
-          <Field title="引擎"><select value={recipe.provider_id} onChange={event => changeProvider(event.target.value)}><option value="">选择引擎</option>{providers.filter(item => item.provider_id === recipe.provider_id || item.modes.some(mode => ['reference', 'design'].includes(mode.id))).map(item => <option key={item.provider_id} value={item.provider_id}>{item.name}</option>)}</select></Field>
-          <Field title="生成方式"><select value={recipe.mode} onChange={event => { const mode = provider?.modes.find(item => item.id === event.target.value); editRecipe({ mode: event.target.value, model: mode?.models[0] || '', variant: { kind: mode?.variant_kinds[0] || 'reference', value: '', style: 'normal' } }) }}><option value="">选择方式</option>{provider?.modes.filter(mode => ['reference', 'design'].includes(mode.id) || mode.id === recipe.mode).map(mode => <option key={mode.id} value={mode.id}>{modeNames[mode.id] || mode.id}{!['reference', 'design'].includes(mode.id) ? '（历史配置）' : ''}</option>)}</select></Field>
-          <Field title="模型">{selectedMode?.models.length ? <select value={recipe.model} onChange={event => editRecipe({ model: event.target.value })}>{recipe.model && !selectedMode.models.includes(recipe.model) && <option value={recipe.model}>{recipe.model}（已保存）</option>}{selectedMode.models.map(model => <option key={model} value={model}>{model}</option>)}</select> : <input value={recipe.model} placeholder="填写服务文档中的模型 ID" onChange={event => editRecipe({ model: event.target.value })} />}</Field>
-          {showConnectionChoice && <Field title="连接"><select value={recipe.connection_ref} onChange={event => editRecipe({ connection_ref: event.target.value })}><option value="">选择明确的运行连接</option>{library.connections.filter(item => item.provider_id === recipe.provider_id).map(item => <option key={item.id} value={item.id}>{item.name} · {deploymentNames[item.deployment]}</option>)}</select></Field>}
-          <Field title={variantNames[recipe.variant.kind]}>{recipe.variant.kind === 'reference' ? <select value={recipe.variant.value} onChange={event => editRecipe({ variant: { ...recipe.variant, value: event.target.value } })}><option value="">选择声音库录音</option>{library.assets.map(item => <option key={item.id} value={item.id}>{item.name || item.transcript || item.id}</option>)}</select> : <input value={recipe.variant.value} onChange={event => editRecipe({ variant: { ...recipe.variant, value: event.target.value } })} />}</Field>
-          {recipe.variant.kind === 'reference' && <div><button onClick={() => setTab(0)}>导入或管理录音</button>{!library.assets.length && <p className="muted">声音库为空，请先导入并保存录音，再选用。</p>}</div>}
-          <Field title="语言"><input value={recipe.language} onChange={event => editRecipe({ language: event.target.value })} /></Field>
-        </div>
-          <div className="grid">{Object.entries(provider?.options_schema.properties || {}).filter(([key]) => key !== 'schema_version').map(([key, field]) => <Field key={key} title={field.title || optionNames[key] || key}>{field.enum ? <select value={String(recipe.provider_options[key] ?? field.default ?? '')} onChange={event => editRecipe({ provider_options: { ...recipe.provider_options, [key]: event.target.value } })}><option value="">默认</option>{field.enum.map(value => <option key={String(value)} value={value}>{value}</option>)}</select> : field.type === 'boolean' ? <input type="checkbox" checked={Boolean(recipe.provider_options[key] ?? field.default)} onChange={event => editRecipe({ provider_options: { ...recipe.provider_options, [key]: event.target.checked } })} /> : <input type={['number', 'integer'].includes(field.type || '') ? 'number' : 'text'} step={field.type === 'integer' ? 1 : 'any'} min={field.minimum} max={field.maximum} title={field.description} value={String(recipe.provider_options[key] ?? field.default ?? '')} onChange={event => { const value = event.target.value; const options = { ...recipe.provider_options }; if (!value) delete options[key]; else options[key] = ['number', 'integer'].includes(field.type || '') ? Number(value) : value; editRecipe({ provider_options: options }) }} />}</Field>)}</div>
-          {localProvider && <div className="item"><div className="row spread"><strong>{selectedConnection && selectedConnection.deployment !== 'local' ? '已有非本机连接，请确认配置' : '本机运行' + (selectedConnection ? ' · ' + selectedConnection.name : '')}</strong><button type="button" aria-expanded={showConnectionChoice} onClick={() => { setAdvancedConnection(!showConnectionChoice); setShowConnection(false) }}>高级连接设置</button></div><p className="muted" role="status">{currentLocalResolution?.detail || '保存音色只保存配置，不代表模型已可运行。可在高级连接设置中检查模型与运行环境。'}</p></div>}
-          <div className="row">
-            {provider?.connection_required ? <button onClick={() => { if (!recipeDirty || window.confirm('当前音色修改尚未保存，离开并管理外部服务？')) useNavStore.getState().openEngines('external') }}>管理外部语音服务</button> : showConnectionChoice && <><button onClick={() => { setConnection({ name: '', provider_id: recipe.provider_id, deployment: 'local', api_key: '', base_url: '', timeout: 60 }); setShowConnection(!showConnection) }}>新建连接</button><button disabled={!recipe.connection_ref || !!busy} onClick={editConnection}>编辑连接</button></>}
-            {showConnectionChoice && <button disabled={!recipe.connection_ref || !!busy} onClick={() => void run('检查连接', async () => setProbeResult(await speechApi.probe(recipe.connection_ref, recipe.model, recipe.mode)))}>检查连接</button>}
-            <button className="primary" disabled={!!busy || !recipe.name.trim() || !recipe.provider_id || !recipe.connection_ref || !recipe.variant.value.trim()} onClick={() => void run('保存配方', saveRecipe)}>保存音色</button><button disabled={!adoptable} onClick={() => setTab(2)}>试音（可选）</button>
+      {tab === 1 && <div className="columns voice-management">
+        <button className="voice-list-toggle" aria-expanded={voiceListOpen} aria-controls="voice-rules" onClick={() => setVoiceListOpen(value => !value)}>我的音色 · {visibleRules.length} {voiceListOpen ? '收起' : '展开'}</button>
+        <aside id="voice-rules" className={'panel voice-sidebar' + (voiceListOpen ? ' is-open' : '')}>
+          <div className="row spread"><h2>我的音色 <span className="reference-count">{visibleRules.length}</span></h2><button onClick={newRecipe}>新建音色</button></div>
+          <input aria-label="搜索音色" placeholder="搜索名称或备注" value={voiceQuery} onChange={event => setVoiceQuery(event.target.value)} />
+          <label className="voice-archive"><input type="checkbox" checked={showArchivedRules} onChange={event => setShowArchivedRules(event.target.checked)} /> 显示已归档</label>
+          {!visibleRules.length && <p className="empty">{voiceQuery ? '没有匹配的音色。' : '尚无音色。可选择参考录音，或描述希望生成的声音。'}</p>}
+          <div className="voice-list">{visibleRules.map(item => <button className={'voice-list-item ' + (recipe.id === item.id ? 'is-selected' : '')} aria-current={recipe.id === item.id ? 'true' : undefined} key={item.id} onClick={() => { if (!recipeDirty || window.confirm('当前音色尚未保存，放弃草稿并打开此音色？')) useRecipe(item) }}>
+            <strong>{item.name}</strong><span>{providers.find(p => p.provider_id === item.provider_id)?.name || item.provider_id} · {modeNames[item.mode] || item.mode}</span><span className="voice-status">{item.archived ? '已归档' : '已保存'} · 修订 {item.revision}</span>
+          </button>)}</div>
+        </aside>
+        <section className="panel voice-detail">
+          <div className="row spread voice-detail-heading"><div><h2>{recipe.name || '新建音色'}</h2><p className="muted">{recipe.archived ? '已归档' : recipeDirty ? '有未保存修改' : recipe.id ? '已保存 · 修订 ' + recipe.revision : '新草稿'} · 音色生成规则</p></div>
+            {recipe.id && <details className="voice-more"><summary>更多</summary><button onClick={() => void run(recipe.archived ? '恢复音色' : '归档音色', toggleArchive)}>{recipe.archived ? '恢复音色' : '归档音色'}</button></details>}
           </div>
-          {probeResult && <details open><summary>连接检查结果</summary><pre>{json(probeResult)}</pre></details>}{showConnection && !connectionProvider?.connection_required && <div className="item"><h3>{connection.id ? '编辑' : '新建'} {connectionProvider?.name} 连接</h3><div className="grid"><Field title="连接名称"><input value={connection.name || ''} onChange={event => setConnection({ ...connection, name: event.target.value })} /></Field><Field title="运行位置"><select value={connection.deployment} onChange={event => setConnection({ ...connection, deployment: event.target.value as SpeechConnection['deployment'] })}><option value="local">{connectionProvider?.connection_required ? '本机服务' : '本机'}</option>{connectionProvider?.connection_required && <><option value="lan">局域网</option><option value="cloud">云端</option></>}</select></Field>{connectionProvider?.connection_required && <><Field title="API 地址"><input value={connection.base_url || ''} onChange={event => setConnection({ ...connection, base_url: event.target.value })} /></Field><Field title="API 密钥"><input type="password" autoComplete="off" value={connection.api_key} onChange={event => setConnection({ ...connection, api_key: event.target.value })} /></Field><Field title="超时（秒）"><input type="number" min={1} value={connection.timeout || 60} onChange={event => setConnection({ ...connection, timeout: Number(event.target.value) })} /></Field></>}{connectionProvider && !connectionProvider.remote && <><Field title="模型路径（可选）"><input value={connection.model_path || ''} onChange={event => setConnection({ ...connection, model_path: event.target.value })} /></Field><Field title="设备（可选）"><input value={connection.device || ''} onChange={event => setConnection({ ...connection, device: event.target.value })} /></Field></>}</div><button disabled={!!busy || !connection.name?.trim()} onClick={() => void run('保存连接', async () => { const saved = await speechApi.connection(connection); editRecipe({ connection_ref: saved.id }); setConnection({ ...connection, api_key: '' }); setShowConnection(false); await refresh() })}>保存连接</button></div>}
-          {provider && <details style={{ marginTop: 14 }}><summary>引擎能力与验证状态</summary><pre>{json(selectedMode?.capabilities || provider.capabilities)}</pre></details>}
+          {legacyRule && <div className="notice">这是历史音色，原配置保持只读，仍可试听或送入工作台。{['reference', 'design'].includes(recipe.mode) && <button onClick={() => { setRecipe({ ...blankRecipe(), name: recipe.name + '（副本）', provider_id: recipe.provider_id, model: recipe.model, mode: recipe.mode, connection_ref: recipe.connection_ref, variant: { ...recipe.variant, style: 'normal' }, language: recipe.language, provider_options: { ...recipe.provider_options } }); setRecipeDirty(true); setNotice('已创建独立草稿，不继承旧的发声、情绪或停顿默认值。') }}>复制为新规则</button>}</div>}
+          <fieldset className="lab-fieldset" disabled={legacyRule}>
+            <section className="recipe-section"><h3>基本信息</h3><div className="recipe-fields">
+              <Field title="音色名称"><input value={recipe.name} onChange={event => editRecipe({ name: event.target.value })} /></Field>
+              <Field title="语言"><select value={recipe.language} onChange={event => editRecipe({ language: event.target.value })}>{!languageNames[recipe.language] && <option value={recipe.language}>{recipe.language || '未指定'}（当前值）</option>}{Object.entries(languageNames).map(([code, label]) => <option value={code} key={code}>{label}</option>)}</select></Field>
+              <div className="recipe-wide"><Field title="备注（可选）"><input value={recipe.description || ''} onChange={event => editRecipe({ description: event.target.value })} /></Field></div>
+            </div></section>
+            <section className="recipe-section"><h3>生成方式</h3><div className="recipe-fields">
+              <Field title="引擎"><select value={recipe.provider_id} onChange={event => changeProvider(event.target.value)}><option value="">选择引擎</option>{providers.map(item => <option key={item.provider_id} value={item.provider_id}>{item.name}</option>)}</select></Field>
+              <Field title="生成方式"><select value={recipe.mode} onChange={event => changeMode(event.target.value)}><option value="">选择方式</option>{provider?.modes.map(mode => <option key={mode.id} value={mode.id}>{modeNames[mode.id] || mode.id}{provider?.provider_id === 'qwen3' && mode.id === 'reference' ? '（Zero-shot）' : ''}</option>)}</select></Field>
+              <Field title="模型">{selectedMode?.models.length ? <select value={recipe.model} onChange={event => editRecipe({ model: event.target.value })}>{recipe.model && !selectedMode.models.includes(recipe.model) && <option value={recipe.model}>{recipe.model}（已保存）</option>}{selectedMode.models.map(model => <option key={model} value={model}>{model}</option>)}</select> : <input value={recipe.model} placeholder="填写服务文档中的模型 ID" onChange={event => editRecipe({ model: event.target.value })} />}</Field>
+              <Field title={variantNames[recipe.variant.kind]}>{recipe.variant.kind === 'reference' ? <select value={recipe.variant.value} onChange={event => editRecipe({ variant: { ...recipe.variant, value: event.target.value } })}><option value="">选择声音库录音</option>{library.assets.filter(item => !item.archived || item.id === recipe.variant.value).map(item => <option key={item.id} value={item.id}>{item.name || item.transcript || item.id}{item.archived ? '（已归档）' : ''}</option>)}</select>  : recipe.variant.kind === 'default' ? <span className="muted">使用引擎默认声音，无需填写音色 ID。</span> : selectedMode?.voice_sources?.presets.length && !selectedMode.voice_sources.allow_custom ? <select value={recipe.variant.value} onChange={event => editRecipe({ variant: { ...recipe.variant, value: event.target.value } })}>
+                {!selectedMode.voice_sources.presets.some(item => item.id === recipe.variant.value) && <option value={recipe.variant.value}>{recipe.variant.value || '选择声音'}（待确认）</option>}{selectedMode.voice_sources.presets.map(item => <option key={item.id} value={item.id}>{item.name || item.id}{item.language ? ' · ' + (languageNames[item.language] || item.language) : ''}</option>)}</select>
+                : recipe.variant.kind === 'design' ? <textarea rows={3} value={recipe.variant.value} onChange={event => editRecipe({ variant: { ...recipe.variant, value: event.target.value } })} />
+                : <input value={recipe.variant.value} placeholder={selectedMode?.voice_sources?.description || '填写真实音色 ID'} onChange={event => editRecipe({ variant: { ...recipe.variant, value: event.target.value } })} />}</Field>
+            </div>{provider?.provider_id === 'fish_audio' && recipe.mode === 'hosted' && <FishVoicePicker connectionId={recipe.connection_ref} value={recipe.variant.value} onSelect={value => editRecipe({ variant: { ...recipe.variant, value } })} />}
+            {recipe.variant.kind === 'reference' && <div className="recipe-reference">
+              {referenceAsset ? <><div className="row spread"><span>{referenceAsset.name || '参考录音'} · {languageNames[referenceAsset.language] || referenceAsset.language} · {(referenceAsset.duration || 0).toFixed(1)} 秒</span><button onClick={() => setTab(0)}>管理录音</button></div><audio key={referenceAsset.id} controls preload="none" src={speechApi.referenceAudio(referenceAsset.id)} /><p className="reference-inline-transcript">{referenceAsset.transcript || '未填写原文；所选引擎可能要求参考原文。'}</p></> : <div className="row"><span className="muted">{library.assets.length ? '选择已保存的录音，可在这里试听。' : '声音库为空，请先导入并保存录音。'}</span><button onClick={() => setTab(0)}>导入或管理录音</button></div>}
+            </div>}</section>
+            <section className="recipe-section"><h3>运行设置</h3>
+              <div className="row spread connection-summary"><strong>{localProvider ? '本机运行' : provider?.connection_required ? '服务连接' : '引擎运行'}{selectedConnection ? ' · ' + selectedConnection.name : engineDefaultConnection ? ' · 引擎默认配置' : provider?.connection_required || localProvider ? ' · 待选择' : ' · 无需独立连接'}</strong><button type="button" aria-expanded={showConnectionChoice} onClick={() => { setAdvancedConnection(!showConnectionChoice); setShowConnection(false) }}>高级连接设置</button></div>
+              <p className="muted" role="status">{localProvider ? currentLocalResolution?.detail || '保存音色只保存配置，不代表模型已可运行。可在高级连接设置中检查模型与运行环境。' : selectedConnection ? '已选择连接；保存不代表服务已就绪，可展开设置检查。' : provider?.connection_required ? '请选择明确的服务连接；多个连接不会自动代选。' : '此引擎无需独立连接，实际可用性在执行时检查。'}</p>
+              {showConnectionChoice && <div className="connection-controls"><Field title="连接"><select value={recipe.connection_ref} onChange={event => editRecipe({ connection_ref: event.target.value })}><option value="">选择明确的运行连接</option>{library.connections.filter(item => item.provider_id === recipe.provider_id).map(item => <option key={item.id} value={item.id}>{item.name} · {deploymentNames[item.deployment]}</option>)}</select></Field><div className="row">
+                {provider?.connection_required ? <button onClick={() => { if (!recipeDirty || window.confirm('当前音色修改尚未保存，离开并管理外部服务？')) useNavStore.getState().openEngines('external') }}>管理外部语音服务</button> : <><button onClick={() => { setConnection({ name: '', provider_id: recipe.provider_id, deployment: 'local', api_key: '', base_url: '', timeout: 60 }); setShowConnection(!showConnection) }}>新建连接</button><button disabled={!recipe.connection_ref || !!busy} onClick={editConnection}>编辑连接</button></>}
+                <button disabled={!recipe.connection_ref || !!busy} onClick={() => void run('检查连接', async () => setProbeResult(await speechApi.probe(recipe.connection_ref, recipe.model, recipe.mode)))}>检查连接</button>
+              </div></div>}
+              {probeResult && <details open><summary>连接检查结果</summary><pre>{json(probeResult)}</pre></details>}{showConnection && !connectionProvider?.connection_required && <div className="item"><h3>{connection.id ? '编辑' : '新建'} {connectionProvider?.name} 连接</h3><div className="recipe-fields"><Field title="连接名称"><input value={connection.name || ''} onChange={event => setConnection({ ...connection, name: event.target.value })} /></Field><Field title="运行位置"><select value={connection.deployment} onChange={event => setConnection({ ...connection, deployment: event.target.value as SpeechConnection['deployment'] })}><option value="local">{connectionProvider?.connection_required ? '本机服务' : '本机'}</option>{connectionProvider?.connection_required && <><option value="lan">局域网</option><option value="cloud">云端</option></>}</select></Field>{connectionProvider?.connection_required && <><Field title="API 地址"><input value={connection.base_url || ''} onChange={event => setConnection({ ...connection, base_url: event.target.value })} /></Field><Field title="API 密钥"><input type="password" autoComplete="off" value={connection.api_key} onChange={event => setConnection({ ...connection, api_key: event.target.value })} /></Field><Field title="超时（秒）"><input type="number" min={1} value={connection.timeout || 60} onChange={event => setConnection({ ...connection, timeout: Number(event.target.value) })} /></Field></>}{connectionProvider && !connectionProvider.remote && <><Field title="模型路径（可选）"><input value={connection.model_path || ''} onChange={event => setConnection({ ...connection, model_path: event.target.value })} /></Field><Field title="设备（可选）"><input value={connection.device || ''} onChange={event => setConnection({ ...connection, device: event.target.value })} /></Field></>}</div><button disabled={!!busy || !connection.name?.trim()} onClick={() => void run('保存连接', async () => { const saved = await speechApi.connection(connection); editRecipe({ connection_ref: saved.id }); setConnection({ ...connection, api_key: '' }); setShowConnection(false); await refresh() })}>保存连接</button></div>}
+              {provider && <details className="recipe-advanced"><summary>高级生成参数</summary>{advancedFields()}</details>}
+              {provider && <details className="recipe-capabilities"><summary>引擎能力与验证状态</summary><pre>{json(selectedMode?.capabilities || provider.capabilities)}</pre></details>}
+            </section>
+          </fieldset>
+          <div className="recipe-actions"><div className="row">
+            {!legacyRule && <button className="primary" disabled={!!busy || !!saveReason || !!performanceIssue} onClick={() => void run('保存音色', saveRecipe)}>保存音色</button>}
+            <button disabled={!!auditionReason} onClick={() => setTab(2)}>试音（可选）</button>
+            <button disabled={!adoptable} onClick={() => void run('创建工作台草稿', async () => { const draft = await speechApi.workbenchDraft(recipe.id); useSpeechDraftStore.getState().setRecipe(draft.recipe); useNavStore.getState().setPage('workbench') })}>送入工作台草稿</button>
+          </div>{saveReason && !legacyRule && <p className="muted">{saveReason}</p>}{auditionReason && <p className="muted">{auditionReason}</p>}<p className="muted">{useReason}</p></div>
         </section>
-        </fieldset>
-        <section className="panel"><h2>用于正式配音</h2><p className="muted">保存后可送入工作台，无需先试音；正式配音仍需模型与运行环境可用。</p><button disabled={!adoptable} onClick={() => void run('创建工作台草稿', async () => { const draft = await speechApi.workbenchDraft(recipe.id); useSpeechDraftStore.getState().setRecipe(draft.recipe); useNavStore.getState().setPage('workbench') })}>送入工作台草稿</button></section>
-      </div></div>}
+      </div>}
 
-      {tab === 2 && <section className="panel"><h2>新试音</h2><Field title="已保存音色"><select value={recipe.id} onChange={event => { const item = library.recipes.find(value => value.id === event.target.value); if (item) useRecipe(item) }}><option value="">选择音色</option>{recipe.id && !ruleList.some(item => item.id === recipe.id) && <option value={recipe.id}>{recipe.name}（历史修订）</option>}{ruleList.filter(item => !item.archived).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><textarea aria-label="试音原文" rows={4} value={script} onChange={event => { setScript(event.target.value); setCompiled(null) }} placeholder="输入想试听的台词" /><div className="row" style={{ marginTop: 14 }}><button className="primary" disabled={!!busy || !adoptable || !script.trim()} onClick={() => void run('提交试音', () => generate())}>生成试音</button></div><p className="muted">试音按所选连接调用模型，云端服务可能计费。保存音色无需试音。</p><details><summary>高级：检查请求</summary><button disabled={!adoptable || !script.trim()} onClick={() => void run('检查合成请求', async () => { const current = plan?.text === script ? plan : await speechApi.plan({ text: script }); setPlan(current); setCompiled((await speechApi.compile(recipe.id, current.id)).requests) })}>检查引擎请求（不合成）</button>{compiled && <pre>{json(compiled)}</pre>}</details></section>}
+      {tab === 2 && <section className="panel audition-editor"><h2>新试音</h2>
+        <Field title="载入已保存音色或TTS高级预设"><select value={recipe.id} onChange={event => { const item = ruleList.find(value => value.id === event.target.value); if (item && (!recipeDirty || window.confirm('当前试听设置尚未保存，载入其他预设？'))) useRecipe(item) }}><option value="">当前未保存草稿</option>{recipe.id && !ruleList.some(item => item.id === recipe.id) && <option value={recipe.id}>{recipe.name}（历史修订）</option>}{ruleList.filter(item => !item.archived).map(item => <option key={item.id} value={item.id}>{item.name} · r{item.revision}</option>)}</select></Field>
+        <p className="muted">{recipe.name || '未命名草稿'} · {provider?.name || '未选引擎'} · {modeNames[recipe.mode] || '未选方式'}{recipeDirty || !recipe.id ? ' · 本次使用草稿快照' : ' · 已保存修订'} <button type="button" onClick={() => setTab(1)}>编辑声音来源</button></p>
+        <textarea aria-label="试音原文" rows={4} value={script} onChange={event => { setScript(event.target.value); setCompiled(null) }} placeholder="输入想试听的台词" />
+        {provider && <details className="recipe-advanced"><summary>试听高级选项</summary>{advancedFields()}</details>}
+        <div className="row" style={{ marginTop: 14 }}><button className="primary" disabled={!!busy || !!auditionReason || !script.trim()} onClick={() => void run('提交试音', () => generate())}>生成试音</button></div>
+        {auditionReason && <p className="error" role="status">{auditionReason}</p>}
+        <p className="muted">无需先保存改动；每次试音固定当时的设置。试听满意后，在对应候选结果上“保存为TTS高级预设”。云端服务可能计费。</p>
+        <details><summary>检查请求（不合成）</summary><button disabled={!!auditionReason || !script.trim()} onClick={() => void run('检查合成请求', async () => { const current = plan?.text === script ? plan : await speechApi.plan({ text: script }); setPlan(current); setCompiled((await speechApi.compileDraft(recipeInput(), current.id)).requests) })}>检查引擎请求（不合成）</button>{compiled && <pre>{json(compiled)}</pre>}</details>
+      </section>}
 
-      {tab === 2 && <><section className="panel"><div className="row spread"><h2>试音与对比</h2><label><input type="checkbox" checked={equalLoudness} onChange={event => setEqualLoudness(event.target.checked)} /> 校准试听音量</label></div><Field title="试音实验"><select value={experimentId} onChange={event => { setExperimentId(event.target.value); setComparison([]); const exp = library.experiments.find(item => item.id === event.target.value); const saved = library.plans.find(item => item.id === exp?.plan_id); if (saved) { setPlan(saved); setScript(saved.text); setCompiled(null) } }}><option value="">选择实验</option>{library.experiments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><div className="row"><span className="muted">音色：{recipe.name || '未选择'}{recipeDirty ? '（未保存）' : ''}</span><button disabled={!!busy || !adoptable || !plan || script !== plan.text} onClick={() => void run('生成新候选', () => generate())}>再生成一组</button></div>
+      {tab === 2 && <><section className="panel"><div className="row spread"><h2>试音与对比</h2><label><input type="checkbox" checked={equalLoudness} onChange={event => setEqualLoudness(event.target.checked)} /> 校准试听音量</label></div><Field title="试音实验"><select value={experimentId} onChange={event => { setExperimentId(event.target.value); setComparison([]); const exp = library.experiments.find(item => item.id === event.target.value); const saved = library.plans.find(item => item.id === exp?.plan_id); if (saved) { setPlan(saved); setScript(saved.text); setCompiled(null) } }}><option value="">选择实验</option>{library.experiments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><div className="row"><span className="muted">音色：{recipe.name || '未选择'}{recipeDirty ? '（未保存）' : ''}</span><button disabled={!!busy || !!auditionReason || !plan || script !== plan.text} onClick={() => void run('生成新候选', () => generate())}>再生成一组</button></div>
           {tasks.map(task => <div className="item" key={task.task_id}><div className="row spread"><span>{task.task_id} · {task.state} · {Math.round(task.progress * 100)}%</span>{['pending', 'running'].includes(task.state) && <button onClick={() => void run('取消任务', async () => { const result = await tasksApi.cancel(task.task_id); setTasks(previous => previous.map(item => item.task_id === result.task_id ? result : item)) })}>取消后续生成</button>}</div>{task.message && <p className="muted">{task.message}</p>}{task.error && <p className="error">{json(task.error)}</p>}</div>)}
         </section>
         {!takes.length && <div className="panel empty">尚无已完成的候选。选择音色并输入台词后即可生成试音；失败或未完成的音频不能采用。</div>}
-        {plan?.segments.map((segment, index) => <section className="panel" key={segment.id}><div className="row spread"><h3>第 {index + 1} 句 · {segmentText(plan, segment.start, segment.end)}</h3><button disabled={!!busy || !adoptable || script !== plan.text} onClick={() => void run('重生成单句', () => generate(segment.id))}>仅重生成此句</button></div><div className="grid">{takes.filter(take => take.segment_id === segment.id).map(take => <div className="item" key={take.id}><div className="row spread"><strong>{take.id}</strong><label><input type="checkbox" checked={comparison.includes(take.id)} disabled={!comparison.includes(take.id) && (comparison.length >= 2 || comparison.some(id => takes.find(item => item.id === id)?.segment_id !== take.segment_id))} onChange={event => setComparison(event.target.checked ? [...comparison, take.id] : comparison.filter(id => id !== take.id))} /> 对比</label></div><p className="muted">{take.audio?.duration?.toFixed(2) || '—'} 秒 · 生成耗时 {take.elapsed_seconds?.toFixed(1) || '—'} 秒</p><CandidateAudio url={speechApi.takeAudio(take.id)} equalLoudness={equalLoudness} /><div className="row"><button disabled={!!busy} onClick={() => void run('采用候选配方', () => adoptRecipe(take))}>载入此音色</button><button className="primary" disabled={!!busy} onClick={() => void run('采用片段音频', async () => { await speechApi.select({ experiment_id: experimentId, segment_id: take.segment_id, take_id: take.id }); await refresh(); setNotice('已采用该句音频，其余片段保留') })}>{library.selections.some(item => item.experiment_id === experimentId && item.segment_id === segment.id && item.take_id === take.id) ? '已采用音频' : '采用此句音频'}</button></div></div>)}</div></section>)}
+        {plan?.segments.map((segment, index) => <section className="panel" key={segment.id}><div className="row spread"><h3>第 {index + 1} 句 · {segmentText(plan, segment.start, segment.end)}</h3><button disabled={!!busy || !!auditionReason || script !== plan.text} onClick={() => void run('重生成单句', () => generate(segment.id))}>仅重生成此句</button></div><div className="grid">{takes.filter(take => take.segment_id === segment.id).map(take => <div className="item" key={take.id}><div className="row spread"><strong>{take.id}</strong><label><input type="checkbox" checked={comparison.includes(take.id)} disabled={!comparison.includes(take.id) && (comparison.length >= 2 || comparison.some(id => takes.find(item => item.id === id)?.segment_id !== take.segment_id))} onChange={event => setComparison(event.target.checked ? [...comparison, take.id] : comparison.filter(id => id !== take.id))} /> 对比</label></div><p className="muted">{take.audio?.duration?.toFixed(2) || '—'} 秒 · 生成耗时 {take.elapsed_seconds?.toFixed(1) || '—'} 秒</p><CandidateAudio url={speechApi.takeAudio(take.id)} equalLoudness={equalLoudness} /><div className="row"><button disabled={!!busy} onClick={() => void run('采用候选配方', () => adoptRecipe(take))}>载入生成设置</button><button disabled={!!busy || take.status !== 'completed'} onClick={() => { setPresetTakeId(take.id); setPresetName((take.recipe_snapshot?.name || library.recipes.find(item => item.id === take.recipe_id)?.name || 'TTS') + ' · 高级预设') }}>保存为TTS高级预设</button><button className="primary" disabled={!!busy} onClick={() => void run('采用片段音频', async () => { await speechApi.select({ experiment_id: experimentId, segment_id: take.segment_id, take_id: take.id }); await refresh(); setNotice('已采用该句音频，其余片段保留') })}>{library.selections.some(item => item.experiment_id === experimentId && item.segment_id === segment.id && item.take_id === take.id) ? '已采用音频' : '采用此句音频'}</button></div></div>)}</div></section>)}
+        {presetTake && <section className="panel take-preset-save"><h3>保存所选试听结果的设置</h3><p className="muted">候选 {presetTake.id} · {presetTake.recipe_snapshot?.name || presetTake.recipe_id}。只保存该候选生成时的冻结配置，不读取当前表单后续修改，也不保存音频或凭据。</p><Field title="TTS高级预设名称"><input value={presetName} maxLength={100} onChange={event => setPresetName(event.target.value)} /></Field><div className="row"><button className="primary" disabled={!!busy || !presetName.trim()} onClick={() => void run('保存TTS高级预设', saveTakePreset)}>保存所选结果的设置</button><button disabled={!!busy} onClick={() => setPresetTakeId('')}>取消</button></div></section>}
         {comparison.length === 2 && <section className="panel"><h2>候选配置差异</h2><div className="grid">{comparison.map(id => { const take = takes.find(item => item.id === id); const other = takes.find(item => item.id === comparison.find(otherId => otherId !== id)); if (!take || !other) return null; const keys = new Set([...Object.keys(take.compiled_request), ...Object.keys(other.compiled_request)]); const diff = Object.fromEntries([...keys].filter(key => json(take.compiled_request[key]) !== json(other.compiled_request[key])).map(key => [key, take.compiled_request[key]])); return <div key={id}><h3>{id}</h3><pre>{Object.keys(diff).length ? json(diff) : '有效配置相同；声音差异可能来自随机生成。'}</pre></div> })}</div></section>}
       </>}
 

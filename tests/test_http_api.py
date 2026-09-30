@@ -115,6 +115,10 @@ class TestPipelineRoutes:
 
         assert resp.status_code == 200
         assert [preset["id"] for preset in resp.json()["presets"]] == [
+            "audio_subtitles",
+            "subtitle_translation",
+            "subtitle_speech",
+            "audio_translation_speech",
             "asmr_bilingual",
             "asr_only",
         ]

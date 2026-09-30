@@ -1,9 +1,31 @@
 presets:
-  - id: asmr_bilingual
-    label: ASMR 双语处理
-    description: 对输入音频依次执行人声分离、语音识别、翻译、语音合成、混音，并导出完整结果。
-    stages: [separation, asr, translation, tts, mix, export]
-  - id: asr_only
-    label: 仅语音识别
-    description: 直接识别输入音频并导出文字稿和字幕，不执行翻译、配音或混音。
+  - id: audio_subtitles
+    label: 音频转字幕
+    description: 识别音频并导出字幕；需要音频素材，不运行翻译或配音。
     stages: [asr, export]
+    outputs: [export]
+  - id: subtitle_translation
+    label: 字幕翻译
+    description: 翻译已有字幕并导出；需要源语言字幕，不运行语音识别或配音。
+    stages: [translate, export]
+    outputs: [export]
+  - id: subtitle_speech
+    label: 目标字幕直接配音
+    description: 使用目标语言字幕合成配音；需要有效文本和时间轴，不运行识别或翻译。
+    stages: [tts]
+    outputs: [tts]
+  - id: audio_translation_speech
+    label: 音频翻译配音
+    description: 识别音频、翻译、合成配音并导出字幕；不自动加入分离或混音。
+    stages: [asr, translate, tts, export]
+    outputs: [tts, export]
+  - id: asmr_bilingual
+    label: ASMR 双语完整处理
+    description: 保留原完整流程：分离、识别、翻译、配音、背景混音及字幕导出；需分别确认素材来源。
+    stages: [separate, asr, translate, tts, mix, export]
+    outputs: [mix, export]
+  - id: asr_only
+    label: 仅语音识别（兼容预设）
+    description: 保留原 asr_only 标识：识别音频并导出字幕；与“音频转字幕”使用相同步骤。
+    stages: [asr, export]
+    outputs: [export]

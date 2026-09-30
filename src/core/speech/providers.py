@@ -43,11 +43,21 @@ SCHEMAS = {
         "tag_density": {"type": "string", "enum": ["minimal", "full"], "default": "minimal"}},
     "openai_compatible": {**COMMON, "speed": _number(.25, 4, 1)},
     "edge": {**COMMON, "speed": _number(.5, 2, 1)},
-    "qwen3": {**COMMON, "temperature": _number(.01, 2, .9), "top_p": _number(.01, 1, 1),
-        "device": {"type": "string", "enum": ["cuda:0", "cpu"], "default": "cuda:0"}},
+    "qwen3": {**COMMON, "temperature": {**_number(.01, 2, .9), "title": "随机温度"},
+        "top_p": {**_number(.01, 1, 1), "title": "累积概率"},
+        "x_vector_only_mode": {"type": "boolean", "default": False, "title": "仅使用声音特征",
+            "description": "仅参考克隆模式；仍需参考音频，可不填写原文。关闭时必须核对参考原文。",
+            "applies_to_modes": ["reference"]},
+        "do_sample": {"type": "boolean", "default": True, "title": "启用随机采样",
+            "description": "控制主生成的随机采样；关闭时主生成的温度、Top P、Top K 不参与随机采样，不保证音频逐次相同。"},
+        "top_k": {"type": "integer", "minimum": 0, "maximum": 1000, "default": 50,
+            "title": "候选数量", "description": "每步采样的候选数量；0 表示不按数量截断。"},
+        "repetition_penalty": {**_number(.1, 10, 1.05), "title": "重复惩罚",
+            "description": "1 不施加惩罚；大于 1 抑制重复。"},
+        "max_new_tokens": {"type": "integer", "minimum": 1, "maximum": 8192, "default": 2048,
+            "title": "最大生成长度", "description": "生成 token 上限；过小可能截断语音，不等于秒数。"}},
     "voxcpm2": {**COMMON, "cfg_value": _number(.1, 10, 2),
-        "inference_timesteps": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
-        "device": {"type": "string", "enum": ["auto", "cuda:0", "cpu"], "default": "auto"}},
+        "inference_timesteps": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10}},
 }
 MODES = {
     "fish_audio": [{"id": "hosted", "variant_kinds": ["hosted"], "models": ["s2-pro", "s2.1-pro", "s2.1-pro-free", "s1"]}],
@@ -83,6 +93,7 @@ class SpeechProvider:
             "concurrency": 1 if not self.remote else None,
             "languages": ["zh", "en", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"] if self.provider_id == "qwen3" else "model-dependent",
             "reference": {"supported": mode == "reference", "transcript_required": self.provider_id == "qwen3" and mode == "reference",
+                "transcript_optional_option": "x_vector_only_mode" if self.provider_id == "qwen3" and mode == "reference" else None,
                 "duration_limit_seconds": None, "upload": False}, "max_text_length": None}
 
     def describe(self):
@@ -191,6 +202,7 @@ class SpeechProvider:
             value = options.get(key, rule.get("default"))
             valid = ((rule["type"] == "number" and type(value) in (int, float) and math.isfinite(value))
                 or (rule["type"] == "integer" and type(value) is int)
+                or (rule["type"] == "boolean" and type(value) is bool)
                 or (rule["type"] == "string" and isinstance(value, str)))
             if not valid or ("const" in rule and value != rule["const"]) or ("enum" in rule and value not in rule["enum"]):
                 raise ProviderError("invalid_options", f"无效引擎参数：{key}")
@@ -199,8 +211,14 @@ class SpeechProvider:
             resolved[key] = value
         return resolved
 
+    def reference_requires_transcript(self, recipe):
+        return (self.provider_id == "qwen3" and recipe.get("mode") == "reference"
+                and not self._options(recipe)["x_vector_only_mode"])
+
     def validate(self, recipe, assets):
-        self._options(recipe)
+        options = self._options(recipe)
+        if self.provider_id == "qwen3" and options["x_vector_only_mode"] and recipe.get("mode") != "reference":
+            raise ProviderError("invalid_options", "仅使用声音特征只适用于 Qwen 参考克隆模式")
         mode = next((m for m in self.modes if m["id"] == recipe.get("mode")), None)
         variant = recipe.get("variant", {})
         if not isinstance(variant, dict) or set(variant) - {"kind", "value", "style"}:
@@ -234,7 +252,7 @@ class SpeechProvider:
             digest = asset.get("sha256", "")
             if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
                 raise ProviderError("asset_missing", "参考素材不存在或缺少可信摘要")
-            if self.provider_id == "qwen3" and not str(asset.get("transcript", "")).strip():
+            if self.reference_requires_transcript(recipe) and not str(asset.get("transcript", "")).strip():
                 raise ProviderError("transcript_missing", "Qwen 参考素材需要确认转录")
 
     def compile(self, recipe, segment, text, assets):
@@ -423,10 +441,10 @@ class SpeechProvider:
                 raise ProviderError("asset_changed", "参考素材缺失或已被修改")
             references[aid] = str(path.resolve())
         request = deepcopy(request)
-        if context.get("device"):
-            if context["device"] not in {"auto", "cpu", "cuda:0"}:
-                raise ProviderError("invalid_device", "不支持的本地设备")
-            request["parameters"]["options"]["device"] = context["device"]
+        # Old frozen requests may contain a device; new reusable options never do.
+        device = context.get("device") or request["parameters"]["options"].get("device") or ("cuda:0" if self.provider_id == "qwen3" else "auto")
+        if device not in {"auto", "cpu", "cuda:0"}:
+            raise ProviderError("invalid_device", "不支持的本地设备")
         precision = context.get("precision") or "auto"
         if precision not in {"auto", "float32", "float16", "bfloat16"}:
             raise ProviderError("invalid_precision", "不支持的模型精度")
@@ -436,7 +454,7 @@ class SpeechProvider:
             input_path = Path(directory) / "request.json"
             response_path = Path(directory) / "response.json"
             input_path.write_text(json.dumps({"request": request, "references": references, "model_path": model_path,
-                "precision": precision, "output_path": str(output_path.resolve()), "response_path": str(response_path)}, ensure_ascii=False), encoding="utf-8")
+                "precision": precision, "device": device, "output_path": str(output_path.resolve()), "response_path": str(response_path)}, ensure_ascii=False), encoding="utf-8")
             with (Path(directory) / "worker.log").open("w", encoding="utf-8") as log:
                 process = subprocess.Popen([str(executable), "-m", "src.core.speech.local_worker", str(input_path)],
                     cwd=str(PROJECT_ROOT), env=resolver.subprocess_env(), stdout=log, stderr=log,

@@ -1,7 +1,7 @@
 .reference-library { --ref-soft: var(--panel-muted); }
-.reference-library .reference-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
-.reference-library .reference-sidebar { padding: 18px; }
-.reference-library .reference-sidebar h2 { font-size: 15px; margin: 0; }
+.reference-library .reference-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
+.reference-library .reference-sidebar { padding: 20px; }
+.reference-library .reference-sidebar h2 { font-size: 16px; margin: 0; }
 .reference-library .reference-count { margin-left: 5px; font-size: 12px; color: var(--muted); font-weight: 400; }
 .reference-library .reference-archive { display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); margin: 14px 0; }
 .reference-library .reference-assets { display: grid; gap: 10px; }
@@ -60,10 +60,10 @@
 .reference-library .reference-processing summary { cursor: pointer; font-size: 13px; }
 .reference-library .reference-processing summary > span { margin-left: 10px; }
 .reference-library .reference-processing[open] summary { margin-bottom: 20px; }
-.reference-library .reference-saved { padding: 28px; }
+.reference-library .reference-saved { padding: 24px; }
 .reference-library .reference-saved h2 { margin: 0; }
-.reference-library .reference-saved-transcript { padding: 20px; background: var(--ref-soft); border-radius: 9px; margin: 24px 0; }
-.reference-library .reference-saved-transcript p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.reference-library .reference-saved-transcript { padding: 0; margin: 24px 0; }
+.reference-library .reference-saved-transcript p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; }
 .reference-library .reference-more { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 28px; font-size: 13px; }
 .reference-library .reference-more summary { cursor: pointer; margin-bottom: 16px; }
 .reference-library .reference-busy { display: flex; align-items: center; gap: 10px; padding: 14px; background: var(--accent-soft); border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
@@ -71,7 +71,6 @@
 @keyframes reference-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) { .reference-library .reference-workspace { grid-template-columns: minmax(0, 1fr); } }
 @media (prefers-reduced-motion: reduce) { .reference-library .reference-spinner { animation: none; } }
-@media (max-width: 1100px) { .reference-library .reference-layout { grid-template-columns: 215px minmax(0, 1fr); gap: 16px; } }
 @media (max-width: 850px) { .reference-library .reference-layout { grid-template-columns: 1fr; } .reference-library .reference-assets { max-height: 210px; overflow: auto; } .reference-library .reference-source { flex-wrap: wrap; } .reference-library .reference-footer { flex-wrap: wrap; } .reference-library .reference-editor { padding: 18px; } .reference-library .reference-range { flex-wrap: wrap; } }
 
 .reference-library { container-type: inline-size; font-size: 14px; }
@@ -103,7 +102,7 @@
 .reference-library .reference-subtitles > summary { margin-bottom: 12px; cursor: pointer; }
 .reference-library .subtitle-segments button { text-align: left; overflow-wrap: anywhere; }
 .reference-library .reference-notes label { margin: 0; }
-@container (max-width: 740px) {
+@container voice-content (max-width: 860px) {
   .reference-library .reference-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .reference-library .reference-library-toggle { display: block; justify-self: start; }
   .reference-library .reference-sidebar { display: none; margin: 0; }

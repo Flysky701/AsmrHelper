@@ -1,3 +1,4 @@
+import FlowPresetPicker from '@/components/FlowPresetPicker'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, ReactNode } from 'react'
 
@@ -41,7 +42,7 @@ import {
   pathToInput,
   type WorkbenchInputItem,
 } from '@/domain/workbenchInput'
-import { assessFlow, FLOW_PORTS, FLOW_OUTPUTS, FLOW_PRESETS, matchingFlowPreset, materialKind, referenceFromValue, referenceValue, sourceOptions, workflowPayload, type FlowDraft } from '@/domain/workbenchFlow'
+import { assessFlow, FLOW_PORTS, FLOW_OUTPUTS, materialKind, referenceFromValue, referenceValue, sourceOptions, workflowPayload, type FlowDraft } from '@/domain/workbenchFlow'
 import { useLogStore } from '@/stores/logStore'
 import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
@@ -994,7 +995,6 @@ export default function Workbench() {
   }, [flow, params, capabilityOptions, selectedInputPaths, speechConfig])
 
   const flowAssessment = assessFlow(flow, selectedInputs, params.sourceLang, params.targetLang)
-  const matchedStepPreset = matchingFlowPreset(flow)
   const flowKey = JSON.stringify({ flow, params, selectedInputPaths, speech: stageFlags.tts ? speechConfig?.stage : null })
   const matchingTask = [...tasks].reverse().find(task => task.params.workbench_flow_key === flowKey)
   const runningCount = tasks.filter((task) => task.status === 'running').length
@@ -1418,19 +1418,8 @@ export default function Workbench() {
 
       <div className="workbench-content">
         <div className="workbench-main-column" inert={submitting} aria-busy={submitting}>
-          <Section title="处理流程" caption="预设只勾选步骤；素材来源与产出请确认，仍可手动调整。"
-            actions={<label style={{ display: 'grid', gap: 5, minWidth: 0, maxWidth: '100%' }}>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>步骤预设 · 仅匹配步骤</span>
-              <select aria-label="常用步骤预设" value={matchedStepPreset?.id ?? ''} disabled={submitting}
-                onChange={event => applyStepPreset(event.target.value)}
-                style={{ minHeight: 36, maxWidth: '100%', padding: '6px 10px', border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)', background: 'var(--surface)', color: 'var(--fg)', fontSize: 13 }}>
-                <option value="" disabled>自定义步骤</option>
-                {FLOW_PRESETS.map(preset => <option key={preset.id} value={preset.id}>
-                  {preset.label}{preset.id === 'audio_translation_speech' ? '（不含混音）' : ''}
-                </option>)}
-              </select>
-            </label>}>
+          <Section title="处理流程" caption="流程预设填充步骤与产出；素材来源仍需确认，可手动调整。"
+            actions={<FlowPresetPicker flow={flow} disabled={submitting} onApply={applyStepPreset} />}>
             <div className="workbench-pipeline-scroll" tabIndex={0} role="region" aria-label="处理流程，可横向滚动查看全部步骤">
               <ol className="workbench-pipeline-track" style={{ listStyle: 'none', margin: 0 }}>
                 {stageSummary.map(stage => <li key={stage.id} className="workbench-pipeline-step" title={stage.detail}>

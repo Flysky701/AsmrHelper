@@ -47,7 +47,7 @@ const DEFAULT_PARAMS: WorkbenchParams = {
 interface WorkbenchStore {
   flow: FlowDraft
   toggleStage: (stage: PipelineStageId) => void
-  applyStepPreset: (presetId: string) => void
+  applyStepPreset: (preset: PresetItem) => void
   setBinding: (stage: PipelineStageId, port: string, ref?: WorkflowReference) => void
   toggleOutput: (stage: PipelineStageId) => void
   setSubtitleFormat: (format: 'srt' | 'vtt') => void
@@ -96,7 +96,7 @@ interface WorkbenchStore {
 export const useWorkbenchStore = create<WorkbenchStore>()(persist((set) => ({
   flow: emptyFlow(),
   toggleStage: (stage) => set(s => ({ flow: toggleFlowStage(s.flow, stage) })),
-  applyStepPreset: (presetId) => set(s => ({ flow: applyFlowPreset(s.flow, presetId) })),
+  applyStepPreset: (preset) => set(s => ({ flow: applyFlowPreset(s.flow, preset) })),
   setBinding: (stage, port, ref) => set(s => {
     const ports = { ...s.flow.bindings[stage] }
     if (ref) ports[port] = ref

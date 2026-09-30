@@ -1,4 +1,4 @@
-import type { WorkflowReference, PipelineWorkflowRequest } from '@/api/types'
+import type { WorkflowReference, PipelineWorkflowRequest, PresetItem } from '@/api/types'
 import type { PipelineStageId } from '@/domain/pipelinePreset'
 import type { WorkbenchInputItem } from '@/domain/workbenchInput'
 
@@ -22,12 +22,7 @@ export const FLOW_OUTPUTS: Record<PipelineStageId, string> = {
 }
 export type FlowDraft = PipelineWorkflowRequest & { selectedStages: PipelineStageId[]; subtitleFormat: 'srt' | 'vtt' }
 export const emptyFlow = (): FlowDraft => ({ version: 1, selectedStages: [], bindings: {}, outputs: [], subtitleFormat: 'srt' })
-export const FLOW_PRESETS = [
-  { id: 'audio_subtitles', label: '音频转字幕', stages: ['asr', 'export'] },
-  { id: 'subtitle_translation', label: '字幕翻译', stages: ['translate', 'export'] },
-  { id: 'subtitle_speech', label: '目标字幕直接配音', stages: ['tts'] },
-  { id: 'audio_translation_speech', label: '音频翻译配音', stages: ['asr', 'translate', 'tts', 'export'] },
-] as const satisfies ReadonlyArray<{ id: string; label: string; stages: readonly PipelineStageId[] }>
+
 const key = (path: string) => path.replace(/\\/g, '/').toLowerCase()
 const language = (value?: string) => (value || '').toLowerCase().replace('-', '_').split('_')[0]!
 const known = (value?: string) => !!value && !['unknown', 'mixed', 'auto'].includes(language(value))
@@ -52,19 +47,25 @@ export function restoreFlow(value: unknown): FlowDraft {
   }
 }
 
-/** Presets only change checkboxes, using the same output defaults as manual toggles. */
-export function applyFlowPreset(flow: FlowDraft, presetId: string): FlowDraft {
-  const preset = FLOW_PRESETS.find(item => item.id === presetId)
-  if (!preset) return flow
-  const selected = new Set<PipelineStageId>(preset.stages)
-  return STAGES.reduce((draft, stage) => selected.has(stage) === draft.selectedStages.includes(stage)
-    ? draft : toggleFlowStage(draft, stage), flow)
+/** The server catalog is the single source for built-in and custom presets. */
+export function isUsableFlowPreset(preset: Pick<PresetItem, 'stages' | 'outputs'>): boolean {
+  return Array.isArray(preset.stages) && preset.stages.length > 0 && new Set(preset.stages).size === preset.stages.length
+    && preset.stages.every(id => STAGES.includes(id as PipelineStageId))
+    && Array.isArray(preset.outputs) && preset.outputs.length > 0 && new Set(preset.outputs).size === preset.outputs.length
+    && preset.outputs.every(id => preset.stages.includes(id))
 }
 
-/** This matches steps only, never claims that materials, outputs or parameters are ready. */
-export function matchingFlowPreset(flow: FlowDraft) {
+/** Apply only stages and explicit outputs; materials, bindings and parameters stay intact. */
+export function applyFlowPreset(flow: FlowDraft, preset: Pick<PresetItem, 'stages' | 'outputs'>): FlowDraft {
+  if (!isUsableFlowPreset(preset)) return flow
+  return { ...flow, selectedStages: STAGES.filter(id => preset.stages.includes(id)), outputs: STAGES.filter(id => preset.outputs.includes(id)) }
+}
+
+export function matchingFlowPreset(flow: FlowDraft, presets: PresetItem[]) {
   const selected = new Set(flow.selectedStages)
-  return FLOW_PRESETS.find(preset => selected.size === preset.stages.length && preset.stages.every(stage => selected.has(stage)))
+  const outputs = new Set(flow.outputs)
+  return presets.find(preset => isUsableFlowPreset(preset) && selected.size === preset.stages.length && outputs.size === preset.outputs.length
+    && preset.stages.every(stage => selected.has(stage as PipelineStageId)) && preset.outputs.every(stage => outputs.has(stage as PipelineStageId)))
 }
 
 export function workflowPayload(flow: FlowDraft): PipelineWorkflowRequest {

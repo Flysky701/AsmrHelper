@@ -24,7 +24,7 @@ def test_compiled_qwen_modes_preserve_text_language_and_voice(
     assets = {"reference": {"sha256": "a" * 64, "transcript": "参考原文"}}
     recipe = {"id": "rule", "revision": 1, "provider_id": "qwen3", "model": model,
         "mode": mode, "connection_ref": "local", "variant": {"kind": mode, "value": variant},
-        "language": "ja", "provider_options": {"schema_version": 1, "device": "cpu"}}
+        "language": "ja", "provider_options": {"schema_version": 1}}
     plan = {"text": text, "text_hash": text_hash(text), "segments": [
         {"id": "sentence", "start": 0, "end": len(text), "delivery": delivery}]}
     request = compile_recipe(recipe, plan, assets)[0]
@@ -49,7 +49,7 @@ def test_compiled_qwen_modes_preserve_text_language_and_voice(
     monkeypatch.setitem(sys.modules, "qwen_tts", SimpleNamespace(Qwen3TTSModel=SimpleNamespace(from_pretrained=load)))
     output, response = tmp_path / "audio.wav", tmp_path / "response.json"
     execute({"request": request, "references": {"reference": "reference.wav"},
-        "model_path": "pinned-model", "output_path": str(output), "response_path": str(response)})
+        "model_path": "pinned-model", "device": "cpu", "output_path": str(output), "response_path": str(response)})
 
     assert loaded == [("pinned-model", {"device_map": "cpu", "dtype": "float32"})]
     assert len(calls) == 1 and calls[0][0] == expected_method

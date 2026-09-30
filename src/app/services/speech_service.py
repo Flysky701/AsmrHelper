@@ -127,6 +127,8 @@ class SpeechService:
 
     def _prepare_recipe(self, body):
         data = deepcopy(body)
+        if isinstance(data.get("variant"), dict):
+            data["variant"].setdefault("style", "normal")
         allowed = {"id", "revision", "created_at", "updated_at", "previous_id", "name", "description", "voice_id", "provider_id", "model", "mode", "connection_ref", "variant", "language", "provider_options", "default_delivery", "default_emotion", "default_pause_ms"}
         if set(data) - allowed:
             raise ValueError("未知配方字段")
@@ -141,9 +143,11 @@ class SpeechService:
         if previous_id:
             previous = self.store.get("recipes", previous_id)
             data.update(revision=previous["revision"] + 1, previous_id=previous_id)
-        connection = self.store.get("connections", data["connection_ref"])
+        connection = self._recipe_connection(data)
+        data["connection_ref"] = connection["id"]
         if connection["provider_id"] != data["provider_id"]:
             raise ValueError("配方与连接的引擎不一致")
+        self._validate_reference(data)
         # The compiler, not UI visibility, is authoritative for provider options.
         probe_plan = build_plan("配置校验。")
         for segment in probe_plan["segments"]:
@@ -151,28 +155,63 @@ class SpeechService:
         compile_recipe(data, probe_plan, self.assets())
         return data
 
-    def save_rule(self, body):
-        """Save a single-engine generation rule without a separate voice wizard."""
-        data = deepcopy(body)
-        if data.get("mode") not in {"reference", "design"}:
-            raise ValueError("生成规则仅支持参考音频或声音设计")
-        variant = data.get("variant")
-        if not isinstance(variant, dict) or variant.get("kind") != data["mode"]:
-            raise ValueError("规则来源必须与生成模式一致")
-        if variant.get("style", "normal") != "normal" or any(
-            key in data for key in ("default_delivery", "default_emotion", "default_pause_ms")
-        ):
-            raise ValueError("演绎选项属于试音记录，不能保存为声音标签")
-        variant["style"] = "normal"
-        if data["mode"] == "reference":
+    def _recipe_connection(self, recipe):
+        provider = get_provider(recipe.get("provider_id"))
+        ref = recipe.get("connection_ref")
+        default_id = "engine-default-" + provider.provider_id
+        connection_required = getattr(provider, "http", provider.remote)
+        if not ref or (not connection_required and ref == default_id):
+            if connection_required:
+                raise ValueError("请选择外部语音服务连接")
+            return {"id": default_id, "revision": 1, "provider_id": provider.provider_id,
+                    "deployment": "cloud" if provider.remote else "local"}
+        if not isinstance(ref, str):
+            raise ValueError("连接必须是明确的引用")
+        return self.store.get("connections", ref)
+
+    def _validate_reference(self, recipe):
+        variant = recipe.get("variant") or {}
+        if isinstance(variant, dict) and variant.get("kind") == "reference":
             asset = self.store.get("assets", variant.get("value"))
             if asset.get("archived"):
                 raise ValueError("参考素材已归档，请选择可用素材")
-            reference = get_provider(data.get("provider_id")).capabilities(
-                data.get("model"), data["mode"]
-            ).get("reference", {})
-            if reference.get("transcript_required") and asset.get("confirmed") is not True:
-                raise ValueError("此引擎需要已核对转录的参考素材，请先确认转录")
+            provider = get_provider(recipe.get("provider_id"))
+            requires_transcript = getattr(provider, "reference_requires_transcript", lambda _recipe: False)
+            if requires_transcript(recipe):
+                if asset.get("confirmed") is not True or not str(asset.get("transcript", "")).strip():
+                    raise ValueError("此模式需要已核对转录原文的参考素材；或明确选择仅使用声音特征")
+
+    def _resolve_recipe_input(self, recipe_id=None, recipe_draft=None):
+        """Resolve a saved immutable revision or an unsaved, strictly bounded draft."""
+        if (recipe_id is None) == (recipe_draft is None):
+            raise ValueError("recipe_id 与 recipe_draft 必须且只能提供一个")
+        if recipe_id is not None:
+            if not isinstance(recipe_id, str) or not recipe_id.strip():
+                raise ValueError("recipe_id 必须是非空字符串")
+            recipe = self.store.get("recipes", recipe_id)
+            connection = self._recipe_connection(recipe)
+            # Old saved revisions retain their bytes. Move only their legacy device
+            # into the execution connection copy; new draft/save options reject it.
+            device = recipe.get("provider_options", {}).pop("device", None)
+            if device is not None:
+                connection.setdefault("device", device)
+            return recipe, connection
+        allowed = {"name", "description", "provider_id", "model", "mode", "connection_ref",
+                   "variant", "language", "provider_options", "default_delivery", "default_emotion", "default_pause_ms"}
+        if not isinstance(recipe_draft, dict) or set(recipe_draft) - allowed:
+            raise ValueError("试听草稿包含未知或不可编辑的字段")
+        data = deepcopy(recipe_draft)
+        if isinstance(data.get("name", ""), str) and not data.get("name", "").strip():
+            data["name"] = "未保存试听"
+        data.setdefault("provider_options", {"schema_version": 1})
+        data.setdefault("language", "auto")
+        prepared = self._prepare_recipe(data)
+        prepared["id"] = "preview-" + prepared["id"]
+        return prepared, self._recipe_connection(prepared)
+
+    def save_rule(self, body):
+        """Save any validated single-engine recipe as an immutable named rule."""
+        data = deepcopy(body)
         previous = self.store.get("recipes", data["id"]) if data.get("id") else None
         if previous:
             if data.get("voice_id", previous["voice_id"]) != previous["voice_id"]:
@@ -410,17 +449,18 @@ class SpeechService:
 
     def create_plan(self, body):
         plan = build_plan(body["text"])
+        plan["use_recipe_defaults"] = body.get("use_recipe_defaults", body.get("segments") is None)
         if body.get("segments") is not None:
             plan["segments"] = deepcopy(body["segments"])
-            validate_plan(plan["text"], plan)
+        validate_plan(plan["text"], plan)
         return self.store.create("plans", plan)
 
-    def compile(self, recipe_id, plan_id):
-        return compile_recipe(self.store.get("recipes", recipe_id), self.store.get("plans", plan_id), self.assets())
+    def compile(self, recipe_id, plan_id, recipe_draft=None):
+        recipe, _ = self._resolve_recipe_input(recipe_id, recipe_draft)
+        return compile_recipe(recipe, self.store.get("plans", plan_id), self.assets())
 
     def snapshot(self, recipe_id):
-        recipe = self.store.get("recipes", recipe_id)
-        connection = self.store.get("connections", recipe["connection_ref"])
+        recipe, connection = self._resolve_recipe_input(recipe_id)
         return self._snapshot_recipe(recipe, connection)
 
     def pipeline_snapshot(self, stage):
@@ -499,8 +539,7 @@ class SpeechService:
             asset = self.store.get("assets", variant.get("value"))
             if asset.get("archived"):
                 raise ValueError("参考素材已归档，请选择可用素材")
-            if provider.capabilities(model, mode)["reference"].get("transcript_required") and asset.get("confirmed") is not True:
-                raise ValueError("此引擎需要已核对转录的参考素材")
+            self._validate_reference(recipe)
         return self._snapshot_recipe(recipe, connection)
 
     def _snapshot_recipe(self, recipe, connection):
@@ -508,7 +547,10 @@ class SpeechService:
         if connection["provider_id"] != recipe["provider_id"]:
             raise ValueError("连接已更换引擎，请保存新的配方")
         assets = self.assets()
-        requests = compile_recipe(recipe, build_plan("配置校验。"), assets)
+        self._validate_reference(recipe)
+        validation_plan = build_plan("配置校验。")
+        validation_plan["use_recipe_defaults"] = True
+        requests = compile_recipe(recipe, validation_plan, assets)
         # Only referenced immutable assets enter a task snapshot.
         used = recipe.get("variant", {}).get("value")
         selected_assets = {used: assets[used]} if used in assets else {}
@@ -526,11 +568,16 @@ class SpeechService:
                 "compiler_version": requests[0]["compiler_version"], "provider_version": requests[0]["provider_version"]}
 
     def generate(self, experiment_id, body):
+        if not isinstance(body, dict) or set(body) - {"recipe_id", "recipe_draft", "plan_id", "segment_id"}:
+            raise ValueError("试听请求包含未知字段")
+        if ("recipe_id" in body) == ("recipe_draft" in body):
+            raise ValueError("recipe_id 与 recipe_draft 必须且只能提供一个")
+        recipe, connection = self._resolve_recipe_input(body.get("recipe_id"), body.get("recipe_draft"))
         experiment = self.store.get("experiments", experiment_id)
         plan = self.store.get("plans", body.get("plan_id") or experiment["plan_id"])
         if plan["text_hash"] != self.store.get("plans", experiment["plan_id"])["text_hash"]:
             raise ValueError("试音文本已改变，请建立新的对比实验")
-        snapshot = self.snapshot(body["recipe_id"])
+        snapshot = self._snapshot_recipe(recipe, connection)
         requests = compile_recipe(snapshot["recipe"], plan, snapshot["assets"])
         if body.get("segment_id"):
             requests = [r for r in requests if r["segment_id"] == body["segment_id"]]
@@ -565,11 +612,13 @@ class SpeechService:
         format_name = formats.get(target.suffix.lower())
         if not format_name or format_name not in sf.available_formats():
             raise ValueError("输出扩展名须为当前音频库支持的 WAV、FLAC、OGG 或 MP3")
-        requests = compile_recipe(snapshot["recipe"], build_plan(text), snapshot["assets"])
+        plan = build_plan(text)
+        plan["use_recipe_defaults"] = True
+        requests = compile_recipe(snapshot["recipe"], plan, snapshot["assets"])
         if any(r["compiler_version"] != snapshot["compiler_version"] or
                r["provider_version"] != snapshot["provider_version"] for r in requests):
             raise ValueError("语音快照版本已改变，请重新提交")
-        plan = self.store.create("plans", build_plan(text))
+        plan = self.store.create("plans", plan)
         # Compile against the saved plan so every take points at its actual segment.
         requests = compile_recipe(snapshot["recipe"], plan, snapshot["assets"])
         task_id = "speech-cli-" + uuid4().hex
@@ -669,7 +718,8 @@ class SpeechService:
                         raise ValueError("引擎返回不完整音频")
                 take = self.store.create("takes", {"id": take_id, "task_id": task_id,
                     "experiment_id": experiment_id, "plan_id": plan_id, "recipe_id": snapshot["recipe"]["id"],
-                    "segment_id": request["segment_id"], "compiled_request": request, "status": "completed",
+                    "segment_id": request["segment_id"], "compiled_request": request,
+                    "recipe_snapshot": deepcopy(snapshot["recipe"]), "status": "completed",
                     "audio_path": str(output), "audio": {**(audio or {}), "duration": info.duration,
                         "sample_rate": info.samplerate, "channels": info.channels, "format": info.format},
                     "elapsed_seconds": time.monotonic() - started})
@@ -686,6 +736,32 @@ class SpeechService:
             if progress:
                 progress((index + 1) / len(requests), f"已生成 {index + 1}/{len(requests)} 句", stage="tts")
         return outputs
+
+    def save_rule_from_take(self, take_id, body):
+        if not isinstance(body, dict) or set(body) - {"name", "description"}:
+            raise ValueError("仅提供名称和说明；设置来自所选试听快照")
+        if not isinstance(body.get("name"), str) or not body["name"].strip():
+            raise ValueError("请填写预设名称")
+        take = self.store.get("takes", take_id)
+        if take.get("status") != "completed":
+            raise ValueError("只能保存已完成试听的设置")
+        recipe = deepcopy(take.get("recipe_snapshot"))
+        if recipe is None:
+            # Legacy takes always referenced an immutable saved recipe.
+            recipe = self.store.get("recipes", take["recipe_id"])
+        request = take["compiled_request"]
+        if any(request.get(key) != recipe.get(key) for key in ("provider_id", "model", "mode")):
+            raise ValueError("试听快照与执行记录不一致，不能保存")
+        for key in ("id", "revision", "previous_id", "created_at", "updated_at", "voice_id"):
+            recipe.pop(key, None)
+        recipe["provider_options"] = deepcopy(request["parameters"]["options"])
+        recipe["provider_options"].pop("device", None)
+        recipe["variant"] = deepcopy(request["parameters"]["variant"])
+        recipe["language"] = request["parameters"]["language"]
+        recipe.update(name=body["name"].strip(), description=body.get("description", ""),
+                      default_delivery=request["parameters"]["delivery"],
+                      default_emotion=request["parameters"]["emotion"], default_pause_ms=request["pause_ms"])
+        return self.save_rule(recipe)
 
     def experiment(self, experiment_id):
         experiment = self.store.get("experiments", experiment_id)

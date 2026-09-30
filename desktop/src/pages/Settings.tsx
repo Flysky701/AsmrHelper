@@ -1,3 +1,4 @@
+import FlowPresetManager from '@/components/FlowPresetManager'
 import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import { pipelineApi } from '@/api/pipeline'
@@ -8,18 +9,10 @@ import { useFileSelector } from '@/hooks/useFileSelector'
 type SettingsTab = 'presets' | 'paths'
 
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: 'presets', label: '内置预设' },
+  { id: 'presets', label: '流程预设' },
   { id: 'paths', label: '路径配置' },
 ]
 
-const PRESET_STAGE_LABELS: Record<string, string> = {
-  separation: '人声分离',
-  asr: '语音识别',
-  translation: '翻译',
-  tts: '语音合成',
-  mix: '混音',
-  export: '导出结果',
-}
 
 export default function Settings() {
   const { selectFolder } = useFileSelector()
@@ -87,7 +80,7 @@ export default function Settings() {
         } else {
           setPresets([])
           setPresetsLoadError(
-            `无法加载内置预设：${presetsResult.reason instanceof Error ? presetsResult.reason.message : String(presetsResult.reason)}`,
+            `无法加载流程预设：${presetsResult.reason instanceof Error ? presetsResult.reason.message : String(presetsResult.reason)}`,
           )
         }
       }
@@ -107,7 +100,7 @@ export default function Settings() {
       setPresets(result.presets || [])
     } catch (error) {
       if (generation !== presetGenerationRef.current) return
-      setPresetsLoadError(`无法加载内置预设：${error instanceof Error ? error.message : String(error)}`)
+      setPresetsLoadError(`无法加载流程预设：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       if (generation === presetGenerationRef.current) setPresetsLoading(false)
     }
@@ -193,7 +186,7 @@ export default function Settings() {
             fontSize: '12px', color: 'var(--muted)', padding: '6px 10px',
             borderRadius: '999px', background: 'var(--panel-muted)',
           }}>
-            内置流程 · 无需保存
+            内置与自定义 · 工作台共用
           </span>
         ) : activeTab === 'paths' ? (
           <>
@@ -248,108 +241,7 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Panel: 内置预设 */}
-          {activeTab === 'presets' && (
-            <div>
-              <div style={{ marginBottom: '32px' }}>
-                <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '16px', fontWeight: 600, letterSpacing: '-0.02em', marginBottom: '4px' }}>
-                  内置管道预设
-                </h2>
-                <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '16px' }}>
-                  当前版本只展示已经接入执行链路的流程。请在工作台中选择预设并创建任务。
-                </div>
-
-                <div style={{
-                  display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '16px',
-                  padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border)',
-                  background: 'var(--panel-muted)',
-                }}>
-                  <span aria-hidden="true" style={{
-                    width: '18px', height: '18px', borderRadius: '50%', flex: '0 0 auto',
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    background: 'var(--accent-soft)', color: 'var(--accent)', fontSize: '12px', fontWeight: 700,
-                  }}>
-                    i
-                  </span>
-                  <div style={{ fontSize: '12px', lineHeight: 1.6, color: 'var(--muted)' }}>
-                    <strong style={{ display: 'block', color: 'var(--fg)', fontWeight: 600 }}>只读说明</strong>
-                    这些流程由应用内置并统一维护，本页用于核对处理范围，不提供新建、编辑或删除操作。
-                  </div>
-                </div>
-
-                {presetsLoadError && (
-                  <div role="alert" style={{
-                    display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px',
-                    padding: '12px 14px', borderRadius: '8px', border: '1px solid oklch(82% 0.06 25)',
-                    background: 'oklch(96% 0.025 25)', color: 'oklch(40% 0.12 25)',
-                  }}>
-                    <div style={{ flex: 1, minWidth: 0, fontSize: '12px', lineHeight: 1.55, overflowWrap: 'anywhere' }}>
-                      <strong style={{ display: 'block', marginBottom: '2px', fontWeight: 600 }}>预设加载失败</strong>
-                      {presetsLoadError}
-                    </div>
-                    <button onClick={() => void reloadPresets()} disabled={presetsLoading} style={{
-                      flex: '0 0 auto', fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 500,
-                      padding: '7px 12px', borderRadius: '6px', border: '1px solid var(--border)',
-                      background: 'var(--surface)', color: 'var(--fg)', cursor: presetsLoading ? 'default' : 'pointer',
-                      opacity: presetsLoading ? 0.6 : 1,
-                    }}>
-                      {presetsLoading ? '重试中...' : '重新加载'}
-                    </button>
-                  </div>
-                )}
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {presets.map(preset => (
-                    <div key={preset.id} style={{
-                      border: '1px solid var(--border)', borderRadius: '10px', background: 'var(--surface)',
-                      padding: '16px',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '14px', fontWeight: 600, flex: 1 }}>{preset.label}</span>
-                        <span style={{
-                          fontSize: '11px', color: 'var(--muted)', padding: '3px 8px',
-                          borderRadius: '999px', border: '1px solid var(--border)', whiteSpace: 'nowrap',
-                        }}>
-                          内置 · 只读
-                        </span>
-                      </div>
-                      <p style={{ margin: '0 0 14px', color: 'var(--muted)', fontSize: '12px', lineHeight: 1.65 }}>
-                        {preset.description}
-                      </p>
-                      <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '7px' }}>实际执行阶段</div>
-                      <div className="settings-preset-stages" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        {preset.stages.map((stage, index) => (
-                          <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {index > 0 && <span aria-hidden="true" style={{ color: 'var(--border-strong)', fontSize: '12px' }}>→</span>}
-                            <span style={{
-                              display: 'inline-flex', alignItems: 'center', gap: '5px',
-                              padding: '5px 8px', borderRadius: '6px', background: 'var(--accent-soft)',
-                              color: 'var(--accent)', fontSize: '12px', fontWeight: 500,
-                            }}>
-                              <span style={{ fontSize: '10px', opacity: 0.72 }}>{index + 1}</span>
-                              {PRESET_STAGE_LABELS[stage] ?? '其他处理'}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-
-                  {presetsLoading && presets.length === 0 && (
-                    <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '16px', textAlign: 'center' }}>
-                      正在加载内置预设...
-                    </div>
-                  )}
-
-                  {!presetsLoading && !presetsLoadError && presets.length === 0 && (
-                    <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '16px', textAlign: 'center' }}>
-                      当前没有可用的内置预设。
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+          {activeTab === 'presets' && <FlowPresetManager presets={presets} loading={presetsLoading} error={presetsLoadError} onReload={reloadPresets} />}
 
           {/* Panel: 路径配置 */}
           {activeTab === 'paths' && (
