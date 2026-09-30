@@ -129,3 +129,29 @@ docs/plan/archived/
 # Translation Cache
 # =====================
 translation_cache/
+
+# Local regression checks retained outside Git tracking (2026-09-30).
+/desktop/tests/fishVoicePicker.browser.cjs
+/desktop/tests/fixtures/fish-voice-picker.html
+/desktop/tests/fixtures/fish-voice-picker.tsx
+/desktop/tests/fixtures/speech-connections.html
+/desktop/tests/fixtures/speech-connections.tsx
+/desktop/tests/fixtures/task-selection.html
+/desktop/tests/fixtures/task-selection.tsx
+/desktop/tests/fixtures/voice-local-connection.html
+/desktop/tests/fixtures/voice-local-connection.tsx
+/desktop/tests/speechConnections.browser.cjs
+/desktop/tests/taskSelection.browser.cjs
+/desktop/tests/translationReuse.test.mjs
+/desktop/tests/voiceLocalConnection.browser.cjs
+/desktop/tests/workbenchFlow.test.mjs
+/tests/test_direct_subtitle_tts.py
+/tests/test_explicit_workflow.py
+/tests/test_mix_recording.py
+/tests/test_speech_connections.py
+/tests/test_speech_voice_catalog.py
+/tests/test_translation_reuse.py
+/desktop/tests/referenceAnalysis.test.mjs
+/desktop/tests/referenceSession.browser.cjs
+/tests/test_asr_http_api.py
+/tests/test_reference_transcript_segments.py
