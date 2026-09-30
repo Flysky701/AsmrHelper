@@ -88,6 +88,7 @@ class AsrEngineService:
                 text=segment.text,
                 language=segment.language,
                 confidence=segment.confidence,
+                recognition_metadata=dict(segment.recognition_metadata),
             )
             for segment in document.segments
         ]

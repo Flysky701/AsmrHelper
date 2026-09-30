@@ -56,7 +56,7 @@ def test_qwen3_asr_recognizer_falls_back_to_full_duration_segment(tmp_path, monk
         "language": "Japanese",
         "return_time_stamps": False,
     }
-    assert results == [{"start": 0.0, "end": 5.0, "text": "plain transcript"}]
+    assert results == [{"start": 0.0, "end": 5.0, "text": "plain transcript", "timestamp_source": "whole_audio"}]
 
 
 def test_qwen3_asr_recognizer_normalizes_forced_aligner_items_into_sentences(tmp_path, monkeypatch):

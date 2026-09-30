@@ -459,7 +459,7 @@ def test_prepare_clone_audio_reuses_supplied_asr_segments(
 
 @pytest.mark.parametrize(
     ("require_text", "expected_mode", "expected_text"),
-    [(True, "asr", "recognized text"), (False, "energy", "")],
+    [(True, "asr", "recognized text"), (False, "manual", "")],
 )
 def test_analysis_respects_language_and_can_skip_asr_for_x_vector(
     monkeypatch: pytest.MonkeyPatch,
@@ -515,12 +515,10 @@ def test_analysis_respects_language_and_can_skip_asr_for_x_vector(
     )
 
     assert result["mode"] == expected_mode
-    assert result["segments"][0]["text"] == expected_text
-    assert result["segments"][0]["score"] >= 0
-    assert result["segments"][0]["details"]
-    assert result["segments"][0]["eligible"] is True
     if require_text:
+        assert result["segments"][0]["text"] == expected_text
+        assert "score" not in result["segments"][0]
         assert captured["language"] == "en"
     else:
         assert "language" not in captured
-        assert result["segments"][0]["details"]["text_score"] == 100
+        assert result["segments"] == []

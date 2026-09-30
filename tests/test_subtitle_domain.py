@@ -53,14 +53,6 @@ class TestSubtitleCleaner:
 class TestSubtitleGenerator:
     """Test SubtitleGenerator from its canonical location."""
 
-    def test_import_from_canonical_path(self):
-        from src.core.subtitles.generator import SubtitleGenerator
-        assert SubtitleGenerator is not None
-
-    def test_import_from_package(self):
-        from src.core.subtitles import SubtitleGenerator
-        assert SubtitleGenerator is not None
-
     def test_generate_from_text(self):
         from src.core.subtitles import SubtitleGenerator
         entries = SubtitleGenerator.generate_from_text(
@@ -95,14 +87,6 @@ class TestSubtitleGenerator:
 
 class TestScriptProcessor:
     """Test ScriptProcessor from its canonical location."""
-
-    def test_import_from_canonical_path(self):
-        from src.core.subtitles.script_processor import ScriptProcessor
-        assert ScriptProcessor is not None
-
-    def test_import_from_package(self):
-        from src.core.subtitles import ScriptProcessor
-        assert ScriptProcessor is not None
 
     def test_detect_scripts_single(self):
         from src.core.subtitles import ScriptProcessor

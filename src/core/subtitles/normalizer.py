@@ -23,6 +23,7 @@ class SubtitleNormalizer:
                     text=text,
                     language=segment.language,
                     confidence=segment.confidence,
+                    recognition_metadata=dict(segment.recognition_metadata),
                 )
             )
         return SubtitleDocument(

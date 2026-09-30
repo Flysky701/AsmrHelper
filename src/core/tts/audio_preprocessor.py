@@ -390,7 +390,7 @@ class AudioPreprocessor:
                         # Voice-analysis input often contains long silent gaps.
                         # Faster-Whisper keeps timestamps on the source timeline
                         # while VAD reduces silence hallucinations.
-                        "provider_options": {"vad_filter": vad_filter},
+                        "provider_options": {"vad_filter": vad_filter, "preserve_segments": True},
                     },
                 )
 
@@ -406,9 +406,6 @@ class AudioPreprocessor:
                 )
                 document = transcribe(vad_filter=False)
 
-            if not document.segments:
-                raise ValueError("ASR 识别结果为空")
-
             # 转换为标准格式
             result = []
             for seg in document.segments:
@@ -417,16 +414,8 @@ class AudioPreprocessor:
                     "end": float(seg.end),
                     "text": str(seg.text).strip(),
                 }
-                confidence = getattr(seg, "confidence", None)
-                if confidence is not None:
-                    try:
-                        confidence_value = float(confidence)
-                    except (TypeError, ValueError):
-                        confidence_value = None
-                    if confidence_value is not None and np.isfinite(confidence_value):
-                        item["asr_confidence"] = float(
-                            np.clip(confidence_value, 0.0, 1.0)
-                        )
+                item["asr_confidence"] = getattr(seg, "confidence", None)
+                item["recognition_metadata"] = dict(getattr(seg, "recognition_metadata", {}) or {})
                 result.append(item)
 
             return result
@@ -1030,27 +1019,7 @@ class AudioPreprocessor:
         progress_callback: Optional[Callable] = None,
         require_text: bool = True,
     ) -> dict:
-        """
-        分析音频片段（不自动选择，用于 GUI 预览模式）
-
-        与 prepare_clone_audio 的区别：
-        - 不自动选择最佳片段
-        - 返回所有有效片段及其质量评分
-        - 用于 GUI 展示和用户手动选择
-        - require_text=False 时使用轻量能量 VAD，不启动 ASR
-
-        Returns:
-            dict: {
-                "segments": List[dict],
-                "mode": str,
-                "total_raw": int,
-                "valid_count": int,
-                "recommended_indices": List[int],
-                "audio_info": dict,
-                "warnings": List[str],
-                "converted_audio_path": str,
-            }
-        """
+        """Return chronological transcript spans for manual listening and selection."""
         warnings = []
 
         # Step 1: 加载并转换音频
@@ -1077,11 +1046,8 @@ class AudioPreprocessor:
         mode = "asr"
         audio_lang_normalized = normalize_language_code(audio_language)
         if not require_text:
-            self._report(progress_callback, "使用轻量能量 VAD 生成 x-vector 候选片段...", 30)
-            subtitle_entries = self._detect_energy_entries(converted_path)
-            mode = "energy"
-            if not subtitle_entries:
-                raise ValueError("未检测到可用的非静音音频片段")
+            warnings.append("未运行 ASR；请手动试听选段，或启用 ASR 获取台词与时间轴。")
+            mode = "manual"
         elif subtitle_path and Path(subtitle_path).exists():
             self._report(progress_callback, f"加载字幕: {Path(subtitle_path).name}", 20)
             from src.core.subtitles import (
@@ -1092,7 +1058,7 @@ class AudioPreprocessor:
             if subtitle_entries:
                 texts = [e.get("text", "") for e in subtitle_entries]
                 subtitle_lang = detect_subtitle_language(texts)
-                if normalize_language_code(subtitle_lang) == audio_lang_normalized:
+                if audio_lang_normalized not in {"auto", "unknown", "mixed", ""} and normalize_language_code(subtitle_lang) == audio_lang_normalized:
                     mode = "matched"
                     self._report(progress_callback,
                         f"匹配模式: 字幕语言({subtitle_lang}) == 音频语言({audio_lang_normalized})", 25)
@@ -1116,69 +1082,47 @@ class AudioPreprocessor:
                     language=audio_lang_normalized,
                     progress_callback=progress_callback,
                 )
-                if asr_segments:
-                    mode = "asr"
-                    subtitle_entries = asr_segments
-                    self._report(progress_callback, f"ASR 识别完成: {len(asr_segments)} 条", 50)
-                else:
-                    raise ValueError("ASR 识别结果为空")
+                mode = "asr"
+                subtitle_entries = asr_segments
+                self._report(progress_callback, f"ASR 识别完成: {len(asr_segments)} 条", 50)
             except Exception as asr_err:
                 self._report(progress_callback, f"ASR 识别失败: {asr_err}", 30)
                 warnings.append(f"ASR 识别失败: {asr_err}")
                 raise RuntimeError(f"无法获取音频文本内容: {asr_err}") from asr_err
 
-        # Step 4: 切割音频
-        self._report(progress_callback, "切割音频为片段...", 55)
-        segments = self._cut_with_entries(converted_path, subtitle_entries, progress_callback)
-        if not segments:
-            raise ValueError("音频切割失败，无法获取有效片段")
-
-        # Step 5: 筛选合规片段
-        self._report(progress_callback, "筛选合规片段...", 70)
-        valid_segments = self._filter_valid_segments(segments, progress_callback)
-        if not valid_segments:
-            raise ValueError("没有找到符合时长要求的音频片段 (3-30s)")
-
-        # Step 6: 评估质量
-        self._report(progress_callback, "评估片段质量...", 85)
-        for i, seg in enumerate(valid_segments):
-            quality = self.evaluate_segment_quality(seg, require_text=require_text)
-            # 保留旧 GUI 字段，同时输出应用层约定的标准字段。
-            seg["quality_score"] = quality["score"]
-            seg["quality_label"] = quality["label"]
-            seg["score"] = quality["score"]
-            seg["label"] = quality["label"]
-            seg["details"] = quality["details"]
-            seg["eligible"] = quality["eligible"]
-            seg["reasons"] = quality["reasons"]
-            seg["index"] = i
-
-        # Step 7: 自动推荐
-        recommended = self._select_best_segments(valid_segments)
-        recommended_indices = []
-        for rec in recommended:
-            for i, seg in enumerate(valid_segments):
-                if seg is rec:
-                    recommended_indices.append(i)
-                    seg["selected"] = True
-                    break
-
-        self._report(progress_callback,
-            f"分析完成: {len(valid_segments)} 个有效片段, 推荐 {len(recommended_indices)} 个", 100)
-
+        # Preserve all spans without quality filtering or clipping/merging text.
+        segments = []
+        duration = float(original_info["duration"])
+        for entry in subtitle_entries:
+            item = dict(entry)
+            try:
+                start, end = float(item["start"]), float(item["end"])
+                timed = np.isfinite(start) and np.isfinite(end) and 0 <= start < end <= duration
+            except (KeyError, TypeError, ValueError):
+                timed = False
+            if item.get("recognition_metadata", {}).get("timestamp_source") in {"whole_audio", "missing"}:
+                timed = False
+            item["timestamp_valid"] = bool(timed)
+            if timed:
+                item.update(start=start, end=end)
+            else:
+                item.update(start=None, end=None)
+            item.setdefault("asr_confidence", None)
+            item.setdefault("recognition_metadata", {})
+            segments.append(item)
+        segments.sort(key=lambda item: (not item["timestamp_valid"], item["start"] or 0, item["end"] or 0))
+        if any(not item["timestamp_valid"] for item in segments):
+            warnings.append("部分台词未提供有效时间戳，列在末尾；请在录音工作台手动定位。")
+        if not segments and require_text:
+            warnings.append("未识别到台词，请试听录音并手动选段。")
+        self._report(progress_callback, f"分析完成: {len(segments)} 个台词片段，请自行试听选择", 100)
         return {
-            "segments": valid_segments,
-            "mode": mode,
-            "total_raw": len(segments),
-            "valid_count": len(valid_segments),
-            "recommended_indices": recommended_indices,
-            "audio_info": {
-                "original_sample_rate": original_info["sample_rate"],
-                "original_channels": original_info["channels"],
-                "original_duration": original_info["duration"],
-            },
-            "warnings": warnings,
-            "converted_audio_path": converted_path,
+            "segments": segments, "mode": mode, "total_raw": len(segments),
+            "valid_count": sum(item["timestamp_valid"] for item in segments),
+            "warnings": warnings, "converted_audio_path": converted_path,
+            "audio_info": {"original_duration": duration,
+                           "original_sample_rate": original_info["sample_rate"],
+                           "original_channels": original_info["channels"]},
         }
 
     def evaluate_segment_quality(

@@ -33,34 +33,39 @@ def _resolve_model_name(provider: str, model_id: str) -> str:
     return model_id
 
 
-def _entry_confidence(entry: dict[str, Any]) -> float:
-    """Normalize provider confidence to 0..1 for downstream quality ranking."""
-    raw_confidence = entry.get("confidence")
-    if raw_confidence is not None:
-        try:
-            confidence = float(raw_confidence)
-        except (TypeError, ValueError):
-            return 0.0
-        if not math.isfinite(confidence):
-            return 0.0
-        return max(0.0, min(1.0, confidence))
-
-    raw_log_prob = entry.get("log_prob")
-    if raw_log_prob is None:
-        return 0.0
+def _entry_confidence(entry: dict[str, Any]) -> float | None:
+    """Preserve explicit recognizer scores; absence is not zero probability."""
     try:
-        log_prob = float(raw_log_prob)
+        value = float(entry.get("confidence"))
+        return value if math.isfinite(value) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _recognition_metadata(entry, provider=""):
+    metadata = dict(entry.get("recognition_metadata") or {})
+    metadata.setdefault("provider", provider)
+    # Legacy log_prob mixes word logits with speech-presence scores.
+    if entry.get("log_prob") is not None and _entry_confidence(entry) is None:
+        metadata.setdefault("confidence_note", "旧版 log_prob 含语音存在分数，不能作为台词置信度")
+    if entry.get("timestamp_source"):
+        metadata["timestamp_source"] = entry["timestamp_source"]
+    for key in ("start", "end"):
+        try:
+            valid = math.isfinite(float(entry[key]))
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        if not valid:
+            metadata["timestamp_source"] = "missing"
+    return metadata
+
+
+def _entry_time(value):
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else 0.0
     except (TypeError, ValueError):
         return 0.0
-    if not math.isfinite(log_prob):
-        return 0.0
-
-    # The legacy Faster-Whisper adapter stores a logit-like score. Use a
-    # numerically stable sigmoid so SubtitleSegment exposes a 0..1 value.
-    if log_prob >= 0.0:
-        return 1.0 / (1.0 + math.exp(-log_prob))
-    exp_value = math.exp(log_prob)
-    return exp_value / (1.0 + exp_value)
 
 
 class AsrEngineRuntime:
@@ -112,6 +117,8 @@ class AsrEngineRuntime:
             ),
         )
         recognize_kwargs: dict[str, Any] = {}
+        if provider == "faster_whisper" and provider_options.get("preserve_segments"):
+            recognize_kwargs.update(preserve_segments=True, min_segment_duration=0.0)
         if provider == "faster_whisper" and "vad_filter" in provider_options:
             # VAD changes transcription for one input, not model construction.
             # Keeping it out of the registry key lets a quiet-audio retry reuse
@@ -124,10 +131,11 @@ class AsrEngineRuntime:
         )
         segments = [
             SubtitleSegment(
-                start=float(entry.get("start", 0.0)),
-                end=float(entry.get("end", 0.0)),
+                start=_entry_time(entry.get("start")),
+                end=_entry_time(entry.get("end")),
                 text=str(entry.get("text", "")),
                 confidence=_entry_confidence(entry),
+                recognition_metadata=_recognition_metadata(entry, provider),
             )
             for entry in entries
         ]
@@ -145,11 +153,12 @@ class AsrEngineRuntime:
         payload = dict(result.get("document") or {})
         segments = [
             SubtitleSegment(
-                start=float(item.get("start", 0.0)),
-                end=float(item.get("end", 0.0)),
+                start=_entry_time(item.get("start")),
+                end=_entry_time(item.get("end")),
                 text=str(item.get("text", "")),
                 language=str(item.get("language", "")),
                 confidence=_entry_confidence(item),
+                recognition_metadata=_recognition_metadata(item),
             )
             for item in payload.get("segments", [])
             if isinstance(item, dict)

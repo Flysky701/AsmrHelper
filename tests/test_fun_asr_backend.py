@@ -78,7 +78,7 @@ def test_fun_asr_recognizer_falls_back_to_full_duration_segment(tmp_path, monkey
     audio_path.write_bytes(b"not-a-real-wave")
     results = recognizer.recognize(str(audio_path))
 
-    assert results == [{"start": 0.0, "end": 5.0, "text": "plain transcript"}]
+    assert results == [{"start": 0.0, "end": 5.0, "text": "plain transcript", "timestamp_source": "whole_audio"}]
 
 
 def test_fun_asr_recognizer_uses_vad_timestamp_items_without_sentence_info(

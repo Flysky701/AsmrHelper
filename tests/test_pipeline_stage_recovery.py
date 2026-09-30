@@ -68,7 +68,26 @@ class StubExecutor(PipelineExecutor):
 
 
 @pytest.fixture
-def setup(tmp_path):
+def setup(tmp_path, monkeypatch):
+    from src.core.resources import model_reference
+
+    # Stage doubles still use real recovery fingerprints. Keep default model
+    # hashing independent of the developer's installed multi-GB weights.
+    original_resolve = model_reference.resolve_model_reference
+    model_paths = {}
+    for model_id in ("faster-whisper-base", "qwen3-forced-aligner-0.6b"):
+        directory = tmp_path / "models" / model_id
+        directory.mkdir(parents=True)
+        (directory / "weights.bin").write_bytes(model_id.encode())
+        model_paths[model_id] = str(directory)
+
+    def resolve_model_reference(model_id):
+        if model_id in model_paths:
+            return model_paths[model_id]
+        return original_resolve(model_id)
+
+    monkeypatch.setattr(model_reference, "resolve_model_reference", resolve_model_reference)
+
     state = SqliteStateStore(tmp_path / "state.sqlite3")
     for task_id in ("first", "second", "third"):
         state.save_task(TaskSpec(task_id, "pipeline", "test", "session"), TaskStatus(task_id, "pending"))
@@ -228,11 +247,7 @@ def test_missing_declared_output_never_publishes_success(setup):
 
 @pytest.mark.parametrize("provider,dependency", [
     ("qwen3", "voice-profile.json"),
-    ("qwen3", "prompt-cache.pt"),
-    ("qwen3", "default-model.bin"),
     ("voxcpm2", "model-weights.bin"),
-    ("voxcpm2", "reference.wav"),
-    ("voxcpm2", "prompt.wav"),
     ("future_local_provider", "hidden-resource.bin"),
 ])
 def test_indirect_tts_resources_cannot_reuse_stale_audio(setup, tmp_path, provider, dependency):

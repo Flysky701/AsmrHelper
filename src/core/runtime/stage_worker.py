@@ -27,6 +27,7 @@ def _execute(request: dict[str, Any]) -> dict[str, Any]:
                         "text": segment.text,
                         "language": segment.language,
                         "confidence": segment.confidence,
+                        "recognition_metadata": segment.recognition_metadata,
                     }
                     for segment in document.segments
                 ],

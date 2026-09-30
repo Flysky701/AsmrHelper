@@ -154,6 +154,7 @@ class FunAsrRecognizer:
             if normalized_item and not sentence_info and not timestamp_segments:
                 if normalized_item["start"] == 0.0 and normalized_item["end"] == 0.0 and duration_seconds > 0:
                     normalized_item["end"] = duration_seconds
+                    normalized_item["timestamp_source"] = "whole_audio"
                 segments.append(normalized_item)
 
             text = str(item.get("text", "")).strip()
@@ -166,7 +167,7 @@ class FunAsrRecognizer:
         combined = "\n".join(text for text in loose_texts if text)
         if not combined:
             return []
-        return [{"start": 0.0, "end": max(duration_seconds, 0.0), "text": combined}]
+        return [{"start": 0.0, "end": max(duration_seconds, 0.0), "text": combined, "timestamp_source": "whole_audio"}]
 
     @classmethod
     def _normalize_timestamp_segments(cls, item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -268,7 +269,17 @@ class FunAsrRecognizer:
         if end <= start:
             end = start
 
-        return {"start": start, "end": end, "text": text}
+        result = {"start": start, "end": end, "text": text}
+        # Preserve only explicitly supplied sentence scores, without calibration.
+        for key in ("confidence", "score"):
+            if item.get(key) is not None:
+                result["confidence"] = item[key]
+                result["recognition_metadata"] = {
+                    "provider": "fun_asr", "confidence_kind": key,
+                    "confidence_note": "引擎句级原始分数，量纲由引擎定义，不能跨引擎比较",
+                }
+                break
+        return result
 
     @staticmethod
     def _bounds_from_timestamps(value: Any) -> tuple[float, float]:

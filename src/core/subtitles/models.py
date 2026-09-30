@@ -11,7 +11,8 @@ class SubtitleSegment:
     end: float
     text: str
     language: str = ""
-    confidence: float = 0.0
+    confidence: float | None = None
+    recognition_metadata: dict = field(default_factory=dict)
 
 
 @dataclass(slots=True)

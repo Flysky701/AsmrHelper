@@ -190,7 +190,7 @@ class Qwen3AsrRecognizer:
                 "Qwen3-ASR did not return alignment timestamps. Install the "
                 "Qwen3 Forced Aligner and retry; a whole-file subtitle cue was not written."
             )
-        return [{"start": 0.0, "end": max(duration_seconds, 0.0), "text": combined}]
+        return [{"start": 0.0, "end": max(duration_seconds, 0.0), "text": combined, "timestamp_source": "whole_audio"}]
 
     @classmethod
     def _timestamp_items(cls, value: Any) -> list[Any]:

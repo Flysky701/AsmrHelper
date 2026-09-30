@@ -141,6 +141,7 @@ class SubtitleDomainService:
                         text=segment.text,
                         language=segment.language,
                         confidence=segment.confidence,
+                        recognition_metadata=dict(segment.recognition_metadata),
                     )
                     for segment in asset.document.segments
                 ],

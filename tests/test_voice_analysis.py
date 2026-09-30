@@ -43,7 +43,7 @@ def test_voice_analysis_routes_catalog_model_id_through_asr_runtime(
         "provider": "faster_whisper",
         "model": "faster-whisper-base",
         "common_options": {"language": "ja"},
-        "provider_options": {"vad_filter": True},
+        "provider_options": {"vad_filter": True, "preserve_segments": True},
     }
     assert result == [
         {
@@ -51,6 +51,7 @@ def test_voice_analysis_routes_catalog_model_id_through_asr_runtime(
             "end": 1.25,
             "text": "test",
             "asr_confidence": 0.82,
+            "recognition_metadata": {},
         }
     ]
 
@@ -91,7 +92,7 @@ def test_voice_analysis_retries_without_vad_only_after_empty_result(
     assert result[0]["asr_confidence"] == 0.61
 
 
-def test_asr_runtime_preserves_legacy_log_probability_as_confidence(tmp_path):
+def test_asr_runtime_does_not_use_legacy_speech_score_as_confidence(tmp_path):
     from src.core.engines.asr.service import AsrEngineRuntime
 
     class Registry:
@@ -119,7 +120,7 @@ def test_asr_runtime_preserves_legacy_log_probability_as_confidence(tmp_path):
         },
     )
 
-    assert document.segments[0].confidence == 0.5
+    assert document.segments[0].confidence is None
 
 
 @pytest.mark.parametrize("confidence", [float("nan"), float("inf"), float("-inf")])
@@ -154,4 +155,4 @@ def test_asr_runtime_normalizes_non_finite_explicit_confidence(
         },
     )
 
-    assert document.segments[0].confidence == 0.0
+    assert document.segments[0].confidence is None

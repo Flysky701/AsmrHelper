@@ -16,7 +16,7 @@ export interface SpeechRecipe { id: string; revision: number; name: string; desc
 export interface SpeechSegment { id: string; start: number; end: number; delivery: Delivery; emotion: string; pause_ms: number }
 export interface SpeechPlan { id: string; text: string; text_hash: string; segments: SpeechSegment[] }
 export interface ReferenceAsset { id: string; path: string; name?: string; notes?: string; archived?: boolean; source_path?: string; transcript: string; language: string; start?: number; end?: number; duration?: number; confirmed?: boolean }
-export interface ReferenceCandidate { start: number; end: number; text: string; score?: number; selected?: boolean; reasons?: string[] }
+export interface ReferenceCandidate { start: number | null; end: number | null; text: string; timestamp_valid?: boolean; asr_confidence?: number | null; recognition_metadata?: { provider?: string; confidence_kind?: string; confidence_note?: string } }
 export interface ReferenceTranscription { transcript: string; confirmed: false; start: number; end: number; language: string }
 export interface ReferenceAnalysis { original: ReferenceInspection; analyzed: ReferenceInspection; segments: ReferenceCandidate[]; transcript_source?: 'subtitle' | 'asr' | 'none'; subtitle?: { name: string; language: string; language_verified: boolean } | null; warnings?: string[] }
 export interface ReferenceDraft { path: string; start: number; end: number; transcript: string; language: string; confirmed: boolean; name: string; notes: string; gain_db: number; fade_in: number; fade_out: number }

@@ -382,72 +382,30 @@ class TestTranslationRoutes:
 # ─── TTS ──────────────────────────────────────────────────────────────
 
 
-class TestTtsRoutes:
-    def test_list_tts_engines(self, client):
-        mock_svc = MagicMock()
-        mock_svc.list_engines.return_value = [
-            {
-                "category": "tts",
-                "provider": "edge",
-                "display_name": "Edge TTS",
-                "kind": "cloud",
-                "supported_models": ["default"],
-                "default_model": "default",
-                "common_option_schema": [
-                    {"name": "voice", "type": "string", "required": False, "default": "zh-CN-XiaoxiaoNeural", "description": ""},
-                ],
-                "provider_option_schema": [
-                    {"name": "proxy", "type": "string", "required": False, "default": None, "description": ""},
-                ],
-                "supports": {"voice_list": True, "preview": True},
-            }
-        ]
-
-        resp = client.get("/api/v1/tts/engines")
-        assert resp.status_code == 404
-        mock_svc.list_engines.assert_not_called()
-
-    def test_list_tts_voices(self, client):
-        mock_svc = MagicMock()
-        mock_svc.list_voices.return_value = [
-            {
-                "id": "zh-CN-XiaoxiaoNeural",
-                "name": "晓晓（女）",
-                "language": "zh-CN",
-            }
-        ]
-
-        resp = client.get("/api/v1/tts/engines/edge/voices")
-
-        assert resp.status_code == 404
-        mock_svc.list_voices.assert_not_called()
-
-    def test_synthesize_success(self, client, tmp_path):
-        mock_svc = MagicMock()
-        result_mock = MagicMock()
-        result_mock.engine = "edge"
-        result_mock.voice = "zh-CN-XiaoxiaoNeural"
-        result_mock.output_path = "/test/output.wav"
-        mock_svc.synthesize_text.return_value = result_mock
-
-        # Create a real input file since the route checks existence
-        input_file = tmp_path / "text.txt"
-        input_file.write_text("hello world", encoding="utf-8")
-
-        resp = client.post(
-            "/api/v1/tts/synthesize",
-            json={
-                "input_path": str(input_file),
-                "output_path": "/test/output.wav",
-                "engine": "edge",
-                "model": "default",
-                "voice": "zh-CN-XiaoxiaoNeural",
-                "speed": 1.1,
-                "provider_options": {"proxy": "http://127.0.0.1:7890"},
-            },
-        )
-        assert resp.status_code == 404
-        mock_svc.synthesize_text.assert_not_called()
+class TestRemovedSpeechRoutes:
+    @pytest.mark.parametrize(("method", "path", "payload"), [
+        ("GET", "/api/v1/tts/engines", None),
+        ("GET", "/api/v1/tts/engines/edge/voices", None),
+        ("POST", "/api/v1/tts/synthesize", {
+            "input_path": "/test/text.txt",
+            "output_path": "/test/output.wav",
+            "engine": "edge",
+            "model": "default",
+            "voice": "zh-CN-XiaoxiaoNeural",
+            "speed": 1.1,
+            "provider_options": {"proxy": "http://127.0.0.1:7890"},
+        }),
+        ("POST", "/api/v1/voice/design", {"name": "voice", "description": "warm"}),
+        ("POST", "/api/v1/voice/clone", {"name": "voice", "audio_path": "input.wav"}),
+        ("POST", "/api/v1/voice/profiles/A1/preview", {"text": "hello", "speed": 1.0}),
+        ("GET", "/api/v1/voice/profiles", None),
+        ("GET", "/api/v1/voice/profiles/A1", None),
+        ("DELETE", "/api/v1/voice/profiles/A1", None),
+        ("POST", "/api/v1/voice/analyze-segments", None),
+    ])
+    def test_removed_route_returns_404(self, client, method, path, payload):
+        response = client.request(method, path, json=payload)
+        assert response.status_code == 404
 
 
 # ─── Capabilities ─────────────────────────────────────────────────────
@@ -705,47 +663,6 @@ class TestModelRoutes:
 
 
 # ─── Subtitles ────────────────────────────────────────────────────────
-
-
-class TestVoiceTaskRoutes:
-    @pytest.mark.parametrize(
-        ("path", "method_name", "payload", "task_type"),
-        [
-            ("/api/v1/voice/design", "submit_design_voice", {"name": "voice", "description": "warm"}, "voice.design"),
-            ("/api/v1/voice/clone", "submit_clone_voice", {"name": "voice", "audio_path": "input.wav"}, "voice.clone"),
-            ("/api/v1/voice/profiles/A1/preview", "submit_preview_voice", {"text": "hello", "speed": 1.0}, "voice.preview"),
-        ],
-    )
-    def test_removed_voice_long_operations_do_not_submit_tasks(
-        self, client, path, method_name, payload, task_type
-    ):
-        mock_svc = MagicMock()
-        getattr(mock_svc, method_name).return_value = TaskStatus(
-            task_id=f"{task_type}-1",
-            task_type=task_type,
-            task_source="voice-lab",
-            state="running",
-            stage=task_type.split(".")[-1],
-            progress=0.1,
-            created_at="2026-08-07T00:00:00+00:00",
-        )
-
-        response = client.post(path, json=payload)
-
-        assert response.status_code == 404
-        getattr(mock_svc, method_name).assert_not_called()
-
-    @pytest.mark.parametrize(("method", "path"), [
-        ("GET", "/api/v1/voice/profiles"),
-        ("GET", "/api/v1/voice/profiles/A1"),
-        ("DELETE", "/api/v1/voice/profiles/A1"),
-        ("POST", "/api/v1/voice/analyze-segments"),
-    ])
-    def test_removed_voice_library_routes_are_not_compatibility_aliases(self, client, method, path):
-        service = MagicMock()
-        response = client.request(method, path)
-        assert response.status_code == 404
-        assert service.mock_calls == []
 
 
 class TestSubtitleRoutes:

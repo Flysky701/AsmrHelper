@@ -210,7 +210,7 @@ class SpeechService:
             task_type="speech.reference_analyze", task_source="voice-lab", session_id=uuid4().hex,
             execution_profile={"reference_analysis": {
                 "path": str(path.resolve()), "language": body.get("language", "auto"),
-                "require_text": body.get("require_text", False),
+                "require_text": body.get("require_text", True),
                 "separate_vocals": body.get("separate_vocals", False),
                 "subtitle_text": body.get("subtitle_text", ""),
                 "subtitle_format": body.get("subtitle_format", "vtt"),
@@ -345,10 +345,10 @@ class SpeechService:
             audio_path=analyzed["path"],
             audio_language=subtitle["language"] if subtitle else body.get("language", "auto"),
             subtitle_path=subtitle_path,
-            require_text=bool(subtitle) or body.get("require_text", False), progress_callback=analysis_progress)
+            require_text=bool(subtitle) or body.get("require_text", True), progress_callback=analysis_progress)
         return {"original": original, "analyzed": analyzed, "segments": result.get("segments", []),
-            "mode": result.get("mode", "energy"), "warnings": warnings + result.get("warnings", []),
-            "transcript_source": "subtitle" if subtitle else "asr" if body.get("require_text") else "none",
+            "mode": result.get("mode", "manual"), "warnings": warnings + result.get("warnings", []),
+            "transcript_source": "subtitle" if subtitle else "asr" if result.get("mode") == "asr" else "none",
             "subtitle": subtitle}
 
     @staticmethod

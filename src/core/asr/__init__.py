@@ -124,6 +124,7 @@ class ASRRecognizer:
         progress_callback: Optional[Callable[[float, float, int], None]] = None,
         show_progress: bool = True,
         vad_filter: Optional[bool] = None,
+        preserve_segments: bool = False,
     ) -> List[dict]:
         """
         识别音频
@@ -192,7 +193,9 @@ class ASRRecognizer:
                     word_count += 1
 
             # 计算置信度：基于 words 的平均概率
-            if words:
+            if preserve_segments:
+                log_prob = None
+            elif words:
                 avg_prob = sum(w["probability"] for w in words) / len(words)
                 # 转换为 log_prob 格式（兼容后处理），取自然对数
                 log_prob = -math.log(1.0 / (avg_prob + 1e-10) - 1.0 + 1e-10)
@@ -215,6 +218,14 @@ class ASRRecognizer:
                 "log_prob": log_prob,  # 保留置信度（用于后处理过滤）
                 "words": words,
             }
+            if preserve_segments:
+                raw_score = getattr(seg, "avg_logprob", None)
+                result["confidence"] = raw_score if raw_score is not None and math.isfinite(raw_score) else None
+                result["recognition_metadata"] = {
+                    "provider": "faster_whisper",
+                    "confidence_kind": "avg_logprob",
+                    "confidence_note": "平均 token 对数概率；越接近 0 越高，不是台词正确率",
+                }
             results.append(result)
 
             # 流式进度显示（每5%更新一次）
@@ -232,7 +243,8 @@ class ASRRecognizer:
         total_words = sum(len(r.get("words", [])) for r in results)
 
         # 后处理：文本规范化 + 片段合并 + 置信度过滤
-        results = self.postprocessor.process(results)
+        if not preserve_segments:
+            results = self.postprocessor.process(results)
 
         # 保存结果
         if output_path:
