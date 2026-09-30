@@ -2,7 +2,7 @@
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 from src.app.services.speech_service import get_speech_service
@@ -51,9 +51,20 @@ def library(svc=Depends(get_speech_service)):
     return svc.library()
 
 
+@router.get("/connections")
+def connections(svc=Depends(get_speech_service)):
+    return {"connections": call(svc.list_connections)}
+
+
 @router.post("/connections")
 def connection(body: dict, svc=Depends(get_speech_service)):
     return call(svc.save_connection, body)
+
+
+@router.post("/connections/local-default")
+def local_default_connection(body: dict, svc=Depends(get_speech_service)):
+    return call(svc.resolve_local_connection, required(body, "provider_id"),
+                required(body, "model"), required(body, "mode"))
 
 
 @router.post("/connections/{connection_id}/probe")
@@ -62,6 +73,18 @@ def probe(connection_id: str, body: dict | None = None, svc=Depends(get_speech_s
     context = call(svc.connection_context, item)
     context.update({k: v for k, v in (body or {}).items() if k in {"model", "mode"}})
     return call(get_provider(item["provider_id"]).probe, context)
+
+
+@router.get("/connections/{connection_id}/voices")
+def connection_voices(connection_id: str, title: str = Query("", max_length=200),
+                      page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                      workspace_only: bool = True, svc=Depends(get_speech_service)):
+    item = call(svc.store.get, "connections", connection_id)
+    if item.get("provider_id") != "fish_audio":
+        raise HTTPException(422, "此连接不支持获取声音列表，请手填 Voice ID")
+    context = call(svc.connection_context, item)
+    return call(get_provider("fish_audio").list_hosted_voices, context,
+                title=title, page=page, page_size=page_size, workspace_only=workspace_only)
 
 
 @router.post("/voices")

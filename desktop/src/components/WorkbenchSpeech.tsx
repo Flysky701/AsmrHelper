@@ -8,6 +8,7 @@ import { useSpeechDraftStore } from '@/stores/speechDraftStore'
 import type { SpeechEngineDraft } from '@/stores/speechDraftStore'
 import { useNavStore } from '@/stores/navStore'
 import './WorkbenchSpeech.css'
+import FishVoicePicker from './FishVoicePicker'
 
 export interface WorkbenchSpeechResolution {
   stage: StageProfileRequest | null
@@ -167,6 +168,9 @@ export default function WorkbenchSpeech({ disabled, language, preferredProvider,
           </select> : mode?.id === 'design' ? <textarea rows={2} value={engine?.value ?? ''} placeholder={catalog.description} onChange={event => edit({ value: event.target.value })} />
             : <input value={engine?.value ?? ''} placeholder={catalog.description} onChange={event => edit({ value: event.target.value })} />}
         </Field>}
+        {!recipeId && provider?.provider_id === 'fish_audio' && mode?.id === 'hosted' && <FishVoicePicker
+          key={engine?.connectionRef || ''} connectionId={engine?.connectionRef || ''}
+          value={engine?.value || ''} onSelect={value => edit({ value })} />}
       </div>
       {!recipeId && catalog?.description && <p className="workbench-speech-muted">{catalog.description}</p>}
       {selectedRecipe && <p className="workbench-speech-muted">使用已保存规则的声音、语言和参数；提交时固定当前修订。</p>}

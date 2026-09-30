@@ -45,6 +45,10 @@ class RuntimeProfileResolver:
         "voxcpm2": "voxcpm2",
     }
     _CUDA_TORCH_PROFILES = {"main", "qwen_asr", "fun_asr", "qwen_tts", "voxcpm2"}
+    # Measured Qwen cold imports take just over 30s; keep a hard, bounded budget.
+    _ASR_IMPORT_TIMEOUT = 45
+    _MODULE_PROBE_REVISION = 2
+    _FAILED_PROBE_RETRY_SECONDS = 300
 
     _ALIASES = {
         "": "main",
@@ -255,17 +259,34 @@ class RuntimeProfileResolver:
         cached = self._get_cached_probe(cache_key)
         if cached is not None:
             return cached
+        budget = self._ASR_IMPORT_TIMEOUT if profile.id in {"fun_asr", "qwen_asr"} else 30
         script = (
-            "import importlib, json\n"
+            "import importlib, json, time\n"
             f"modules = {unique_modules!r}\n"
+            "def event(**value):\n"
+            "    print('__ASMR_RUNTIME_EVENT__' + json.dumps(value), flush=True)\n"
             "def probe(name):\n"
             "    if name == 'funasr':\n"
             "        from funasr import AutoModel\n"
             "        return AutoModel is not None\n"
             "    return bool(importlib.import_module(name))\n"
-            "result = {name: probe(name) for name in modules}\n"
-            "print('__ASMR_RUNTIME_PROBE__' + json.dumps(result))\n"
+            "result = {}\n"
+            "for name in modules:\n"
+            "    started = time.monotonic()\n"
+            "    event(module=name, phase='start')\n"
+            "    try:\n"
+            "        result[name] = probe(name)\n"
+            "    except Exception as exc:\n"
+            "        event(module=name, phase='error', seconds=time.monotonic()-started,\n"
+            "              error_type=type(exc).__name__, missing=getattr(exc, 'name', None),\n"
+            "              dll_error='DLL load failed' in str(exc))\n"
+            "        raise\n"
+            "    event(module=name, phase='complete', seconds=time.monotonic()-started)\n"
+            "print('__ASMR_RUNTIME_PROBE__' + json.dumps(result), flush=True)\n"
         )
+        started = time.monotonic()
+        logger.info("runtime module probe starting profile=%s modules=%s budget=%ss python=%s",
+                    profile.id, ",".join(unique_modules), budget, profile.python_executable)
         try:
             result = subprocess.run(
                 [str(profile.python_executable), "-c", script],
@@ -275,30 +296,85 @@ class RuntimeProfileResolver:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=30,
+                timeout=budget,
                 check=False,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            detail = (f"runtime module probe failed: {profile.id} 依赖导入超过 30 秒，尚未确认可用性。"
-                      if isinstance(exc, subprocess.TimeoutExpired) else f"runtime module probe failed: {exc}")
-            logger.warning("%s profile=%s modules=%s error=%s", detail, profile.id, ",".join(unique_modules), exc)
+            events = self._module_probe_events(getattr(exc, "stdout", None), unique_modules)
+            current = events[-1]["module"] if events else "解释器启动/依赖导入"
+            if set(unique_modules) <= {event["module"] for event in events if event.get("phase") == "complete"}:
+                current = "依赖已导入，等待探测进程退出"
+            elapsed = time.monotonic() - started
+            # subprocess.run kills and waits for its child before raising TimeoutExpired.
+            detail = (f"runtime module probe failed: {profile.id} 验证耗时 {elapsed:.1f} 秒；"
+                      f"当前模块：{current}；")
+            if isinstance(exc, subprocess.TimeoutExpired):
+                detail += f"超过 {budget} 秒总上限，探测子进程已结束，尚未确认可用性。"
+            else:
+                detail += f"无法完成依赖探测（{type(exc).__name__}）。"
+            logger.warning("%s python=%s", detail, profile.python_executable)
             self._set_cached_probe_error(cache_key, detail)
             raise RuntimeProbeError(detail) from exc
+        elapsed = time.monotonic() - started
+        events = self._module_probe_events(result.stdout, unique_modules)
+        timings = ", ".join(f"{event['module']}={event['seconds']:.2f}s" for event in events
+                            if event.get("phase") == "complete" and type(event.get("seconds")) in (int, float))
         if result.returncode != 0:
-            self._set_cached_probe(cache_key, False)
-            return False
+            failure = next((event for event in reversed(events) if event.get("phase") == "error"), {})
+            current = failure.get("module") or (events[-1]["module"] if events else "解释器启动/依赖导入")
+            error_type = str(failure.get("error_type") or "子进程异常退出")
+            if not error_type.isidentifier():
+                error_type = "子进程异常退出"
+            missing = str(failure.get("missing") or "")
+            if not all(part.isidentifier() for part in missing.split(".")):
+                missing = ""
+            detail = (f"runtime module probe failed: {profile.id} 导入 {current} 失败"
+                      f"（{error_type}），已用 {elapsed:.1f} 秒")
+            if failure.get("dll_error"):
+                detail += "；DLL 加载失败"
+            if missing:
+                detail += f"；涉及模块：{missing}"
+            detail += f"；进程退出码：{result.returncode}。"
+            # Do not expose arbitrary dependency stderr (which can contain secrets).
+            logger.warning("%s completed=%s python=%s", detail, timings, profile.python_executable)
+            if error_type == "ModuleNotFoundError":
+                self._set_cached_probe(cache_key, False)
+                return False
+            self._set_cached_probe_error(cache_key, detail)
+            raise RuntimeProbeError(detail)
         try:
             line = next(
                 line for line in reversed(result.stdout.splitlines())
                 if line.startswith("__ASMR_RUNTIME_PROBE__")
             )
-            available = all(json.loads(line.removeprefix("__ASMR_RUNTIME_PROBE__")).values())
+            values = json.loads(line.removeprefix("__ASMR_RUNTIME_PROBE__"))
+            if (not isinstance(values, dict) or set(values) != set(unique_modules)
+                    or any(type(value) is not bool for value in values.values())):
+                raise ValueError("incomplete module probe result")
+            available = all(values.values())
+            logger.info("runtime module probe finished profile=%s available=%s elapsed=%.2fs modules=%s",
+                        profile.id, available, elapsed, timings)
             self._set_cached_probe(cache_key, available)
             return available
-        except (json.JSONDecodeError, AttributeError, StopIteration) as exc:
+        except (ValueError, AttributeError, StopIteration) as exc:
             detail = "runtime module probe returned an invalid response"
             self._set_cached_probe_error(cache_key, detail)
             raise RuntimeProbeError(detail) from exc
+
+    @staticmethod
+    def _module_probe_events(output, modules):
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="replace")
+        events = []
+        for line in str(output or "").splitlines():
+            if line.startswith("__ASMR_RUNTIME_EVENT__"):
+                try:
+                    event = json.loads(line.removeprefix("__ASMR_RUNTIME_EVENT__"))
+                    if isinstance(event, dict) and event.get("module") in modules:
+                        events.append(event)
+                except (ValueError, TypeError):
+                    pass
+        return events
 
     def has_cuda(self, profile_id: str | None) -> bool:
         with self._flight_lock(profile_id):
@@ -364,19 +440,34 @@ class RuntimeProfileResolver:
                 cached = self._probe_cache.read(key, fingerprint)
             if not cached:
                 return None
+            if (key[0] in {"fun_asr", "qwen_asr"} and key[1].startswith("modules:")
+                    and cached.get("available") is not True):
+                # Old false/error results had no import diagnostics and the shorter budget.
+                # Keep existing successes; retry old failures once under the new policy.
+                if cached.get("probe_revision") != self._MODULE_PROBE_REVISION:
+                    return None
+                if "error" in cached:
+                    retry_at = cached.get("retry_at")
+                    if (type(retry_at) not in (int, float) or not 0 < retry_at < float("inf")
+                            or time.time() >= retry_at):
+                        return None
             self._probe_records[key] = cached
         if "error" in cached:
             try:
                 checked = time.strftime("%Y-%m-%d %H:%M", time.localtime(cached["checked_at"]))
             except (KeyError, TypeError, ValueError, OverflowError, OSError):
                 checked = "时间未知"
-            raise RuntimeProbeError(f"{cached['error']}（上次检测：{checked}；点击“验证”重新检测）")
+            retry = "；最多5分钟后可自动重新检测" if "retry_at" in cached else ""
+            raise RuntimeProbeError(f"历史缓存，本次未重新导入（上次检测：{checked}"
+                                    f"{retry}；点击“验证”立即重新检测）：{cached['error']}")
         return cached["available"]
 
     def _set_cached_probe(self, key: tuple[str, str], value: bool) -> None:
         with self._probe_lock:
             record = {"version": 1, "signature": signature(self.resolve(key[0]), self.project_root),
                       "checked_at": time.time(), "available": value}
+            if key[1].startswith("modules:"):
+                record["probe_revision"] = self._MODULE_PROBE_REVISION
             self._probe_records[key] = record
             self._probe_cache.write(key, record)
 
@@ -384,6 +475,9 @@ class RuntimeProfileResolver:
         with self._probe_lock:
             record = {"version": 1, "signature": signature(self.resolve(key[0]), self.project_root),
                       "checked_at": time.time(), "error": detail}
+            if key[0] in {"fun_asr", "qwen_asr"} and key[1].startswith("modules:"):
+                record.update(probe_revision=self._MODULE_PROBE_REVISION,
+                              retry_at=time.time() + self._FAILED_PROBE_RETRY_SECONDS)
             self._probe_records[key] = record
             self._probe_cache.write(key, record)
 

@@ -115,6 +115,72 @@ class SpeechProvider:
                     {"hosted": "填写服务端真实 Voice ID", "reference": "选择参考音频素材",
                      "design": "填写声音描述", "builtin": "选择引擎预设音色"}.get(mode, "")}
 
+    def list_hosted_voices(self, context, *, title="", page=1, page_size=20, workspace_only=True):
+        """Read Fish's voice catalog without synthesis or a guessed default voice."""
+        if self.provider_id != "fish_audio":
+            raise ProviderError("voice_catalog_unsupported", "此引擎不支持获取声音列表，请手填 Voice ID")
+        if not 1 <= page_size <= 100 or page < 1 or len(title) > 200:
+            raise ValueError("声音查询参数无效")
+        connection = context.get("connection", {})
+        base = str(connection.get("base_url", "")).rstrip("/")
+        key = connection.get("api_key")
+        parsed = urlsplit(base)
+        if (not key or parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or parsed.username or parsed.password or parsed.query or parsed.fragment):
+            raise ProviderError("connection_missing", "服务连接地址或凭据不完整，请检查连接或手填 Voice ID")
+        if connection.get("provider_id") != self.provider_id:
+            raise ProviderError("connection_mismatch", "请选择 Fish Audio 服务连接")
+        # Official TTS uses /v1/tts, while the voice catalog is at /model.
+        # Keep a custom proxy's prefix; unsupported proxies fall back to manual IDs.
+        path = parsed.path.rstrip("/")
+        if parsed.hostname == "api.fish.audio" and path in {"", "/v1", "/tts", "/v1/tts"}:
+            path = ""
+        elif path.endswith("/tts"):
+            path = path[:-4]
+        url = parsed._replace(path=path + "/model").geturl()
+        params = {"page_number": page, "page_size": page_size,
+                  "self": "true" if workspace_only else "false"}
+        if title.strip():
+            params["title"] = title.strip()
+        try:
+            with httpx.Client(timeout=httpx.Timeout(20, connect=10), follow_redirects=False) as client:
+                response = client.get(url, params=params, headers={"Authorization": f"Bearer {key}"})
+        except httpx.TimeoutException as exc:
+            raise ProviderError("voice_catalog_timeout", "声音列表请求超时，请重试或手填 Voice ID") from exc
+        except httpx.RequestError as exc:
+            raise ProviderError("voice_catalog_network", "无法连接声音列表服务，请重试或手填 Voice ID") from exc
+        if response.status_code in {401, 403}:
+            raise ProviderError("voice_catalog_unauthorized", "无权读取声音列表，请检查连接权限或手填 Voice ID")
+        if response.status_code in {404, 405, 501} or response.is_redirect:
+            raise ProviderError("voice_catalog_unsupported", "当前服务或代理不支持声音列表，请手填 Voice ID")
+        if response.status_code == 429:
+            raise ProviderError("voice_catalog_rate_limited", "声音列表请求过于频繁，请稍后重试或手填 Voice ID")
+        if response.status_code != 200:
+            raise ProviderError("voice_catalog_failed", "声音列表服务暂不可用，请重试或手填 Voice ID")
+        # Never expose upstream error bodies, headers or credentials to the UI.
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise ProviderError("voice_catalog_invalid", "服务未返回有效声音列表，请手填 Voice ID") from exc
+        if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+            raise ProviderError("voice_catalog_invalid", "服务返回的声音列表格式不兼容，请手填 Voice ID")
+        items, seen = [], set()
+        for item in data["items"]:
+            if (not isinstance(item, dict) or not isinstance(item.get("_id"), str)
+                    or not item["_id"].strip() or not isinstance(item.get("title", ""), str)):
+                raise ProviderError("voice_catalog_invalid", "服务返回的声音条目格式不兼容，请手填 Voice ID")
+            voice_id = item["_id"].strip()
+            if voice_id not in seen:
+                items.append({"id": voice_id, "name": item.get("title", "").strip() or voice_id})
+                seen.add(voice_id)
+        total = data.get("total")
+        has_more = data.get("has_more")
+        if not isinstance(has_more, bool):
+            has_more = page * page_size < total if type(total) is int and total >= 0 else len(data["items"]) >= page_size
+        has_more = bool(items) and has_more
+        return {"items": items, "page": page, "page_size": page_size, "has_more": has_more,
+                "notice": "已到服务端可浏览范围，请按名称缩小搜索。" if data.get("window_limited") and not has_more else ""}
+
     def _options(self, recipe):
         options = recipe.get("provider_options", {})
         schema = self.options_schema

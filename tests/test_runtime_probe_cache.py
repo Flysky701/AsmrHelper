@@ -31,7 +31,9 @@ def test_result_survives_resolver_restart_without_expiring(tmp_path, monkeypatch
     calls = []
     def run(*args, **kwargs):
         calls.append(args)
-        return success() if available else SimpleNamespace(returncode=1, stdout="", stderr="missing")
+        return success() if available else SimpleNamespace(returncode=1, stdout=(
+            '__ASMR_RUNTIME_EVENT__{"module":"funasr","phase":"error",'
+            '"error_type":"ModuleNotFoundError","missing":"funasr"}'), stderr="missing")
     monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", run)
     assert resolver.check_modules("fun_asr", ["funasr"]) is available
     # A new resolver represents restarting the app; elapsed wall time is not an invalidator.
@@ -42,19 +44,99 @@ def test_result_survives_resolver_restart_without_expiring(tmp_path, monkeypatch
 
 def test_timeout_stays_unknown_and_manual_verification_retries(tmp_path, monkeypatch):
     resolver, _, _ = environment(tmp_path)
+    clock = [1000.0]
+    monkeypatch.setattr("src.core.runtime.profiles.time.time", lambda: clock[0])
     calls = []
     def run(*args, **kwargs):
         calls.append(args)
-        raise subprocess.TimeoutExpired("probe", 30)
+        raise subprocess.TimeoutExpired("probe", kwargs["timeout"], output=(
+            b'__ASMR_RUNTIME_EVENT__{"module":"funasr","phase":"start"}\n'))
     monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", run)
-    for current in (resolver, RuntimeProfileResolver(tmp_path)):
-        with pytest.raises(RuntimeProbeError):
-            current.check_modules("fun_asr", ["funasr"])
+    with pytest.raises(RuntimeProbeError, match="当前模块：funasr.*45 秒总上限"):
+        resolver.check_modules("fun_asr", ["funasr"])
+    with pytest.raises(RuntimeProbeError, match="历史缓存，本次未重新导入.*5分钟"):
+        RuntimeProfileResolver(tmp_path).check_modules("fun_asr", ["funasr"])
     assert len(calls) == 1
     resolver.clear_probe_cache("fun_asr")
     with pytest.raises(RuntimeProbeError):
         RuntimeProfileResolver(tmp_path).check_modules("fun_asr", ["funasr"])
     assert len(calls) == 2
+    clock[0] += 301
+    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", success)
+    assert resolver.check_modules("fun_asr", ["funasr"]) is True
+
+
+def test_cold_qwen_import_over_30_seconds_has_bounded_budget_and_module_timing(tmp_path, monkeypatch, caplog):
+    import logging
+    resolver, _, _ = environment(tmp_path)
+    executable = resolver.resolve("qwen_asr").python_executable
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"python")
+    def run(*args, **kwargs):
+        assert kwargs["timeout"] == 45  # Cold import is allowed past 30s, never unbounded.
+        assert "from_pretrained" not in args[0][-1]
+        return SimpleNamespace(returncode=0, stdout=(
+            '__ASMR_RUNTIME_EVENT__{"module":"qwen_asr","phase":"complete","seconds":30.16}\n'
+            '__ASMR_RUNTIME_PROBE__{"qwen_asr":true}'), stderr="")
+    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", run)
+    with caplog.at_level(logging.INFO):
+        assert resolver.check_modules("qwen_asr", ["qwen_asr"]) is True
+    assert "qwen_asr=30.16s" in caplog.text
+
+
+@pytest.mark.parametrize("kind", ["ImportError", "ModuleNotFoundError", "process_exit"])
+def test_real_import_failure_keeps_its_kind_without_exposing_stderr(tmp_path, monkeypatch, kind):
+    resolver, _, _ = environment(tmp_path)
+    stdout = '__ASMR_RUNTIME_EVENT__{"module":"funasr","phase":"start"}\n'
+    if kind != "process_exit":
+        stdout += "__ASMR_RUNTIME_EVENT__" + json.dumps({
+            "module": "funasr", "phase": "error", "error_type": kind,
+            "missing": "dependency" if kind == "ModuleNotFoundError" else None,
+        })
+    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", lambda *a, **k:
+                        SimpleNamespace(returncode=1, stdout=stdout, stderr="sensitive-package-message"))
+    if kind == "ModuleNotFoundError":
+        assert resolver.check_modules("fun_asr", ["funasr"]) is False
+    else:
+        with pytest.raises(RuntimeProbeError, match="导入 funasr 失败") as caught:
+            resolver.check_modules("fun_asr", ["funasr"])
+        assert (kind if kind == "ImportError" else "进程退出码：1") in str(caught.value)
+        assert "超过" not in str(caught.value)
+        assert "sensitive-package-message" not in str(caught.value)
+
+
+@pytest.mark.parametrize("old_result", [True, False, "old timeout"])
+def test_old_asr_failures_retry_once_while_old_success_stays_cached(tmp_path, monkeypatch, old_result):
+    resolver, _, _ = environment(tmp_path)
+    key = ("fun_asr", "modules:funasr")
+    if isinstance(old_result, bool):
+        resolver._set_cached_probe(key, old_result)
+    else:
+        resolver._set_cached_probe_error(key, old_result)
+    record = resolver._probe_records[key]
+    record.pop("probe_revision", None)
+    record.pop("retry_at", None)
+    resolver._probe_cache.write(key, record)
+    calls = []
+    def run(*args, **kwargs):
+        calls.append(args)
+        return success()
+    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", run)
+    assert RuntimeProfileResolver(tmp_path).check_modules("fun_asr", ["funasr"]) is True
+    assert RuntimeProfileResolver(tmp_path).check_modules("fun_asr", ["funasr"]) is True
+    assert len(calls) == (0 if old_result is True else 1)
+
+
+@pytest.mark.parametrize("retry_at", [None, "invalid", True, float("inf"), float("nan")])
+def test_invalid_cached_retry_time_rechecks_instead_of_crashing_or_sticking(tmp_path, monkeypatch, retry_at):
+    resolver, _, _ = environment(tmp_path)
+    key = ("fun_asr", "modules:funasr")
+    resolver._set_cached_probe_error(key, "previous timeout")
+    record = resolver._probe_records[key]
+    record["retry_at"] = retry_at
+    resolver._probe_cache.write(key, record)
+    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", success)
+    assert RuntimeProfileResolver(tmp_path).check_modules("fun_asr", ["funasr"]) is True
 
 
 @pytest.mark.parametrize("change", ["python", "package", "metadata", "cuda_env"])

@@ -30,8 +30,8 @@ export default function SpeechConnections() {
     setLoading(true)
     setError('')
     try {
-      const [library, descriptors] = await Promise.all([speechApi.library(), speechApi.providers()])
-      setConnections(library.connections)
+      const [result, descriptors] = await Promise.all([speechApi.connections(), speechApi.providers()])
+      setConnections(result.connections)
       setProviders(descriptors.providers.filter(item => item.connection_required))
     } catch (cause) { setError('无法加载语音服务：' + String(cause)) }
     finally { setLoading(false) }
@@ -45,7 +45,7 @@ export default function SpeechConnections() {
       setLegacyReport(await speechApi.importLegacy())
       // Refresh only the connection list; importing never selects a service or changes a draft.
       try {
-        setConnections((await speechApi.library()).connections)
+        setConnections((await speechApi.connections()).connections)
         setNotice('旧配置导入已处理。请查看各项结果；需要使用时再选择导入的服务。')
       } catch {
         setLegacyError('导入已处理，但服务列表刷新失败，请重新加载列表查看。')

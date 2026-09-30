@@ -91,8 +91,19 @@ export interface StageProfileRequest {
   provider_options: Record<string, unknown>
 }
 
+export type WorkflowStageId = 'separate' | 'asr' | 'align' | 'translate' | 'tts' | 'mix' | 'export'
+export type WorkflowReference =
+  | { kind: 'asset'; path: string; language?: string; language_confirmed?: boolean; audio_path?: string; pair_confirmed?: boolean }
+  | { kind: 'stage'; stage: WorkflowStageId }
+export interface PipelineWorkflowRequest {
+  version: 1
+  bindings: Partial<Record<WorkflowStageId, Record<string, WorkflowReference>>>
+  outputs: WorkflowStageId[]
+}
+
 export interface PipelineExecutionProfileRequest {
   version: 1
+  workflow?: PipelineWorkflowRequest
   source_lang: string
   target_lang: string
   skip_existing: boolean

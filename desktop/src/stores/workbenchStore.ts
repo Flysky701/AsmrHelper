@@ -1,4 +1,8 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+import type { PipelineStageId } from '@/domain/pipelinePreset'
+import type { WorkflowReference } from '@/api/types'
+import { applyFlowPreset, emptyFlow, restoreFlow, toggleFlowStage, type FlowDraft } from '@/domain/workbenchFlow'
 import type { PresetItem } from '@/api/types'
 import {
   inputPathKey,
@@ -14,14 +18,12 @@ export interface WorkbenchParams {
   vocalModel: string
   asrProvider: string
   asrModel: string
-  alignSubtitles: boolean
   translateProvider: string
   translateModel: string
   translateConnectionId?: string
   originalVolume: number
   ttsVolumeRatio: number
   ttsDelay: number
-  useVocalSeparator: boolean
   skipExisting: boolean
 }
 
@@ -33,18 +35,22 @@ const DEFAULT_PARAMS: WorkbenchParams = {
   vocalModel: 'htdemucs',
   asrProvider: 'faster_whisper',
   asrModel: 'faster-whisper-base',
-  alignSubtitles: false,
   translateProvider: 'deepseek',
   translateModel: 'deepseek-chat',
   translateConnectionId: '',
   originalVolume: 0.85,
   ttsVolumeRatio: 0.5,
   ttsDelay: 0.0,
-  useVocalSeparator: true,
   skipExisting: false,
 }
 
 interface WorkbenchStore {
+  flow: FlowDraft
+  toggleStage: (stage: PipelineStageId) => void
+  applyStepPreset: (presetId: string) => void
+  setBinding: (stage: PipelineStageId, port: string, ref?: WorkflowReference) => void
+  toggleOutput: (stage: PipelineStageId) => void
+  setSubtitleFormat: (format: 'srt' | 'vtt') => void
   inputItems: WorkbenchInputItem[]
   selectedInputPaths: string[]
   inputFolder: string | null
@@ -87,7 +93,19 @@ interface WorkbenchStore {
   reset: () => void
 }
 
-export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
+export const useWorkbenchStore = create<WorkbenchStore>()(persist((set) => ({
+  flow: emptyFlow(),
+  toggleStage: (stage) => set(s => ({ flow: toggleFlowStage(s.flow, stage) })),
+  applyStepPreset: (presetId) => set(s => ({ flow: applyFlowPreset(s.flow, presetId) })),
+  setBinding: (stage, port, ref) => set(s => {
+    const ports = { ...s.flow.bindings[stage] }
+    if (ref) ports[port] = ref
+    else delete ports[port]
+    return { flow: { ...s.flow, bindings: { ...s.flow.bindings, [stage]: ports } } }
+  }),
+  toggleOutput: (stage) => set(s => ({ flow: { ...s.flow, outputs: s.flow.outputs.includes(stage)
+    ? s.flow.outputs.filter(id => id !== stage) : s.flow.selectedStages.includes(stage) ? [...s.flow.outputs, stage] : s.flow.outputs } })),
+  setSubtitleFormat: (subtitleFormat) => set(s => ({ flow: { ...s.flow, subtitleFormat } })),
   inputItems: [],
   selectedInputPaths: [],
   inputFolder: null,
@@ -172,6 +190,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
   toggleAdv: () => set((s) => ({ advExpanded: !s.advExpanded })),
   reset: () =>
     set({
+      flow: emptyFlow(),
       inputItems: [],
       selectedInputPaths: [],
       inputFolder: null,
@@ -189,4 +208,20 @@ export const useWorkbenchStore = create<WorkbenchStore>((set) => ({
       modelExpanded: true,
       advExpanded: false,
     }),
+}), {
+  name: 'asmrhelper-workbench-flow',
+  version: 1,
+  partialize: (state) => ({
+    flow: state.flow, inputItems: state.inputItems, selectedInputPaths: state.selectedInputPaths,
+    inputFolder: state.inputFolder, scanRecursive: state.scanRecursive, outputDirectory: state.outputDirectory,
+    params: state.params, capabilityOptions: state.capabilityOptions, llmSelectionInitialized: state.llmSelectionInitialized,
+    preset: state.preset, batchName: state.batchName, batchMaxParallel: state.batchMaxParallel,
+  }),
+  merge: (persisted, current) => {
+    const saved = (persisted || {}) as Partial<WorkbenchStore>
+    // Old execution switches are not read by the workflow. Preserve other parameters.
+    const params = { ...current.params, ...saved.params } as WorkbenchParams & Record<string, unknown>
+    for (const old of ['subtitleInputMode', 'reuseTranslations', 'useVocalSeparator', 'alignSubtitles']) delete params[old]
+    return { ...current, ...saved, params, flow: restoreFlow(saved.flow) }
+  },
 }))

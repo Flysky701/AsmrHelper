@@ -123,6 +123,16 @@ class ResourceService:
         *,
         input_path: str | None = None,
     ) -> list[dict[str, object]]:
+        from src.core.subtitles.translation_reuse import prepare_translation_profile
+        try:
+            profile = prepare_translation_profile(profile, input_path)
+        except ValueError as exc:
+            if profile.get("workflow") is not None:
+                return [self._issue(stage=item["stage"], category="input", provider="local", model=None,
+                    code="WORKFLOW_INPUT_MISSING", requirement="materials", message=item["message"], action="workbench")
+                    for item in getattr(exc, "issues", [{"stage": "prepare", "message": str(exc)}])]
+            return [self._issue(stage="translate", category="llm", provider="", model=None,
+                code="TRANSLATION_REUSE_INVALID", requirement="translation", message=str(exc))]
         stages = profile.get("stages")
         if not isinstance(stages, dict):
             return [
@@ -186,6 +196,9 @@ class ResourceService:
                     if requested_model in (None, "default"):
                         requested_model = selected_settings["api"][f"{provider}_model"]
                 except (ValueError, TypeError) as exc:
+                    conditional = prepare_translation_profile(profile, input_path, allow_unverified=True)
+                    if not conditional.get("stages", {}).get("translate", {}).get("enabled", True):
+                        continue
                     issues.append(self._issue(stage=stage_name, category=category, provider=provider,
                         model=requested_model, code="LLM_CONNECTION_NOT_READY", requirement="llm_connection",
                         message=str(exc), action="settings"))
@@ -374,8 +387,12 @@ class ResourceService:
                         )
                     )
 
-        if input_path:
+        if input_path and profile.get("workflow") is None:
             issues.extend(self._check_input_path(input_path))
+        if any(issue["stage"] == "translate" for issue in issues):
+            conditional = prepare_translation_profile(profile, input_path, allow_unverified=True)
+            if not conditional.get("stages", {}).get("translate", {}).get("enabled", True):
+                issues = [issue for issue in issues if issue["stage"] != "translate"]
         return issues
 
     def _check_input_path(self, input_path: str) -> list[dict[str, object]]:

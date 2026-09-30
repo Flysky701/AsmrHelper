@@ -130,7 +130,7 @@ Fun-ASR、Qwen3-ASR、VoxCPM2、OpenAI 和其他 Whisper/Qwen 变体均属于可
 
 ### 现在不能删除
 
-- `src/core/tts`：Edge/Qwen 实际实现、Voice Profile 和 Voice Designer 仍在其中。
+- `src/core/tts`：仍保留 Speech 使用的 Edge 合成、Qwen 语言归一和音频预处理。Qwen 模型推理位于 `src/core/speech/local_worker.py`；旧 Voice Profile、Voice Designer 和重复 Qwen 执行入口已退出，不再以它们作为保留此目录的理由。当前边界见 [TTS 指南](../guides/tts.md)，迁移证据见 [TTS 整合交付记录](tts-unification-delivery-2026-09-30.md)。
 - `src/core/asr`：Faster-Whisper Registry 仍创建其中的 `ASRRecognizer`。
 - `src/core/vocal_separator`：Demucs Registry 仍创建其中的 `VocalSeparator`。
 - `src/mixer`：Pipeline 和工具服务仍直接使用 `Mixer`。

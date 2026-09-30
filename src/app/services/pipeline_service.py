@@ -14,6 +14,7 @@ from src.core.orchestration import (
     build_execution_plan,
 )
 from src.utils import sanitize_filename
+from src.core.subtitles.translation_reuse import prepare_translation_profile
 
 from ..dto import ArtifactSet, PipelineRequest, PipelineResult
 from ..errors import AppExecutionError, AppValidationError, ResourceValidationError
@@ -158,9 +159,14 @@ class PipelineService:
             self._assert_task_ready(
                 task_spec.execution_profile,
                 input_path=input_asset.absolute_path,
+                companion_paths=[self._input_catalog_service.get_asset(a).absolute_path
+                                 for a in session.companion_asset_ids],
             )
             workspace = self._resource_service.ensure_workspace()
-            execution_profile = dict(task_spec.execution_profile)
+            companion_paths = [self._input_catalog_service.get_asset(a).absolute_path
+                               for a in session.companion_asset_ids]
+            execution_profile = prepare_translation_profile(dict(task_spec.execution_profile),
+                input_asset.absolute_path, companion_paths)
             output_dir = self._resolve_task_output_dir(
                 task_id=task_spec.task_id,
                 input_path=input_asset.absolute_path,
@@ -184,7 +190,7 @@ class PipelineService:
             if target_lang not in SUPPORTED_LANGUAGE_CODES:
                 raise AppValidationError(f"unsupported target_lang: {target_lang}")
 
-            companion_vtt_path = self._resolve_companion_subtitle_path(session.companion_asset_ids, source_lang)
+            companion_vtt_path = None if execution_profile.get("workflow") else self._resolve_companion_subtitle_path(session.companion_asset_ids, source_lang, input_asset.absolute_path)
             context = PipelineExecutionContext(
                 task_id=task_spec.task_id,
                 input_path=input_asset.absolute_path,
@@ -192,6 +198,7 @@ class PipelineService:
                 source_lang=source_lang,
                 target_lang=target_lang,
                 companion_subtitle_path=companion_vtt_path,
+                companion_subtitle_paths=companion_paths,
                 execution_profile=execution_profile,
             )
 
@@ -313,7 +320,7 @@ class PipelineService:
                 task_spec.task_id,
                 message="pipeline completed",
                 detail=primary_output or "",
-                stage="export",
+                stage=results.get("last_stage", "export"),
                 artifact_set_id=task_spec.task_id,
             )
             if manage_lifecycle
@@ -356,6 +363,7 @@ class PipelineService:
         self._assert_task_ready(
             execution_profile,
             input_path=request.input_path,
+            companion_paths=request.companion_paths or ([request.vtt_path] if request.vtt_path else []),
         )
         task_spec = self.create_pipeline_task_spec(request, task_source=task_source)
         return self._task_service.get_task(task_spec.task_id), task_spec
@@ -365,12 +373,17 @@ class PipelineService:
         execution_profile: dict[str, Any],
         *,
         input_path: str | None = None,
+        companion_paths: list[str] | None = None,
     ) -> None:
         """Apply the backend-authoritative readiness gate for V1 pipeline profiles."""
         if execution_profile.get("version") != 1:
             raise AppValidationError(
                 "pipeline execution profile must use StageProfile version 1"
             )
+        try:
+            execution_profile = prepare_translation_profile(execution_profile, input_path, companion_paths)
+        except ValueError as exc:
+            raise AppValidationError(str(exc)) from exc
         readiness = self._resource_service.check_task_readiness(
             task_type="pipeline",
             execution_profile=execution_profile,
@@ -402,7 +415,10 @@ class PipelineService:
         session = self._session_service.get_session(task_spec.session_id)
         input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
         workspace = self._resource_service.ensure_workspace()
-        execution_profile = dict(task_spec.execution_profile)
+        companion_paths = [self._input_catalog_service.get_asset(a).absolute_path
+                           for a in session.companion_asset_ids]
+        execution_profile = prepare_translation_profile(dict(task_spec.execution_profile),
+            input_asset.absolute_path, companion_paths)
         output_dir = self._resolve_task_output_dir(
             task_id=task_spec.task_id,
             input_path=input_asset.absolute_path,
@@ -416,7 +432,7 @@ class PipelineService:
         source_lang, target_lang = self._resolve_profile_languages(
             execution_profile
         )
-        companion_vtt_path = self._resolve_companion_subtitle_path(session.companion_asset_ids, source_lang)
+        companion_vtt_path = None if execution_profile.get("workflow") else self._resolve_companion_subtitle_path(session.companion_asset_ids, source_lang, input_asset.absolute_path)
 
         context = PipelineExecutionContext(
             task_id=task_spec.task_id,
@@ -425,6 +441,7 @@ class PipelineService:
             source_lang=source_lang,
             target_lang=target_lang,
             companion_subtitle_path=companion_vtt_path,
+            companion_subtitle_paths=companion_paths,
             execution_profile=execution_profile,
         )
         return build_execution_plan(context)
@@ -441,7 +458,7 @@ class PipelineService:
         companion_paths = list(request.companion_paths)
         if request.vtt_path and request.vtt_path not in companion_paths:
             companion_paths.append(request.vtt_path)
-        if not companion_paths:
+        if not companion_paths and not (request.execution_profile or {}).get("workflow"):
             companion_paths = [asset.absolute_path for asset in
                                self._input_catalog_service.discover_companions(primary_asset.asset_id)]
         companion_asset_ids: list[str] = []
@@ -462,12 +479,22 @@ class PipelineService:
         execution_profile = self._resolve_execution_profile(request)
         from copy import deepcopy
         execution_profile = deepcopy(execution_profile)
+        try:
+            execution_profile = prepare_translation_profile(execution_profile,
+                primary_asset.absolute_path, companion_paths)
+        except ValueError as exc:
+            raise AppValidationError(str(exc)) from exc
         from src.task_connection_context import resolve_task_settings
         from src.config import config
         try:
             selected_settings = resolve_task_settings(config.to_dict(), execution_profile)
         except ValueError as exc:
-            raise AppValidationError(str(exc)) from exc
+            conditional = prepare_translation_profile(execution_profile, primary_asset.absolute_path,
+                companion_paths, allow_unverified=True)
+            if conditional.get("stages", {}).get("translate", {}).get("enabled", True):
+                raise AppValidationError(str(exc)) from exc
+            execution_profile = conditional
+            selected_settings = config.to_dict()
         translate_stage = execution_profile.get("stages", {}).get("translate", {})
         if translate_stage.get("enabled", True) and translate_stage.get("options", {}).get("connection_ref"):
             if translate_stage.get("model") in (None, "", "default"):
@@ -641,8 +668,14 @@ class PipelineService:
             },
         }
 
-    def _resolve_companion_subtitle_path(self, companion_asset_ids: list[str], source_lang: str = "auto") -> str | None:
+    def _resolve_companion_subtitle_path(self, companion_asset_ids: list[str], source_lang: str = "auto", input_path: str | None = None) -> str | None:
         from src.core.subtitles.companions import inspect_subtitle, is_source_subtitle
+        if input_path:
+            from src.core.subtitles.translation_reuse import audio_duration, usable_subtitles
+            paths = [self._input_catalog_service.get_asset(a).absolute_path for a in companion_asset_ids]
+            valid = usable_subtitles(paths, source_lang, audio_duration(input_path))
+            if valid:
+                return valid[0]["path"]
         fallback = None
         for asset_id in companion_asset_ids:
             asset = self._input_catalog_service.get_asset(asset_id)
@@ -671,6 +704,13 @@ class PipelineService:
         mix_path: str | None,
         exported_subtitle: str | None,
     ) -> None:
+        if results.get("workflow_outputs") is not None:
+            for artifact in results["workflow_outputs"]:
+                path = artifact["path"]
+                self._artifact_service.register_artifact(task_id=task_id, path=path,
+                    artifact_type=artifact["type"], label=artifact["label"], preview_kind=artifact["preview"],
+                    stage=artifact["stage"], is_primary=path == results.get("primary_output"))
+            return
         if mix_path:
             self._artifact_service.register_artifact(
                 task_id=task_id,
@@ -689,7 +729,7 @@ class PipelineService:
                 label="Exported Subtitle",
                 preview_kind="subtitle",
                 stage="subtitle_export",
-                is_primary=not bool(mix_path),
+                is_primary=not bool(mix_path) and not results.get("direct_subtitle_tts", False),
             )
         for file_key, stage_name, artifact_type, preview_kind in (
             ("vocal_path", "separation", "audio.vocals", "audio"),
@@ -708,7 +748,7 @@ class PipelineService:
                     label=file_key,
                     preview_kind=preview_kind,
                     stage=stage_name,
-                    is_primary=False,
+                    is_primary=file_key == "tts_audio_path" and results.get("direct_subtitle_tts", False),
                 )
 
 

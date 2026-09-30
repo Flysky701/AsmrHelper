@@ -35,11 +35,42 @@ class SpeechService:
             connection["credential_configured"] = self._credential_path(connection).exists()
         return data
 
+    def list_connections(self):
+        """Return connection settings without loading credentials or other collections."""
+        fields = ("id", "name", "provider_id", "deployment", "base_url")
+        return [
+            {**{key: connection[key] for key in fields if key in connection},
+             "credential_configured": self._credential_path(connection).exists()}
+            for connection in self.store.list("connections")
+        ]
+
     def _credential_path(self, connection):
         ref = str(connection.get("credential_ref", ""))
         if not ref or any(c not in "0123456789abcdef" for c in ref):
             return Path(self.store.root) / "credentials" / "missing"
         return Path(self.store.root) / "credentials" / (ref + ".json")
+
+    def resolve_local_connection(self, provider_id, model, mode):
+        provider = get_provider(provider_id)
+        if provider.remote:
+            raise ValueError("此引擎需要明确选择连接，不能使用本机默认连接")
+        if not any(item["id"] == mode and model in item["models"] for item in provider.modes):
+            raise ValueError("模型与本机引擎模式不匹配")
+        name = {"qwen3": "Qwen3 TTS", "voxcpm2": "VoxCPM2"}.get(provider_id, provider_id)
+        connection = self.store.resolve_local_connection(provider_id, name + " · 本机")
+        if connection is None:
+            return {"connection": None, "readiness": None,
+                    "detail": "已有多个连接或非本机配置，请在高级连接设置中明确选择。"}
+        # Local readiness inspects paths/config metadata only. Never resolve a credential here.
+        public = {key: connection[key] for key in
+                  ("id", "name", "provider_id", "deployment", "timeout", "model_path", "device")
+                  if key in connection}
+        context = {key: connection[key] for key in ("model_path", "device", "precision", "runtime") if key in connection}
+        readiness = provider.probe({**context, "model": model, "mode": mode})
+        if readiness.get("ready"):
+            readiness["detail"] = "模型与运行环境文件已找到；尚未验证依赖或执行合成。"
+        return {"connection": public, "readiness": readiness,
+                "detail": "保存音色只保存配置，不会启动或安装模型。"}
 
     def save_connection(self, body):
         allowed = {"id", "name", "provider_id", "deployment", "base_url", "api_key", "timeout", "model_path", "device", "precision", "runtime", "concurrency"}

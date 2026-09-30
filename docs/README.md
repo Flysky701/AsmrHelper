@@ -25,9 +25,7 @@ TTS 的唯一当前入口是 [统一 TTS 指南](guides/tts.md)，其中链接�
 5. [数据结构契约 v1](contracts/schemas-v1.md)：请求、任务、错误、执行配置和产物字段。
 6. [Provider 与设置契约 v1](contracts/provider-v1.md)：能力、设置、凭据和运行前检查。
 7. [Provider / Model 轻量接入流程](contracts/provider-model-onboarding.md)：新增引擎或模型时使用的最小检查清单。
-8. [多引擎支持现状](roadmap/multi-engine-status.md)：区分已接线、当前环境可执行和真实主链路验收。
-9. [运行环境隔离进度](roadmap/runtime-environment-isolation-todo.md)：记录隔离运行时的当前边界和剩余 TODO。
-10. [兼容与迁移说明](contracts/compatibility.md)：当前实现与目标契约的差异及迁移顺序。
+8. [兼容与迁移说明](contracts/compatibility.md)：当前实现与目标契约的差异及迁移顺序。
 
 契约描述目标边界，源码基线描述当前事实。两者存在差异时，不应猜测；先在兼容说明登记，再通过测试和源代码确认。
 
@@ -41,8 +39,8 @@ ASR、LLM 等通用能力按 Provider 契约扩展；TTS 以 Speech Provider 为
 
 - [当前源码基线](roadmap/current-source-baseline.md)
 - [后端能力事实清单](roadmap/backend-capability-baseline.md)
-- [多引擎支持现状](roadmap/multi-engine-status.md)
-- [运行环境隔离进度](roadmap/runtime-environment-isolation-todo.md)
+- [多引擎支持入口指引](roadmap/multi-engine-status.md)：指向当前基线与历史验收，不重复维护状态矩阵。
+- [运行环境隔离入口指引](roadmap/runtime-environment-isolation-todo.md)：指向安装与运行时说明，不重复维护环境清单或 TODO。
 
 2026-08-21 已将阶段性计划、旧进度快照、旧架构审计、旧验收矩阵和根目录重构草案移入历史归档；状态快照位于 [历史路线图](archived/roadmap/)，计划和架构草案位于 [已执行计划](archived/plans/)。它们只用于追溯，不再参与当前执行顺序。
 
@@ -67,6 +65,8 @@ ASR、LLM 等通用能力按 Provider 契约扩展；TTS 以 Speech Provider 为
 - [历史契约](archived/contracts/)
 - [历史领域文档](archived/domains/)
 - [历史路线图](archived/roadmap/)
+- [多引擎支持历史快照（2026-08-18）](archived/roadmap/multi-engine-status-2026-08-18.md)
+- [运行环境隔离历史快照（截至 2026-08-18）](archived/roadmap/runtime-environment-isolation-2026-08-18.md)
 - [已执行计划](archived/plans/)
 - [历史排查日志](archived/logs/)
 

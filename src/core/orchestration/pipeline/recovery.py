@@ -32,6 +32,13 @@ class PipelineRecovery:
             # Older checkpoints could align translated sidecars without checking
             # their language. Keep the historical hash unchanged for other tasks.
             upstream["subtitle_policy_version"] = 1
+        if plan.translation.common_options.get("direct_tts") is True:
+            upstream["direct_subtitle_policy_version"] = 1
+            upstream["direct_subtitles"] = [file_identity(path) for path in
+                plan.translation.common_options.get("reuse_companion_paths", [])]
+        if plan.workflow:
+            upstream["workflow"] = plan.workflow
+            upstream["workflow_assets"] = [file_identity(path) for path in plan.workflow.get("asset_paths", [])]
         self._upstream = fingerprint(upstream)
         self._models = {}
         self._speech_audit = None
@@ -104,6 +111,15 @@ class PipelineRecovery:
             "model": model_identity}
 
     def _fingerprint(self, stage):
+        upstream = self._upstream
+        if stage == "translate":
+            # Target sidecars are dependencies even when the source sidecar is unchanged.
+            paths = list(getattr(self.plan, "companion_subtitle_paths", []))
+            paths = [path for path in paths if path != self.plan.companion_subtitle_path]
+            if paths:
+                upstream = fingerprint({"upstream": upstream,
+                    "translation_policy_version": 1,
+                    "companions": [file_identity(path) for path in paths]})
         attribute = {"separate": "separation", "align": "alignment", "translate": "translation",
                      "export": "subtitle"}.get(stage, stage)
         binding = getattr(self.plan, attribute)
@@ -149,7 +165,7 @@ class PipelineRecovery:
         if isinstance(connection, dict):
             connection = connection.get("llm" if stage == "translate" else "tts", connection)
         return fingerprint({"version": 1, "stage": stage, "binding": asdict(binding),
-            "model": self._models.get(model), "upstream": self._upstream,
+            "model": self._models.get(model), "upstream": upstream,
             "language": [self.plan.source_lang, self.plan.target_lang] if stage in ("translate", "tts", "export")
                 else self.plan.source_lang,
             "connection": connection if stage in ("translate", "tts") else None})

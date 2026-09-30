@@ -13,6 +13,8 @@ export interface WorkbenchInputItem {
   path: string
   name: string
   size: number
+  kind?: string
+  subtitleSummary?: { language: string; valid: boolean; reason: string }
   companionPaths: string[]
   companionSubtitles?: CompanionSubtitle[]
 }
@@ -37,20 +39,22 @@ export function discoveredFileToInput(
   }
 }
 
-export function companionDescription(item: WorkbenchInputItem, source: string, target: string) {
-  const normalize = (value: string) => value.toLowerCase().replace('-', '_').split('_')[0] || 'unknown'
-  const names: Record<string, string> = { zh: '中文', ja: '日语', en: '英语', ko: '韩语', mixed: '多语言', unknown: '语言不确定' }
-  if (!item.companionPaths.length) return '无伴随字幕'
-  if (!item.companionSubtitles?.length) return '已发现字幕 · 语言待检查，运行时校验'
-  return item.companionSubtitles.map(subtitle => {
-    const language = normalize(subtitle.language)
-    const label = `${fileName(subtitle.path)} · ${names[language] || language}`
-    if (!subtitle.valid) return `${label} · 无法使用：${subtitle.reason}`
-    if (['unknown', 'mixed', 'auto'].includes(language)) return `${label} · 不作为原文，保留 ASR`
-    if (language === normalize(source)) return `${label} · 与原语言一致，时间轴有效时复用`
-    if (language === normalize(target)) return `${label} · 可能为目标译文，保留 ASR 原文识别`
-    return `${label} · 与原语言不符，保留 ASR`
-  }).join('；')
+export function companionDescription(item: WorkbenchInputItem) {
+  if (item.subtitleSummary) {
+    const summary = item.subtitleSummary
+    return summary.valid ? `字幕 · ${summary.language || '语言待确认'} · 来源与对应关系由你选择`
+      : `字幕待校验：${summary.reason}`
+  }
+  return /\.(srt|vtt|lrc)$/i.test(item.path) ? '字幕 · 语言与时间轴待检查' : '音频素材'
+}
+
+/** Discovery adds visible candidates to the pool; it never binds an execution input. */
+export function expandInputMaterials(items: WorkbenchInputItem[]): WorkbenchInputItem[] {
+  return mergeInputItems([], items.flatMap(item => [item, ...item.companionPaths.map(path => {
+    const summary = item.companionSubtitles?.find(candidate => inputPathKey(candidate.path) === inputPathKey(path))
+    return { path, name: fileName(path), size: 0, kind: 'subtitle', companionPaths: [],
+      subtitleSummary: summary ? { language: summary.language, valid: summary.valid, reason: summary.reason } : undefined }
+  })]))
 }
 
 export function pathToInput(path: string): WorkbenchInputItem {
@@ -70,7 +74,9 @@ export function mergeInputItems(
   incoming.forEach((item) => {
     const key = inputPathKey(item.path)
     byPath.set(key, {
+      ...byPath.get(key),
       ...item,
+      subtitleSummary: item.subtitleSummary ?? byPath.get(key)?.subtitleSummary,
       companionPaths: Array.from(new Map(
         item.companionPaths.map((path) => [inputPathKey(path), path]),
       ).values()),

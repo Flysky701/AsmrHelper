@@ -140,7 +140,7 @@ Qwen3-TTS、Qwen3-ASR 和 Fun-ASR 使用按需隔离运行时；ASR/TTS 可通�
 - 合并后的 `tsc -b` 通过；Vite 生产构建命令因权限审批超时未实际启动，不写成新的通过结论。
 - 远端子分支的同一前端基线已在 2026-08-19 完成生产构建和 Tauri release build；该日期证据保留在能力基线中。
 - 项目 `.venv\Scripts\python.exe` 的启动器仍指向已经不存在的 Python；本轮解释器绕行只用于验证，不代表项目环境已修复。
-- 本轮没有重新执行真实 Provider 推理或正式桌面窗口验收；截至 2026-08-07 的证据保存在 [历史路线图](../archived/roadmap/) 和 [多引擎支持现状](multi-engine-status.md) 中。
+- 本轮没有重新执行真实 Provider 推理或正式桌面窗口验收；截至 2026-08-07 的证据保存在 [历史路线图](../archived/roadmap/) 和 [多引擎历史验收记录](../archived/roadmap/multi-engine-status-2026-08-18.md) 中。
 
 ## 9. 后续维护规则
 

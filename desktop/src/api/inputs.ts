@@ -15,6 +15,7 @@ export interface InputAssetResponse {
   readable: boolean
   size_bytes: number
   warnings: string[]
+  subtitle_summary?: { language: string; valid: boolean; reason: string }
 }
 
 export interface InspectInputsResponse {
@@ -103,6 +104,8 @@ async function resolveItems(
     return {
       item: {
         path: asset.absolute_path,
+        kind: asset.kind,
+        subtitleSummary: asset.subtitle_summary,
         name: asset.display_name,
         size: asset.size_bytes,
         companionPaths,

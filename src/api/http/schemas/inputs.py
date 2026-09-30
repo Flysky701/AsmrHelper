@@ -19,6 +19,7 @@ class InputAssetResponse(BaseModel):
     readable: bool = False
     size_bytes: int = 0
     warnings: list[str] = Field(default_factory=list)
+    subtitle_summary: dict | None = None
 
 
 class InspectInputsResponse(BaseModel):

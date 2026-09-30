@@ -67,6 +67,8 @@ class PipelineExecutionPlan:
     input_path: str
     output_dir: str
     companion_subtitle_path: str | None = None
+    companion_subtitle_paths: list[str] = field(default_factory=list)
+    workflow: dict[str, Any] = field(default_factory=dict)
 
     # Language
     source_lang: str = "ja"
@@ -111,7 +113,7 @@ class PipelineExecutionPlan:
             stages.append(StageKind.ASR)
         if self.alignment.enabled:
             stages.append(StageKind.ALIGN)
-        if self.translation.enabled:
+        if self.translation.enabled or self.translation.common_options.get("reuse_only"):
             stages.append(StageKind.TRANSLATION)
         if self.tts.enabled:
             stages.append(StageKind.TTS)
@@ -128,4 +130,5 @@ class PipelineExecutionContext:
     source_lang: str = "ja"
     target_lang: str = "zh"
     companion_subtitle_path: str | None = None
+    companion_subtitle_paths: list[str] = field(default_factory=list)
     execution_profile: dict[str, Any] = field(default_factory=dict)

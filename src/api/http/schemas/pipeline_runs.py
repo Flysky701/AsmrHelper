@@ -89,6 +89,7 @@ class PipelineExecutionProfileRequest(BaseModel):
     target_lang: Literal["ja", "zh", "en"] = "zh"
     skip_existing: bool = False
     stages: PipelineStagesRequest = Field(default_factory=PipelineStagesRequest)
+    workflow: dict[str, Any] | None = None
 
 
 class PipelineRunCreateRequest(BaseModel):

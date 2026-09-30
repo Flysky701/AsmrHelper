@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 
 import { tasksApi } from '@/api/tasks'
@@ -515,10 +515,17 @@ export default function TaskCenter() {
   const filter = categoryFilters[category]
   const setFilter = (value: FilterValue) => setCategoryFilters((current) => ({ ...current, [category]: value }))
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selectedJobType) return
     const target = taskCategory(selectedJobType)
+    const selected = useTaskStore.getState().tasks.find((task) => task.id === selectedTaskId)
     setCategory(target)
+    // Reveal an explicit selection before paint; polling must not reset browsing filters.
+    setCategoryFilters((current) =>
+      selected && current[target] !== 'all' && current[target] !== selected.status
+        ? { ...current, [target]: 'all' }
+        : current,
+    )
   }, [selectedJobType, selectedTaskId])
 
   const logs = useLogStore((state) => state.logs)
@@ -965,7 +972,13 @@ export default function TaskCenter() {
                 ) : null}
 
                 {selectedTask.status === 'failed' && selectedTask.errorMessage ? (
-                  <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--error-soft)', border: '1px solid color-mix(in oklch, var(--error) 24%, transparent)' }}>
+                  <div role="alert" aria-label="任务错误" style={{ marginTop: 16, padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--error-soft)', border: '1px solid color-mix(in oklch, var(--error) 24%, transparent)' }}>
+                    <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 12, color: 'var(--muted-strong)' }}>
+                      <span>任务 {selectedTask.serverTaskId ?? selectedTask.id}</span>
+                      <span>{selectedTask.finishedAt
+                        ? `失败于 ${formatDateTime(selectedTask.finishedAt)}`
+                        : `创建于 ${formatDateTime(selectedTask.createdAt)} · 失败时间未记录`}</span>
+                    </div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--error)' }}>
                       {typeof selectedTask.error?.code === 'string' ? selectedTask.error.code : 'TASK_FAILED'}
                       {' · '}{selectedTask.stage || '执行'}

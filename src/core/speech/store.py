@@ -228,6 +228,24 @@ class SpeechStore:
             except KeyError:
                 raise KeyError(f"Unknown {collection} record: {id}") from None
 
+    def resolve_local_connection(self, provider_id: str, name: str) -> dict | None:
+        """Create the ordinary local default once; leave ambiguous choices to the user."""
+        with self._locked():
+            state = self._read()
+            connections = state["collections"]["connections"]
+            candidates = [item for item in connections.values() if item.get("provider_id") == provider_id]
+            if candidates:
+                if len(candidates) == 1 and candidates[0].get("deployment") == "local":
+                    return deepcopy(candidates[0])
+                return None
+            record = {"id": str(uuid4()), "revision": 1, "name": name,
+                      "provider_id": provider_id, "deployment": "local", "timeout": 120,
+                      "created_at": _now(), "updated_at": _now()}
+            self._validate("connections", record)
+            connections[record["id"]] = record
+            self._write(state)
+            return deepcopy(record)
+
     @staticmethod
     def _validate(collection: str, record: dict) -> None:
         _no_secrets(record)

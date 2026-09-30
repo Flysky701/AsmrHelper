@@ -216,7 +216,7 @@ class TestPipelineExecutorErrorHandling:
         assert "vocal_separator" in results["step_errors"]
         assert "GPU OOM" in results["step_errors"]["vocal_separator"]
 
-    def test_asr_error_does_not_prevent_subsequent_stages(self, tmp_path, mock_llm):
+    def test_asr_error_with_no_text_does_not_call_translation(self, tmp_path, mock_llm):
         (tmp_path / "input.wav").write_bytes(b"audio")
         plan = _make_plan(tmp_path, separation=False, tts=False, mix=False)
 
@@ -227,8 +227,8 @@ class TestPipelineExecutorErrorHandling:
         results = executor.execute(plan)
 
         assert "asr" in results["step_errors"]
-        # Translation still attempted (with empty segments)
-        mock_llm.translate_texts.assert_called_once()
+        # No text needs translation; do not issue an empty provider request.
+        mock_llm.translate_texts.assert_not_called()
 
     def test_translation_error_captured(self, tmp_path, mock_asr):
         (tmp_path / "input.wav").write_bytes(b"audio")

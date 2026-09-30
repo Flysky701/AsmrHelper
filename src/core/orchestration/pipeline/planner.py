@@ -172,6 +172,9 @@ def build_execution_plan(context: PipelineExecutionContext) -> PipelineExecution
     profile = dict(context.execution_profile)
     if not _is_stage_profile_v1(profile):
         raise ValueError("unsupported execution profile: expected StageProfile version 1")
+    if profile.get("workflow") is not None or profile.get("stages", {}).get("translate", {}).get("options", {}).get("direct_tts") is True:
+        from src.core.subtitles.translation_reuse import prepare_translation_profile
+        profile = prepare_translation_profile(profile, context.input_path, context.companion_subtitle_paths)
     pipeline_opts, stage_profiles, stage_flags = _stage_profile_parts(profile)
 
     source_lang = pipeline_opts.get("source_lang", context.source_lang)
@@ -183,6 +186,8 @@ def build_execution_plan(context: PipelineExecutionContext) -> PipelineExecution
         input_path=context.input_path,
         output_dir=context.output_dir,
         companion_subtitle_path=context.companion_subtitle_path,
+        companion_subtitle_paths=list(context.companion_subtitle_paths),
+        workflow=dict(profile.get("workflow") or {}),
         source_lang=source_lang,
         target_lang=target_lang,
         source_label=source_label,

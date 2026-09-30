@@ -1,6 +1,7 @@
 import type {
   CapabilityDescriptorResponse,
   PipelineExecutionProfileRequest,
+  PipelineWorkflowRequest,
   StageProfileRequest,
 } from '@/api/types'
 import type { PipelineStageId } from '@/domain/pipelinePreset'
@@ -40,15 +41,10 @@ function optionPayload(
 
 export function buildPipelineStageFlags(
   activeStages: Set<PipelineStageId>,
-  params: WorkbenchParams,
 ): PipelineStageFlags {
   return {
-    separate: activeStages.has('separate') && params.useVocalSeparator,
-    asr: activeStages.has('asr'),
-    align: (activeStages.has('asr') || activeStages.has('align')) && Boolean(params.alignSubtitles),
-    translate: activeStages.has('translate') && params.sourceLang !== params.targetLang,
-    tts: activeStages.has('tts'),
-    mix: activeStages.has('mix'),
+    separate: activeStages.has('separate'), asr: activeStages.has('asr'), align: activeStages.has('align'),
+    translate: activeStages.has('translate'), tts: activeStages.has('tts'), mix: activeStages.has('mix'),
     export: activeStages.has('export'),
   }
 }
@@ -59,12 +55,16 @@ export function buildPipelineExecutionProfile({
   capabilities,
   capabilityOptions,
   speechStage,
+  workflow,
+  subtitleFormat = 'srt',
 }: {
   params: WorkbenchParams
   stageFlags: PipelineStageFlags
   capabilities: CapabilityDescriptorResponse[]
   capabilityOptions: Record<string, Record<string, unknown>>
   speechStage: StageProfileRequest | null
+  workflow?: PipelineWorkflowRequest
+  subtitleFormat?: 'srt' | 'vtt'
 }): PipelineExecutionProfileRequest {
   if (stageFlags.tts && !speechStage?.enabled) {
     throw new Error('请先完成配音引擎配置')
@@ -84,6 +84,7 @@ export function buildPipelineExecutionProfile({
 
   return {
     version: 1,
+    ...(workflow ? { workflow: structuredClone(workflow) } : {}),
     source_lang: params.sourceLang,
     target_lang: params.targetLang,
     skip_existing: params.skipExisting,
@@ -150,7 +151,7 @@ export function buildPipelineExecutionProfile({
         provider: 'ffmpeg',
         model: null,
         options: {
-          subtitle_format: 'srt',
+          subtitle_format: subtitleFormat,
           include_intermediate_files: true,
         },
         provider_options: {},

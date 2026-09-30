@@ -2,6 +2,7 @@ import { api, apiUrl } from './client'
 import type { TaskStatusResponse } from './types'
 
 export type Delivery = 'normal' | 'soft' | 'whisper'
+export interface HostedVoicePage { items: { id: string; name: string }[]; page: number; page_size: number; has_more: boolean; notice: string }
 export type VariantKind = 'hosted' | 'builtin' | 'reference' | 'design' | 'default'
 export interface VoiceVariant { kind: VariantKind; value: string; style: Delivery }
 export interface WorkbenchSpeechSource {
@@ -21,6 +22,7 @@ export interface ReferenceAnalysis { original: ReferenceInspection; analyzed: Re
 export interface ReferenceDraft { path: string; start: number; end: number; transcript: string; language: string; confirmed: boolean; name: string; notes: string; gain_db: number; fade_in: number; fade_out: number }
 export interface ReferenceInspection extends Waveform { id: string; path: string; companion_subtitles?: { name: string; format: string }[] }
 export interface SpeechConnection { id: string; name: string; provider_id: string; deployment: 'local' | 'lan' | 'cloud'; base_url?: string; credential_configured?: boolean; timeout?: number; model_path?: string; device?: string }
+export interface LocalSpeechConnection { connection: SpeechConnection | null; readiness: { ready: boolean; verified: boolean; detail?: string; code?: string } | null; detail: string }
 export interface LegacySpeechImportEntry {
   source: string
   name: string
@@ -84,6 +86,12 @@ export const speechApi = {
   },
   providers: () => api.get<{ providers: SpeechProvider[] }>('/speech/providers'),
   library: () => api.get<SpeechLibrary>('/speech/library'),
+  connections: () => api.get<{ connections: SpeechConnection[] }>('/speech/connections'),
+  localConnection: (provider_id: string, model: string, mode: string) => api.post<LocalSpeechConnection>('/speech/connections/local-default', { provider_id, model, mode }),
+  hostedVoices: (connectionId: string, title: string, page: number, workspaceOnly: boolean) => {
+    const query = new URLSearchParams({ title, page: String(page), page_size: '20', workspace_only: String(workspaceOnly) })
+    return api.get<HostedVoicePage>(`/speech/connections/${encodeURIComponent(connectionId)}/voices?${query}`)
+  },
   voice: ({ id, ...voice }: Omit<SpeechVoice, 'id'> & { id?: string }) => api.post<SpeechVoice>('/speech/voices', { ...voice, ...(id ? { id } : {}) }),
   recipe: (recipe: Partial<SpeechRecipe>) => api.post<SpeechRecipe>('/speech/recipes', recipe),
   plan: (plan: { text: string; segments?: SpeechSegment[] }) => api.post<SpeechPlan>('/speech/plans', plan),

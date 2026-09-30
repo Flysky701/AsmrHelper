@@ -143,8 +143,19 @@ class BatchRunService:
         batch_id = f"batch-{uuid4().hex[:12]}"
         execution_profile = deepcopy(execution_profile)
         translation = execution_profile["stages"].get("translate", {})
+        from src.core.subtitles.translation_reuse import prepare_translation_profile
+        try:
+            needs_translation = any(prepare_translation_profile(execution_profile, path, companions)
+                .get("stages", {}).get("translate", {}).get("enabled", True)
+                for path, companions in resolved_inputs)
+        except ValueError as exc:
+            raise AppValidationError(str(exc)) from exc
+        if not needs_translation and translation.get("enabled", True):
+            # Freeze the no-translation decision for delayed children too.
+            translation["enabled"] = False
+            translation.setdefault("options", {}).update(reuse_only=True, reuse_unverified=False)
         selected_settings = None
-        if translation.get("enabled", True) and "connection_ref" in translation.get("options", {}):
+        if needs_translation and "connection_ref" in translation.get("options", {}):
             from src.config import config
             from src.task_connection_context import resolve_task_settings, capture_connections
             from src.recovery_connections import capture_recovery_connections
@@ -153,8 +164,15 @@ class BatchRunService:
                 execution_profile["llm_connection_record"] = capture_recovery_connections(
                     selected_settings, capture_connections(selected_settings), include_tts=False)
             except ValueError as exc:
-                raise AppValidationError(str(exc)) from exc
-            if translation.get("model") in (None, "", "default"):
+                can_attempt_reuse = all(not prepare_translation_profile(execution_profile, path, companions,
+                    allow_unverified=True).get("stages", {}).get("translate", {}).get("enabled", True)
+                    for path, companions in resolved_inputs)
+                if not can_attempt_reuse:
+                    raise AppValidationError(str(exc)) from exc
+                selected_settings = None
+                translation["enabled"] = False
+                translation.setdefault("options", {}).update(reuse_only=True, reuse_unverified=True)
+            if selected_settings is not None and translation.get("model") in (None, "", "default"):
                 translation["model"] = selected_settings["api"][f"{translation['provider']}_model"]
         record = BatchRunRecord(
             batch_id=batch_id,

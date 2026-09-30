@@ -18,6 +18,7 @@ router = APIRouter(prefix="/inputs", tags=["inputs"])
 
 
 def _to_asset_response(asset) -> InputAssetResponse:
+    from src.core.subtitles.companions import subtitle_summary
     return InputAssetResponse(
         asset_id=asset.asset_id,
         absolute_path=asset.absolute_path,
@@ -28,6 +29,7 @@ def _to_asset_response(asset) -> InputAssetResponse:
         readable=asset.readable,
         size_bytes=asset.size_bytes,
         warnings=asset.warnings,
+        subtitle_summary=subtitle_summary(asset.absolute_path) if asset.kind == "subtitle" else None,
     )
 
 

@@ -16,6 +16,7 @@ import type {
   CapabilityDescriptorResponse,
   CapabilityOptionResponse,
   PipelineRunRequest,
+  WorkflowReference,
   TaskReadinessIssueResponse,
 } from '@/api/types'
 import { FILE_FILTERS, useFileSelector } from '@/hooks/useFileSelector'
@@ -23,7 +24,6 @@ import { useTaskPolling } from '@/hooks/useTaskPolling'
 import {
   PIPELINE_STAGE_IDS,
   PIPELINE_STAGE_LABELS,
-  normalizePresetStages,
   type PipelineStageId,
 } from '@/domain/pipelinePreset'
 import {
@@ -33,14 +33,15 @@ import {
 } from '@/domain/pipelineExecutionProfile'
 import {
   MAX_WORKBENCH_INPUTS,
+  expandInputMaterials,
   discoveredFileToInput,
   fileName,
   inputPathKey,
-  mergeInputItems,
   companionDescription,
   pathToInput,
   type WorkbenchInputItem,
 } from '@/domain/workbenchInput'
+import { assessFlow, FLOW_PORTS, FLOW_OUTPUTS, FLOW_PRESETS, matchingFlowPreset, materialKind, referenceFromValue, referenceValue, sourceOptions, workflowPayload, type FlowDraft } from '@/domain/workbenchFlow'
 import { useLogStore } from '@/stores/logStore'
 import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
@@ -362,18 +363,18 @@ const ChevronIcon = ({ open }: { open: boolean }) => (
   </svg>
 )
 
-const WORKBENCH_AUDIO_EXTENSIONS = new Set(
-  FILE_FILTERS.audio.extensions.map((extension) => extension.toLowerCase()),
+const WORKBENCH_MATERIAL_EXTENSIONS = new Set(
+  [...FILE_FILTERS.audio.extensions, ...FILE_FILTERS.subtitle.extensions].map((extension) => extension.toLowerCase()),
 )
 
-function partitionAudioPaths(paths: string[]) {
+function partitionMaterialPaths(paths: string[]) {
   const accepted: string[] = []
   const rejected: string[] = []
 
   paths.forEach((path) => {
     const name = fileName(path).toLowerCase()
     const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
-    if (WORKBENCH_AUDIO_EXTENSIONS.has(extension)) {
+    if (WORKBENCH_MATERIAL_EXTENSIONS.has(extension)) {
       accepted.push(path)
     } else {
       rejected.push(path)
@@ -383,12 +384,12 @@ function partitionAudioPaths(paths: string[]) {
   return { accepted, rejected }
 }
 
-function unsupportedAudioMessage(paths: string[]) {
+function unsupportedMaterialMessage(paths: string[]) {
   if (paths.length === 0) return ''
   const examples = paths.slice(0, 3).map(fileName).join('、')
   const remainder = paths.length > 3 ? ` 等 ${paths.length} 个文件` : ''
-  const formats = FILE_FILTERS.audio.extensions.map((extension) => extension.toUpperCase()).join('、')
-  return `只接受 ${formats} 音频；已忽略 ${examples}${remainder}`
+  const formats = [...FILE_FILTERS.audio.extensions, ...FILE_FILTERS.subtitle.extensions].map(extension => extension.toUpperCase()).join('、')
+  return `只接受 ${formats} 音频／字幕；已忽略 ${examples}${remainder}`
 }
 
 function formatInputSize(bytes: number) {
@@ -396,37 +397,6 @@ function formatInputSize(bytes: number) {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
   if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
   return `${Math.max(1, Math.round(bytes / 1024))} KB`
-}
-
-async function mapWithConcurrency<Input, Output>(
-  inputs: Input[],
-  maxParallel: number,
-  worker: (input: Input) => Promise<Output>,
-) {
-  const results = new Array<Output>(inputs.length)
-  let nextIndex = 0
-  let firstError: unknown
-  let failed = false
-  const runners = Array.from(
-    { length: Math.min(maxParallel, inputs.length) },
-    async () => {
-      while (nextIndex < inputs.length && !failed) {
-        const index = nextIndex
-        nextIndex += 1
-        const input = inputs[index]
-        if (input === undefined) continue
-        try {
-          results[index] = await worker(input)
-        } catch (error) {
-          if (!failed) firstError = error
-          failed = true
-        }
-      }
-    },
-  )
-  await Promise.all(runners)
-  if (failed) throw firstError
-  return results
 }
 
 function uniqueReadinessIssues(issues: TaskReadinessIssueResponse[]) {
@@ -599,6 +569,7 @@ function SelectField({
     <div>
       <FieldLabel title={title} hint={hint} />
       <select
+        aria-label={title}
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
@@ -850,20 +821,65 @@ function CapabilityOptionField({
   )
 }
 
+function WorkflowSources({ flow, items, onBinding }: {
+  flow: FlowDraft; items: WorkbenchInputItem[]
+  onBinding: (stage: PipelineStageId, port: string, ref?: WorkflowReference) => void
+}) {
+  return <div style={{ display: 'grid', gap: 14 }}>
+    {PIPELINE_STAGE_IDS.filter(stage => flow.selectedStages.includes(stage)).map(stage => (
+      <div key={stage} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8 }}>
+        <div style={{ fontWeight: 650, fontSize: 13, marginBottom: 10 }}>{PIPELINE_STAGE_LABELS[stage]}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 230px), 1fr))', gap: 12 }}>
+          {FLOW_PORTS[stage].map(port => {
+            const ref = flow.bindings[stage]?.[port.key]
+            const options = sourceOptions(stage, port.type, flow, items)
+            const value = referenceValue(ref)
+            const item = ref?.kind === 'asset' ? items.find(item => inputPathKey(item.path) === inputPathKey(ref.path)) : undefined
+            const detected = item?.subtitleSummary?.language
+            const unknownLanguage = !detected || ['auto', 'mixed', 'unknown'].includes(detected)
+            const patch = (value: Partial<Extract<WorkflowReference, {kind: 'asset'}>>) => {
+              if (ref?.kind === 'asset') onBinding(stage, port.key, { ...ref, ...value })
+            }
+            return <div key={port.key}>
+              <SelectField title={`${PIPELINE_STAGE_LABELS[stage]} · ${port.label}`} value={value}
+                options={[{ value: '', label: '请选择素材或已勾选的前序产物' },
+                  ...(value && !options.some(option => option.value === value) ? [{ value, label: '原来源不可用，请重新选择或恢复前序' }] : []),
+                  ...options]}
+                onChange={value => onBinding(stage, port.key, referenceFromValue(value))} />
+              {ref?.kind === 'asset' && port.type === 'text' ? <div style={{ marginTop: 9, display: 'grid', gap: 8 }}>
+                {unknownLanguage ? <>
+                  <SelectField title={`${PIPELINE_STAGE_LABELS[stage]} · 字幕语言`} value={ref.language || ''}
+                    options={[{ value: '', label: '请核实字幕实际语言' }, ...LANG_OPTIONS]}
+                    onChange={language => patch({ language, language_confirmed: false })} />
+                  <label style={{ fontSize: 12 }}><input type="checkbox" checked={!!ref.language_confirmed} disabled={!ref.language}
+                    onChange={event => patch({ language_confirmed: event.target.checked })} /> 我确认字幕实际语言</label>
+                </> : <div style={{ fontSize: 12, color: 'var(--muted)' }}>字幕语言：{optionLabel(LANG_OPTIONS, detected)}</div>}
+                {items.some(item => materialKind(item) === 'audio') ? <>
+                  <SelectField title={`${PIPELINE_STAGE_LABELS[stage]} · 字幕对应音频`} value={ref.audio_path || ''}
+                    options={[{ value: '', label: '不与音频共同使用' }, ...items.filter(item => materialKind(item) === 'audio').map(item => ({ value: item.path, label: item.name }))]}
+                    onChange={audio_path => patch({ audio_path: audio_path || undefined, pair_confirmed: false })} />
+                  {ref.audio_path ? <label style={{ fontSize: 12 }}><input type="checkbox" checked={!!ref.pair_confirmed}
+                    onChange={event => patch({ pair_confirmed: event.target.checked })} /> 我确认字幕属于此音频（提交时核验时间范围）</label> : null}
+                </> : null}
+              </div> : null}
+            </div>
+          })}
+        </div>
+      </div>
+    ))}
+  </div>
+}
+
 export default function Workbench() {
   useTaskPolling(3000)
 
   const {
+    flow, toggleStage, applyStepPreset, setBinding, toggleOutput, setSubtitleFormat,
     inputItems,
     selectedInputPaths,
     inputFolder,
     scanRecursive,
     outputDirectory,
-    batchName,
-    batchMaxParallel,
-    preset,
-    presets,
-    presetsLoading,
     params,
     capabilityOptions,
     commonExpanded,
@@ -877,11 +893,6 @@ export default function Workbench() {
     setInputFolder,
     setScanRecursive,
     setOutputDirectory,
-    setBatchName,
-    setBatchMaxParallel,
-    setPreset,
-    setPresets,
-    setPresetsLoading,
     updateParam,
     updateCapabilityOption,
     toggleCommon,
@@ -917,14 +928,10 @@ export default function Workbench() {
   const [checkingReadiness, setCheckingReadiness] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submissionError, setSubmissionError] = useState('')
-  const [presetError, setPresetError] = useState('')
-  const [presetReloadToken, setPresetReloadToken] = useState(0)
   const submitLockRef = useRef(false)
   const inputOperationRef = useRef(0)
   const inputOwnerActiveRef = useRef(true)
-  const currentPreset = presets.find((item) => item.id === preset) ?? null
-  const activePresetStages = normalizePresetStages(currentPreset?.stages ?? [])
-  const stageFlags = buildPipelineStageFlags(activePresetStages, params)
+  const stageFlags = buildPipelineStageFlags(new Set(flow.selectedStages))
   const selectedInputKeys = useMemo(
     () => new Set(selectedInputPaths.map(inputPathKey)),
     [selectedInputPaths],
@@ -941,38 +948,6 @@ export default function Workbench() {
       inputOperationRef.current += 1
     }
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    let retryTimer: number | undefined
-
-    const loadPresets = () => {
-      setPresetsLoading(true)
-      pipelineApi.presets().then((response) => {
-        if (cancelled) return
-        setPresets(response.presets)
-        const currentPresetId = useWorkbenchStore.getState().preset
-        const presetStillExists = response.presets.some((item) => item.id === currentPresetId)
-        if (!presetStillExists) {
-          setPreset(response.presets[0]?.id ?? '')
-        }
-        setPresetError(response.presets.length > 0 ? '' : '没有可用的内置预设')
-        setPresetsLoading(false)
-      }).catch((error) => {
-        if (cancelled) return
-        setPresetError(`预设加载失败：${error instanceof Error ? error.message : String(error)}`)
-        setPresetsLoading(false)
-        retryTimer = window.setTimeout(loadPresets, 2000)
-      })
-    }
-
-    loadPresets()
-    return () => {
-      cancelled = true
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
-      setPresetsLoading(false)
-    }
-  }, [presetReloadToken, setPreset, setPresets, setPresetsLoading])
 
   useEffect(() => {
     let cancelled = false
@@ -1016,8 +991,12 @@ export default function Workbench() {
   useEffect(() => {
     setReadinessIssues([])
     setSubmissionError('')
-  }, [preset, params, capabilityOptions, selectedInputPaths, speechConfig])
+  }, [flow, params, capabilityOptions, selectedInputPaths, speechConfig])
 
+  const flowAssessment = assessFlow(flow, selectedInputs, params.sourceLang, params.targetLang)
+  const matchedStepPreset = matchingFlowPreset(flow)
+  const flowKey = JSON.stringify({ flow, params, selectedInputPaths, speech: stageFlags.tts ? speechConfig?.stage : null })
+  const matchingTask = [...tasks].reverse().find(task => task.params.workbench_flow_key === flowKey)
   const runningCount = tasks.filter((task) => task.status === 'running').length
   const pendingCount = tasks.filter((task) => task.status === 'pending').length
   const completedCount = tasks.filter((task) => task.status === 'completed').length
@@ -1027,7 +1006,7 @@ export default function Workbench() {
     if (items.length === 0) return
     const currentItems = useWorkbenchStore.getState().inputItems
     const currentKeys = new Set(currentItems.map((item) => inputPathKey(item.path)))
-    const normalizedIncoming = mergeInputItems([], items)
+    const normalizedIncoming = expandInputMaterials(items)
     const existingUpdates = normalizedIncoming.filter((item) => currentKeys.has(inputPathKey(item.path)))
     const newItems = normalizedIncoming.filter((item) => !currentKeys.has(inputPathKey(item.path)))
     const availableSlots = Math.max(0, MAX_WORKBENCH_INPUTS - currentItems.length)
@@ -1042,7 +1021,7 @@ export default function Workbench() {
     }
   }, [addInputItems])
 
-  const appendAudioPaths = useCallback(async (paths: string[]) => {
+  const appendMaterialPaths = useCallback(async (paths: string[]) => {
     if (paths.length === 0 || !inputOwnerActiveRef.current) return
     const currentItems = useWorkbenchStore.getState().inputItems
     const existingKeys = new Set(currentItems.map((item) => inputPathKey(item.path)))
@@ -1105,11 +1084,11 @@ export default function Workbench() {
 
   const handleSelectFiles = useCallback(async () => {
     setFileSelectionError('')
-    const files = await selectFiles({ filters: [FILE_FILTERS.audio] })
-    const { accepted, rejected } = partitionAudioPaths(files)
-    setFileSelectionError(unsupportedAudioMessage(rejected))
-    await appendAudioPaths(accepted)
-  }, [appendAudioPaths, selectFiles])
+    const files = await selectFiles({ filters: [FILE_FILTERS.audio, FILE_FILTERS.subtitle] })
+    const { accepted, rejected } = partitionMaterialPaths(files)
+    setFileSelectionError(unsupportedMaterialMessage(rejected))
+    await appendMaterialPaths(accepted)
+  }, [appendMaterialPaths, selectFiles])
 
   const scanInputFolder = useCallback(async (directory: string) => {
     if (!directory || !inputOwnerActiveRef.current) return
@@ -1127,9 +1106,6 @@ export default function Workbench() {
           `目录匹配项超过 ${MAX_WORKBENCH_INPUTS} 个，已仅载入排序后的前 ${MAX_WORKBENCH_INPUTS} 个文件。`,
         )
       }
-      if (!useWorkbenchStore.getState().batchName.trim()) {
-        setBatchName(`批量处理 · ${fileName(directory)}`)
-      }
     } catch (error) {
       if (!inputOwnerActiveRef.current || inputOperationRef.current !== operationId) return
       setFileSelectionError(`扫描目录失败：${error instanceof Error ? error.message : String(error)}`)
@@ -1138,7 +1114,7 @@ export default function Workbench() {
         setDiscoveringInputs(false)
       }
     }
-  }, [appendInputItems, scanRecursive, setBatchName])
+  }, [appendInputItems, scanRecursive])
 
   const handleClearInputs = useCallback(() => {
     inputOperationRef.current += 1
@@ -1168,14 +1144,14 @@ export default function Workbench() {
     if (dropped.length === 0) return
 
     const paths = dropped.map((file) => (file as File & { path?: string }).path || file.name)
-    const { accepted, rejected } = partitionAudioPaths(paths)
-    setFileSelectionError(unsupportedAudioMessage(rejected))
+    const { accepted, rejected } = partitionMaterialPaths(paths)
+    setFileSelectionError(unsupportedMaterialMessage(rejected))
     if (accepted.length === 0) return
 
     const missingFullPath = accepted.some((path) => !path.includes('/') && !path.includes('\\'))
 
     if (!missingFullPath) {
-      await appendAudioPaths(accepted)
+      await appendMaterialPaths(accepted)
       return
     }
 
@@ -1191,16 +1167,20 @@ export default function Workbench() {
     const fullPaths = accepted.map((path) => (
       path.includes('/') || path.includes('\\') ? path : `${dir}${sep}${path}`
     ))
-    await appendAudioPaths(fullPaths)
-  }, [appendAudioPaths, discoveringInputs, submitting])
+    await appendMaterialPaths(fullPaths)
+  }, [appendMaterialPaths, discoveringInputs, submitting])
 
   const handleExecute = async () => {
     if (
       selectedInputs.length === 0 ||
-      !currentPreset ||
       discoveringInputs ||
       submitLockRef.current
     ) return
+
+    if (!flowAssessment.ready) {
+      setSubmissionError(flowAssessment.issues.join('；'))
+      return
+    }
 
     if (stageFlags.translate && connections && !connections.llm.some(item => item.id === params.translateConnectionId)) {
       setSubmissionError('本次翻译连接已不可用，请重新选择')
@@ -1222,23 +1202,15 @@ export default function Workbench() {
         capabilities,
         capabilityOptions,
         speechStage: speechConfig?.stage ?? null,
+        workflow: workflowPayload(flow),
+        subtitleFormat: flow.subtitleFormat,
       })
 
       setCheckingReadiness(true)
       setReadinessIssues([])
       try {
-        const readinessResults = await mapWithConcurrency(
-          selectedInputs,
-          6,
-          (item) => resourcesApi.checkTaskReadiness(
-            'pipeline',
-            executionProfile,
-            item.path,
-          ),
-        )
-        const issues = uniqueReadinessIssues(
-          readinessResults.flatMap((readiness) => readiness.ready ? [] : readiness.issues),
-        )
+        const readiness = await resourcesApi.checkTaskReadiness('pipeline', executionProfile, selectedInputs[0]!.path)
+        const issues = uniqueReadinessIssues(readiness.ready ? [] : readiness.issues)
         if (issues.length > 0) {
           setReadinessIssues(issues)
           return
@@ -1259,35 +1231,12 @@ export default function Workbench() {
         setCheckingReadiness(false)
       }
 
-      if (selectedInputs.length > 1) {
-        try {
-          const created = await batchesApi.create({
-            name: batchName.trim() || `批量任务 · ${new Date().toLocaleString()}`,
-            inputs: selectedInputs.map((item) => ({
-              path: item.path,
-              companion_paths: item.companionPaths,
-            })),
-            output: { directory: outputDirectory || undefined },
-            execution_profile: executionProfile,
-            max_parallel: batchMaxParallel,
-          })
-          addLog({
-            level: 'info',
-            content: `批次已创建：${created.name}（${created.total_count} 个文件，${created.batch_id}）`,
-          })
-          openTaskCenter('batches')
-        } catch (error) {
-          setSubmissionError(`创建批次失败：${error instanceof Error ? error.message : String(error)}`)
-        }
-        return
-      }
-
       const input = selectedInputs[0]
       if (!input) return
       const request: PipelineRunRequest = {
         input: {
           path: input.path,
-          companion_paths: input.companionPaths,
+          companion_paths: selectedInputs.slice(1).map(item => item.path),
         },
         output: { directory: outputDirectory || undefined },
         execution_profile: executionProfile,
@@ -1299,9 +1248,10 @@ export default function Workbench() {
         sourcePath: input.path,
         params: {
           input_path: input.path,
-          companion_paths: input.companionPaths,
+          companion_paths: selectedInputs.slice(1).map(item => item.path),
           output_directory: outputDirectory,
-          preset_id: currentPreset.id,
+          workbench_flow_key: flowKey,
+          workflow: workflowPayload(flow),
           source_lang: params.sourceLang,
           target_lang: params.targetLang,
           use_vocal_separator: stageFlags.separate,
@@ -1342,19 +1292,13 @@ export default function Workbench() {
           addLog({ level: 'error', content: `任务异常：${String(error)}`, taskId })
       }
 
+      useTaskStore.getState().selectTask(taskId)
       openTaskCenter('tasks')
     } finally {
       submitLockRef.current = false
       setSubmitting(false)
     }
   }
-
-  const presetOptions = presets.length > 0
-    ? presets.map((item) => ({ value: item.id, label: item.label || item.id }))
-    : [{
-        value: '',
-        label: presetsLoading ? '加载预设中...' : presetError ? '预设加载失败' : '没有可用预设',
-      }]
 
   const descriptorsFor = (category: string) =>
     capabilities.filter((item) => item.category === category)
@@ -1402,72 +1346,24 @@ export default function Workbench() {
       })))
   })
 
-  const stageDetails = {
-    separate: activePresetStages.has('separate')
-      ? (params.useVocalSeparator ? `模型：${params.vocalModel}` : '已由参数关闭')
-      : '当前预设不执行',
-    asr: stageFlags.asr ? `模型：${params.asrModel}` : '当前预设不执行',
-    align: stageFlags.align ? 'Qwen3-ForcedAligner-0.6B' : '未启用',
-    translate: activePresetStages.has('translate')
-      ? (stageFlags.translate
-          ? `${optionLabel(LANG_OPTIONS, params.sourceLang)} → ${optionLabel(LANG_OPTIONS, params.targetLang)}`
-          : '源语言与目标语言相同，自动跳过')
-      : '当前预设不执行',
-    tts: stageFlags.tts ? speechConfig?.summary || '请选择配音引擎' : '当前预设不执行',
-    mix: stageFlags.mix
-      ? `原声 ${Math.round(params.originalVolume * 100)}% · 配音 ${Math.round(params.ttsVolumeRatio * 100)}%`
-      : '当前预设不执行',
-    export: stageFlags.export ? '导出 SRT 字幕与文本结果' : '当前预设不执行',
-  }
-  const compactStageDetails: Record<PipelineStageId, string> = {
-    separate: params.vocalModel === 'htdemucs' ? 'Demucs' : params.vocalModel,
-    asr: params.asrModel.startsWith('faster-whisper-')
-      ? `Whisper ${params.asrModel.slice('faster-whisper-'.length)}` : params.asrModel,
-    align: 'Qwen 0.6B',
-    translate: `${optionLabel(LANG_OPTIONS, params.sourceLang).replace(/\s*\([^)]*\)/g, '')} → ${optionLabel(LANG_OPTIONS, params.targetLang).replace(/\s*\([^)]*\)/g, '')}`,
-    tts: speechConfig?.summary || '待选择引擎',
-    mix: `原声 ${Math.round(params.originalVolume * 100)}% · 配音 ${Math.round(params.ttsVolumeRatio * 100)}%`,
-    export: 'SRT + 文本',
-  }
-  const stageSummary = PIPELINE_STAGE_IDS.map((id) => ({
-    id,
-    title: PIPELINE_STAGE_LABELS[id],
-    enabled: stageFlags[id],
-    detail: stageDetails[id],
-    summary: compactStageDetails[id],
-  }))
-
-  const outputSummary = [
-    ...(stageFlags.mix ? ['混音成品音频'] : []),
-    ...(stageFlags.export ? ['SRT 字幕与识别文本'] : []),
-    ...(stageFlags.align ? ['原始时间轴、校准字幕与逐字时间戳'] : []),
-    ...(stageFlags.tts ? ['语音合成中间音轨'] : []),
-    ...(stageFlags.separate ? ['分离人声中间产物'] : []),
-  ]
+  const stageSummary = PIPELINE_STAGE_IDS.map(id => {
+    const assessed = flowAssessment.stages[id]
+    const enabled = stageFlags[id]
+    let state = !enabled ? '可选' : assessed.issues.length ? '缺素材／条件' : assessed.upstream ? '使用前序产物' : '可执行'
+    if (enabled && matchingTask?.status === 'completed') state = '已完成'
+    else if (enabled && matchingTask?.status === 'running' && matchingTask.stage === id) state = '执行中'
+    else if (enabled && matchingTask?.status === 'pending') state = '排队中'
+    else if (enabled && matchingTask?.status === 'failed' && matchingTask.stage === id) state = '执行失败'
+    return { id, title: PIPELINE_STAGE_LABELS[id], enabled, state,
+      detail: assessed.issues.join('；') || (assessed.upstream ? '输入将在已选前序步骤执行后生成' : '只执行你勾选的步骤；模型与连接在提交前检查') }
+  })
   const confirmationSummary = [
-    { label: '输入文件', value: selectedInputs.length === 0 ? '尚未选择' : `${selectedInputs.length} / ${inputItems.length} 个音频` },
-    {
-      label: '提交方式',
-      value: selectedInputs.length === 0
-        ? '等待选择输入'
-        : selectedInputs.length > 1
-          ? '创建一个可恢复管理的批次'
-          : '创建一个普通 Pipeline 任务',
-    },
+    { label: '输入素材', value: selectedInputs.length === 0 ? '尚未选择' : `${selectedInputs.length} / ${inputItems.length} 项` },
+    { label: '提交方式', value: '所选素材组合成一个任务' },
     { label: '输出目录', value: outputDirectory || '使用工作区默认目录' },
-    {
-      label: '执行阶段',
-      value: stageSummary.filter((stage) => stage.enabled).map((stage) => stage.title).join(' → ') || '没有可执行阶段',
-    },
-    ...(stageFlags.translate
-      ? [{ label: '目标语言', value: optionLabel(LANG_OPTIONS, params.targetLang) }]
-      : []),
-    ...(stageFlags.tts
-      ? [{ label: '配音配置', value: speechConfig?.summary || '尚未选择' }]
-      : []),
-    ...(stageFlags.translate
-      ? [{ label: '翻译提供方', value: optionLabel(translateProviderOptions, params.translateProvider) }]
-      : []),
+    { label: '执行阶段', value: stageSummary.filter(stage => stage.enabled).map(stage => stage.title).join(' → ') || '尚未勾选' },
+    ...(stageFlags.translate || stageFlags.tts ? [{ label: '目标语言', value: optionLabel(LANG_OPTIONS, params.targetLang) }] : []),
+    ...(stageFlags.tts ? [{ label: '配音配置', value: speechConfig?.summary || '尚未选择' }] : []),
   ]
 
   return (
@@ -1481,45 +1377,20 @@ export default function Workbench() {
         </div>
 
         <div className="workbench-header-actions">
-          <div className="workbench-header-preset">
-            <select
-              value={preset}
-              onChange={(event) => setPreset(event.target.value)}
-              disabled={presets.length === 0 || submitting}
-              aria-label="处理预设"
-              style={{
-                width: '100%',
-                minHeight: 38,
-                padding: '0 12px',
-                borderRadius: 'var(--radius-button)',
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--fg)',
-                fontSize: 13,
-                fontWeight: 600,
-              }}
-            >
-              {presetOptions.map((option) => (
-                <option key={option.value || 'loading'} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
           <ActionButton variant="ghost" disabled={inputItems.length === 0 || submitting || discoveringInputs} onClick={handleClearInputs}>
             清空列表
           </ActionButton>
           <ActionButton
             variant="primary"
-            disabled={selectedInputs.length === 0 || submitting || discoveringInputs || !!capabilityError || !currentPreset}
+            disabled={selectedInputs.length === 0 || submitting || discoveringInputs || !flow.selectedStages.length}
             onClick={handleExecute}
           >
             <PlayIcon />
             {checkingReadiness
               ? '检查运行条件...'
               : submitting
-                ? selectedInputs.length > 1 ? '正在创建批次...' : '正在创建任务...'
-                : selectedInputs.length > 1 ? `创建批次（${selectedInputs.length}）` : '创建并执行'}
+                ? '正在创建任务...'
+                : '创建并执行'}
           </ActionButton>
         </div>
 
@@ -1547,11 +1418,39 @@ export default function Workbench() {
 
       <div className="workbench-content">
         <div className="workbench-main-column" inert={submitting} aria-busy={submitting}>
+          <Section title="处理流程" caption="预设只勾选步骤；素材来源与产出请确认，仍可手动调整。"
+            actions={<label style={{ display: 'grid', gap: 5, minWidth: 0, maxWidth: '100%' }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>步骤预设 · 仅匹配步骤</span>
+              <select aria-label="常用步骤预设" value={matchedStepPreset?.id ?? ''} disabled={submitting}
+                onChange={event => applyStepPreset(event.target.value)}
+                style={{ minHeight: 36, maxWidth: '100%', padding: '6px 10px', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)', background: 'var(--surface)', color: 'var(--fg)', fontSize: 13 }}>
+                <option value="" disabled>自定义步骤</option>
+                {FLOW_PRESETS.map(preset => <option key={preset.id} value={preset.id}>
+                  {preset.label}{preset.id === 'audio_translation_speech' ? '（不含混音）' : ''}
+                </option>)}
+              </select>
+            </label>}>
+            <div className="workbench-pipeline-scroll" tabIndex={0} role="region" aria-label="处理流程，可横向滚动查看全部步骤">
+              <ol className="workbench-pipeline-track" style={{ listStyle: 'none', margin: 0 }}>
+                {stageSummary.map(stage => <li key={stage.id} className="workbench-pipeline-step" title={stage.detail}>
+                  <label style={{ cursor: 'pointer', display: 'grid', justifyItems: 'start', gap: 8 }}>
+                    <input type="checkbox" checked={stage.enabled} onChange={() => toggleStage(stage.id)}
+                      aria-label={`执行${stage.title}`} style={{ width: 20, height: 20, accentColor: 'var(--accent)' }} />
+                    <span style={{ fontSize: 13, fontWeight: 650, color: stage.enabled ? 'var(--fg)' : 'var(--muted)' }}>{stage.title}</span>
+                  </label>
+                  <div className="workbench-pipeline-detail" aria-live="polite">{stage.state}</div>
+                </li>)}
+              </ol>
+            </div>
+          </Section>
+
+
           <Section
-            title="文件队列"
+            title="输入素材"
             caption={inputItems.length === 0
-              ? '选择音频、递归扫描目录，或直接拖入文件'
-              : `已选择 ${selectedInputs.length} / ${inputItems.length} 个音频文件`}
+              ? '添加音频／字幕，再为勾选的步骤指定来源；所选素材组合成一个任务'
+              : `已选择 ${selectedInputs.length} / ${inputItems.length} 项素材；不会逐文件自动创建批次`}
             actions={
               inputItems.length > 0 ? (
                 <label style={{ display: 'inline-flex', gap: 7, alignItems: 'center', fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
@@ -1586,10 +1485,10 @@ export default function Workbench() {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
               <ActionButton variant="ghost" disabled={submitting || discoveringInputs} onClick={handleSelectFiles}>
                 <UploadIcon />
-                添加音频
+                添加音频／字幕
               </ActionButton>
               <ActionButton variant="ghost" disabled={submitting || discoveringInputs} onClick={handleSelectFolder}>
-                {discoveringInputs ? '正在发现输入...' : '选择目录'}
+                {discoveringInputs ? '正在发现输入...' : '扫描音频目录'}
               </ActionButton>
               {inputFolder ? (
                 <ActionButton variant="ghost" disabled={submitting || discoveringInputs} onClick={() => scanInputFolder(inputFolder)}>
@@ -1642,9 +1541,9 @@ export default function Workbench() {
                   >
                     <UploadIcon />
                   </div>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>先添加这次要处理的音频</div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>添加这次要使用的音频或字幕</div>
                   <div style={{ marginTop: 8, fontSize: 13, color: 'var(--muted)' }}>
-                    文件与目录共用同一份清单；同名 VTT、SRT 或 LRC 会自动成为伴随字幕。
+                    音频、VTT、SRT、LRC 共用同一素材池。发现的同名字幕会列为候选，来源由你指定。
                   </div>
                 </div>
               ) : (
@@ -1681,7 +1580,7 @@ export default function Workbench() {
                           {item.path}
                         </div>
                         <div style={{ marginTop: 4, fontSize: 10, color: 'var(--muted)' }}>
-                          {formatInputSize(item.size)} · {companionDescription(item, params.sourceLang, params.targetLang)}
+                          {formatInputSize(item.size)} · {companionDescription(item)}
                         </div>
                       </div>
                       <button
@@ -1707,7 +1606,7 @@ export default function Workbench() {
               )}
             </div>
 
-            <div className="workbench-input-options" style={{ marginTop: 14, display: 'grid', gridTemplateColumns: selectedInputs.length > 1 ? 'minmax(0, 1fr) minmax(150px, 0.55fr) 130px' : 'minmax(0, 1fr)', gap: 12 }}>
+            <div className="workbench-input-options" style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12 }}>
               <label style={{ minWidth: 0 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', fontSize: 12, fontWeight: 650 }}>
                   输出目录
@@ -1732,84 +1631,22 @@ export default function Workbench() {
                   {outputDirectory || '使用工作区默认目录'}
                 </button>
               </label>
-              {selectedInputs.length > 1 ? (
-                <label style={{ minWidth: 0 }}>
-                  <span style={{ fontSize: 12, fontWeight: 650 }}>批次名称</span>
-                  <input
-                    value={batchName}
-                    maxLength={100}
-                    onChange={(event) => setBatchName(event.target.value)}
-                    placeholder="自动生成"
-                    style={{ width: '100%', minHeight: 40, marginTop: 6, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', color: 'var(--fg)', font: 'inherit' }}
-                  />
-                </label>
-              ) : null}
-              {selectedInputs.length > 1 ? (
-                <label>
-                  <span style={{ fontSize: 12, fontWeight: 650 }}>并行文件数</span>
-                  <select
-                    value={batchMaxParallel}
-                    onChange={(event) => setBatchMaxParallel(Number(event.target.value))}
-                    style={{ width: '100%', minHeight: 40, marginTop: 6, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', color: 'var(--fg)', font: 'inherit' }}
-                  >
-                    <option value={1}>1（推荐）</option>
-                    <option value={2}>2</option>
-                    <option value={3}>3</option>
-                    <option value={4}>4</option>
-                  </select>
-                </label>
-              ) : null}
-            </div>
-
-            {selectedInputs.length > 1 ? (
-              <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--accent)', background: 'var(--accent-soft)', color: 'var(--fg)', fontSize: 12 }}>
-                本次将创建一个包含 {selectedInputs.length} 项的 BatchRun；可在任务中心整批取消、查看历史或重提失败项。
-              </div>
-            ) : null}
-          </Section>
-
-          <Section title="处理流程">
-            <div className="workbench-pipeline-scroll" tabIndex={0} role="region" aria-label="处理流程，可横向滚动查看全部步骤">
-              <ol className="workbench-pipeline-track" style={{ listStyle: 'none', margin: 0 }}>
-              {stageSummary.map((stage, index) => (
-                <li
-                  key={stage.id}
-                  className="workbench-pipeline-step"
-                  title={stage.detail}
-                >
-                    <span
-                      style={{
-                        width: 26,
-                        height: 26,
-                        borderRadius: 999,
-                        background: stage.enabled ? 'var(--accent-soft)' : 'var(--panel-muted)',
-                        color: stage.enabled ? 'var(--accent)' : 'var(--muted)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 12,
-                        fontWeight: 700,
-                      }}
-                    >
-                      {index + 1}
-                    </span>
-                    <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: stage.enabled ? 'var(--fg)' : 'var(--muted)' }}>{stage.title}</div>
-                    <div className="workbench-pipeline-detail">{stage.enabled ? stage.summary : '跳过'}</div>
-                </li>
-              ))}
-              </ol>
             </div>
           </Section>
 
-          <Section title="基础参数" open={commonExpanded} onToggle={toggleCommon}>
+          {flow.selectedStages.length > 0 ? <Section title="步骤输入" caption="选择现有素材或已勾选前序的产物；取消前序后不会自动补选。">
+            <WorkflowSources flow={flow} items={selectedInputs} onBinding={setBinding} />
+          </Section> : null}
+
+          {flow.selectedStages.length > 0 ? <Section title="基础参数" open={commonExpanded} onToggle={toggleCommon}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
-              <SelectField
+              {stageFlags.asr || stageFlags.align || stageFlags.translate ? <SelectField
                 title="源语言"
                 value={params.sourceLang}
                 options={LANG_OPTIONS}
                 onChange={(value) => updateParam('sourceLang', value)}
-              />
-              {activePresetStages.has('translate') || activePresetStages.has('tts') ? (
+              /> : null}
+              {stageFlags.translate || stageFlags.tts ? (
                 <SelectField
                   title="目标语言"
                   value={params.targetLang}
@@ -1817,26 +1654,8 @@ export default function Workbench() {
                   onChange={(value) => updateParam('targetLang', value)}
                 />
               ) : null}
-              {activePresetStages.has('separate') ? (
-                <ToggleField
-                  title="人声分离"
-                  hint="关闭后直接使用原始音频进行识别"
-                  checked={params.useVocalSeparator}
-                  onChange={(value) => updateParam('useVocalSeparator', value)}
-                />
-              ) : null}
-              <ToggleField
-                title="跳过已有输出"
-                hint="适合重复执行同一批文件"
-                checked={params.skipExisting}
-                onChange={(value) => updateParam('skipExisting', value)}
-              />
-              {stageFlags.asr ? <ToggleField
-                title="校准字幕时间轴"
-                hint="使用 Qwen3-ForcedAligner-0.6B 对齐原音频与文字，需先安装模型"
-                checked={params.alignSubtitles}
-                onChange={(value) => updateParam('alignSubtitles', value)}
-              /> : null}
+              <ToggleField title="复用本流程已有输出" hint="只复用输入和配置一致的执行结果，不改变勾选阶段或素材来源"
+                checked={params.skipExisting} onChange={value => updateParam('skipExisting', value)} />
               {stageFlags.mix ? (
                 <>
                   <RangeField
@@ -1869,11 +1688,11 @@ export default function Workbench() {
                 </>
               ) : null}
             </div>
-            {stageFlags.mix ? <MixPreview inputPaths={selectedInputPaths}
+            {stageFlags.mix ? <MixPreview inputPaths={selectedInputs.filter(item => materialKind(item) === 'audio').map(item => item.path)}
               originalVolume={params.originalVolume} ttsVolumeRatio={params.ttsVolumeRatio} ttsDelay={params.ttsDelay} /> : null}
-          </Section>
+          </Section> : null}
 
-          <Section title="模型与引擎" open={modelExpanded} onToggle={toggleModel}>
+          {stageFlags.asr || stageFlags.translate || stageFlags.tts || stageFlags.separate ? <Section title="模型与引擎" open={modelExpanded} onToggle={toggleModel}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 16 }}>
               {stageFlags.tts ? (
                 <WorkbenchSpeech disabled={submitting} language={params.targetLang}
@@ -1902,7 +1721,7 @@ export default function Workbench() {
               ) : null}
               {stageFlags.translate ? (
                 <>
-                  {connections ? <SelectField title="翻译连接配置" hint="仅用于本次任务或批次；全局默认在外部服务中管理" disabled={submitting}
+                  {connections ? <SelectField title="翻译连接配置" hint="仅用于本次任务；全局默认在外部服务中管理" disabled={submitting}
                     value={params.translateConnectionId || ''}
                     options={connections.llm.map(item => ({ value: item.id, label: item.name }))}
                     onChange={selectConnection} /> : <SelectField
@@ -1940,7 +1759,7 @@ export default function Workbench() {
                 </>
               ) : null}
             </div>
-          </Section>
+          </Section> : null}
 
           {dynamicCapabilityOptions.length > 0 ? (
             <Section title="高级参数" open={advExpanded} onToggle={toggleAdv}>
@@ -1962,24 +1781,9 @@ export default function Workbench() {
         <aside className="workbench-side-column">
           <Section title="执行前确认">
             <div style={{ display: 'grid', gap: 14 }}>
-              {presetError ? (
-                <div
-                  aria-live="polite"
-                  className="workbench-break-anywhere"
-                  style={{ padding: '12px 14px', border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)', fontSize: 12 }}
-                >
-                  <div>{presetError}</div>
-                  {!presetsLoading ? (
-                    <button
-                      type="button"
-                      onClick={() => setPresetReloadToken((value) => value + 1)}
-                      style={{ marginTop: 8, border: 'none', background: 'transparent', color: 'var(--accent)', padding: 0, cursor: 'pointer', fontWeight: 700 }}
-                    >
-                      立即重试
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
+              {flowAssessment.issues.length > 0 ? <div role="status" style={{ padding: 12, border: '1px solid var(--warning)', borderRadius: 8, fontSize: 12 }}>
+                {flowAssessment.issues.map((issue, index) => <div key={index} style={{ marginBottom: 5 }}>{issue}</div>)}
+              </div> : null}
               {capabilityError ? (
                 <div className="workbench-break-anywhere" style={{ padding: '12px 14px', border: '1px solid var(--error)', borderRadius: 8, color: 'var(--error)', fontSize: 12 }}>
                   {capabilityError}
@@ -2011,23 +1815,6 @@ export default function Workbench() {
                   ) : null}
                 </div>
               ) : null}
-              <div
-                style={{
-                  padding: '14px 16px',
-                  borderRadius: 'var(--radius-sm)',
-                  background: 'var(--panel-muted)',
-                  border: '1px solid var(--border)',
-                }}
-              >
-                <div style={{ fontSize: 11, color: 'var(--muted)' }}>当前预设</div>
-                <div style={{ marginTop: 6, fontSize: 15, fontWeight: 700 }}>
-                  {currentPreset?.label || preset || '尚未选择'}
-                </div>
-                <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
-                  {currentPreset?.description || '请先等待内置预设加载完成。'}
-                </div>
-              </div>
-
               <div style={{ display: 'grid', gap: 10 }}>
                 {confirmationSummary.map((item) => (
                   <div
@@ -2048,22 +1835,16 @@ export default function Workbench() {
             </div>
           </Section>
 
-          <Section title="预计输出">
-            <div style={{ display: 'grid', gap: 10 }}>
-              {outputSummary.map((item) => (
-                <div
-                  key={item}
-                  style={{
-                    padding: '12px 14px',
-                    borderRadius: 'var(--radius-sm)',
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border)',
-                    fontSize: 13,
-                  }}
-                >
-                  {item}
-                </div>
-              ))}
+          <Section title="产出" caption="勾选需要交付的结果；未交付的阶段产物仍可供后续步骤使用。">
+            <div style={{ display: 'grid', gap: 12 }}>
+              {flow.selectedStages.length === 0 ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>先在顶部选择步骤</div> : null}
+              {PIPELINE_STAGE_IDS.filter(id => stageFlags[id]).map(id => <label key={id} style={{ display: 'flex', gap: 8, fontSize: 13 }}>
+                <input type="checkbox" checked={flow.outputs.includes(id)} disabled={submitting} onChange={() => toggleOutput(id)}
+                  aria-label={`交付${FLOW_OUTPUTS[id]}`} />{FLOW_OUTPUTS[id]}
+              </label>)}
+              {stageFlags.export ? <SelectField title="字幕格式" value={flow.subtitleFormat}
+                options={[{ value: 'srt', label: 'SRT' }, { value: 'vtt', label: 'WebVTT' }]}
+                onChange={value => setSubtitleFormat(value === 'vtt' ? 'vtt' : 'srt')} /> : null}
             </div>
           </Section>
 
@@ -2077,7 +1858,7 @@ export default function Workbench() {
             }
           >
             {recentTasks.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'var(--muted)' }}>还没有任务记录，从当前文件队列创建第一批任务即可。</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>还没有任务记录，从当前素材和所选步骤创建任务即可。</div>
             ) : (
               <div style={{ display: 'grid', gap: 10 }}>
                 {recentTasks.map((task) => (
