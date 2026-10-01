@@ -17,6 +17,7 @@ export interface WorkflowNodeProps {
 export function WorkflowNode({ node, graph, selected, issues, pendingSource, onSelect, onSource, onTarget, onMoveStart }: WorkflowNodeProps) {
   const catalog = GRAPH_CATALOG[node.kind]
   const hasOutput = graph.outputs.some(output => output.node_id === node.id)
+  const speechSummary = node.options.speech_recipe_id ? '声音预设 · 查看' : node.options.speech_source ? '声音来源 · 查看' : '声音参数 · 待配置'
   return <article className={`wg-node ${selected ? 'is-selected' : ''} ${issues.length ? 'has-issue' : ''}`} data-node-id={node.id} aria-label={`${catalog.label} ${node.id}`}>
     <button type="button" className="wg-node-heading" onClick={onSelect} onPointerDown={onMoveStart} aria-label={`配置 ${node.id}`}>
       <span className={`wg-module-icon kind-${node.kind}`} aria-hidden="true">{node.kind === 'tts' ? '♫' : node.kind === 'translate' ? '译' : node.kind === 'export' ? '↗' : node.kind === 'mix' ? '≋' : node.kind === 'asr' ? '文' : node.kind === 'align' ? '↔' : '∿'}</span>
@@ -42,7 +43,7 @@ export function WorkflowNode({ node, graph, selected, issues, pendingSource, onS
       })}</div>
     </div>
     <button type="button" className="wg-node-summary" onClick={onSelect}>
-      {node.kind === 'translate' ? `${node.source_lang || '?'} → ${node.target_lang || '?'}` : node.kind === 'tts' ? `声音参数 · ${String(node.options.voice || '待配置')}` : node.kind === 'export' ? `${String(node.options.subtitle_format || 'vtt').toUpperCase()} 文件` : node.kind === 'mix' ? '双音轨混合' : '查看节点参数'}
+      {node.kind === 'translate' ? `${node.source_lang || '?'} → ${node.target_lang || '?'}` : node.kind === 'tts' ? speechSummary : node.kind === 'export' ? `${String(node.options.subtitle_format || 'vtt').toUpperCase()} 文件` : node.kind === 'mix' ? '双音轨混合' : '查看节点参数'}
     </button>
     <footer className="wg-node-footer"><span className={issues.length ? 'wg-warning' : ''}>{issues.length ? `! ${issues.length} 项待补充` : '未运行'}</span>{hasOutput && <span className="wg-delivery-tag">交付</span>}</footer>
   </article>

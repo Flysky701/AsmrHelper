@@ -16,6 +16,11 @@ export const pipelineApi = {
 
   presets: () => api.get<PipelinePresetsResponse>('/pipeline/presets'),
   graphPresets: () => api.get<{ presets: (PresetItem | GraphPresetItem)[] }>('/pipeline/presets?include_graph=true'),
+  graphDraft: (id: string) => api.get<{
+    source: PresetItem | GraphPresetItem
+    graph: import('../domain/workflowGraph').GraphDefinition
+    warnings: string[]
+  }>(`/pipeline/presets/${encodeURIComponent(id)}/graph-draft`),
   createGraphPreset: (body: GraphPresetDraft) => api.post<GraphPresetItem>('/pipeline/presets', body),
   updateGraphPreset: (id: string, body: GraphPresetDraft & { revision: number }) =>
     api.put<GraphPresetItem>(`/pipeline/presets/${encodeURIComponent(id)}`, body),

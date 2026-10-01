@@ -3,6 +3,12 @@ import type { PageId } from '@/stores/navStore'
 import type { ReactNode } from 'react'
 
 const NAV_ICONS: Record<PageId, ReactNode> = {
+  'workflow-presets': (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="2" y="6" width="4" height="5" rx="1" /><rect x="12" y="2" width="4" height="5" rx="1" />
+      <rect x="12" y="11" width="4" height="5" rx="1" /><path d="M6 8.5h3V4.5h3M9 8.5v5h3" />
+    </svg>
+  ),
   workbench: (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
       <rect x="3" y="3" width="12" height="12" rx="2" />
@@ -48,7 +54,7 @@ const NAV_ICONS: Record<PageId, ReactNode> = {
 }
 
 const TOP_PAGES: PageId[] = ['workbench', 'task-center', 'audio-tools', 'subtitle-workshop', 'voice-lab']
-const BOTTOM_PAGES: PageId[] = ['engines', 'settings']
+const BOTTOM_PAGES: PageId[] = ['workflow-presets', 'engines', 'settings']
 
 export default function LeftNav() {
   const activePage = useNavStore((s) => s.activePage)

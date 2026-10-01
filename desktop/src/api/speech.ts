@@ -7,9 +7,12 @@ export type VariantKind = 'hosted' | 'builtin' | 'reference' | 'design' | 'defau
 export interface VoiceVariant { kind: VariantKind; value: string; style: Delivery }
 export interface WorkbenchSpeechSource {
   mode: string
-  variant: Pick<VoiceVariant, 'kind' | 'value'>
+  variant: Pick<VoiceVariant, 'kind' | 'value'> & Partial<Pick<VoiceVariant, 'style'>>
   connection_ref?: string
   provider_options?: Record<string, unknown>
+  default_delivery?: Delivery
+  default_emotion?: string
+  default_pause_ms?: number
 }
 export interface SpeechVoice { id: string; name: string; description: string; bindings: { provider_id: string; variants: VoiceVariant[] }[]; default_binding: string }
 export interface SpeechRecipe { id: string; revision: number; name: string; description?: string; voice_id: string; provider_id: string; model: string; mode: string; connection_ref: string; variant: VoiceVariant; language: string; provider_options: Record<string, unknown>; archived?: boolean; default_delivery?: Delivery; default_emotion?: string; default_pause_ms?: number }

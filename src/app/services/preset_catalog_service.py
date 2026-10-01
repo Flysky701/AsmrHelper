@@ -167,6 +167,21 @@ class PresetCatalogService:
             raise ValueError("Preset catalog contains duplicate IDs")
         return presets
 
+    def graph_draft(self, preset_id: str) -> dict[str, Any]:
+        """Read-only, explicit conversion; stage order never implies wiring."""
+        from copy import deepcopy
+        from src.core.orchestration.pipeline.graph_legacy import legacy_preset_to_graph
+
+        source = next((item for item in self.list_presets() if item["id"] == preset_id), None)
+        if source is None:
+            raise KeyError("Preset does not exist")
+        if source.get("version") == 2:
+            return {"source": deepcopy(source), "graph": deepcopy(source["graph"]), "warnings": []}
+        return {
+            "source": deepcopy(source), "graph": legacy_preset_to_graph(source),
+            "warnings": ["旧预设未保存节点连线。每个输入已保留为独立素材槽，请确认连线、语言和参数后另存；原预设不变。"],
+        }
+
     def _write(self, presets: list[dict[str, Any]]) -> None:
         path = self._user_presets_path
         path.parent.mkdir(parents=True, exist_ok=True)

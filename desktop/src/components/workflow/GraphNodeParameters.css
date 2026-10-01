@@ -1,0 +1,23 @@
+.graph-node-parameters { min-width: 0; font-size: 13px; line-height: 1.5; color: var(--fg, #dfe6ee); }
+.graph-node-parameters fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 12px; }
+.graph-node-parameters fieldset:disabled { opacity: .65; }
+.graph-param-legend { font-weight: 600; margin-bottom: 12px; }
+.graph-param-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px; }
+.graph-param-field { min-width: 0; display: grid; align-content: start; gap: 6px; }
+.graph-param-field > span, .graph-param-field > label { font-weight: 500; }
+.graph-node-parameters input:not([type=checkbox]), .graph-node-parameters select, .graph-node-parameters textarea { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; color: inherit; background: var(--surface, #16202b); border: 1px solid var(--border, #334155); border-radius: 7px; padding: 8px; font: inherit; }
+.graph-node-parameters input[type=checkbox] { width: 18px; height: 18px; }
+.graph-node-parameters select option { color: var(--fg, #dfe6ee); background: var(--surface, #16202b); }
+.graph-node-parameters button { justify-self: start; max-width: 100%; color: inherit; background: var(--panel-muted, #253346); border: 1px solid var(--border, #334155); border-radius: 7px; padding: 7px 11px; font: inherit; cursor: pointer; }
+.graph-node-parameters button:disabled { opacity: .5; cursor: not-allowed; }
+.graph-node-parameters p { margin: 0; overflow-wrap: anywhere; }
+.graph-param-section { display: grid; gap: 12px; }
+.graph-param-note, .graph-param-field small { color: var(--muted, #a9b9cb); font-size: 12px; line-height: 1.5; }
+.graph-param-confirm { border-left: 3px solid var(--accent, #60a5fa); padding: 10px 12px; background: var(--accent-soft, #1d3047); display: grid; gap: 10px; border-radius: 5px; }
+.graph-param-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.graph-node-parameters details { display: grid; gap: 12px; }
+.graph-node-parameters details > :not(summary) { margin-top: 12px; }
+.graph-node-parameters summary { cursor: pointer; font-weight: 500; }
+.graph-node-parameters [role=alert] { color: var(--warning, #f1bf76); }
+.graph-param-reference { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border, #334155); }
+.graph-param-reference audio { width: 100%; max-width: 360px; min-width: 0; }

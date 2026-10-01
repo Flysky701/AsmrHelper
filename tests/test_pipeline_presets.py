@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 from src.app.services.preset_catalog_service import PresetCatalogService
 from src.app.services.pipeline_service import PipelineService
+from src.core.orchestration.pipeline.graph_validation import validate_graph
 
 
 ALLOWED_PRESET_STAGES = {
@@ -29,7 +30,8 @@ def _make_pipeline_service() -> PipelineService:
 
 
 def test_builtin_presets_expose_only_verified_closed_loops():
-    presets = PresetCatalogService().list_presets()
+    catalog = PresetCatalogService().list_presets()
+    presets = [preset for preset in catalog if preset.get("version") != 2]
 
     assert [preset["id"] for preset in presets] == [
         "audio_subtitles", "subtitle_translation", "subtitle_speech", "audio_translation_speech",
@@ -50,6 +52,15 @@ def test_builtin_presets_expose_only_verified_closed_loops():
         ],
         "asr_only": ["asr", "export"],
     }
+    assert {
+        preset["id"]: [node["kind"] for node in preset["graph"]["nodes"]]
+        for preset in catalog if preset.get("version") == 2
+    } == {
+        "graph_audio_subtitles": ["asr", "export"],
+        "graph_subtitle_translation": ["translate", "export"],
+        "graph_subtitle_speech": ["tts"],
+        "graph_audio_translation_speech": ["asr", "translate", "tts", "export"],
+    }
 
 
 def test_builtin_preset_stages_are_known_unique_and_described():
@@ -58,11 +69,14 @@ def test_builtin_preset_stages_are_known_unique_and_described():
     for preset in presets:
         assert preset["label"].strip()
         assert preset["description"].strip()
+        assert preset["builtin"] and preset["revision"] == 1
+        if preset.get("version") == 2:
+            assert validate_graph(preset["graph"], template=True) == preset["graph"]
+            continue
         assert preset["stages"]
         assert len(preset["stages"]) == len(set(preset["stages"]))
         assert set(preset["stages"]) <= ALLOWED_PRESET_STAGES
         assert preset["outputs"] and set(preset["outputs"]) <= set(preset["stages"])
-        assert preset["builtin"] and preset["revision"] == 1
 
 
 def test_pipeline_service_keeps_preset_catalog_compatibility():

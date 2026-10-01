@@ -60,6 +60,11 @@ def create_preset(
     return _call(svc.create_preset, body.model_dump(exclude_none=True))
 
 
+@router.get("/presets/{preset_id}/graph-draft")
+def graph_draft(preset_id: str, svc: PresetCatalogService = Depends(preset_catalog_service)):
+    return _call(svc.graph_draft, preset_id)
+
+
 @router.post("/presets/{preset_id}/copy", response_model=GraphPresetItem | PresetItem, status_code=201)
 def copy_preset(
     preset_id: str, body: PresetCopyRequest,

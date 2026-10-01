@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type R
 import { GRAPH_CATALOG, GRAPH_NODE_KINDS, type GraphDefinition, type GraphNode, type GraphNodeKind, type GraphEdge, type GraphBindings } from '@/domain/workflowGraph'
 import { WorkflowNode } from './WorkflowNode'
 import { WorkflowInspector } from './WorkflowInspector'
-import { bindingIssues, connectPort, removeNode, sourceKey, sourceLabel, TYPE_NAMES, updateNode, type WorkflowMaterial } from './graphEditorModel'
+import { bindingIssues, connectPort, removeNode, removeInputSlot, sourceKey, sourceLabel, TYPE_NAMES, updateNode, updateInputSlot, type WorkflowMaterial } from './graphEditorModel'
 import './WorkflowEditor.css'
 
 export interface WorkflowEditorIssue { message: string; nodeId?: string }
@@ -15,12 +15,15 @@ export interface WorkflowEditorProps {
   onBindingsChange: (bindings: GraphBindings) => void
   createNode: (kind: GraphNodeKind, graph: GraphDefinition) => GraphNode
   renderParameters: (node: GraphNode, onChange: (node: GraphNode) => void) => ReactNode
+  /** Template editing defines slots; concrete material bindings belong to Workbench. */
+  templateMode?: boolean
 }
 type Point = { x: number; y: number }
 type Line = { id: string; path: string; type: string }
 
-function autoPositions(graph: GraphDefinition, narrow: boolean): { points: Record<string, Point>; width: number; height: number } {
-  if (narrow) return { points: Object.fromEntries([...graph.input_slots.map(slot => `slot:${slot.id}`), ...graph.nodes.map(node => node.id)].map((id, index) => [id, { x: 48, y: 30 + index * 235 }])), width: 302, height: Math.max(440, (graph.input_slots.length + graph.nodes.length) * 235 + 45) }
+function autoPositions(graph: GraphDefinition, narrow: boolean, templateMode: boolean): { points: Record<string, Point>; width: number; height: number } {
+  const rowHeight = templateMode ? 290 : 235
+  if (narrow) return { points: Object.fromEntries([...graph.input_slots.map(slot => `slot:${slot.id}`), ...graph.nodes.map(node => node.id)].map((id, index) => [id, { x: 48, y: 30 + index * rowHeight }])), width: 302, height: Math.max(440, (graph.input_slots.length + graph.nodes.length) * rowHeight + 45) }
   const depth: Record<string, number> = Object.fromEntries(graph.nodes.map(node => [node.id, 1]))
   for (let pass = 0; pass < graph.nodes.length; pass++) {
     for (const edge of graph.edges) if (edge.source.kind === 'node') depth[edge.target.node_id] = Math.min(graph.nodes.length, Math.max(depth[edge.target.node_id] || 1, (depth[edge.source.node_id] || 1) + 1))
@@ -28,13 +31,13 @@ function autoPositions(graph: GraphDefinition, narrow: boolean): { points: Recor
   const layers: Record<number, string[]> = { 0: graph.input_slots.map(slot => `slot:${slot.id}`) }
   graph.nodes.forEach(node => { const layer = depth[node.id] || 1; (layers[layer] ||= []).push(node.id) })
   const maxCount = Math.max(2, ...Object.values(layers).map(items => items.length))
-  const height = Math.max(520, maxCount * 235 + 45)
+  const height = Math.max(520, maxCount * rowHeight + 45)
   const points: Record<string, Point> = {}
-  for (const [layer, ids] of Object.entries(layers)) ids.forEach((id, index) => { points[id] = { x: 26 + Number(layer) * 262, y: 50 + index * 235 + (maxCount - ids.length) * 75 } })
+  for (const [layer, ids] of Object.entries(layers)) ids.forEach((id, index) => { points[id] = { x: 26 + Number(layer) * 262, y: 50 + index * rowHeight + (maxCount - ids.length) * 75 } })
   return { points, width: 26 + (Math.max(0, ...Object.values(depth)) + 1) * 262, height }
 }
 
-export default function WorkflowEditor({ graph, bindings, materials, issues, onChange, onBindingsChange, createNode, renderParameters }: WorkflowEditorProps) {
+export default function WorkflowEditor({ graph, bindings, materials, issues, onChange, onBindingsChange, createNode, renderParameters, templateMode = false }: WorkflowEditorProps) {
   const [selectedId, setSelectedId] = useState(graph.nodes[0]?.id || '')
   const [pendingSource, setPendingSource] = useState<GraphEdge['source'] | null>(null)
   const [error, setError] = useState('')
@@ -43,10 +46,10 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
   const [lines, setLines] = useState<Line[]>([])
   const stageRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ id: string; x: number; y: number; origin: Point } | null>(null)
-  const layout = autoPositions(graph, narrow)
+  const layout = autoPositions(graph, narrow, templateMode)
   const positions = narrow ? layout.points : { ...layout.points, ...moved }
   const node = graph.nodes.find(item => item.id === selectedId)
-  const materialIssues = bindingIssues(graph, bindings, materials)
+  const materialIssues = templateMode ? [] : bindingIssues(graph, bindings, materials)
   const allIssues = [...issues.map(issue => issue.message), ...materialIssues]
   useEffect(() => {
     const media = window.matchMedia('(max-width: 759px)')
@@ -107,7 +110,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
       }} aria-label={`添加${GRAPH_CATALOG[kind].label}`}><span className={`wg-module-symbol kind-${kind}`} aria-hidden="true">{kind === 'tts' ? '♫' : kind === 'translate' ? '译' : kind === 'mix' ? '≋' : kind === 'export' ? '↗' : kind === 'align' ? '↔' : kind === 'asr' ? '文' : '∿'}</span><span>{GRAPH_CATALOG[kind].label}<small>{Object.values(GRAPH_CATALOG[kind].inputs).join(' + ')} → {Object.values(GRAPH_CATALOG[kind].outputs).join(', ')}</small></span><b aria-hidden="true">+</b></button>)}</div>
       <div className="wg-slot-tools"><strong>添加输入槽</strong>{(['audio', 'subtitle'] as const).map(type => <button type="button" key={type} onClick={() => {
         let index = 1
-        while (graph.input_slots.some(slot => slot.id === `${type}_${index}`)) index++
+        while (graph.input_slots.some(slot => slot.id.toLowerCase() === `${type}_${index}`)) index++
         onChange({ ...graph, input_slots: [...graph.input_slots, { id: `${type}_${index}`, type, label: `${type === 'audio' ? '音频' : '字幕'}输入 ${index}` }] })
       }}>+ {type === 'audio' ? '音频槽' : '字幕槽'}</button>)}</div>
       <div className="wg-library-note"><strong>素材与模板分开</strong><p>模板记住输入槽、连线和参数。每次使用时，再指定当前素材。</p></div>
@@ -123,16 +126,23 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
             const point = positions[`slot:${slot.id}`]!
             const binding = bindings[slot.id]
             const material = materials.find(item => item.path === binding?.path)
-            return <article className={`wg-slot ${binding ? '' : 'has-issue'}`} key={slot.id} style={{ left: point.x, top: point.y }}>
+            return <article className={`wg-slot ${templateMode || binding ? '' : 'has-issue'}`} key={slot.id} style={{ left: point.x, top: point.y }}>
               <div className="wg-slot-label"><span>输入槽</span><b>{TYPE_NAMES[slot.type]}</b></div><h3>{slot.label}</h3>
-              <label className="wg-field"><span className="wg-visually-hidden">{slot.label} 素材</span><select aria-label={`${slot.label} 素材`} value={binding?.path || ''} onChange={event => {
+              {templateMode ? <>
+                <label className="wg-field"><span>名称</span><input aria-label={`${slot.id} 输入槽名称`} maxLength={100} value={slot.label} onChange={event => onChange(updateInputSlot(graph, { ...slot, label: event.target.value }))} /></label>
+                <label className="wg-field"><span>要求的语言</span><select aria-label={`${slot.id} 输入槽语言`} value={slot.language || ''} onChange={event => onChange(updateInputSlot(graph, { ...slot, language: (event.target.value || null) as typeof slot.language }))}><option value="">使用时确认</option><option value="zh">中文</option><option value="ja">日语</option><option value="en">英语</option></select></label>
+                <button type="button" className="wg-slot-remove" onClick={() => {
+                  onChange(removeInputSlot(graph, slot.id)); setPendingSource(null)
+                  setError('输入槽已移除；使用它的节点需要重新指定来源。')
+                }} aria-label={`移除输入槽 ${slot.id}`}>移除输入槽</button>
+              </> : <><label className="wg-field"><span className="wg-visually-hidden">{slot.label} 素材</span><select aria-label={`${slot.label} 素材`} value={binding?.path || ''} onChange={event => {
                 const next = { ...bindings }; const selected = materials.find(item => item.path === event.target.value)
                 if (selected) next[slot.id] = { path: selected.path, ...(selected.language ? { language: selected.language } : {}) }
                 else delete next[slot.id]
                 onBindingsChange(next)
               }}><option value="">选择本次素材</option>{binding && !materials.some(item => item.path === binding.path) && <option value={binding.path}>原素材不可用</option>}{materials.filter(item => item.type === slot.type).map(item => <option key={item.id} value={item.path}>{item.name}</option>)}</select></label>
               {slot.type === 'subtitle' && material && !material.language && <div className="wg-language-confirm"><select aria-label={`${slot.label} 确认语言`} value={binding?.language || ''} onChange={event => patchBinding(slot.id, { language: event.target.value as 'ja' | 'zh' | 'en', language_confirmed: false })}><option value="">确认字幕语言</option><option value="zh">中文</option><option value="ja">日语</option><option value="en">英语</option></select><label><input type="checkbox" checked={!!binding?.language_confirmed} disabled={!binding?.language} onChange={event => patchBinding(slot.id, { language_confirmed: event.target.checked })} />已核实语言</label></div>}
-              <div className="wg-slot-meta">{material ? `${material.valid ? '素材已指定' : '素材无效'}${material.language ? ` · ${material.language}` : ' · 语言待确认'}` : '尚未指定素材'}{slot.language ? ` · 要求 ${slot.language}` : ''}</div>
+              <div className="wg-slot-meta">{material ? `${material.valid ? '素材已指定' : '素材无效'}${material.language ? ` · ${material.language}` : ' · 语言待确认'}` : '尚未指定素材'}{slot.language ? ` · 要求 ${slot.language}` : ''}</div></>}
               <button type="button" className={`wg-port output ${pendingSource && sourceKey(pendingSource) === sourceKey(source) ? 'armed' : ''}`} data-endpoint={`source:${sourceKey(source)}`} onClick={() => { setPendingSource(source); setError('') }} aria-label={`从输入槽 ${slot.id} 连线`}><span>{TYPE_NAMES[slot.type]}</span><i className={`wg-port-dot ${slot.type}`} /></button>
             </article>
           })}
@@ -140,11 +150,11 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
             onSelect={() => setSelectedId(item.id)} onSource={source => { setPendingSource(source); setError('') }} onTarget={target => { if (pendingSource) connect(target, pendingSource) }} onMoveStart={event => moveStart(item.id, event)} /></div>)}
         </div>
       </div>
-      <div className="wg-deliveries"><strong>本次交付</strong>{graph.outputs.length ? graph.outputs.map(output => {
+      <div className="wg-deliveries"><strong>{templateMode ? '流水线产出' : '本次交付'}</strong>{graph.outputs.length ? graph.outputs.map(output => {
         const outputNode = graph.nodes.find(item => item.id === output.node_id)
         return <span key={`${output.node_id}:${output.port}`}>{output.label || `${outputNode ? GRAPH_CATALOG[outputNode.kind].label : '节点已移除'} · ${output.node_id}`}</span>
       }) : <span className="wg-warning">尚未选择产出</span>}</div>
-      <details className="wg-problems" open={allIssues.length > 0}><summary>{allIssues.length ? `${allIssues.length} 项需要补充` : '结构与示例素材已连接'}<span>仅检查图与素材，不代表引擎已就绪</span></summary>{allIssues.map((issue, index) => <p key={index}>{issue}</p>)}</details>
+      <details className="wg-problems" open={allIssues.length > 0}><summary>{allIssues.length ? `${allIssues.length} 项需要补充` : templateMode ? '结构检查通过' : '结构与素材已连接'}<span>{templateMode ? '保存模板不运行任务；素材与环境在工作台检查' : '仅检查图与素材，不代表引擎已就绪'}</span></summary>{allIssues.map((issue, index) => <p key={index}>{issue}</p>)}</details>
     </main>
     <WorkflowInspector graph={graph} node={node} issues={issues.filter(issue => issue.nodeId === selectedId).map(issue => issue.message)} onNodeChange={updated => onChange(updateNode(graph, updated))} onConnect={connect} renderParameters={renderParameters} onRemove={id => { onChange(removeNode(graph, id)); setPendingSource(null) }} onOutput={(id, port, selected) => {
       const outputs = graph.outputs.filter(output => output.node_id !== id || output.port !== port)

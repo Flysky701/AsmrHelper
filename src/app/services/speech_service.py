@@ -490,7 +490,8 @@ class SpeechService:
             return self.snapshot(recipe_id)
         provider = get_provider(provider_id)
         source = options.get("speech_source", {})
-        if not isinstance(source, dict) or set(source) - {"mode", "variant", "connection_ref", "provider_options"}:
+        if not isinstance(source, dict) or set(source) - {"mode", "variant", "connection_ref", "provider_options",
+                                                         "default_delivery", "default_emotion", "default_pause_ms"}:
             raise ValueError("直接声音配置包含未知字段")
         mode = source.get("mode")
         if not mode:
@@ -515,13 +516,7 @@ class SpeechService:
         if "voice" in options and (not isinstance(variant, dict) or options["voice"] != variant.get("value")):
             raise ValueError("音色参数与当前声音来源不一致，请只保留一种明确来源")
         connection_ref = source.get("connection_ref")
-        if connection_ref:
-            connection = self.store.get("connections", connection_ref)
-        elif provider.http:
-            raise ValueError("请选择外部语音服务连接")
-        else:
-            connection = {"id": "engine-default-" + provider_id, "revision": 1,
-                          "provider_id": provider_id, "deployment": "cloud" if provider.remote else "local"}
+        connection = self._recipe_connection({"provider_id": provider_id, "connection_ref": connection_ref})
         parameters = deepcopy(source.get("provider_options", {"schema_version": 1}))
         if not isinstance(parameters, dict):
             raise ValueError("引擎参数必须是对象")
@@ -532,9 +527,12 @@ class SpeechService:
                 raise ValueError("重复语速参数不一致，请只保留一个值")
             parameters["speed"] = options["speed"]
         recipe = {"id": "pipeline-" + uuid4().hex, "revision": 1, "name": "主流程引擎配置",
-                  "provider_id": provider_id, "model": model, "mode": mode,
-                  "connection_ref": connection["id"], "variant": variant,
-                  "language": options.get("language", "auto"), "provider_options": parameters}
+                    "provider_id": provider_id, "model": model, "mode": mode,
+                    "connection_ref": connection["id"], "variant": variant,
+                    "language": options.get("language", "auto"), "provider_options": parameters}
+        for field in ("default_delivery", "default_emotion", "default_pause_ms"):
+            if field in source:
+                recipe[field] = deepcopy(source[field])
         if isinstance(variant, dict) and variant.get("kind") == "reference":
             asset = self.store.get("assets", variant.get("value"))
             if asset.get("archived"):

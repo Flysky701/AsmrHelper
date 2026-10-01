@@ -1,4 +1,4 @@
-import { GRAPH_CATALOG, type GraphDefinition, type GraphNode, type GraphNodeKind, type GraphEdge, type GraphBindings } from '@/domain/workflowGraph'
+import { GRAPH_CATALOG, type GraphDefinition, type GraphNode, type GraphNodeKind, type GraphEdge, type GraphBindings, type GraphInputSlot } from '@/domain/workflowGraph'
 
 export interface WorkflowMaterial {
   id: string
@@ -74,6 +74,14 @@ export function nextNodeId(graph: GraphDefinition, kind: GraphNodeKind): string 
 }
 export function updateNode(graph: GraphDefinition, node: GraphNode): GraphDefinition {
   return { ...graph, nodes: graph.nodes.map(item => item.id === node.id ? node : item) }
+}
+/** Removing a slot leaves its consumers unbound; never guesses replacement input. */
+export function removeInputSlot(graph: GraphDefinition, id: string): GraphDefinition {
+  return { ...graph, input_slots: graph.input_slots.filter(slot => slot.id !== id),
+    edges: graph.edges.filter(edge => !(edge.source.kind === 'slot' && edge.source.slot_id === id)) }
+}
+export function updateInputSlot(graph: GraphDefinition, slot: GraphInputSlot): GraphDefinition {
+  return { ...graph, input_slots: graph.input_slots.map(item => item.id === slot.id ? slot : item) }
 }
 export function bindingIssues(graph: GraphDefinition, bindings: GraphBindings, materials: WorkflowMaterial[]): string[] {
   return graph.input_slots.flatMap(slot => {

@@ -1,9 +1,9 @@
-import FlowPresetManager from '@/components/FlowPresetManager'
+import { useNavStore } from '@/stores/navStore'
 import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import { pipelineApi } from '@/api/pipeline'
 import type { SettingsUpdate, SettingsView } from '@/api/settings'
-import type { PresetItem } from '@/api/types'
+import type { PresetItem, GraphPresetItem } from '@/api/types'
 import { useFileSelector } from '@/hooks/useFileSelector'
 
 type SettingsTab = 'presets' | 'paths'
@@ -21,7 +21,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState<SettingsTab>('presets')
-  const [presets, setPresets] = useState<PresetItem[]>([])
+  const [presets, setPresets] = useState<(PresetItem | GraphPresetItem)[]>([])
   const [settingsLoadError, setSettingsLoadError] = useState('')
   const [presetsLoadError, setPresetsLoadError] = useState('')
   const [presetsLoading, setPresetsLoading] = useState(true)
@@ -54,7 +54,7 @@ export default function Settings() {
     try {
       const [settingsResult, presetsResult] = await Promise.allSettled([
         settingsApi.get(),
-        pipelineApi.presets(),
+        pipelineApi.graphPresets(),
       ])
       if (generation !== loadGenerationRef.current) return
 
@@ -95,7 +95,7 @@ export default function Settings() {
     setPresetsLoading(true)
     setPresetsLoadError('')
     try {
-      const result = await pipelineApi.presets()
+      const result = await pipelineApi.graphPresets()
       if (generation !== presetGenerationRef.current) return
       setPresets(result.presets || [])
     } catch (error) {
@@ -241,7 +241,17 @@ export default function Settings() {
             </div>
           )}
 
-          {activeTab === 'presets' && <FlowPresetManager presets={presets} loading={presetsLoading} error={presetsLoadError} onReload={reloadPresets} />}
+          {activeTab === 'presets' && <section>
+            <h2 style={{ fontSize: 20, marginBottom: 12 }}>流水线预设</h2>
+            <p style={{ lineHeight: 1.7, color: 'var(--muted)' }}>在流水线编辑页定义模块、连线、输入槽与产出；工作台负责复用已保存流水线和调整本次运行参数。</p>
+            {presetsLoading ? <p>正在读取共享目录…</p> : <p>{presets.filter(preset => 'graph' in preset).length} 个节点流水线 · {presets.filter(preset => !('graph' in preset)).length} 个旧流程可显式转换</p>}
+            {presetsLoadError && <p role="alert">{presetsLoadError}</p>}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 20 }}>
+              <button type="button" onClick={() => useNavStore.getState().setPage('workflow-presets')}>打开流水线编辑</button>
+              <button type="button" disabled={presetsLoading} onClick={() => void reloadPresets()}>刷新目录</button>
+            </div>
+            <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 16 }}>内置预设保持只读，复制后可编辑；保存不会修改已有任务或自动开始执行。</p>
+          </section>}
 
           {/* Panel: 路径配置 */}
           {activeTab === 'paths' && (

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 
 export type PageId =
   | 'workbench'
+  | 'workflow-presets'
   | 'subtitle-workshop'
   | 'voice-lab'
   | 'audio-tools'
@@ -14,6 +15,7 @@ export type EnginesView = 'local' | 'external'
 
 export const PAGE_LABELS: Record<PageId, string> = {
   workbench: '工作台',
+  'workflow-presets': '流水线编辑',
   'subtitle-workshop': '字幕工坊',
   'voice-lab': '声音与音色',
   'audio-tools': '音频工具',
