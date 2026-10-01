@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .tasks import TaskStatusResponse
+from .workflow_graph import GraphExecutionProfileRequest
 
 
 class PipelineRunAcceptedResponse(BaseModel):
@@ -97,6 +98,14 @@ class PipelineRunCreateRequest(BaseModel):
 
     input: PipelineInputRequest
     output: PipelineOutputRequest = Field(default_factory=PipelineOutputRequest)
-    execution_profile: PipelineExecutionProfileRequest = Field(
+    execution_profile: Annotated[PipelineExecutionProfileRequest | GraphExecutionProfileRequest,
+                                 Field(discriminator="version")] = Field(
         default_factory=PipelineExecutionProfileRequest
     )
+
+    @field_validator("execution_profile", mode="before")
+    @classmethod
+    def legacy_version_default(cls, value):
+        if isinstance(value, dict) and "version" not in value and "graph" not in value:
+            return {"version": 1, **value}
+        return value

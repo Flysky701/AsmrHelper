@@ -11,6 +11,9 @@ from src.api.http.schemas.pipeline import (
     PresetCreateRequest,
     PresetItem,
     PresetUpdateRequest,
+    GraphPresetItem,
+    GraphPresetCreateRequest,
+    GraphPresetUpdateRequest,
 )
 from src.app.services.preset_catalog_service import (
     BuiltinPresetError,
@@ -37,18 +40,27 @@ def _call(fn, *args):
 
 
 @router.get("/presets", response_model=PipelinePresetsResponse)
-def list_presets(svc: PresetCatalogService = Depends(preset_catalog_service)):
-    return PipelinePresetsResponse(presets=[PresetItem(**p) for p in _call(svc.list_presets)])
+def list_presets(include_graph: bool = False, svc: PresetCatalogService = Depends(preset_catalog_service)):
+    # Existing clients only understand stages/outputs. One catalog, versioned views.
+    presets = _call(svc.list_presets)
+    return PipelinePresetsResponse(presets=[p for p in presets if include_graph or p.get("version") != 2])
 
 
-@router.post("/presets", response_model=PresetItem, status_code=201)
+@router.get("/graph-capabilities")
+def graph_capabilities():
+    from src.core.orchestration.pipeline.graph_catalog import capabilities
+    return {"version": 2, "capabilities": capabilities(), "execution": "topological-serial",
+            "partial_resume": False}
+
+
+@router.post("/presets", response_model=GraphPresetItem | PresetItem, status_code=201)
 def create_preset(
-    body: PresetCreateRequest, svc: PresetCatalogService = Depends(preset_catalog_service),
+    body: GraphPresetCreateRequest | PresetCreateRequest, svc: PresetCatalogService = Depends(preset_catalog_service),
 ):
-    return _call(svc.create_preset, body.model_dump())
+    return _call(svc.create_preset, body.model_dump(exclude_none=True))
 
 
-@router.post("/presets/{preset_id}/copy", response_model=PresetItem, status_code=201)
+@router.post("/presets/{preset_id}/copy", response_model=GraphPresetItem | PresetItem, status_code=201)
 def copy_preset(
     preset_id: str, body: PresetCopyRequest,
     svc: PresetCatalogService = Depends(preset_catalog_service),
@@ -56,9 +68,9 @@ def copy_preset(
     return _call(svc.copy_preset, preset_id, body.label)
 
 
-@router.put("/presets/{preset_id}", response_model=PresetItem)
+@router.put("/presets/{preset_id}", response_model=GraphPresetItem | PresetItem)
 def update_preset(
-    preset_id: str, body: PresetUpdateRequest,
+    preset_id: str, body: GraphPresetUpdateRequest | PresetUpdateRequest,
     svc: PresetCatalogService = Depends(preset_catalog_service),
 ):
-    return _call(svc.update_preset, preset_id, body.model_dump(exclude={"revision"}), body.revision)
+    return _call(svc.update_preset, preset_id, body.model_dump(exclude={"revision"}, exclude_none=True), body.revision)

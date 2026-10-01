@@ -19,12 +19,14 @@ router = APIRouter(prefix="/pipeline-runs", tags=["pipeline-runs"])
 
 
 def _to_v1_pipeline_request(body: PipelineRunCreateRequest) -> PipelineRequest:
-    profile = body.execution_profile.model_dump()
+    profile = body.execution_profile.model_dump(exclude_none=body.execution_profile.version == 2)
+    if profile.get("version") == 1 and profile.get("workflow") is None:
+        profile.pop("workflow", None)
     return PipelineRequest(
         input_path=body.input.path,
         output_dir=body.output.directory,
-        source_lang=body.execution_profile.source_lang,
-        target_lang=body.execution_profile.target_lang,
+        source_lang=getattr(body.execution_profile, "source_lang", "ja"),
+        target_lang=getattr(body.execution_profile, "target_lang", "zh"),
         companion_paths=list(body.input.companion_paths),
         execution_profile=profile,
     )

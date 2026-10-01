@@ -27,6 +27,7 @@ class TaskService:
         self._state_store = state_store
         self._restored_task_ids: set[str] = set()
         self._connection_snapshots: dict[str, dict] = {}
+        self._graph_connection_snapshots: dict[str, dict] = {}
         self._connection_records: dict[str, dict] = {}
         self.recovery_store = None
         if self._state_store is not None:
@@ -51,15 +52,34 @@ class TaskService:
         priority: int = 0,
         dedupe_key: str = "",
         retry_of_task_id: str | None = None,
+        graph_prepared: bool = False,
     ) -> tuple[TaskSpec, TaskStatus]:
         with self._lock:
             from src.config import config
 
             from src.task_connection_context import resolve_task_settings
-            settings = resolve_task_settings(config.to_dict(), execution_profile)
-            connections = capture_connections(settings)
+            execution_profile = deepcopy(execution_profile)
+            is_graph = (execution_profile or {}).get("version") == 2
+            if is_graph and not graph_prepared:
+                raise AppValidationError("节点工作流请通过 /pipeline-runs 提交，以校验素材并冻结节点配置")
+            settings = config.to_dict() if is_graph else resolve_task_settings(config.to_dict(), execution_profile)
+            graph_connections = {}
+            if is_graph:
+                from .graph_pipeline_service import node_profile
+                for node in execution_profile["graph"]["nodes"]:
+                    if node["kind"] != "translate":
+                        continue
+                    if not node.get("options", {}).get("connection_ref"):
+                        raise AppValidationError(f"节点 {node['id']} 需要明确选择翻译连接")
+                    selected = resolve_task_settings(settings, node_profile(node))
+                    graph_connections[node["id"]] = capture_connections(selected)
+                    if node.get("model") in (None, "", "default"):
+                        node["model"] = selected["api"].get(f"{node['provider']}_model")
+                    if not node.get("model"):
+                        raise AppValidationError(f"节点 {node['id']} 缺少明确翻译模型")
+            connections = {} if is_graph else capture_connections(settings)
             from src.recovery_connections import capture_recovery_connections
-            connection_record = capture_recovery_connections(settings, connections, include_tts=False)
+            connection_record = {} if is_graph else capture_recovery_connections(settings, connections, include_tts=False)
             try:
                 result = self._registry.create_task_spec(
                     task_type=task_type,
@@ -84,6 +104,8 @@ class TaskService:
                     ) from exc
             # A deduplicated submission must keep the first task's connections.
             self._connection_snapshots.setdefault(result[0].task_id, connections)
+            if is_graph:
+                self._graph_connection_snapshots.setdefault(result[0].task_id, graph_connections)
             self._connection_records.setdefault(result[0].task_id, connection_record)
             return result
 
@@ -242,7 +264,18 @@ class TaskService:
             )
             if task_id in self._connection_records:
                 self._connection_records[result.task_id] = deepcopy(self._connection_records[task_id])
+            if task_id in self._graph_connection_snapshots:
+                self._graph_connection_snapshots[result.task_id] = deepcopy(self._graph_connection_snapshots[task_id])
             return result
+
+    def graph_node_connection_context(self, task_id: str, node_id: str):
+        """A selected translation instance cannot fall back to another connection."""
+        with self._lock:
+            snapshots = self._graph_connection_snapshots.get(task_id, {})
+            if node_id not in snapshots:
+                raise AppValidationError("图节点原连接快照不可用，请重新提交任务")
+            snapshot = deepcopy(snapshots[node_id])
+        return connection_context(snapshot)
 
     def connection_context(self, task_id: str):
         """Bind private connections for this task without exposing its secrets."""
@@ -257,7 +290,8 @@ class TaskService:
             return
         with self._lock:
             self.recovery_store.save_manifest(task_id, {
-                "version": 1, "input_path": input_path,
+                "version": self._registry.get_task_spec(task_id).execution_profile.get("version", 1),
+                "input_path": input_path,
                 "companion_paths": list(companion_paths), "output_root": output_root,
                 "connections": self._connection_records[task_id],
                 "resume_of_task_id": None,
@@ -265,6 +299,9 @@ class TaskService:
 
     def recovery_info(self, task_id: str) -> dict:
         task = self.get_task(task_id)
+        if self.get_task_spec(task_id).execution_profile.get("version") == 2:
+            return {"can_resume": False, "reason": "图任务暂不支持阶段续跑；显式重试会重新执行全部节点",
+                    "completed_stages": []}
         manifest = self.recovery_store.manifest(task_id) if self.recovery_store else None
         reason = None
         stages = []

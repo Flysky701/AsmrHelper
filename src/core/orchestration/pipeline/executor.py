@@ -52,6 +52,84 @@ class PipelineExecutor:
         self._mixer_factory = mixer_factory
         self._cancel_event = cancel_event
 
+    def execute_stage(
+        self, stage, plan, *, directory, audio_path=None, speech_path=None,
+        segments=None, cancel_event=None,
+    ):
+        """Run exactly one capability with isolated state and strict failures.
+
+        The graph adapter supplies validated inputs and an instance-specific plan.
+        This does not enter the legacy workflow, discover companions, or execute
+        any other enabled binding carried by that plan.
+        """
+        from copy import deepcopy
+
+        def check_cancel():
+            event = cancel_event or self._cancel_event
+            if event and event.is_set():
+                raise InterruptedError("用户取消操作")
+
+        check_cancel()
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        plan = replace(
+            plan, input_path=str(audio_path or plan.input_path), output_dir=str(directory),
+            companion_subtitle_path=None, companion_subtitle_paths=[], skip_existing=False,
+            workflow={"graph_node": True},
+        )
+        results = {"steps": {}, "step_errors": {}}
+        cues = deepcopy(segments or [])
+        if stage == "separate":
+            if audio_path is None:
+                raise ValueError("人声分离缺少明确音频输入")
+            value = self._execute_separation(plan, directory, results)
+        elif stage == "asr":
+            if audio_path is None:
+                raise ValueError("语音识别缺少明确音频输入")
+            cues = self._execute_asr(plan, Path(audio_path), directory, results)
+            value = results.get("transcript_path")
+        elif stage == "align":
+            if audio_path is None or not cues:
+                raise ValueError("时间轴校准需要音频和字幕输入")
+            cues = self._execute_alignment(plan, cues, directory, results)
+            value = results.get("aligned_subtitle_path")
+        elif stage == "translate":
+            if not cues:
+                raise ValueError("翻译缺少字幕输入")
+            translations = self._execute_translation(plan, cues, directory, results)
+            if not results["step_errors"]:
+                cues = [{"start": cue["start"], "end": cue["end"], "text": text,
+                         "original": cue["text"]}
+                        for cue, text in zip(cues, translations, strict=True)]
+            value = results.get("steps", {}).get("translate", {}).get("output")
+        elif stage == "tts":
+            if not cues:
+                raise ValueError("语音合成缺少字幕输入")
+            event = cancel_event or self._cancel_event
+            value = self._execute_tts(
+                plan, cues, directory, results,
+                cancel_check=lambda: bool(event and event.is_set()),
+            )
+        elif stage == "mix":
+            if audio_path is None or speech_path is None:
+                raise ValueError("混音需要两个明确音频输入")
+            if not Path(audio_path).is_file() or not Path(speech_path).is_file():
+                raise ValueError("混音输入音频不存在，不能复制原音代替混音")
+            value = directory / "mix.wav"
+            self._execute_mix(plan, Path(audio_path), Path(speech_path), value, results)
+        elif stage == "export":
+            if not cues:
+                raise ValueError("字幕导出缺少字幕输入")
+            value = self._export_subtitles(plan, cues, [], directory)
+        else:
+            raise ValueError(f"不支持的执行能力: {stage}")
+        check_cancel()
+        if results["step_errors"]:
+            raise RuntimeError(next(iter(results["step_errors"].values())))
+        if not value or not Path(value).is_file() or Path(value).stat().st_size == 0:
+            raise RuntimeError(f"{stage} 未产生有效文件")
+        return {**results, "path": str(value), "segments": cues}
+
     def execute(
         self,
         plan: PipelineExecutionPlan,
@@ -338,6 +416,8 @@ class PipelineExecutor:
                 "duration": time.time() - t1, "output": str(vocal_path)
             }
         except Exception as e:
+            if plan.workflow.get("graph_node"):
+                raise
             results["steps"]["vocal_separator"] = {"error": str(e), "recoverable": True}
             results["step_errors"]["vocal_separator"] = str(e)
             vocal_path = Path(plan.input_path)
@@ -389,6 +469,8 @@ class PipelineExecutor:
                 "output": str(asr_text_path),
             }
         except Exception as e:
+            if plan.workflow.get("graph_node"):
+                raise
             results["steps"]["asr"] = {"error": str(e), "recoverable": True}
             results["step_errors"]["asr"] = str(e)
             segments = []
@@ -526,6 +608,8 @@ class PipelineExecutor:
                 "records": str(records_path),
             }
         except Exception as e:
+            if plan.workflow.get("graph_node"):
+                raise
             results["steps"]["translate"] = {"error": str(e), "recoverable": True}
             results["step_errors"]["translate"] = str(e)
             translations = []
@@ -574,16 +658,16 @@ class PipelineExecutor:
                 })
 
             # Get reference duration from input
-            reference_duration = 0.0
-            try:
-                import soundfile as sf
-                info = sf.info(plan.input_path)
-                reference_duration = info.duration
-            except Exception:
-                pass
-
             if plan.workflow:
                 reference_duration = float(plan.tts.common_options.get("reference_duration", 0))
+            else:
+                reference_duration = 0.0
+                try:
+                    import soundfile as sf
+                    info = sf.info(plan.input_path)
+                    reference_duration = info.duration
+                except Exception:
+                    pass
             snapshot = plan.tts.provider_options.get("speech_snapshot")
             if not snapshot:
                 raise ValueError("缺少不可变配音配方快照，请从新工作台重新提交")
@@ -600,6 +684,8 @@ class PipelineExecutor:
                 "engine": plan.tts.provider,
             }
         except Exception as e:
+            if plan.workflow.get("graph_node"):
+                raise
             results["steps"]["tts"] = {"error": str(e), "recoverable": True}
             results["step_errors"]["tts"] = str(e)
             if getattr(e, "task_error", None):
@@ -624,6 +710,8 @@ class PipelineExecutor:
         t1 = time.time()
         try:
             if not tts_audio_path.exists():
+                if plan.workflow.get("graph_node"):
+                    raise ValueError("混音输入已消失，不能复制原音代替混音")
                 import shutil
                 shutil.copy2(str(input_path), str(mix_path))
                 results["steps"]["mixer"] = {
@@ -656,6 +744,8 @@ class PipelineExecutor:
                 "duration": time.time() - t1, "output": str(mix_path)
             }
         except Exception as e:
+            if plan.workflow.get("graph_node"):
+                raise
             results["steps"]["mixer"] = {"error": str(e), "recoverable": False}
             results["step_errors"]["mixer"] = str(e)
             return
@@ -721,6 +811,8 @@ class PipelineExecutor:
             )
             return result_path
         except Exception:
+            if plan.workflow.get("graph_node"):
+                raise
             return None
 
     # ------------------------------------------------------------------

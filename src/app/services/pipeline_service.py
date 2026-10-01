@@ -144,6 +144,10 @@ class PipelineService:
         cancel_event=None,
         manage_lifecycle: bool = True,
     ) -> PipelineResult:
+        if task_spec.execution_profile.get("version") == 2:
+            from .graph_pipeline_service import run_graph_task
+            return run_graph_task(self, task_spec, progress_callback=progress_callback,
+                                  cancel_event=cancel_event, manage_lifecycle=manage_lifecycle)
         session = self._session_service.get_session(task_spec.session_id)
         input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
         current_stage = "prepare"
@@ -376,14 +380,22 @@ class PipelineService:
         companion_paths: list[str] | None = None,
     ) -> None:
         """Apply the backend-authoritative readiness gate for V1 pipeline profiles."""
-        if execution_profile.get("version") != 1:
+        if execution_profile.get("version") == 2:
+            from .graph_pipeline_service import prepare_graph_profile
+            try:
+                execution_profile, _ = prepare_graph_profile(execution_profile,
+                    declared_paths=[input_path, *(companion_paths or [])])
+            except (ValueError, KeyError, OSError, TypeError) as exc:
+                raise AppValidationError(str(exc)) from exc
+        elif execution_profile.get("version") != 1:
             raise AppValidationError(
                 "pipeline execution profile must use StageProfile version 1"
             )
-        try:
-            execution_profile = prepare_translation_profile(execution_profile, input_path, companion_paths)
-        except ValueError as exc:
-            raise AppValidationError(str(exc)) from exc
+        else:
+            try:
+                execution_profile = prepare_translation_profile(execution_profile, input_path, companion_paths)
+            except ValueError as exc:
+                raise AppValidationError(str(exc)) from exc
         readiness = self._resource_service.check_task_readiness(
             task_type="pipeline",
             execution_profile=execution_profile,
@@ -412,6 +424,11 @@ class PipelineService:
 
         Useful for inspection, validation, or preview before execution.
         """
+        if task_spec.execution_profile.get("version") == 2:
+            from src.core.orchestration.pipeline.graph_validation import build_graph_plan
+            profile = task_spec.execution_profile
+            return build_graph_plan(profile["graph"], profile["bindings"], task_id=task_spec.task_id,
+                                    node_snapshots=profile.get("_graph_runtime", {}).get("node_snapshots", {}))
         session = self._session_service.get_session(task_spec.session_id)
         input_asset = self._input_catalog_service.get_asset(task_spec.input_asset_id)
         workspace = self._resource_service.ensure_workspace()
@@ -458,7 +475,8 @@ class PipelineService:
         companion_paths = list(request.companion_paths)
         if request.vtt_path and request.vtt_path not in companion_paths:
             companion_paths.append(request.vtt_path)
-        if not companion_paths and not (request.execution_profile or {}).get("workflow"):
+        if (not companion_paths and not (request.execution_profile or {}).get("workflow")
+                and (request.execution_profile or {}).get("version") != 2):
             companion_paths = [asset.absolute_path for asset in
                                self._input_catalog_service.discover_companions(primary_asset.asset_id)]
         companion_asset_ids: list[str] = []
@@ -479,6 +497,23 @@ class PipelineService:
         execution_profile = self._resolve_execution_profile(request)
         from copy import deepcopy
         execution_profile = deepcopy(execution_profile)
+        if execution_profile.get("version") == 2:
+            from .graph_pipeline_service import freeze_graph_speech, prepare_graph_profile
+            try:
+                execution_profile, _ = prepare_graph_profile(execution_profile,
+                    declared_paths=[primary_asset.absolute_path, *companion_paths])
+                execution_profile = freeze_graph_speech(execution_profile)
+            except (ValueError, KeyError, OSError, TypeError) as exc:
+                raise AppValidationError(str(exc)) from exc
+            execution_profile["_graph_runtime"]["connections_frozen"] = True
+            task_spec, _ = self._task_service.create_task_spec(
+                task_type="pipeline", task_source=task_source, session_id=session.session_id,
+                input_asset_id=primary_asset.asset_id, companion_asset_ids=companion_asset_ids,
+                execution_profile=execution_profile, graph_prepared=True)
+            self._task_service.save_pipeline_manifest(task_spec.task_id,
+                input_path=primary_asset.absolute_path, companion_paths=companion_paths,
+                output_root=session.resolved_output_dir)
+            return task_spec
         try:
             execution_profile = prepare_translation_profile(execution_profile,
                 primary_asset.absolute_path, companion_paths)
@@ -526,6 +561,8 @@ class PipelineService:
         return task_spec
 
     def resume_pipeline_task(self, task_id: str):
+        if self._task_service.get_task_spec(task_id).execution_profile.get("version") == 2:
+            raise AppValidationError("图任务暂不支持阶段续跑；显式重试会重新执行全部节点")
         if (self._task_service.get_task(task_id).error or {}).get("result_unknown"):
             raise AppValidationError("远端请求结果未知，请核对服务端结果和计费后创建新任务")
         stage = self._task_service.get_task_spec(task_id).execution_profile.get("stages", {}).get("tts", {})
@@ -580,6 +617,12 @@ class PipelineService:
     def _resolve_execution_profile(request: PipelineRequest) -> dict[str, Any]:
         if request.execution_profile:
             profile = dict(request.execution_profile)
+            if profile.get("version") == 2:
+                from src.core.orchestration.pipeline.graph_validation import validate_graph_profile
+                try:
+                    return validate_graph_profile(profile)
+                except ValueError as exc:
+                    raise AppValidationError(str(exc)) from exc
             if profile.get("version") != 1 or not isinstance(
                 profile.get("stages"), dict
             ):
@@ -709,7 +752,9 @@ class PipelineService:
                 path = artifact["path"]
                 self._artifact_service.register_artifact(task_id=task_id, path=path,
                     artifact_type=artifact["type"], label=artifact["label"], preview_kind=artifact["preview"],
-                    stage=artifact["stage"], is_primary=path == results.get("primary_output"))
+                    stage=artifact["stage"], is_primary=path == results.get("primary_output"),
+                    metadata={**artifact.get("metadata", {}), **({"node_id": artifact["node_id"],
+                        "port": artifact["port"]} if "node_id" in artifact else {})})
             return
         if mix_path:
             self._artifact_service.register_artifact(

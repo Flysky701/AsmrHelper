@@ -143,6 +143,23 @@ export interface PresetItem {
   builtin: boolean
 }
 
+export interface GraphPipelineRunRequest extends Omit<PipelineRunRequest, 'execution_profile'> {
+  execution_profile: import('../domain/workflowGraph').GraphExecutionProfile
+}
+
+export interface GraphPresetDraft {
+  version: 2
+  label: string
+  description: string
+  graph: import('../domain/workflowGraph').GraphDefinition
+}
+
+export interface GraphPresetItem extends GraphPresetDraft {
+  id: string
+  revision: number
+  builtin: boolean
+}
+
 export type FlowPresetDraft = Pick<PresetItem, 'label' | 'description' | 'stages' | 'outputs'>
 
 export interface PipelinePresetsResponse {

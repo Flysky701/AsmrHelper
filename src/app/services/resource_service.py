@@ -123,6 +123,8 @@ class ResourceService:
         *,
         input_path: str | None = None,
     ) -> list[dict[str, object]]:
+        if profile.get("version") == 2:
+            return self._check_graph_profile(profile)
         from src.core.subtitles.translation_reuse import prepare_translation_profile
         try:
             profile = prepare_translation_profile(profile, input_path)
@@ -187,8 +189,9 @@ class ResourceService:
 
             provider = str(stage.get("provider") or "").strip()
             requested_model = str(stage.get("model") or "").strip() or None
-            explicit_llm = category == "llm" and "connection_ref" in stage.get("options", {})
-            if explicit_llm:
+            frozen_llm = category == "llm" and profile.get("_graph_frozen_llm") is True
+            explicit_llm = category == "llm" and ("connection_ref" in stage.get("options", {}) or frozen_llm)
+            if explicit_llm and not frozen_llm:
                 from src.config import config
                 from src.task_connection_context import resolve_task_settings
                 try:
@@ -224,6 +227,10 @@ class ResourceService:
                 common_options = stage.get("options")
             if not isinstance(common_options, dict):
                 common_options = {}
+            if profile.get("_graph_strict_options"):
+                common_options = dict(common_options)
+                if category == "llm":
+                    common_options.pop("connection_ref", None)
             provider_options = stage.get("provider_options")
             if not isinstance(provider_options, dict):
                 provider_options = {}
@@ -233,7 +240,7 @@ class ResourceService:
                     provider=provider,
                     common_options=common_options,
                     provider_options=provider_options,
-                    allow_unknown_common=True,
+                    allow_unknown_common=not profile.get("_graph_strict_options", False),
                 )
             except AppValidationError as exc:
                 issues.append(
@@ -393,6 +400,50 @@ class ResourceService:
             conditional = prepare_translation_profile(profile, input_path, allow_unverified=True)
             if not conditional.get("stages", {}).get("translate", {}).get("enabled", True):
                 issues = [issue for issue in issues if issue["stage"] != "translate"]
+        return issues
+
+    def _check_graph_profile(self, profile: dict, *, node_context=None) -> list[dict[str, object]]:
+        from contextlib import nullcontext
+        from .graph_pipeline_service import freeze_graph_speech, node_profile, prepare_graph_profile
+        try:
+            prepared, _ = prepare_graph_profile(profile)
+            prepared = freeze_graph_speech(prepared)
+        except (ValueError, KeyError, OSError, TypeError) as exc:
+            return [self._issue(stage="prepare", category="input", provider="local", model=None,
+                code="GRAPH_INPUT_INVALID", requirement="graph", message=str(exc), action="workbench")]
+        issues = []
+        snapshots = prepared["_graph_runtime"]["node_snapshots"]
+        for node in prepared["graph"]["nodes"]:
+            if node["kind"] == "translate" and not node.get("options", {}).get("connection_ref"):
+                issues.append(self._issue(stage=node["id"], category="llm", provider=node["provider"],
+                    model=node.get("model"), code="LLM_CONNECTION_NOT_READY", requirement="llm_connection",
+                    message="请选择该节点使用的翻译连接", action="settings"))
+                continue
+            if node["kind"] == "tts":
+                try:
+                    from .speech_service import get_speech_service
+                    from src.core.speech.providers import get_provider
+                    from src.core.speech.compiler import COMPILER_VERSION
+                    snapshot = snapshots[node["id"]]
+                    if snapshot["compiler_version"] != COMPILER_VERSION:
+                        raise ValueError("配音编译器版本已改变，请重新提交")
+                    context = get_speech_service().connection_context(snapshot["connection"])
+                    context.update(model=snapshot["recipe"]["model"], mode=snapshot["recipe"]["mode"])
+                    readiness = get_provider(snapshot["recipe"]["provider_id"]).probe(context)
+                    if not readiness.get("ready"):
+                        raise ValueError(readiness.get("detail") or "语音引擎未就绪")
+                except (ValueError, KeyError, FileNotFoundError) as exc:
+                    issues.append(self._issue(stage=node["id"], category="tts", provider=node["provider"],
+                        model=node.get("model"), code="SPEECH_SOURCE_NOT_READY", requirement="speech_source",
+                        message=str(exc), action="voice-lab"))
+                continue
+            projected = node_profile(node)
+            projected["_graph_strict_options"] = True
+            if node["kind"] == "translate" and profile.get("_graph_runtime", {}).get("connections_frozen"):
+                projected["_graph_frozen_llm"] = True
+            with node_context(node) if node_context else nullcontext():
+                for issue in self._check_pipeline_profile(projected):
+                    issues.append({**issue, "stage": node["id"], "node_id": node["id"], "kind": node["kind"]})
         return issues
 
     def _check_input_path(self, input_path: str) -> list[dict[str, object]]:

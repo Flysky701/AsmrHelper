@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+from .workflow_graph import GraphDefinitionRequest
 
 
 class PresetItem(BaseModel):
@@ -15,8 +17,18 @@ class PresetItem(BaseModel):
     builtin: bool = True
 
 
+class GraphPresetItem(BaseModel):
+    id: str
+    label: str
+    description: str
+    version: Literal[2]
+    graph: GraphDefinitionRequest
+    revision: int = 1
+    builtin: bool = False
+
+
 class PipelinePresetsResponse(BaseModel):
-    presets: list[PresetItem]
+    presets: list[GraphPresetItem | PresetItem]
 
 
 class PresetCreateRequest(BaseModel):
@@ -29,6 +41,18 @@ class PresetCreateRequest(BaseModel):
 
 
 class PresetUpdateRequest(PresetCreateRequest):
+    revision: int = Field(ge=1)
+
+
+class GraphPresetCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    version: Literal[2]
+    label: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=1000)
+    graph: GraphDefinitionRequest
+
+
+class GraphPresetUpdateRequest(GraphPresetCreateRequest):
     revision: int = Field(ge=1)
 
 

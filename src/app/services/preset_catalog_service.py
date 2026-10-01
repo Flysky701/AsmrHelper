@@ -19,7 +19,7 @@ from src.config import PROJECT_ROOT
 
 STAGES = ("separate", "asr", "align", "translate", "tts", "mix", "export")
 _ALIASES = {"separation": "separate", "translation": "translate"}
-_DRAFT_FIELDS = {"label", "description", "stages", "outputs"}
+_DRAFT_FIELDS = {"label", "description", "stages", "outputs", "version", "graph"}
 _ITEM_FIELDS = _DRAFT_FIELDS | {"id", "revision", "builtin"}
 _write_lock = threading.RLock()
 
@@ -50,6 +50,18 @@ def _stages(value: Any, name: str) -> list[str]:
 def _draft(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or value.keys() - _DRAFT_FIELDS:
         raise ValueError("Presets accept only label, description, stages and outputs")
+    if "graph" in value or value.get("version") == 2:
+        if set(value) - {"version", "label", "description", "graph"} or type(value.get("version")) is not int or value["version"] != 2:
+            raise ValueError("Graph presets require version 2 and cannot also contain stages or outputs")
+        from src.core.orchestration.pipeline.graph_validation import validate_graph
+        return {
+            "version": 2,
+            "label": _text(value.get("label"), "label", 100),
+            "description": _text(value.get("description", ""), "description", 1000, required=False),
+            "graph": validate_graph(value.get("graph"), template=True),
+        }
+    if "version" in value:
+        raise ValueError("Legacy presets do not contain a graph version")
     stages = _stages(value.get("stages"), "stages")
     outputs = _stages(value.get("outputs"), "outputs")
     if not set(outputs) <= set(stages):
@@ -76,7 +88,7 @@ def _item(value: Any, *, builtin: bool) -> dict[str, Any]:
     draft = {key: value[key] for key in _DRAFT_FIELDS if key in value}
     # Older shipped catalogs did not record outputs. Preserve their selections
     # explicitly; never enable a stage or infer material bindings.
-    if builtin and "outputs" not in draft:
+    if builtin and "graph" not in draft and "outputs" not in draft:
         draft["outputs"] = draft.get("stages")
     return {"id": preset_id, **_draft(draft), "revision": revision, "builtin": builtin}
 
@@ -144,7 +156,7 @@ class PresetCatalogService:
         allowed_keys = {"presets"} if builtin else {"version", "presets"}
         if (not isinstance(data, dict) or data.keys() - allowed_keys
                 or not isinstance(data.get("presets"), list)
-                or (not builtin and (type(data.get("version")) is not int or data["version"] != 1))):
+                or (not builtin and (type(data.get("version")) is not int or data["version"] not in (1, 2)))):
             raise ValueError("Preset catalog has an invalid format; existing contents were not changed")
         return [_item(value, builtin=builtin) for value in data["presets"]]
 
@@ -165,7 +177,7 @@ class PresetCatalogService:
                 suffix=".tmp", delete=False,
             ) as file:
                 temporary = Path(file.name)
-                json.dump({"version": 1, "presets": presets}, file, ensure_ascii=False, indent=2)
+                json.dump({"version": 2 if any("graph" in item for item in presets) else 1, "presets": presets}, file, ensure_ascii=False, indent=2)
                 file.write("\n")
                 file.flush()
                 os.fsync(file.fileno())
@@ -188,7 +200,7 @@ class PresetCatalogService:
             source = next((preset for preset in presets if preset["id"] == preset_id), None)
             if source is None:
                 raise KeyError("Preset does not exist")
-            value = _draft({**{key: source[key] for key in _DRAFT_FIELDS}, "label": label})
+            value = _draft({**{key: source[key] for key in _DRAFT_FIELDS if key in source}, "label": label})
             item = {"id": f"custom_{uuid4().hex}", **value, "revision": 1, "builtin": False}
             self._write([preset for preset in presets if not preset["builtin"]] + [item])
             return item

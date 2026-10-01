@@ -108,14 +108,16 @@ class RecoveryStore:
     def retain_interrupted(self) -> None:
         """Keep recoverable unfinished tasks as failed, with a precise cause."""
         with self.state_store._lock, self.state_store._connect() as connection:
-            rows = connection.execute("SELECT tasks.task_id, status_json FROM tasks "
+            rows = connection.execute("SELECT tasks.task_id, status_json, spec_json FROM tasks "
                 "JOIN recovery_manifests USING(task_id) WHERE state NOT IN "
                 "('completed','failed','cancelled','skipped')").fetchall()
             for row in rows:
                 status = json.loads(row["status_json"])
+                graph = json.loads(row["spec_json"]).get("execution_profile", {}).get("version") == 2
                 now = datetime.now(UTC).isoformat()
                 status.update(state="failed", updated_at=now, finished_at=now,
-                              message="运行已中断，可从已完成阶段继续",
+                              message=("图任务已中断，请检查记录后重新提交；不支持阶段续跑" if graph
+                                       else "运行已中断，可从已完成阶段继续"),
                               error={"code": "TASK_INTERRUPTED", "stage": status.get("stage") or "prepare",
                                      "message": "应用停止时任务尚未完成", "retryable": True})
                 connection.execute("UPDATE tasks SET state='failed',updated_at=?,status_json=? WHERE task_id=?",
