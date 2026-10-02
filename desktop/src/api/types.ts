@@ -175,6 +175,7 @@ export type BatchRunState =
   | 'completed_with_errors'
   | 'cancelled'
   | 'interrupted'
+  | 'history_deleted'
 
 export interface BatchDiscoveredFileResponse {
   path: string
@@ -218,7 +219,7 @@ export interface BatchRunItemResponse {
   companion_paths: string[]
   task_ids: string[]
   current_task_id: string | null
-  state: TaskState
+  state: TaskState | 'history_deleted'
   progress: number
   message: string
   output_path: string
@@ -247,6 +248,7 @@ export interface BatchRunResponse {
   failed_count: number
   cancelled_count: number
   skipped_count: number
+  history_deleted_count?: number
   items: BatchRunItemResponse[]
   client_request_id?: string | null
   retry_available?: boolean
@@ -450,3 +452,48 @@ export interface ToolListResponse {
 }
 
 // ── Subtitle translation ───────────────────────────────
+export type TaskDeletionMode = 'history_only' | 'history_and_files'
+
+export interface TaskDeletionPreviewResponse {
+  preview_id: string
+  mode: TaskDeletionMode
+  expires_at: string
+  can_execute: boolean
+  tasks: Array<{
+    task_id: string
+    state: string | null
+    eligible: boolean
+    reason: string | null
+    batch_ids: string[]
+    files: Array<{ path: string; action: 'delete' | 'retain'; reason: string | null; size_bytes: number | null }>
+  }>
+  summary: {
+    selected_count: number
+    eligible_count: number
+    blocked_count: number
+    delete_file_count: number
+    retain_file_count: number
+    delete_bytes: number
+  }
+}
+
+export interface TaskDeletionExecuteResponse {
+  preview_id: string
+  mode: TaskDeletionMode
+  results: Array<{
+    task_id: string
+    history_deleted: boolean
+    status: 'deleted' | 'blocked' | 'failed' | 'partial'
+    reason: string | null
+    files: Array<{ path: string; status: 'deleted' | 'retained' | 'failed'; reason: string | null }>
+  }>
+  summary: {
+    deleted_count: number
+    blocked_count: number
+    failed_count: number
+    partial_count: number
+    deleted_file_count: number
+    retained_file_count: number
+    failed_file_count: number
+  }
+}

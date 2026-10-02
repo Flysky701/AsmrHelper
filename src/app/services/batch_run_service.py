@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import contextmanager
 from datetime import UTC, datetime
 import hashlib
 import json
@@ -24,9 +25,9 @@ from .pipeline_task_orchestrator import (
 )
 
 
-ITEM_TERMINAL_STATES = frozenset({"completed", "failed", "cancelled", "skipped"})
+ITEM_TERMINAL_STATES = frozenset({"completed", "failed", "cancelled", "skipped", "history_deleted"})
 BATCH_TERMINAL_STATES = frozenset(
-    {"completed", "completed_with_errors", "cancelled", "interrupted"}
+    {"completed", "completed_with_errors", "cancelled", "interrupted", "history_deleted"}
 )
 SUBTITLE_EXTENSIONS = (".vtt", ".srt", ".lrc")
 
@@ -58,12 +59,73 @@ class BatchRunService:
         self._restored_batch_ids: set[str] = set()
         self._retry_validation_errors: dict[str, dict[str, str]] = {}
         self._retry_identity_cache: dict[tuple[str, str], tuple] = {}
+        self._deleted_batches: dict[str, dict] = {}
 
         if self._state_store is not None:
+            self._deleted_batches = {item["batch_id"]: item for item in self._state_store.load_deleted_batches()}
             for record in self._state_store.load_batch_runs():
                 self._restored_batch_ids.add(record.batch_id)
                 self._restore_record(record)
                 self._batches[record.batch_id] = record
+
+    @contextmanager
+    def history_deletion_guard(self):
+        with self._lock:
+            yield
+
+    def history_snapshot(self):
+        with self._lock:
+            return deepcopy(list(self._batches.values()))
+
+    def prepare_history_deletion(self, task_ids: set[str]):
+        """Detach history pointers while retaining each group's terminal outcome."""
+        changed = []
+        with self._lock:
+            for original in self._batches.values():
+                record = deepcopy(original)
+                touched = False
+                for item in record.items:
+                    if task_ids.intersection(item.task_ids) or item.current_task_id in task_ids:
+                        touched = True
+                        item.task_ids = [value for value in item.task_ids if value not in task_ids]
+                        if item.current_task_id in task_ids or item.current_task_id is None and not item.task_ids:
+                            item.current_task_id = None
+                            item.output_path = ""
+                            item.message = "Task history was permanently deleted"
+                            item.input_path = ""
+                            item.companion_paths = []
+                            item.bindings = {}
+                            item.label = ""
+                            item.state = "history_deleted"
+                            item.progress = 1.0
+                            item.error = None
+                            item.retry_blocked_reason = item.message
+                if touched:
+                    if all(item.state == "history_deleted" and not item.task_ids for item in record.items):
+                        record.state = "history_deleted"
+                    record.updated_at = _now()
+                    self._annotate_retry_locked(record)
+                    changed.append(record)
+        return changed
+
+    def apply_history_deletion(self, records, task_ids: set[str]) -> None:
+        """Apply detached records only after their shared database commit."""
+        with self._lock:
+            for record in records:
+                if record.state == "history_deleted":
+                    self._batches.pop(record.batch_id, None)
+                    self._deleted_batches[record.batch_id] = {"batch_id": record.batch_id,
+                        "client_request_id": record.client_request_id, "request_fingerprint": record.request_fingerprint}
+                    for mapping in (self._graph_snapshots, self._input_identities, self._legacy_retry_tasks,
+                                    self._llm_snapshots, self._retry_validation_errors, self._cancel_events, self._threads):
+                        mapping.pop(record.batch_id, None)
+                else:
+                    self._batches[record.batch_id] = record
+                for item in record.items:
+                    if item.current_task_id is None and item.message == "Task history was permanently deleted":
+                        for mapping in (self._graph_snapshots, self._input_identities, self._legacy_retry_tasks):
+                            mapping.get(record.batch_id, {}).pop(item.item_id, None)
+                        self._retry_identity_cache.pop((record.batch_id, item.item_id), None)
 
     def discover_audio_files(
         self,
@@ -320,6 +382,8 @@ class BatchRunService:
     def _idempotent_record_locked(self, request_id: str | None, fingerprint: str):
         if request_id is None:
             return None
+        if any(item["client_request_id"] == request_id for item in self._deleted_batches.values()):
+            raise AppValidationError("the accepted batch history was permanently deleted; use a new client_request_id for a new submission")
         for record in self._batches.values():
             if record.client_request_id == request_id:
                 if record.request_fingerprint != fingerprint:
@@ -705,6 +769,8 @@ class BatchRunService:
         thread.start()
 
     def _require_locked(self, batch_id: str) -> BatchRunRecord:
+        if batch_id in self._deleted_batches:
+            raise AppValidationError("batch history was permanently deleted")
         try:
             return self._batches[batch_id]
         except KeyError as exc:

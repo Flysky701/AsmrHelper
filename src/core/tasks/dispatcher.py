@@ -9,7 +9,7 @@ actual pipeline/model/tool work and artifact registration.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import inspect
 import logging
 import threading
@@ -65,6 +65,24 @@ class TaskDispatcher:
 
     def resolve_executor(self, task_type: str) -> Callable[..., Any] | None:
         return self._executor_registry.resolve(task_type)
+
+    @contextmanager
+    def history_deletion_guard(self):
+        with self._lock:
+            yield
+
+    def has_live_worker(self, task_id: str) -> bool:
+        with self._lock:
+            record = self._records.get(task_id)
+            return bool(record and record.thread and record.thread.is_alive())
+
+    def forget_history(self, task_ids: set[str]) -> None:
+        with self._lock:
+            for task_id in task_ids:
+                if self.has_live_worker(task_id):
+                    raise ValueError(f"task worker is still exiting: {task_id}")
+            for task_id in task_ids:
+                self._records.pop(task_id, None)
 
 
     def dispatch_next(self) -> TaskStatus | None:

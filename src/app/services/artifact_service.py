@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
 from typing import Any
 
 from src.core.artifacts import ArtifactIndex, ArtifactRecord, ArtifactSet
@@ -15,9 +16,12 @@ class ArtifactService:
 
     def __init__(self, state_store: SqliteStateStore | None = None) -> None:
         self._index = ArtifactIndex()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._deleted_task_ids: set[str] = set()
         self._state_store = state_store
         if self._state_store is not None:
+            self._deleted_task_ids.update(self._state_store.load_deleted_task_ids())
+            self._index.reserve_deleted_ids(self._state_store.load_deleted_artifact_ids())
             for record in self._state_store.load_terminal_artifacts():
                 self._index.restore_artifact(record)
 
@@ -39,6 +43,8 @@ class ArtifactService:
             raise AppValidationError("path is required")
 
         with self._lock:
+            if task_id in self._deleted_task_ids:
+                raise AppValidationError("task history has been deleted")
             try:
                 record = self._index.register_artifact(
                     task_id=task_id,
@@ -55,6 +61,21 @@ class ArtifactService:
                 return record
             except ValueError as exc:
                 raise AppValidationError(str(exc)) from exc
+
+    @contextmanager
+    def history_deletion_guard(self):
+        with self._lock:
+            yield
+
+    def list_records(self):
+        with self._lock:
+            return self._index.list_records()
+
+    def forget_task_history(self, task_ids: set[str]) -> None:
+        """Apply only after the state-store transaction commits."""
+        with self._lock:
+            self._index.remove_tasks(task_ids)
+            self._deleted_task_ids.update(task_ids)
 
     def get_artifact(self, artifact_id: str) -> ArtifactRecord:
         with self._lock:

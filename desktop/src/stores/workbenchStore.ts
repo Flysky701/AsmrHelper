@@ -54,6 +54,8 @@ interface WorkbenchStore {
   queueMigrationNotice: boolean
   queueSubmission: QueueSubmission | null
   queueBatches: BatchRunResponse[]
+  deletedQueueBatchIds: string[]
+  deletedQueueTaskIds: string[]
   queueBatchActions: Record<string, { action: 'retry' | 'cancel'; taskIds: string; state: string }>
   beginQueueBatchAction: (batch: BatchRunResponse, action: 'retry' | 'cancel') => void
   clearQueueBatchAction: (batchId: string) => void
@@ -66,6 +68,8 @@ interface WorkbenchStore {
   beginQueueSubmission: (submission: QueueSubmission) => void
   failQueueSubmission: (error: string, uncertain: boolean) => void
   receiveQueueBatch: (batch: BatchRunResponse) => void
+  reconcileQueueBatches: (batches: BatchRunResponse[], knownBatchIdsAtRequest: string[]) => void
+  markQueueTaskHistoryDeleted: (taskIds: string[]) => void
   flow: FlowDraft
   toggleStage: (stage: PipelineStageId) => void
   applyStepPreset: (preset: PresetItem) => void
@@ -114,8 +118,28 @@ interface WorkbenchStore {
   reset: () => void
 }
 
-export const useWorkbenchStore = create<WorkbenchStore>()(persist((set) => ({
+function withoutDeletedTaskHistory(batch: BatchRunResponse, deleted: Set<string>): BatchRunResponse {
+  if (!batch.items.some(item => item.task_ids.some(id => deleted.has(id)) || !!item.current_task_id && deleted.has(item.current_task_id))) return batch
+  const items = batch.items.map(item => {
+    const task_ids = item.task_ids.filter(id => !deleted.has(id))
+    const currentDeleted = !!item.current_task_id && deleted.has(item.current_task_id)
+    const orphanedHistoryDeleted = !item.current_task_id && task_ids.length < item.task_ids.length && !task_ids.length
+    if (!currentDeleted && !orphanedHistoryDeleted) return { ...item, task_ids }
+    return { ...item, task_ids, current_task_id: null, state: 'history_deleted' as const, progress: 0,
+      input_path: '', companion_paths: [], bindings: {}, label: '', output_path: '', error: null,
+      message: '历史已删除', retry_available: false, retry_blocked_reason: '当前组的执行历史已删除' }
+  })
+  const count = (state: string) => items.filter(item => item.state === state).length
+  return { ...batch, items, pending_count: count('pending'), running_count: count('running'),
+    completed_count: count('completed'), failed_count: count('failed'), cancelled_count: count('cancelled'),
+    skipped_count: count('skipped'), history_deleted_count: count('history_deleted') }
+}
+const hasNoBatchHistory = (batch: BatchRunResponse) => batch.state === 'history_deleted'
+  || batch.items.length > 0 && batch.items.every(item => item.state === 'history_deleted' && !item.task_ids.length)
+
+export const useWorkbenchStore = create<WorkbenchStore>()(persist((set, get) => ({
   queueGroups: [], queueInitialized: false, queueMigrationNotice: false, queueSubmission: null, queueBatches: [], queueBatchActions: {},
+  deletedQueueBatchIds: [], deletedQueueTaskIds: [],
   beginQueueBatchAction: (batch, action) => set(state => ({ queueBatchActions: { ...state.queueBatchActions,
     [batch.batch_id]: { action, taskIds: JSON.stringify(batch.items.flatMap(item => item.task_ids)), state: batch.state } } })),
   clearQueueBatchAction: batchId => set(state => ({ queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => id !== batchId)) })),
@@ -161,6 +185,13 @@ export const useWorkbenchStore = create<WorkbenchStore>()(persist((set) => ({
       : { queueSubmission: null, queueGroups: state.queueGroups.map(group => group.pendingRequestId === id ? { ...group, pendingRequestId: undefined } : group) }
   }),
   receiveQueueBatch: batch => set(state => {
+    if (state.deletedQueueBatchIds.includes(batch.batch_id)) return {}
+    batch = withoutDeletedTaskHistory(batch, new Set(state.deletedQueueTaskIds))
+    if (hasNoBatchHistory(batch)) return {
+      deletedQueueBatchIds: [...state.deletedQueueBatchIds, batch.batch_id],
+      queueBatches: state.queueBatches.filter(item => item.batch_id !== batch.batch_id),
+      queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => id !== batch.batch_id)),
+    }
     const matching = state.queueSubmission?.request.client_request_id === batch.client_request_id ? state.queueSubmission : null
     if (matching) {
       const expected = new Set(matching.request.groups.map(group => group.group_id))
@@ -174,6 +205,25 @@ export const useWorkbenchStore = create<WorkbenchStore>()(persist((set) => ({
     return { queueBatches: [...state.queueBatches.filter(item => item.batch_id !== batch.batch_id), batch],
       ...(resolved ? { queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => id !== batch.batch_id)) } : {}),
       queueGroups: attachSubmittedBatch(state.queueGroups, batch, matching), queueSubmission: matching ? null : state.queueSubmission }
+  }),
+  reconcileQueueBatches: (batches, knownBatchIdsAtRequest) => {
+    // Only an authoritative full-list success can establish absence. Batches created
+    // after this request began are deliberately excluded from the missing set.
+    const present = new Set(batches.map(batch => batch.batch_id))
+    set(state => {
+      const deleted = new Set([...state.deletedQueueBatchIds, ...knownBatchIdsAtRequest.filter(id => !present.has(id))])
+      return { deletedQueueBatchIds: [...deleted], queueBatches: state.queueBatches.filter(batch => !deleted.has(batch.batch_id)),
+        queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => !deleted.has(id))) }
+    })
+    for (const batch of batches) get().receiveQueueBatch(batch)
+  },
+  markQueueTaskHistoryDeleted: taskIds => set(state => {
+    const deletedTasks = new Set([...state.deletedQueueTaskIds, ...taskIds])
+    const normalized = state.queueBatches.map(batch => withoutDeletedTaskHistory(batch, deletedTasks))
+    const deletedBatches = new Set([...state.deletedQueueBatchIds, ...normalized.filter(hasNoBatchHistory).map(batch => batch.batch_id)])
+    return { deletedQueueTaskIds: [...deletedTasks], deletedQueueBatchIds: [...deletedBatches],
+      queueBatches: normalized.filter(batch => !deletedBatches.has(batch.batch_id)),
+      queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => !deletedBatches.has(id))) }
   }),
   flow: emptyFlow(),
   toggleStage: (stage) => set(s => ({ flow: toggleFlowStage(s.flow, stage) })),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from src.task_connection_context import capture_connections, connection_context
 from src.core.tasks import ExecutorRegistry, RuntimeEvent, TaskRegistry, TaskSpec, TaskStatus
@@ -23,7 +24,7 @@ class TaskService:
             max_concurrent=max_concurrent,
             executor_registry=executor_registry,
         )
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._state_store = state_store
         self._restored_task_ids: set[str] = set()
         self._connection_snapshots: dict[str, dict] = {}
@@ -39,6 +40,28 @@ class TaskService:
             for task_spec, task_status in self._state_store.load_terminal_tasks():
                 self._registry.restore_task(task_spec, task_status)
                 self._restored_task_ids.add(task_status.task_id)
+            if isinstance(self._state_store, SqliteStateStore):
+                self._registry.reserve_deleted_ids(self._state_store.load_deleted_task_ids())
+
+    @contextmanager
+    def history_deletion_guard(self):
+        with self._lock:
+            yield
+
+    def history_snapshot(self):
+        with self._lock:
+            return [(self._registry.get_task_spec(task.task_id), task)
+                    for task in self._registry.list_tasks()]
+
+    def forget_task_history(self, task_ids: set[str]) -> None:
+        """Apply only after the persistent deletion transaction commits."""
+        with self._lock:
+            self._registry.delete_terminal_tasks(task_ids)
+            self._restored_task_ids.difference_update(task_ids)
+            for task_id in task_ids:
+                self._connection_snapshots.pop(task_id, None)
+                self._graph_connection_snapshots.pop(task_id, None)
+                self._connection_records.pop(task_id, None)
 
     def create_task_spec(
         self,

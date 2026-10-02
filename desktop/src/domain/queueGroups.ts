@@ -94,6 +94,9 @@ export function createImportedGroups(items: WorkbenchInputItem[], existing: Queu
 export function attachSubmittedBatch(groups: QueueGroup[], batch: BatchRunResponse, submission?: QueueSubmission | null): QueueGroup[] {
   const next = [...groups]
   for (const item of batch.items.filter(item => !!item.group_id)) {
+    // Existing user inputs remain in groups; deleted records must not create new
+    // empty input groups from their intentionally redacted historical fields.
+    if (item.state === 'history_deleted') continue
     let index = next.findIndex(group => group.run?.batchId === batch.batch_id && group.run.itemId === item.item_id)
     if (index < 0 && submission && submission.request.client_request_id === batch.client_request_id) index = next.findIndex(group =>
       group.id === item.group_id && group.pendingRequestId === submission.request.client_request_id)

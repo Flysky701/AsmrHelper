@@ -6,12 +6,14 @@ import type { BatchRunResponse, TaskStatusResponse } from '@/api/types'
 import BatchRunsPanel from '@/components/tasks/BatchRunsPanel'
 import TaskRecoveryAction from '@/components/tasks/TaskRecoveryAction'
 import TaskCenterDetails, { TaskStatusLabel, TaskSymbol } from '@/components/task-center/TaskCenterDetails'
+import TaskDeletionDialog from '@/components/task-center/TaskDeletionDialog'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 import { useLogStore } from '@/stores/logStore'
 import type { LogLevel } from '@/stores/logStore'
 import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
+import { useWorkbenchStore } from '@/stores/workbenchStore'
 import type { JobType, Task, TaskStatus } from '@/stores/taskStore'
 import { taskExecutionView } from '@/domain/taskExecutionView'
 import type { TaskExecutionView } from '@/domain/taskExecutionView'
@@ -29,6 +31,9 @@ function taskCategory(jobType: JobType): TaskCategory {
 }
 async function copyToClipboard(text: string) {
   try { await navigator.clipboard.writeText(text) } catch { window.prompt('复制路径', text) }
+}
+function canSelectForDeletion(task: Task) {
+  return !!task.serverTaskId && ['completed', 'failed', 'cancelled', 'skipped'].includes(task.status)
 }
 
 function TaskStatusPolling({ enabled }: { enabled: boolean }) {
@@ -84,6 +89,7 @@ export default function TaskCenter() {
   const selectTask = useTaskStore(state => state.selectTask)
   const addTask = useTaskStore(state => state.addTask)
   const updateTask = useTaskStore(state => state.updateTask)
+  const removeDeletedTasks = useTaskStore(state => state.removeDeletedTasks)
   const selectedJobType = tasks.find(task => task.id === selectedTaskId)?.jobType
   const [category, setCategory] = useState<TaskCategory>(() => selectedJobType ? taskCategory(selectedJobType) : 'processing')
   const [categoryFilters, setCategoryFilters] = useState<Record<TaskCategory, StatusFilter>>({
@@ -98,6 +104,8 @@ export default function TaskCenter() {
   const [batches, setBatches] = useState<BatchRunResponse[]>([])
   const [batchLoaded, setBatchLoaded] = useState(false)
   const [batchError, setBatchError] = useState('')
+  const [checkedTaskIds, setCheckedTaskIds] = useState<string[]>([])
+  const [deletionTaskIds, setDeletionTaskIds] = useState<string[] | null>(null)
 
   useLayoutEffect(() => {
     if (!selectedJobType) return
@@ -135,6 +143,20 @@ export default function TaskCenter() {
   const groupedBatches = batches.map(batch => ({ batch, children: filteredTasks.filter(task => membership.get(task.id)?.batch_id === batch.batch_id) }))
     .filter(group => group.children.length)
   const standalone = filteredTasks.filter(task => !membership.has(task.id))
+  const selectableIds = [...new Set(filteredTasks.filter(canSelectForDeletion).map(task => task.serverTaskId!))]
+  const checkedIds = checkedTaskIds.filter(id => tasks.some(task => task.serverTaskId === id))
+  const allVisibleChecked = selectableIds.length > 0 && selectableIds.every(id => checkedIds.includes(id))
+  const visibleSelectionTooLarge = new Set([...checkedIds, ...selectableIds]).size > 500
+  const hiddenCheckedCount = checkedIds.filter(id => !filteredTasks.some(task => task.serverTaskId === id)).length
+  const openDeletion = (ids: string[]) => { if (ids.length && ids.length <= 500) setDeletionTaskIds([...new Set(ids)]) }
+  const handleDeleted = (ids: string[]) => {
+    removeDeletedTasks(ids)
+    useWorkbenchStore.getState().markQueueTaskHistoryDeleted(ids)
+    setCheckedTaskIds(current => current.filter(id => !ids.includes(id)))
+    setPollGeneration(value => value + 1)
+  }
+  const toggleChecked = (id: string) => setCheckedTaskIds(current => current.includes(id)
+    ? current.filter(value => value !== id) : current.length < 500 ? [...current, id] : current)
 
   useEffect(() => {
     if (taskCenterView !== 'tasks') return
@@ -356,7 +378,13 @@ export default function TaskCenter() {
   }
 
   const selectRow = (taskId: string) => { selectTask(taskId); setMobileDetail(true) }
-  const row = (task: Task, child = false) => <button type="button" key={task.id}
+  const row = (task: Task, child = false) => <div className="tc-selectable-row" key={task.id}>
+    <input type="checkbox" aria-label={`选择删除 ${task.serverTaskId || task.id}`}
+      title={canSelectForDeletion(task) ? '选择此任务历史' : '运行中、待处理或尚未绑定后端的任务不可删除'}
+      checked={!!task.serverTaskId && checkedIds.includes(task.serverTaskId)}
+      disabled={!canSelectForDeletion(task) || (checkedIds.length >= 500 && !checkedIds.includes(task.serverTaskId!))}
+      onChange={() => task.serverTaskId && toggleChecked(task.serverTaskId)} />
+    <button type="button"
     className={`tc-task-row ${child ? 'is-child' : ''} ${selectedTask?.id === task.id ? 'is-selected' : ''}`}
     data-task-id={task.serverTaskId || task.id} aria-label={`查看任务 ${task.sourceName}`}
     aria-pressed={selectedTask?.id === task.id} onClick={() => selectRow(task.id)}>
@@ -366,7 +394,7 @@ export default function TaskCenter() {
     </span></span><TaskStatusLabel state={task.status} />
     <span className="tc-time"><time>{task.startedAt ? new Date(task.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '尚未开始'}</time>
       <small>{task.startedAt ? new Date(task.startedAt).toLocaleDateString([], { month: '2-digit', day: '2-digit' }) : '—'}</small></span>
-  </button>
+  </button></div>
 
   return <div className={`task-center-page ${mobileDetail ? 'detail-open' : ''}`}>
     {/* Refresh restarts the existing serial poller; its cleanup discards older in-flight responses. */}
@@ -389,14 +417,23 @@ export default function TaskCenter() {
               .map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></details>
         <label className="tc-search"><TaskSymbol name="search" /><input aria-label="搜索任务名称或 ID" placeholder="搜索任务名称或 ID" value={query} onChange={event => setQuery(event.target.value)} /></label></div>
       {batchError && <p className="tc-refresh-error" role="status">{batchError}</p>}
-      <div className="tc-split"><section className="tc-list" aria-label="任务与批次列表"><div className="tc-table-heading"><span>任务 / 批次</span><span>状态</span><span>开始时间</span></div>
+      <div className="tc-split"><section className="tc-list" aria-label="任务与批次列表">
+        <div className="tc-selection-tools"><label><input type="checkbox" aria-label="选择当前筛选内可删除任务"
+          checked={allVisibleChecked} disabled={!selectableIds.length || (!allVisibleChecked && visibleSelectionTooLarge)}
+          onChange={() => setCheckedTaskIds(current => allVisibleChecked ? current.filter(id => !selectableIds.includes(id)) : [...new Set([...current, ...selectableIds])])} />当前列表</label>
+          <span>已选 {checkedIds.length}{hiddenCheckedCount > 0 ? `（筛选外 ${hiddenCheckedCount}）` : ''}</span>
+          <button type="button" className="tc-action" disabled={!checkedIds.length} onClick={() => openDeletion(checkedIds)}>删除所选…</button>
+          {!!checkedIds.length && <button type="button" className="tc-text-action" onClick={() => setCheckedTaskIds([])}>清空选择</button>}
+          {visibleSelectionTooLarge && <span>每次最多选择 500 项，请缩小筛选或清空已有选择。</span>}
+        </div>
+        <div className="tc-table-heading"><span>任务 / 批次</span><span>状态</span><span>开始时间</span></div>
         <div className="tc-list-scroll">{groupedBatches.map(({ batch, children }) => {
           const open = !collapsedBatches.includes(batch.batch_id) || !!search
           return <div className="tc-batch-group" key={batch.batch_id} data-batch-id={batch.batch_id}>
             <button className="tc-batch-row" type="button" aria-label={`${open ? '收起' : '展开'}批次 ${batch.name}`} aria-expanded={open}
               onClick={() => setCollapsedBatches(current => current.includes(batch.batch_id) ? current.filter(id => id !== batch.batch_id) : [...current, batch.batch_id])}>
-              <span className={`tc-chevron ${open ? 'open' : ''}`}><TaskSymbol name="chevron" /></span><TaskSymbol name="folder" /><span><strong>{batch.name}</strong><small>{batch.batch_id} · {batch.total_count} 组输入</small></span>
-              <span className="tc-batch-count">{batch.completed_count}/{batch.total_count} 完成{batch.failed_count > 0 && <i>含失败</i>}</span>
+              <span className={`tc-chevron ${open ? 'open' : ''}`}><TaskSymbol name="chevron" /></span><TaskSymbol name="folder" /><span><strong>{batch.name}</strong><small>{batch.batch_id} · {batch.total_count} 组输入{batch.history_deleted_count ? ` · 历史已删除 ${batch.history_deleted_count}` : ''}</small></span>
+              <span className="tc-batch-count">{batch.completed_count}/{Math.max(0, batch.total_count - (batch.history_deleted_count ?? 0))} 完成{batch.failed_count > 0 && <i>含失败</i>}</span>
             </button>{open && children.map(task => row(task, true))}
           </div>
         })}
@@ -410,11 +447,15 @@ export default function TaskCenter() {
           onBack={() => setMobileDetail(false)} onPlay={handlePlayArtifact} onCopy={path => void copyToClipboard(path)} onConfigure={() => useNavStore.getState().openEngines('external')}
           levelFilter={levelFilter} onToggleLevel={toggleLogLevel} onClearLogs={clearLogs}
           actions={<><button type="button" className="tc-action" onClick={() => void handleRetry(selectedTask.id)} disabled={selectedTask.status !== 'failed' || selectedTask.historical}>重试</button>
-            <button type="button" className="tc-action" onClick={() => void handleCancel(selectedTask.id)} disabled={selectedTask.status !== 'running'}>取消</button></>}
+            <button type="button" className="tc-action" onClick={() => void handleCancel(selectedTask.id)} disabled={selectedTask.status !== 'running'}>取消</button>
+            <button type="button" className="tc-action" disabled={!canSelectForDeletion(selectedTask)}
+              title={canSelectForDeletion(selectedTask) ? '预览此任务的删除范围' : '运行中或待处理任务不可删除'}
+              onClick={() => selectedTask.serverTaskId && openDeletion([selectedTask.serverTaskId])}>删除历史…</button></>}
           recovery={selectedTask.serverTaskId && (selectedTask.status === 'failed' || selectedTask.status === 'cancelled')
             ? <div className="tc-recovery"><TaskRecoveryAction key={selectedTask.serverTaskId} taskId={selectedTask.serverTaskId} onResumed={response => handleResumed(selectedTask, response)} /></div> : null}
         /> : <div className="tc-empty">请选择一项任务</div>}
       </aside></div>
     </>}
+    {deletionTaskIds && <TaskDeletionDialog taskIds={deletionTaskIds} onDeleted={handleDeleted} onClose={() => setDeletionTaskIds(null)} />}
   </div>
 }

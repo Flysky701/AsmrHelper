@@ -29,6 +29,8 @@ export const pipelineApi = {
     api.put<GraphPresetItem>(`/pipeline/presets/${encodeURIComponent(id)}`, body),
   deletePreset: (id: string, revision: number) =>
     api.delete<void>(`/pipeline/presets/${encodeURIComponent(id)}?revision=${revision}`),
+  permanentlyDeletePreset: (id: string, revision: number) =>
+    api.delete<{ id: string; status: 'deleted' | 'already_missing' }>(`/pipeline/presets/${encodeURIComponent(id)}/permanent?revision=${revision}`),
   createPreset: (body: FlowPresetDraft) => api.post<PresetItem>('/pipeline/presets', body),
   updatePreset: (id: string, body: FlowPresetDraft & { revision: number }) => api.put<PresetItem>(`/pipeline/presets/${encodeURIComponent(id)}`, body),
   copyPreset: (id: string, label: string) => api.post<PresetItem>(`/pipeline/presets/${encodeURIComponent(id)}/copy`, { label }),

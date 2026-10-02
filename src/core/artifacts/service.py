@@ -98,6 +98,21 @@ class ArtifactIndex:
             raise ValueError(f"unknown artifact id: {artifact_id}") from exc
         return self.clone_record(record)
 
+    def remove_tasks(self, task_ids: set[str]) -> None:
+        for task_id in task_ids:
+            artifact_set = self._task_artifacts.pop(task_id, ArtifactSet())
+            for record in artifact_set.entries:
+                self._artifacts.pop(record.artifact_id, None)
+
+    def list_records(self) -> list[ArtifactRecord]:
+        return [self.clone_record(record) for record in self._artifacts.values()]
+
+    def reserve_deleted_ids(self, artifact_ids) -> None:
+        for artifact_id in artifact_ids:
+            prefix, separator, suffix = artifact_id.rpartition("-")
+            if separator and prefix == "artifact" and suffix.isdigit():
+                self._counter = max(self._counter, int(suffix))
+
     def get_task_artifacts(self, task_id: str) -> ArtifactSet:
         artifact_set = self._task_artifacts.get(task_id, ArtifactSet())
         return self.clone_artifact_set(artifact_set)

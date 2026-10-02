@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.app.dto import RuntimeEvent, TaskSpec, TaskStatus
 from .artifacts import (
@@ -15,6 +15,66 @@ from .artifacts import (
 
 TaskState = Literal["pending", "running", "completed", "failed", "cancelled", "skipped"]
 ReviewState = Literal["", "accepted", "needs_review", "needs_rework"]
+
+TaskDeletionMode = Literal["history_only", "history_and_files"]
+
+
+class TaskDeletionPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_ids: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(min_length=1, max_length=500)
+    mode: TaskDeletionMode
+
+
+class TaskDeletionExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preview_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    confirm: bool = Field(strict=True)
+
+
+class TaskDeletionFilePreview(BaseModel):
+    path: str
+    action: Literal["delete", "retain"]
+    reason: str | None = None
+    size_bytes: int | None = None
+
+
+class TaskDeletionTaskPreview(BaseModel):
+    task_id: str
+    state: str | None = None
+    eligible: bool
+    reason: str | None = None
+    batch_ids: list[str]
+    files: list[TaskDeletionFilePreview]
+
+
+class TaskDeletionPreviewResponse(BaseModel):
+    preview_id: str
+    mode: TaskDeletionMode
+    expires_at: str
+    can_execute: bool
+    tasks: list[TaskDeletionTaskPreview]
+    summary: dict[str, int]
+
+
+class TaskDeletionFileResult(BaseModel):
+    path: str
+    status: Literal["deleted", "retained", "failed"]
+    reason: str | None = None
+
+
+class TaskDeletionTaskResult(BaseModel):
+    task_id: str
+    history_deleted: bool
+    status: Literal["deleted", "blocked", "failed", "partial"]
+    reason: str | None = None
+    files: list[TaskDeletionFileResult]
+
+
+class TaskDeletionExecuteResponse(BaseModel):
+    preview_id: str
+    mode: TaskDeletionMode
+    results: list[TaskDeletionTaskResult]
+    summary: dict[str, int]
 
 
 class TaskStatusResponse(BaseModel):

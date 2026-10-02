@@ -8,6 +8,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
+from functools import wraps
 import hashlib
 import json
 import math
@@ -27,7 +28,23 @@ COLLECTIONS = frozenset({"voices", "recipes", "experiments", "takes", "selection
 IMMUTABLE = frozenset({"recipes", "takes", "plans", "assets", "assemblies"})
 _LOCKS: dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
+_REFERENCE_FILE_LOCK = threading.RLock()
 _SECRET_KEYS = {"api_key", "apikey", "authorization", "access_token", "secret", "password", "credential"}
+
+
+@contextmanager
+def reference_file_guard():
+    """Serialize reference capture with deletion until source metadata is durable."""
+    with _REFERENCE_FILE_LOCK:
+        yield
+
+
+def _reference_file_operation(method):
+    @wraps(method)
+    def guarded(*args, **kwargs):
+        with reference_file_guard():
+            return method(*args, **kwargs)
+    return guarded
 
 
 def _now() -> str:
@@ -406,6 +423,7 @@ class SpeechStore:
     def validate_plan(self, text: str, proposed: dict) -> dict:
         return self.create("plans", validate_plan(text, proposed))
 
+    @_reference_file_operation
     def import_reference(self, path: str | Path, start: float, end: float | None, transcript: str, language: str, confirmed: bool = True,
                          *, name: str = "", notes: str = "", gain_db: float = 0, fade_in: float = 0,
                          fade_out: float = 0, preview: bool = False) -> dict:
@@ -525,6 +543,7 @@ class SpeechStore:
             self._write(state)
             return deepcopy(record)
 
+    @_reference_file_operation
     def inspect_reference(self, path: str | Path) -> dict:
         """Stage a source for listening and waveform selection, without adopting it."""
         import numpy as np

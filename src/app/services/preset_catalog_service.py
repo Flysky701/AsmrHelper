@@ -350,6 +350,25 @@ class PresetCatalogService:
             entry.update(active=False, revision=revision + 1)
             self._write(catalog)
 
+    def permanently_delete_preset(self, preset_id: str, revision: int) -> dict[str, str]:
+        """Delete one custom definition and index entry; submitted snapshots are independent."""
+        if type(revision) is not int or revision < 1:
+            raise ValueError("Preset revision must be a positive integer")
+        with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
+            catalog = self._load_catalog()
+            try:
+                current = catalog.item(preset_id)
+            except KeyError:
+                return {"id": preset_id, "status": "already_missing"}
+            if current["builtin"]:
+                raise BuiltinPresetError("Built-in presets cannot be permanently deleted; remove from the active catalog instead")
+            if current["revision"] != revision:
+                raise PresetConflictError("Preset changed since it was loaded; reload before permanently deleting")
+            catalog.definitions = [item for item in catalog.definitions if item["id"] != preset_id]
+            del catalog.index[preset_id]
+            self._write(catalog)
+            return {"id": preset_id, "status": "deleted"}
+
     def restore_preset(self, preset_id: str, revision: int, label: str | None = None) -> dict[str, Any]:
         """Explicitly restore one ID; a name conflict never replaces another entry."""
         if type(revision) is not int or revision < 1:

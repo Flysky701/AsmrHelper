@@ -57,10 +57,13 @@ export default function Workbench() {
   }, [])
   const loadBatches = useCallback(async () => {
     const sequence = ++historySequence.current
+    const before = useWorkbenchStore.getState()
+    const knownBatchIds = [...new Set([...before.queueBatches.map(batch => batch.batch_id),
+      ...before.queueGroups.flatMap(group => group.run ? [group.run.batchId] : [])])]
     try {
       const result = await batchesApi.list()
       if (!active.current || sequence !== historySequence.current) return
-      for (const batch of result.batches) useWorkbenchStore.getState().receiveQueueBatch(batch)
+      useWorkbenchStore.getState().reconcileQueueBatches(result.batches, knownBatchIds)
       setHistoryError('')
     } catch (error) { if (active.current && sequence === historySequence.current) setHistoryError(`状态刷新失败：${messageOf(error)}。当前显示为上次已知状态。`) }
   }, [])
@@ -137,9 +140,11 @@ export default function Workbench() {
     const batch = group.run ? materials.queueBatches.find(batch => batch.batch_id === group.run!.batchId) : undefined
     const remote = batch?.items.find(item => item.item_id === group.run!.itemId)
     const issues = groupEditable(group) ? groupIssues(group, graph, materials.inputItems) : []
-    const state = group.pendingRequestId ? 'unknown' : group.run ? remote?.state ?? 'unknown' : group.excluded ? 'excluded' : issues.length ? 'missing' : 'draft'
+    const state = group.pendingRequestId ? 'unknown' : group.run
+      ? materials.deletedQueueBatchIds.includes(group.run.batchId) ? 'history_deleted' : remote?.state ?? 'unknown'
+      : group.excluded ? 'excluded' : issues.length ? 'missing' : 'draft'
     return { group, batch, remote, issues, state }
-  }), [materials.queueGroups, materials.queueBatches, graph, materials.inputItems])
+  }), [materials.queueGroups, materials.queueBatches, materials.deletedQueueBatchIds, graph, materials.inputItems])
   const selected = rows.filter(row => row.group.selected && !row.group.excluded && groupEditable(row.group))
   const invalidSelected = selected.filter(row => row.issues.length > 0)
   const draftRows = rows.filter(row => groupEditable(row.group) && !row.group.excluded)

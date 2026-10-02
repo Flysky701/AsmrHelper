@@ -6,6 +6,9 @@ import type {
   TaskResultResponse,
   TaskSpecResponse,
   TaskStatusResponse,
+  TaskDeletionMode,
+  TaskDeletionPreviewResponse,
+  TaskDeletionExecuteResponse,
 } from './types'
 
 export interface TaskRecoveryResponse {
@@ -16,6 +19,12 @@ export interface TaskRecoveryResponse {
 
 export const tasksApi = {
   list: () => api.get<TaskListResponse>('/tasks'),
+
+  deletionPreview: (taskIds: string[], mode: TaskDeletionMode) =>
+    api.post<TaskDeletionPreviewResponse>('/tasks/deletion-preview', { task_ids: taskIds, mode }),
+
+  deletionExecute: (previewId: string) =>
+    api.post<TaskDeletionExecuteResponse>('/tasks/deletion-execute', { preview_id: previewId, confirm: true }),
 
   get: (taskId: string) =>
     api.get<TaskStatusResponse>(`/tasks/${taskId}`),

@@ -7,7 +7,7 @@ import { fileName, inputPathKey } from '@/domain/workbenchInput'
 import { useWorkbenchStore } from '@/stores/workbenchStore'
 import QueueGroupArtifacts from './QueueGroupArtifacts'
 
-const STATUS: Record<string, string> = { pending: '排队中', running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消', skipped: '已跳过', draft: '待运行', missing: '缺素材 / 待确认', excluded: '已排除', unknown: '状态待核实' }
+const STATUS: Record<string, string> = { pending: '排队中', running: '处理中', completed: '已完成', failed: '失败', cancelled: '已取消', skipped: '已跳过', history_deleted: '历史已删除', draft: '待运行', missing: '缺素材 / 待确认', excluded: '已排除', unknown: '状态待核实' }
 const LANG: Record<string, string> = { ja: '日语', zh: '中文', en: '英语' }
 export const queueOutputLabel = (graph: GraphDefinition | null) => graph?.outputs.map(output => output.label || (output.port === 'audio' ? '音频' : '字幕')).join(' + ') || '输出定义不可用'
 export interface QueueRowView { group: QueueGroup; batch?: BatchRunResponse; remote?: BatchRunItemResponse; issues: string[]; state: string }
@@ -48,8 +48,8 @@ export default function QueueGroupRow({ row, index, graph, presetLabel, busy, di
         {!paths.length ? <button type="button" className="queue-missing-link" onClick={() => setExpanded(true)}>补充素材 +</button> : null}
       </div>
       <div className="queue-status-cell"><span className={`queue-status ${state === 'completed' ? 'queue-success' : ['missing', 'failed', 'unknown'].includes(state) ? 'queue-warning' : ''}`}>{state === 'completed' ? '✓ ' : state === 'running' ? '◌ ' : state === 'missing' ? '△ ' : '• '}{STATUS[state] || state}</span>
-        {remote && ['pending', 'running'].includes(state) ? <><div className="queue-progress" role="progressbar" aria-label={`${group.label} 进度`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div><small>{progress}% · {remote.message || '等待后端状态'}</small></> : <small>{group.pendingRequestId ? '提交结果尚未确认' : group.run ? remote?.message || '正在读取任务事实' : group.excluded ? '本组不参与运行' : issues.length ? '检查后可勾选运行' : '素材齐备'}</small>}
-        {group.run && remote?.current_task_id ? <button type="button" className="queue-result-toggle" aria-expanded={showResults} onClick={() => setShowResults(value => !value)}>{state === 'completed' ? '查看结果' : '查看本组产物'} {showResults ? '⌃' : '⌄'}</button> : null}
+        {remote && ['pending', 'running'].includes(state) ? <><div className="queue-progress" role="progressbar" aria-label={`${group.label} 进度`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div><small>{progress}% · {remote.message || '等待后端状态'}</small></> : <small>{state === 'history_deleted' ? '运行历史已删除，输入素材仍保留' : group.pendingRequestId ? '提交结果尚未确认' : group.run ? remote?.message || '正在读取任务事实' : group.excluded ? '本组不参与运行' : issues.length ? '检查后可勾选运行' : '素材齐备'}</small>}
+        {state !== 'history_deleted' && group.run && remote?.current_task_id ? <button type="button" className="queue-result-toggle" aria-expanded={showResults} onClick={() => setShowResults(value => !value)}>{state === 'completed' ? '查看结果' : '查看本组产物'} {showResults ? '⌃' : '⌄'}</button> : null}
       </div>
       <div className="queue-output-cell"><span>{queueOutputLabel(frozenGraph)}</span><small>{group.run ? group.run.presetLabel : presetLabel || '未选流水线'}</small></div>
       <button type="button" className="queue-row-more" aria-label={`检查 ${group.label} 的输入与参数`} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>···</button>
@@ -66,12 +66,12 @@ export default function QueueGroupRow({ row, index, graph, presetLabel, busy, di
         <p>{group.run?.presetLabel} · {group.run?.submittedAt ? new Date(group.run.submittedAt).toLocaleString() : ''} · {group.run?.outputDirectory || '工作区默认输出目录'}</p>
         {Object.entries(bindings).map(([slot, binding]) => <p key={slot}><strong>{frozenGraph?.input_slots.find(item => item.id === slot)?.label || slot}</strong> · {binding.path}{binding.audio_path ? ` ↔ ${binding.audio_path}（${binding.pair_confirmed ? '已确认' : '未确认'}）` : ''}</p>)}
         {frozenGraph ? frozenGraph.nodes.map(node => <details className="queue-frozen-node" key={node.id}><summary>{GRAPH_CATALOG[node.kind].label} · {node.id} · {node.provider}{node.model ? ` / ${node.model}` : ''}</summary><p>{node.source_lang ? `源语言：${LANG[node.source_lang]} ` : ''}{node.target_lang ? `目标语言：${LANG[node.target_lang]}` : ''}</p><pre>{JSON.stringify({ options: node.options, provider_options: node.provider_options }, null, 2)}</pre></details>) : <p className="queue-warning">当前客户端没有此批次的原始参数快照，未用当前草稿替代。能否重试由后端的冻结快照决定。</p>}
-        {remote?.error ? <p className="queue-error">{String(remote.error.message || remote.error.detail || JSON.stringify(remote.error))}</p> : null}
+        {state !== 'history_deleted' && remote?.error ? <p className="queue-error">{String(remote.error.message || remote.error.detail || JSON.stringify(remote.error))}</p> : null}
         <div className="queue-detail-actions">{batch && ['failed', 'cancelled'].includes(state) ? <button type="button" disabled={batchAction || !!materials.queueBatchActions[batch.batch_id] || !batch.retry_available} title={batch.retry_blocked_reason || ''} onClick={() => actOnBatch(batch, 'retry')}>按原参数重试本批失败组</button> : null}{batch && ['pending', 'running', 'cancelling'].includes(batch.state) ? <button type="button" disabled={batchAction || !!materials.queueBatchActions[batch.batch_id]} onClick={() => actOnBatch(batch, 'cancel')}>取消本批次</button> : null}{group.run ? <button type="button" disabled={busy} onClick={() => materials.duplicateQueueGroup(group.id)}>复制输入为新组</button> : null}</div>
         {batch && materials.queueBatchActions[batch.batch_id] ? <p className="queue-warning">本批次操作结果尚未确认。正在核实任务状态，暂不重复提交操作。</p> : null}
         {batch && ['failed', 'cancelled'].includes(state) && !batch.retry_available ? <p className="queue-warning">{batch.retry_blocked_reason || '后端未确认可重试，不能使用当前参数替代原执行快照。'}</p> : null}
       </>}
     </div> : null}
-    {showResults && group.run ? <QueueGroupArtifacts key={`${group.run.batchId}:${group.run.itemId}:${remote?.current_task_id ?? ''}`} taskId={remote?.current_task_id ?? null} /> : null}
+    {state !== 'history_deleted' && showResults && group.run ? <QueueGroupArtifacts key={`${group.run.batchId}:${group.run.itemId}:${remote?.current_task_id ?? ''}`} taskId={remote?.current_task_id ?? null} /> : null}
   </>
 }

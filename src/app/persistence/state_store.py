@@ -92,6 +92,20 @@ class SqliteStateStore:
                     record_json TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS deleted_task_ids (
+                    task_id TEXT PRIMARY KEY
+                );
+                CREATE TABLE IF NOT EXISTS task_deletion_receipts (
+                    preview_id TEXT PRIMARY KEY,
+                    response_json TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS deleted_batch_runs (
+                    batch_id TEXT PRIMARY KEY, client_request_id TEXT, request_fingerprint TEXT
+                );
+                CREATE TABLE IF NOT EXISTS deleted_artifact_ids (
+                    artifact_id TEXT PRIMARY KEY
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_tasks_state_created
                     ON tasks(state, created_at);
                 CREATE INDEX IF NOT EXISTS idx_artifacts_task
@@ -229,6 +243,79 @@ class SqliteStateStore:
                 """
             ).fetchall()
         return [BatchRunRecord.from_dict(json.loads(row["record_json"])) for row in rows]
+
+    def load_deleted_task_ids(self) -> list[str]:
+        with self._lock, self._connect() as connection:
+            return [row[0] for row in connection.execute("SELECT task_id FROM deleted_task_ids")]
+
+    def load_deleted_artifact_ids(self) -> list[str]:
+        with self._lock, self._connect() as connection:
+            return [row[0] for row in connection.execute("SELECT artifact_id FROM deleted_artifact_ids")]
+
+    def load_deleted_batches(self) -> list[dict]:
+        with self._lock, self._connect() as connection:
+            return [dict(row) for row in connection.execute("SELECT * FROM deleted_batch_runs")]
+
+    def deletion_inventory(self) -> dict:
+        """Read ownership evidence; never infer ownership from an artifact path alone."""
+        with self._lock, self._connect() as connection:
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            return {
+                "tasks": [{"spec": json.loads(row[0]), "status": json.loads(row[1])}
+                          for row in connection.execute("SELECT spec_json,status_json FROM tasks")],
+                "artifacts": [json.loads(row[0]) for row in connection.execute("SELECT record_json FROM artifacts")],
+                "manifests": {row[0]: json.loads(row[1]) for row in connection.execute(
+                    "SELECT task_id,record_json FROM recovery_manifests")} if "recovery_manifests" in tables else {},
+                "checkpoints": [{"task_id": row[0], "stage": row[1], "record": json.loads(row[2])}
+                                for row in connection.execute("SELECT task_id,stage,record_json FROM stage_checkpoints")]
+                               if "stage_checkpoints" in tables else [],
+            }
+
+    def deletion_receipt(self, preview_id: str) -> dict | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute("SELECT response_json FROM task_deletion_receipts WHERE preview_id=?", (preview_id,)).fetchone()
+            return json.loads(row[0]) if row else None
+
+    def save_deletion_receipt(self, response: dict) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute("INSERT INTO task_deletion_receipts VALUES (?, ?) ON CONFLICT(preview_id) DO UPDATE SET response_json=excluded.response_json",
+                               (response["preview_id"], json.dumps(response, ensure_ascii=False)))
+
+    def delete_task_history(self, task_ids: set[str], *, batches: list[BatchRunRecord], receipt: dict) -> None:
+        """Commit task/index/recovery/batch references and an idempotent receipt together."""
+        with self._lock, self._connect() as connection:
+            for task_id in task_ids:
+                row = connection.execute("SELECT state FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+                if row is None or row[0] not in TERMINAL_STATES:
+                    raise ValueError(f"task history changed; preview again: {task_id}")
+            for task_id in task_ids:
+                connection.execute("INSERT OR IGNORE INTO deleted_artifact_ids SELECT artifact_id FROM artifacts WHERE task_id=?", (task_id,))
+                connection.execute("DELETE FROM tasks WHERE task_id=?", (task_id,))
+                connection.execute("INSERT OR IGNORE INTO deleted_task_ids VALUES (?)", (task_id,))
+            for row in connection.execute("SELECT task_id,spec_json,status_json FROM tasks").fetchall():
+                spec, status = json.loads(row[1]), json.loads(row[2])
+                if spec.get("retry_of_task_id") in task_ids or status.get("retry_of_task_id") in task_ids:
+                    spec["retry_of_task_id"] = status["retry_of_task_id"] = None
+                    connection.execute("UPDATE tasks SET spec_json=?,status_json=? WHERE task_id=?",
+                                       (json.dumps(spec, ensure_ascii=False), json.dumps(status, ensure_ascii=False), row[0]))
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "recovery_manifests" in tables:
+                for row in connection.execute("SELECT task_id,record_json FROM recovery_manifests").fetchall():
+                    manifest = json.loads(row[1])
+                    if manifest.get("resume_of_task_id") in task_ids:
+                        manifest["resume_of_task_id"] = None
+                        connection.execute("UPDATE recovery_manifests SET record_json=? WHERE task_id=?",
+                                           (json.dumps(manifest, ensure_ascii=False), row[0]))
+            for record in batches:
+                if record.state == "history_deleted":
+                    connection.execute("DELETE FROM batch_runs WHERE batch_id=?", (record.batch_id,))
+                    connection.execute("INSERT OR REPLACE INTO deleted_batch_runs VALUES (?, ?, ?)",
+                                       (record.batch_id, record.client_request_id, record.request_fingerprint))
+                else:
+                    connection.execute("UPDATE batch_runs SET state=?,updated_at=?,record_json=? WHERE batch_id=?",
+                                       (record.state, record.updated_at, json.dumps(asdict(record), ensure_ascii=False), record.batch_id))
+            connection.execute("INSERT INTO task_deletion_receipts VALUES (?, ?)",
+                               (receipt["preview_id"], json.dumps(receipt, ensure_ascii=False)))
 
 
 _store: SqliteStateStore | None = None

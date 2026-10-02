@@ -38,6 +38,9 @@ class InputCatalog:
                 return self._clone(asset)
         raise ValueError(f"unknown asset id: {asset_id}")
 
+    def list_assets(self) -> list[InputAsset]:
+        return [self._clone(asset) for asset in self._assets.values()]
+
     def discover_companions(self, asset_id: str) -> list[InputAsset]:
         asset = self.get_asset(asset_id)
         path = Path(asset.absolute_path)

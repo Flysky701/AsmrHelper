@@ -9,7 +9,7 @@ import { cloneDraft, draftFingerprint, emptyGraph, type WorkflowEditorDraft } fr
 
 type Destination = 'workbench' | 'settings'
 type SaveMode = 'update' | 'copy'
-type CatalogApi = Pick<typeof pipelineApi, 'graphPresets' | 'archivedPresets' | 'restorePreset' | 'graphDraft' | 'createGraphPreset' | 'updateGraphPreset' | 'deletePreset'>
+type CatalogApi = Pick<typeof pipelineApi, 'graphPresets' | 'archivedPresets' | 'restorePreset' | 'graphDraft' | 'createGraphPreset' | 'updateGraphPreset' | 'deletePreset' | 'permanentlyDeletePreset'>
 type EditorPatch = Partial<Pick<WorkflowEditorDraft, 'graph' | 'label' | 'description'>>
 export interface WorkflowState {
   catalog: (PresetItem | GraphPresetItem)[]
@@ -40,6 +40,7 @@ export interface WorkflowState {
   saveEditor: (mode: SaveMode) => Promise<GraphPresetItem | null>
   saveRuntime: (mode: SaveMode, label?: string) => Promise<GraphPresetItem | null>
   deletePreset: (id: string, revision: number) => Promise<boolean>
+  permanentlyDeletePreset: (id: string, revision: number) => Promise<'deleted' | 'already_missing' | null>
 }
 
 const message = (error: unknown) => error instanceof Error ? error.message : '保存失败，请重试'
@@ -115,7 +116,7 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
             set({ catalog: result.presets,
               ...(removedSelection ? { selectedPreset: null } : {}),
               ...(removedEditor && editor ? { editor: { ...editor, preset: null, initialFingerprint: '' } } : {}),
-              ...(removedSelection || removedEditor ? { catalogNotice: '原预设已不在活动目录中。编辑草稿、运行参数与素材绑定已保留，可另存或从已移除列表恢复。' } : {}),
+              ...(removedSelection || removedEditor ? { catalogNotice: '原预设已不在活动目录中。编辑草稿、运行参数与素材绑定已保留，可另存为新预设；若仅移出目录，可从已移除列表恢复。' } : {}),
             })
           }
         }
@@ -201,6 +202,29 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
           catch (error) { if (archive === archiveGeneration) set({ archivedError: message(error) }) }
           return true
         } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return false }
+        finally { set({ saving: false }) }
+      },
+      permanentlyDeletePreset: async (id, revision) => {
+        if (get().saving) return null
+        const generation = editorGeneration
+        set({ saving: true, error: null })
+        try {
+          const result = await client.permanentlyDeletePreset(id, revision)
+          // Neither an older catalog read nor a pending legacy conversion may resurrect this ID.
+          catalogGeneration++
+          archiveGeneration++
+          editorGeneration++
+          const state = get(), editor = state.editor
+          if (state.selectedPreset?.id === id) selectionGeneration++
+          set({
+            catalog: state.catalog.filter(item => item.id !== id),
+            archivedCatalog: state.archivedCatalog.filter(item => item.id !== id),
+            selectedPreset: state.selectedPreset?.id === id ? null : state.selectedPreset,
+            editor: editor?.preset?.id === id ? { ...editor, preset: null, initialFingerprint: '' } : editor,
+            catalogNotice: `${result.status === 'already_missing' ? '预设已不存在，目录引用已清除' : '自定义预设已永久删除，不能从已移除列表恢复'}；当前草稿、运行参数及素材绑定已保留，可另存为新预设。已提交任务不受影响。`,
+          })
+          return result.status
+        } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return null }
         finally { set({ saving: false }) }
       },
       restorePreset: async (id, revision, label) => {

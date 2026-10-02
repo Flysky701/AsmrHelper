@@ -12,6 +12,7 @@ from src.api.http.schemas.pipeline import (
     PresetItem,
     PresetUpdateRequest,
     PresetRestoreRequest,
+    PresetPermanentDeleteResponse,
     GraphPresetItem,
     GraphPresetCreateRequest,
     GraphPresetUpdateRequest,
@@ -95,6 +96,14 @@ def delete_preset(
 ):
     _call(svc.delete_preset, preset_id, revision)
     return Response(status_code=204)
+
+
+@router.delete("/presets/{preset_id}/permanent", response_model=PresetPermanentDeleteResponse)
+def permanently_delete_preset(
+    preset_id: str, revision: int = Query(..., ge=1),
+    svc: PresetCatalogService = Depends(preset_catalog_service),
+):
+    return _call(svc.permanently_delete_preset, preset_id, revision)
 
 
 @router.post("/presets/{preset_id}/restore", response_model=GraphPresetItem | PresetItem)

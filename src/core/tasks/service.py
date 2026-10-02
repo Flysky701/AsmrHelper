@@ -125,6 +125,24 @@ class TaskRegistry:
         self._events.pop(task_id, None)
         self._event_sequences.pop(task_id, None)
 
+    def reserve_deleted_ids(self, task_ids) -> None:
+        """Never reuse a deleted history ID or its task-scoped output directory."""
+        for task_id in task_ids:
+            prefix, separator, suffix = task_id.rpartition("-")
+            if separator and suffix.isdigit():
+                self._counters[prefix] = max(self._counters.get(prefix, 0), int(suffix))
+
+    def delete_terminal_tasks(self, task_ids: set[str]) -> None:
+        for task_id in task_ids:
+            if self.get_task(task_id).state not in self.TERMINAL_STATES:
+                raise ValueError(f"active task cannot be deleted: {task_id}")
+        for task_id in task_ids:
+            self.discard_task(task_id)
+        for task_id, spec in self._task_specs.items():
+            if spec.retry_of_task_id in task_ids:
+                spec.retry_of_task_id = None
+                self._tasks[task_id].retry_of_task_id = None
+
     def list_events(
         self,
         task_id: str,

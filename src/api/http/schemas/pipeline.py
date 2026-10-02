@@ -62,6 +62,11 @@ class PresetCopyRequest(BaseModel):
     label: str = Field(min_length=1, max_length=100)
 
 
+class PresetPermanentDeleteResponse(BaseModel):
+    id: str
+    status: Literal["deleted", "already_missing"]
+
+
 class PresetRestoreRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 

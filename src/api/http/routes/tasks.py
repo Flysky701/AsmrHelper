@@ -32,10 +32,15 @@ from src.api.http.schemas.tasks import (
     TaskResultResponse,
     TaskSpecResponse,
     TaskStatusResponse,
+    TaskDeletionPreviewRequest,
+    TaskDeletionPreviewResponse,
+    TaskDeletionExecuteRequest,
+    TaskDeletionExecuteResponse,
 )
 from src.app.errors import AppValidationError
 from src.app.services import ArtifactService, PipelineTaskOrchestrator, TaskService
 from src.core.tasks import TaskDispatcher
+from src.app.services.task_deletion_service import get_task_deletion_service
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -45,6 +50,16 @@ class MixPreviewRequest(BaseModel):
     tts_volume_ratio: float = Field(0.5, ge=0, le=1, allow_inf_nan=False)
     tts_delay: float = Field(0, ge=-2, le=2, allow_inf_nan=False)
     start_seconds: float = Field(0, ge=0, allow_inf_nan=False)
+
+
+@router.post("/deletion-preview", response_model=TaskDeletionPreviewResponse)
+def preview_task_deletion(body: TaskDeletionPreviewRequest, svc=Depends(get_task_deletion_service)):
+    return svc.preview(body.task_ids, body.mode)
+
+
+@router.post("/deletion-execute", response_model=TaskDeletionExecuteResponse)
+def execute_task_deletion(body: TaskDeletionExecuteRequest, svc=Depends(get_task_deletion_service)):
+    return svc.execute(body.preview_id, confirm=body.confirm)
 
 
 @router.get("/mix-preview/sources")

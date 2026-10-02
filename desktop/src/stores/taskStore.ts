@@ -70,11 +70,13 @@ interface TaskStore {
   tasks: Task[]
   filter: FilterType
   selectedTaskId: string | null
+  deletedServerTaskIds: string[]
 
   addTask: (task: Omit<Task, 'id' | 'status' | 'progress' | 'createdAt' | 'message' | 'detail'>) => string
   updateTask: (id: string, patch: Partial<Task>) => void
   setFilter: (filter: FilterType) => void
   selectTask: (id: string | null) => void
+  removeDeletedTasks: (serverTaskIds: string[]) => void
   syncFromServer: (serverTasks: Array<{
     task_id: string
     task_type?: string
@@ -130,6 +132,7 @@ export const useTaskStore = create<TaskStore>((set) => ({
   tasks: [],
   filter: 'all',
   selectedTaskId: null,
+  deletedServerTaskIds: [],
 
   addTask: (task) => {
     const id = `task-${nextId++}`
@@ -188,8 +191,21 @@ export const useTaskStore = create<TaskStore>((set) => ({
 
   selectTask: (id) => set({ selectedTaskId: id }),
 
+  // A pre-deletion list response may arrive after the delete request succeeds.
+  // Keep session tombstones so it cannot recreate a historical record.
+  removeDeletedTasks: (serverTaskIds) => set((state) => {
+    const deleted = new Set([...state.deletedServerTaskIds, ...serverTaskIds])
+    const tasks = state.tasks.filter(task => !task.serverTaskId || !deleted.has(task.serverTaskId))
+    return {
+      tasks,
+      deletedServerTaskIds: [...deleted],
+      selectedTaskId: tasks.some(task => task.id === state.selectedTaskId) ? state.selectedTaskId : null,
+    }
+  }),
+
   syncFromServer: (serverTasks) =>
     set((s) => {
+      serverTasks = serverTasks.filter(task => !s.deletedServerTaskIds.includes(task.task_id))
       const updatedTasks = s.tasks.map((local) => {
         const remote = serverTasks.find(
           (st) => st.task_id === (local.serverTaskId ?? local.id)

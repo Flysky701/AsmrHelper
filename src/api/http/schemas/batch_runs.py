@@ -20,6 +20,7 @@ BatchRunState = Literal[
     "completed_with_errors",
     "cancelled",
     "interrupted",
+    "history_deleted",
 ]
 
 
@@ -157,6 +158,7 @@ class BatchRunResponse(BaseModel):
     failed_count: int
     cancelled_count: int
     skipped_count: int
+    history_deleted_count: int = 0
     items: list[BatchRunItemResponse]
     client_request_id: str | None = None
     retry_available: bool = False
@@ -173,6 +175,7 @@ class BatchRunResponse(BaseModel):
                 "failed",
                 "cancelled",
                 "skipped",
+                "history_deleted",
             )
         }
         return cls(
@@ -192,6 +195,7 @@ class BatchRunResponse(BaseModel):
             failed_count=counts["failed"],
             cancelled_count=counts["cancelled"],
             skipped_count=counts["skipped"],
+            history_deleted_count=counts["history_deleted"],
             items=[BatchRunItemResponse.from_item(item) for item in record.items],
             client_request_id=record.client_request_id,
             retry_available=record.state in {"completed_with_errors", "cancelled", "interrupted"}

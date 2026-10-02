@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
 from src.core.sessions import InputAsset, InputCatalog
 
 
@@ -11,7 +12,16 @@ class InputCatalogService:
 
     def __init__(self) -> None:
         self._catalog = InputCatalog()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+
+    @contextmanager
+    def history_deletion_guard(self):
+        with self._lock:
+            yield
+
+    def list_assets(self) -> list[InputAsset]:
+        with self._lock:
+            return self._catalog.list_assets()
 
     def inspect_paths(self, paths: list[str]) -> list[InputAsset]:
         with self._lock:

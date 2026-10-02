@@ -17,6 +17,7 @@ const STATE_LABELS: Record<string, string> = {
   interrupted: '已中断',
   failed: '失败',
   skipped: '已跳过',
+  history_deleted: '历史已删除',
 }
 
 const SURFACE_STYLE: CSSProperties = {
@@ -144,7 +145,7 @@ function formatDateTime(value: string | null) {
 function stateColor(state: string) {
   if (state === 'completed') return 'var(--success)'
   if (state === 'completed_with_errors' || state === 'failed' || state === 'interrupted') return 'var(--error)'
-  if (state === 'cancelled' || state === 'skipped') return 'var(--muted-strong)'
+  if (state === 'cancelled' || state === 'skipped' || state === 'history_deleted') return 'var(--muted-strong)'
   return 'var(--accent)'
 }
 
@@ -160,13 +161,14 @@ function itemErrorMessage(error: Record<string, unknown> | null, fallback: strin
 }
 
 function sortBatches(batches: BatchRunResponse[]) {
-  return batches.slice().sort((left, right) => (
+  return batches.filter(batch => batch.state !== 'history_deleted' && batch.items.some(item => item.state !== 'history_deleted' || item.task_ids.length > 0)).sort((left, right) => (
     right.created_at.localeCompare(left.created_at) || right.batch_id.localeCompare(left.batch_id)
   ))
 }
 
 function isRetryable(batch: BatchRunResponse | null) {
-  return Boolean(batch && !ACTIVE_BATCH_STATES.has(batch.state) && (
+  return Boolean(batch && batch.retry_available !== false && !ACTIVE_BATCH_STATES.has(batch.state)
+    && batch.items.some(item => item.state === 'failed' || item.state === 'cancelled') && (
     batch.failed_count > 0 ||
     batch.cancelled_count > 0
   ))
@@ -348,7 +350,7 @@ export default function BatchRunsPanel() {
                 </div>
                 <div style={{ marginTop: 7, display: 'flex', justifyContent: 'space-between', gap: 10, color: 'var(--muted)', fontSize: 10 }}>
                   <span>{formatDateTime(batch.created_at)}</span>
-                  <span>{batch.completed_count + batch.skipped_count}/{batch.total_count}</span>
+                  <span>{batch.completed_count + batch.skipped_count}/{Math.max(0, batch.total_count - (batch.history_deleted_count ?? 0))}{batch.history_deleted_count ? ` · 历史已删除 ${batch.history_deleted_count}` : ''}</span>
                 </div>
               </button>
             )
@@ -402,6 +404,7 @@ export default function BatchRunsPanel() {
                     ['完成', selectedBatch.completed_count + selectedBatch.skipped_count],
                     ['失败', selectedBatch.failed_count],
                     ['取消', selectedBatch.cancelled_count],
+                    ['历史已删除', selectedBatch.history_deleted_count ?? 0],
                   ].map(([label, value]) => (
                     <div key={String(label)} style={{ padding: '9px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)', textAlign: 'center' }}>
                       <div style={{ fontSize: 15, fontWeight: 750 }}>{value}</div>
@@ -432,15 +435,16 @@ export default function BatchRunsPanel() {
 
               <div className="batch-runs-item-list">
                 {selectedBatch.items.map((item) => {
-                  const errorMessage = itemErrorMessage(item.error, item.message)
+                  const historyDeleted = item.state === 'history_deleted'
+                  const errorMessage = historyDeleted ? '' : itemErrorMessage(item.error, item.message)
                   return (
                     <div className="batch-runs-item" key={item.item_id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 150px', gap: 16, padding: '13px 18px', borderBottom: '1px solid var(--border)', alignItems: 'start' }}>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fileName(item.input_path)}</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{historyDeleted ? `历史已删除 · ${item.group_id || item.item_id}` : fileName(item.input_path)}</div>
                         <div style={{ marginTop: 4, fontSize: 10, color: 'var(--muted)', overflowWrap: 'anywhere' }}>{item.input_path}</div>
                         <div style={{ marginTop: 6, fontSize: 10, color: 'var(--muted)', overflowWrap: 'anywhere' }}>
-                          当前任务：{item.current_task_id || '尚未创建'}
-                          {item.task_ids.length > 1 ? ` · ${item.task_ids.length} 次尝试` : ''}
+                          当前任务：{historyDeleted ? '历史已删除' : item.current_task_id || '尚未创建'}
+                          {historyDeleted && item.task_ids.length ? ` · 仍保留 ${item.task_ids.length} 条历史尝试` : item.task_ids.length > 1 ? ` · ${item.task_ids.length} 次尝试` : ''}
                         </div>
                         {item.companion_paths.length > 0 ? (
                           <div style={{ marginTop: 5, fontSize: 10, color: 'var(--muted)', overflowWrap: 'anywhere' }}>
@@ -448,17 +452,17 @@ export default function BatchRunsPanel() {
                           </div>
                         ) : null}
                         {item.message ? <div style={{ marginTop: 6, fontSize: 10, color: 'var(--muted-strong)', overflowWrap: 'anywhere' }}>{item.message}</div> : null}
-                        {item.output_path ? <div style={{ marginTop: 5, fontSize: 10, color: 'var(--success)', overflowWrap: 'anywhere' }}>输出：{item.output_path}</div> : null}
+                        {!historyDeleted && item.output_path ? <div style={{ marginTop: 5, fontSize: 10, color: 'var(--success)', overflowWrap: 'anywhere' }}>输出：{item.output_path}</div> : null}
                         {errorMessage ? <div style={{ marginTop: 5, fontSize: 10, color: 'var(--error)', overflowWrap: 'anywhere' }}>{errorMessage}</div> : null}
                       </div>
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10 }}>
                           <span style={{ color: stateColor(item.state), fontWeight: 700 }}>{STATE_LABELS[item.state] || item.state}</span>
-                          <span>{progressPercent(item.progress)}%</span>
+                          {!historyDeleted && <span>{progressPercent(item.progress)}%</span>}
                         </div>
-                        <div style={{ marginTop: 6, height: 5, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
+                        {!historyDeleted && <div style={{ marginTop: 6, height: 5, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
                           <div style={{ height: '100%', width: `${progressPercent(item.progress)}%`, background: stateColor(item.state) }} />
-                        </div>
+                        </div>}
                       </div>
                     </div>
                   )
