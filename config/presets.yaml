@@ -1,241 +1,195 @@
 presets:
-  - id: audio_subtitles
-    label: 音频转字幕
-    description: 识别音频并导出字幕；需要音频素材，不运行翻译或配音。
-    stages: [asr, export]
-    outputs: [export]
-  - id: subtitle_translation
-    label: 字幕翻译
-    description: 翻译已有字幕并导出；需要源语言字幕，不运行语音识别或配音。
-    stages: [translate, export]
-    outputs: [export]
-  - id: subtitle_speech
-    label: 目标字幕直接配音
-    description: 使用目标语言字幕合成配音；需要有效文本和时间轴，不运行识别或翻译。
-    stages: [tts]
-    outputs: [tts]
-  - id: audio_translation_speech
-    label: 音频翻译配音
-    description: 识别音频、翻译、合成配音并导出字幕；不自动加入分离或混音。
-    stages: [asr, translate, tts, export]
-    outputs: [tts, export]
-  - id: asmr_bilingual
-    label: ASMR 双语完整处理
-    description: 保留原完整流程：分离、识别、翻译、配音、背景混音及字幕导出；需分别确认素材来源。
-    stages: [separate, asr, translate, tts, mix, export]
-    outputs: [mix, export]
-  - id: asr_only
-    label: 仅语音识别（兼容预设）
-    description: 保留原 asr_only 标识：识别音频并导出字幕；与“音频转字幕”使用相同步骤。
-    stages: [asr, export]
-    outputs: [export]
-  - id: graph_audio_subtitles
-    label: 音频转字幕
-    description: 识别音频并导出字幕。请绑定素材并检查识别模型；不会运行翻译或配音。
+- id: custom_07458dd97f9e467eb6aef34d499923a5
+  label: ASMR正常流程
+  description: 无字幕输入， 正常流程
+  version: 2
+  graph:
     version: 2
-    graph:
-      version: 2
-      nodes:
-      - id: asr
-        kind: asr
-        provider: faster_whisper
-        model: faster-whisper-base
-        source_lang: ja
-        target_lang: null
-        options: {}
-        provider_options: {}
-      - id: export
-        kind: export
-        provider: ffmpeg
-        model: null
-        source_lang: null
-        target_lang: null
-        options:
-          subtitle_format: srt
-        provider_options: {}
-      input_slots:
-      - id: source_audio
-        type: audio
-        label: 源音频
-      edges:
-      - source:
-          kind: slot
-          slot_id: source_audio
-        target:
-          node_id: asr
-          port: audio
-      - source:
-          kind: node
-          node_id: asr
-          port: subtitle
-        target:
-          node_id: export
-          port: subtitle
-      outputs:
-      - node_id: export
-        port: subtitle
-  - id: graph_subtitle_translation
-    label: 字幕翻译
-    description: 翻译字幕并导出。请确认源/目标语言并选择翻译连接；不会识别音频或配音。
-    version: 2
-    graph:
-      version: 2
-      nodes:
-      - id: translate
-        kind: translate
-        provider: deepseek
-        model: null
-        source_lang: ja
-        target_lang: zh
-        options: {}
-        provider_options: {}
-      - id: export
-        kind: export
-        provider: ffmpeg
-        model: null
-        source_lang: null
-        target_lang: null
-        options:
-          subtitle_format: srt
-        provider_options: {}
-      input_slots:
-      - id: source_subtitle
-        type: subtitle
-        label: 源语言字幕
-      edges:
-      - source:
-          kind: slot
-          slot_id: source_subtitle
-        target:
-          node_id: translate
-          port: subtitle
-      - source:
-          kind: node
-          node_id: translate
-          port: subtitle
-        target:
-          node_id: export
-          port: subtitle
-      outputs:
-      - node_id: export
-        port: subtitle
-  - id: graph_subtitle_speech
-    label: 目标字幕直接配音
-    description: 使用已确认目标语言且具备时间轴的字幕配音。请绑定素材和选择声音；不会识别或翻译。
-    version: 2
-    graph:
-      version: 2
-      nodes:
-      - id: tts
-        kind: tts
-        provider: edge
-        model: edge-tts
-        source_lang: null
-        target_lang: zh
-        options:
-          speech_source:
-            mode: builtin
-            variant:
-              kind: builtin
-              value: zh-CN-XiaoxiaoNeural
-            provider_options:
-              schema_version: 1
-        provider_options: {}
-      input_slots:
-      - id: target_subtitle
-        type: subtitle
-        label: 目标语言字幕
-      edges:
-      - source:
-          kind: slot
-          slot_id: target_subtitle
-        target:
-          node_id: tts
-          port: subtitle
-      outputs:
-      - node_id: tts
+    nodes:
+    - id: separate
+      kind: separate
+      provider: demucs
+      model: htdemucs
+      source_lang: null
+      target_lang: null
+      options: {}
+      provider_options: {}
+    - id: asr
+      kind: asr
+      provider: faster_whisper
+      model: faster-whisper-base
+      source_lang: ja
+      target_lang: null
+      options: {}
+      provider_options: {}
+    - id: align
+      kind: align
+      provider: qwen3_forced_aligner
+      model: qwen3-forced-aligner-0.6b
+      source_lang: ja
+      target_lang: null
+      options: {}
+      provider_options: {}
+    - id: translate
+      kind: translate
+      provider: deepseek
+      model: null
+      source_lang: ja
+      target_lang: zh
+      options: {}
+      provider_options: {}
+    - id: tts
+      kind: tts
+      provider: speech
+      model: null
+      source_lang: null
+      target_lang: zh
+      options: {}
+      provider_options: {}
+    - id: mix
+      kind: mix
+      provider: ffmpeg
+      model: null
+      source_lang: null
+      target_lang: null
+      options: {}
+      provider_options: {}
+    - id: export
+      kind: export
+      provider: ffmpeg
+      model: null
+      source_lang: null
+      target_lang: null
+      options:
+        subtitle_format: vtt
+      provider_options: {}
+    edges:
+    - source:
+        kind: slot
+        slot_id: audio_1
+      target:
+        node_id: separate
         port: audio
-  - id: graph_audio_translation_speech
-    label: 音频翻译配音
-    description: 识别、翻译、配音，同时导出译文字幕。请绑定素材、翻译连接和声音；不会自动加入分离或混音。
-    version: 2
-    graph:
-      version: 2
-      nodes:
-      - id: asr
-        kind: asr
-        provider: faster_whisper
-        model: faster-whisper-base
-        source_lang: ja
-        target_lang: null
-        options: {}
-        provider_options: {}
-      - id: translate
-        kind: translate
-        provider: deepseek
-        model: null
-        source_lang: ja
-        target_lang: zh
-        options: {}
-        provider_options: {}
-      - id: tts
-        kind: tts
-        provider: edge
-        model: edge-tts
-        source_lang: null
-        target_lang: zh
-        options:
-          speech_source:
-            mode: builtin
-            variant:
-              kind: builtin
-              value: zh-CN-XiaoxiaoNeural
-            provider_options:
-              schema_version: 1
-        provider_options: {}
-      - id: export
-        kind: export
-        provider: ffmpeg
-        model: null
-        source_lang: null
-        target_lang: null
-        options:
-          subtitle_format: srt
-        provider_options: {}
-      input_slots:
-      - id: source_audio
-        type: audio
-        label: 源音频
-      edges:
-      - source:
-          kind: slot
-          slot_id: source_audio
-        target:
-          node_id: asr
-          port: audio
-      - source:
-          kind: node
-          node_id: asr
-          port: subtitle
-        target:
-          node_id: translate
-          port: subtitle
-      - source:
-          kind: node
-          node_id: translate
-          port: subtitle
-        target:
-          node_id: tts
-          port: subtitle
-      - source:
-          kind: node
-          node_id: translate
-          port: subtitle
-        target:
-          node_id: export
-          port: subtitle
-      outputs:
-      - node_id: tts
+    - source:
+        kind: node
+        node_id: separate
         port: audio
-      - node_id: export
+      target:
+        node_id: asr
+        port: audio
+    - source:
+        kind: node
+        node_id: asr
         port: subtitle
+      target:
+        node_id: align
+        port: subtitle
+    - source:
+        kind: slot
+        slot_id: audio_1
+      target:
+        node_id: align
+        port: audio
+    - source:
+        kind: node
+        node_id: align
+        port: subtitle
+      target:
+        node_id: translate
+        port: subtitle
+    - source:
+        kind: node
+        node_id: translate
+        port: subtitle
+      target:
+        node_id: tts
+        port: subtitle
+    - source:
+        kind: slot
+        slot_id: audio_1
+      target:
+        node_id: mix
+        port: audio
+    - source:
+        kind: node
+        node_id: tts
+        port: audio
+      target:
+        node_id: mix
+        port: speech
+    - source:
+        kind: node
+        node_id: translate
+        port: subtitle
+      target:
+        node_id: export
+        port: subtitle
+    input_slots:
+    - id: audio_1
+      type: audio
+      label: 原音频输入
+      language: null
+    outputs:
+    - node_id: mix
+      port: audio
+      label: null
+  revision: 2
+  builtin: true
+- id: custom_964998d159ec4c30a5cc6bf44b76caeb
+  label: TTS配音
+  description: 输入希望语言字幕与原音频， 进行混音
+  version: 2
+  graph:
+    version: 2
+    nodes:
+    - id: tts
+      kind: tts
+      provider: speech
+      model: null
+      source_lang: null
+      target_lang: zh
+      options: {}
+      provider_options: {}
+    - id: mix
+      kind: mix
+      provider: ffmpeg
+      model: null
+      source_lang: null
+      target_lang: null
+      options: {}
+      provider_options: {}
+    edges:
+    - source:
+        kind: slot
+        slot_id: subtitle_1
+      target:
+        node_id: tts
+        port: subtitle
+    - source:
+        kind: slot
+        slot_id: audio_1
+      target:
+        node_id: mix
+        port: audio
+    - source:
+        kind: node
+        node_id: tts
+        port: audio
+      target:
+        node_id: mix
+        port: speech
+    input_slots:
+    - id: audio_1
+      type: audio
+      label: 音频输入
+      language: null
+    - id: subtitle_1
+      type: subtitle
+      label: 字幕输入
+      language: null
+    outputs:
+    - node_id: mix
+      port: audio
+      label: null
+  revision: 1
+  builtin: true

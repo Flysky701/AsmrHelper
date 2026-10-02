@@ -1,4 +1,4 @@
-import type { BatchRunResponse, GraphBatchRunCreateRequest } from '@/api/types'
+import type { BatchRunItemResponse, BatchRunResponse, GraphBatchRunCreateRequest } from '@/api/types'
 import { graphBindingIssues, materialType, usedGraphSlots } from '@/components/GraphRunBindings'
 import { cloneDraft } from './workflowDraft'
 import type { GraphBindings, GraphDefinition, GraphLanguage } from './workflowGraph'
@@ -12,6 +12,7 @@ export interface FrozenQueueRun {
   bindings: GraphBindings
   outputDirectory: string
   submittedAt: string
+  state?: BatchRunItemResponse['state'] | 'unknown'
 }
 export interface QueueGroup {
   id: string
@@ -32,7 +33,24 @@ export interface QueueSubmission {
   error?: string
 }
 export const queueId = () => `group_${crypto.randomUUID()}`
-export const groupEditable = (group: QueueGroup) => !group.run && !group.pendingRequestId
+const terminalStates = new Set(['completed', 'failed', 'cancelled', 'skipped', 'history_deleted'])
+export const groupEditable = (group: QueueGroup) => !group.pendingRequestId && (!group.run || terminalStates.has(group.run.state ?? 'unknown'))
+export const groupLockReason = (group: QueueGroup) => group.pendingRequestId ? '提交结果尚未确认，暂不能编辑或删除素材。'
+  : !groupEditable(group) ? ['pending', 'running'].includes(group.run?.state ?? '') ? '本组正在排队或运行，暂不能编辑或删除素材。' : '最近执行状态待核实，暂不能编辑或删除素材。' : ''
+export const groupPaths = (group: QueueGroup) => [...new Set([...group.materialPaths,
+  ...Object.values(group.bindings).flatMap(binding => [binding.path, ...(binding.audio_path ? [binding.audio_path] : [])])])]
+
+/** Preserve legacy material data. Only a proven history-injected terminal duplicate
+ * with identical paths and bindings may collapse into an existing user draft. */
+export function migrateMaterialGroups(groups: QueueGroup[]): QueueGroup[] {
+  const signature = (group: QueueGroup) => JSON.stringify({ paths: groupPaths(group).map(inputPathKey).sort(),
+    bindings: Object.entries(group.bindings).sort(([a], [b]) => a.localeCompare(b)).map(([id, binding]) => [id, {
+      ...binding, path: inputPathKey(binding.path), ...(binding.audio_path ? { audio_path: inputPathKey(binding.audio_path) } : {}),
+    }]) })
+  const drafts = new Set(groups.filter(group => !group.run && !group.pendingRequestId).map(signature))
+  return groups.filter(group => !(group.run && !group.pendingRequestId && groupEditable(group)
+    && group.id.endsWith(`_${group.run.batchId}`) && drafts.has(signature(group))))
+}
 export const knownLanguage = (value: unknown): value is GraphLanguage => ['ja', 'zh', 'en'].includes(String(value))
 export function groupMaterials(group: QueueGroup, items: WorkbenchInputItem[]) {
   const keys = new Set(group.materialPaths.map(inputPathKey))
@@ -96,19 +114,23 @@ export function attachSubmittedBatch(groups: QueueGroup[], batch: BatchRunRespon
   for (const item of batch.items.filter(item => !!item.group_id)) {
     // Existing user inputs remain in groups; deleted records must not create new
     // empty input groups from their intentionally redacted historical fields.
-    if (item.state === 'history_deleted') continue
     let index = next.findIndex(group => group.run?.batchId === batch.batch_id && group.run.itemId === item.item_id)
     if (index < 0 && submission && submission.request.client_request_id === batch.client_request_id) index = next.findIndex(group =>
       group.id === item.group_id && group.pendingRequestId === submission.request.client_request_id)
-    if (index >= 0 && next[index]!.run) continue
+    // A background list is history, not an import operation. Never create materials
+    // from it, or use old execution parameters to overwrite the current draft.
+    if (index < 0) continue
+    const acceptedSubmission = !!submission && submission.request.client_request_id === batch.client_request_id
+      && next[index]!.pendingRequestId === submission.request.client_request_id
+    if (next[index]!.run && !acceptedSubmission) {
+      next[index] = { ...next[index]!, run: { ...next[index]!.run!, state: item.state } }
+      continue
+    }
     const bindings = cloneDraft(item.bindings ?? submission?.request.groups.find(group => group.group_id === item.group_id)?.bindings ?? {})
     const run: FrozenQueueRun = { batchId: batch.batch_id, itemId: item.item_id, bindings,
       graph: submission ? cloneDraft(submission.request.execution_profile.graph) : null,
-      presetLabel: submission?.presetLabel ?? batch.name, outputDirectory: batch.output_dir, submittedAt: batch.created_at }
-    if (index >= 0) next[index] = { ...next[index]!, selected: false, pendingRequestId: undefined, run }
-    else next.push({ id: `${item.group_id}_${batch.batch_id}`, label: item.label || fileName(item.input_path),
-      materialPaths: [...new Set([item.input_path, ...item.companion_paths, ...Object.values(bindings).flatMap(binding => [binding.path, ...(binding.audio_path ? [binding.audio_path] : [])])])],
-      bindings, selected: false, excluded: false, run })
+      presetLabel: submission?.presetLabel ?? batch.name, outputDirectory: batch.output_dir, submittedAt: batch.created_at, state: item.state }
+    next[index] = { ...next[index]!, selected: false, pendingRequestId: undefined, run }
   }
-  return next
+  return migrateMaterialGroups(next)
 }

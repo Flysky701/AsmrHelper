@@ -5,7 +5,7 @@ import GraphNodeParameters from '@/components/workflow/GraphNodeParameters'
 import { editorDirty, newGraphNode } from '@/domain/workflowDraft'
 import { validateGraph } from '@/domain/workflowGraph'
 import { useNavStore } from '@/stores/navStore'
-import { useWorkflowStore } from '@/stores/workflowStore'
+import { presetDeleteConfirmation, useWorkflowStore } from '@/stores/workflowStore'
 import './WorkflowPresets.css'
 
 const presetKind = (preset: PresetItem | GraphPresetItem) => `${'graph' in preset ? '节点' : '旧版'} · ${preset.builtin ? '内置' : '自定义'}`
@@ -15,8 +15,7 @@ export default function WorkflowPresets() {
   const { catalog, catalogLoading, catalogError, catalogNotice, archivedCatalog, archivedLoading, archivedError, editor, saving, error } = workflow
   const [catalogId, setCatalogId] = useState(editor?.preset?.id || '')
   const [opening, setOpening] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [permanentlyDeletingId, setPermanentlyDeletingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [restoringId, setRestoringId] = useState<string | null>(null)
   const [restoreNames, setRestoreNames] = useState<Record<string, string>>({})
@@ -29,7 +28,7 @@ export default function WorkflowPresets() {
   current.current = { editor, saving }
   const issues = editor ? validateGraph(editor.graph) : []
   const dirty = !!editor && editorDirty(editor)
-  const busy = saving || opening || deleting || permanentlyDeletingId !== null || restoringId !== null || catalogLoading
+  const busy = saving || opening || deletingId !== null || restoringId !== null || catalogLoading
   const saveReason = !editor ? '' : !editor.label.trim() ? '请填写流水线名称后保存。'
     : issues.length ? `请先处理 ${issues.length} 项结构问题：${issues[0]!.message}` : ''
 
@@ -96,35 +95,24 @@ export default function WorkflowPresets() {
     useNavStore.getState().setPage(editor?.returnTo || 'settings')
   }
   const selected = catalog.find(preset => preset.id === catalogId)
-  async function deleteSelected() {
-    if (busy || mutationRef.current || !selected) return
-    if (!window.confirm(`将「${selected.label}」移出活动目录？原定义、当前草稿、素材绑定和已提交的任务都会保留。之后可从“已移除的预设”恢复。`)) return
-    mutationRef.current = true
-    setNotice('')
-    setDeleting(true)
-    try {
-      if (await workflow.deletePreset(selected.id, selected.revision)) {
-        setCatalogId('')
-        setNotice(`“${selected.label}”已移出活动目录，原定义、当前草稿、素材绑定与已提交任务均已保留。可在“已移除的预设”中恢复。`)
-      }
-    } finally { mutationRef.current = false; setDeleting(false) }
-  }
-  async function permanentlyDelete(preset: PresetItem | GraphPresetItem) {
-    if (busy || mutationRef.current || preset.builtin) return
-    if (!window.confirm(`永久删除自定义预设「${preset.label}」？\n编号：${preset.id} · 当前修订：${preset.revision}\n将删除这个预设的保存定义与目录项，不能从“已移除的预设”恢复。当前编辑草稿、工作台参数及素材绑定会保留并解除该预设关联，可另存为新预设；已提交任务继续使用各自冻结的修订，不受影响。`)) return
-    mutationRef.current = true; setPermanentlyDeletingId(preset.id); setNotice(''); setRestoreNotice('')
+  async function deletePreset(preset: PresetItem | GraphPresetItem) {
+    if (busy || mutationRef.current) return
+    if (!window.confirm(presetDeleteConfirmation(preset))) return
+    mutationRef.current = true; setDeletingId(preset.id); setNotice(''); setRestoreNotice('')
     setRestoreErrors(current => ({ ...current, [preset.id]: '' }))
     try {
-      const result = await workflow.permanentlyDeletePreset(preset.id, preset.revision)
+      const result = await workflow.deleteCatalogPreset(preset)
       if (result) {
         setCatalogId(current => current === preset.id ? '' : current)
-        const message = result === 'already_missing' ? `“${preset.label}”已不存在，目录引用已清除。当前草稿与已提交任务均保留。` : `“${preset.label}”已永久删除，无法从已移除列表恢复。当前草稿、工作台参数与素材绑定均保留，已提交任务不受影响。`
+        const message = result === 'archived' ? `内置预设“${preset.label}”已从目录删除，可恢复；当前草稿与已提交任务保留。`
+          : result === 'already_missing' ? `“${preset.label}”已不存在，目录引用已清除。当前草稿与已提交任务保留。`
+          : `自定义预设“${preset.label}”已永久删除，不能恢复。当前草稿、运行参数和素材绑定保留，已提交任务不受影响。`
         setNotice(message); setRestoreNotice(message)
       } else {
         const reason = useWorkflowStore.getState().error || '请刷新目录后重试'
-        setRestoreErrors(current => ({ ...current, [preset.id]: `永久删除未完成：${reason}` }))
+        setRestoreErrors(current => ({ ...current, [preset.id]: `删除未完成：${reason}` }))
       }
-    } finally { mutationRef.current = false; setPermanentlyDeletingId(null) }
+    } finally { mutationRef.current = false; setDeletingId(null) }
   }
   async function restoreArchived(preset: PresetItem | GraphPresetItem) {
     if (busy || mutationRef.current) return
@@ -153,7 +141,7 @@ export default function WorkflowPresets() {
         <p className="wfp-description">在这里定义可复用的结构。工作台负责选择流水线、绑定素材与调整本次运行参数。</p></div>
       <div className="wfp-actions">
         {editor?.preset && !editor.preset.builtin && <button type="button" className="wfp-button" disabled={busy || !!saveReason} title={saveReason || undefined} onClick={() => void save('copy')}>另存为新预设</button>}
-        {editor && <button type="button" className="wfp-button is-primary" disabled={busy || !!saveReason} title={saveReason || undefined} aria-describedby={saveReason ? 'wfp-save-reason' : undefined} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving && !deleting && !permanentlyDeletingId && !restoringId ? '正在保存…' : editor.preset?.builtin ? '保存副本并返回' : '保存并返回'}</button>}
+        {editor && <button type="button" className="wfp-button is-primary" disabled={busy || !!saveReason} title={saveReason || undefined} aria-describedby={saveReason ? 'wfp-save-reason' : undefined} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving && !deletingId && !restoringId ? '正在保存…' : editor.preset?.builtin ? '保存副本并返回' : '保存并返回'}</button>}
         <button type="button" className="wfp-button" disabled={busy} onClick={goBack}>返回{editor?.returnTo === 'workbench' ? '工作台' : '设置'}</button>
       </div>
     </header>
@@ -164,12 +152,11 @@ export default function WorkflowPresets() {
       </select></label>
       <button type="button" className="wfp-button" disabled={busy || !selected} onClick={() => void openPreset()}>{opening ? '正在转换…' : selected && !('graph' in selected) ? '转换为节点草稿' : '打开编辑'}</button>
       <button type="button" className="wfp-button" disabled={busy} onClick={() => void openPreset(true)}>新建流水线</button>
-      {selected && <button type="button" className="wfp-button is-danger" disabled={busy} title="移出活动目录，保留原定义、当前草稿与任务，可随时恢复。" onClick={() => void deleteSelected()}>{deleting ? '正在移出…' : '移出目录'}</button>}
-      {selected && !selected.builtin && <button type="button" className="wfp-button is-danger" disabled={busy} title="永久删除此自定义预设，不能从已移除列表恢复；当前草稿与已提交任务保留。" onClick={() => void permanentlyDelete(selected)}>{permanentlyDeletingId === selected.id ? '正在删除…' : '永久删除'}</button>}
+      {selected && <button type="button" className="wfp-button is-danger" disabled={busy} title={selected.builtin ? '删除目录项，内置定义可恢复。' : '永久删除此自定义预设；当前草稿与已提交任务保留。'} onClick={() => void deletePreset(selected)}>{deletingId === selected.id ? '正在删除…' : '删除'}</button>}
       <div className="wfp-archive-anchor">
         <button type="button" className="wfp-button" aria-expanded={archiveOpen} aria-controls="wfp-archive-panel" onClick={() => setArchiveOpen(value => !value)}>已移除的预设{archivedLoading ? ' …' : ` · ${archivedCatalog.length}`}</button>
         {archiveOpen && <section id="wfp-archive-panel" className="wfp-archive-panel" aria-label="已移除的预设" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setArchiveOpen(false) } }}>
-          <header><div><strong>已移除的预设</strong><p>恢复原定义到目录；不会打开预设或替换当前草稿。</p></div><div className="wfp-archive-header-actions"><button type="button" className="wfp-button" disabled={busy || archivedLoading} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadArchivedCatalog()]) }}>刷新目录</button><button type="button" className="wfp-archive-close" aria-label="收起已移除的预设" onClick={() => setArchiveOpen(false)}>×</button></div></header>
+          <header><div><strong>已移除的预设</strong><p>内置及以前移出的自定义预设可恢复；永久删除的自定义预设无法恢复。</p></div><div className="wfp-archive-header-actions"><button type="button" className="wfp-button" disabled={busy || archivedLoading} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadArchivedCatalog()]) }}>刷新目录</button><button type="button" className="wfp-archive-close" aria-label="收起已移除的预设" onClick={() => setArchiveOpen(false)}>×</button></div></header>
           {restoreNotice && <p className="wfp-archive-feedback" role="status">{restoreNotice}</p>}
           <div className="wfp-archive-scroll" role="region" aria-label="可恢复预设列表" tabIndex={0}>
             {archivedLoading && <p className="wfp-archive-message" role="status">正在读取已移除的预设…</p>}
@@ -178,7 +165,7 @@ export default function WorkflowPresets() {
             {archivedCatalog.map(preset => <article className="wfp-archive-item" key={preset.id}>
               <div className="wfp-archive-item-title"><strong>{preset.label}</strong><span>{presetKind(preset)}</span></div>
               <div className="wfp-archive-restore"><label><span>恢复名称</span><input aria-label={`${preset.label} 恢复名称`} value={restoreNames[preset.id] ?? preset.label} maxLength={100} disabled={busy} onChange={event => setRestoreNames(current => ({ ...current, [preset.id]: event.target.value }))} /></label><button type="button" className="wfp-button" disabled={busy || !(restoreNames[preset.id] ?? preset.label).trim()} aria-label={`恢复 ${preset.label} 到目录`} onClick={() => void restoreArchived(preset)}>{restoringId === preset.id ? '正在恢复…' : '恢复到目录'}</button></div>
-              {!preset.builtin && <button type="button" className="wfp-button is-danger" disabled={busy} aria-label={`永久删除 ${preset.label}`} onClick={() => void permanentlyDelete(preset)}>{permanentlyDeletingId === preset.id ? '正在删除…' : '永久删除'}</button>}
+              {!preset.builtin && <button type="button" className="wfp-button is-danger" disabled={busy} aria-label={`删除 ${preset.label}`} onClick={() => void deletePreset(preset)}>{deletingId === preset.id ? '正在删除…' : '删除'}</button>}
               {restoreErrors[preset.id] && <p className="wfp-restore-error" role="alert">{restoreErrors[preset.id]}</p>}
             </article>)}
           </div>

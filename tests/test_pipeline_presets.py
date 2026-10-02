@@ -7,16 +7,6 @@ from src.app.services.pipeline_service import PipelineService
 from src.core.orchestration.pipeline.graph_validation import validate_graph
 
 
-ALLOWED_PRESET_STAGES = {
-    "separate",
-    "asr",
-    "translate",
-    "tts",
-    "mix",
-    "export",
-}
-
-
 def _make_pipeline_service() -> PipelineService:
     return PipelineService(
         task_service=MagicMock(),
@@ -29,56 +19,47 @@ def _make_pipeline_service() -> PipelineService:
     )
 
 
-def test_retired_builtin_definitions_remain_recoverable_without_active_defaults(tmp_path):
+def test_only_selected_builtin_graphs_remain_and_old_definitions_are_not_recoverable(tmp_path):
     service = PresetCatalogService(user_presets_path=tmp_path / "flow_presets.json")
-    assert service.list_presets() == []
-    catalog = service.list_archived_presets()
-    presets = [preset for preset in catalog if preset.get("version") != 2]
-
-    assert [preset["id"] for preset in presets] == [
-        "audio_subtitles", "subtitle_translation", "subtitle_speech", "audio_translation_speech",
-        "asmr_bilingual", "asr_only",
+    catalog = service.list_presets()
+    assert service.list_archived_presets() == []
+    assert [preset["id"] for preset in catalog] == [
+        "custom_07458dd97f9e467eb6aef34d499923a5",
+        "custom_964998d159ec4c30a5cc6bf44b76caeb",
     ]
-    assert {preset["id"]: preset["stages"] for preset in presets} == {
-        "audio_subtitles": ["asr", "export"],
-        "subtitle_translation": ["translate", "export"],
-        "subtitle_speech": ["tts"],
-        "audio_translation_speech": ["asr", "translate", "tts", "export"],
-        "asmr_bilingual": [
-            "separate",
-            "asr",
-            "translate",
-            "tts",
-            "mix",
-            "export",
-        ],
-        "asr_only": ["asr", "export"],
-    }
+    assert [preset["label"] for preset in catalog] == ["ASMR正常流程", "TTS配音"]
+    assert [preset["revision"] for preset in catalog] == [2, 1]
+    assert all(preset["builtin"] and preset["version"] == 2 for preset in catalog)
     assert {
         preset["id"]: [node["kind"] for node in preset["graph"]["nodes"]]
-        for preset in catalog if preset.get("version") == 2
+        for preset in catalog
     } == {
-        "graph_audio_subtitles": ["asr", "export"],
-        "graph_subtitle_translation": ["translate", "export"],
-        "graph_subtitle_speech": ["tts"],
-        "graph_audio_translation_speech": ["asr", "translate", "tts", "export"],
+        "custom_07458dd97f9e467eb6aef34d499923a5": [
+            "separate", "asr", "align", "translate", "tts", "mix", "export",
+        ],
+        "custom_964998d159ec4c30a5cc6bf44b76caeb": ["tts", "mix"],
     }
 
 
-def test_archived_builtin_stages_are_known_unique_and_described(tmp_path):
-    presets = PresetCatalogService(user_presets_path=tmp_path / "flow_presets.json").list_archived_presets()
+def test_active_builtin_graphs_are_valid_and_preserve_their_revisions(tmp_path):
+    presets = PresetCatalogService(user_presets_path=tmp_path / "flow_presets.json").list_presets()
+    revisions = {
+        "custom_07458dd97f9e467eb6aef34d499923a5": 2,
+        "custom_964998d159ec4c30a5cc6bf44b76caeb": 1,
+    }
+    assert len(presets) == 2
 
     for preset in presets:
         assert preset["label"].strip()
-        assert preset["description"].strip()
-        assert preset["builtin"] and preset["revision"] == 1
-        if preset.get("version") == 2:
-            assert validate_graph(preset["graph"], template=True) == preset["graph"]
-            continue
-        assert preset["stages"]
-        assert len(preset["stages"]) == len(set(preset["stages"]))
-        assert set(preset["stages"]) <= ALLOWED_PRESET_STAGES
-        assert preset["outputs"] and set(preset["outputs"]) <= set(preset["stages"])
+        assert isinstance(preset["description"], str)
+        assert preset["builtin"] and preset["revision"] == revisions[preset["id"]]
+        assert preset["version"] == 2
+        validated = validate_graph(preset["graph"], template=True)
+        assert validated["nodes"] == preset["graph"]["nodes"]
+        assert validated["edges"] == preset["graph"]["edges"]
+        assert [(item["node_id"], item["port"]) for item in validated["outputs"]] == [
+            (item["node_id"], item["port"]) for item in preset["graph"]["outputs"]
+        ]
 
 
 def test_pipeline_service_keeps_preset_catalog_compatibility():

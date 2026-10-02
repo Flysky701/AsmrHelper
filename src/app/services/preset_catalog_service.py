@@ -46,6 +46,10 @@ class _Catalog:
     index: dict[str, dict[str, Any]]
     original: bytes | None
     storage_version: int | None
+    stored_customs: list[dict[str, Any]]
+    loaded_customs: dict[str, dict[str, Any]]
+    promoted_ids: set[str]
+    retired_index: dict[str, dict[str, Any]]
 
     def item(self, preset_id: str) -> dict[str, Any]:
         definition = next((item for item in self.definitions if item["id"] == preset_id), None)
@@ -118,7 +122,25 @@ def _item(value: Any, *, builtin: bool) -> dict[str, Any]:
     # explicitly; never enable a stage or infer material bindings.
     if builtin and "graph" not in draft and "outputs" not in draft:
         draft["outputs"] = draft.get("stages")
-    return {"id": preset_id, **_draft(draft), "revision": revision, "builtin": builtin}
+    validated = _draft(draft)
+    if builtin and "graph" in draft:
+        # Validate the shipped snapshot without normalizing away its explicit
+        # null fields or rewriting any node, edge or output selection.
+        validated["graph"] = deepcopy(draft["graph"])
+    return {"id": preset_id, **validated, "revision": revision, "builtin": builtin}
+
+
+def _promotion_value(value: dict[str, Any]) -> dict[str, Any]:
+    """Compare original payloads, allowing only API-added optional nulls."""
+    result = deepcopy(value)
+    result.pop("builtin", None)
+    graph = result.get("graph")
+    if isinstance(graph, dict):
+        for slot in graph.get("input_slots", []):
+            slot.setdefault("language", None)
+        for output in graph.get("outputs", []):
+            output.setdefault("label", None)
+    return result
 
 
 @contextmanager
@@ -187,9 +209,13 @@ class PresetCatalogService:
 
     def _load_catalog(self) -> _Catalog:
         definitions = self._read_builtins()
+        builtins = {preset["id"]: preset for preset in definitions}
+        if len(builtins) != len(definitions):
+            raise ValueError("Preset catalog contains duplicate IDs")
         path = self._user_presets_path
         original = path.read_bytes() if path.exists() else None
         data, version = {}, None
+        stored_customs, loaded_customs, promoted_ids = [], {}, set()
         if original is not None:
             try:
                 data = json.loads(original)
@@ -201,29 +227,56 @@ class PresetCatalogService:
                     or type(version) is not int or version not in (1, 2, 3)
                     or not isinstance(data.get("presets"), list)):
                 raise ValueError("Preset catalog has an invalid format; existing contents were not changed")
-            definitions += [_item(value, builtin=False) for value in data["presets"]]
+            stored_customs = deepcopy(data["presets"])
+            for raw in stored_customs:
+                custom = _item(raw, builtin=False)
+                preset_id = custom["id"]
+                if preset_id in loaded_customs:
+                    raise ValueError("Preset catalog contains duplicate IDs")
+                loaded_customs[preset_id] = custom
+                builtin = builtins.get(preset_id)
+                if builtin is None:
+                    definitions.append(custom)
+                elif _promotion_value(raw) == _promotion_value(builtin):
+                    # Read-only overlay. Keep the original stored custom record
+                    # even on a later unrelated explicit save.
+                    promoted_ids.add(preset_id)
+                else:
+                    raise PresetConflictError(
+                        f"Preset {preset_id} differs from the new built-in snapshot; "
+                        "the custom definition was preserved. Resolve the conflict before saving."
+                    )
         ids = [preset["id"] for preset in definitions]
         if len(set(ids)) != len(ids):
             raise ValueError("Preset catalog contains duplicate IDs")
-        index = {preset["id"]: {"active": not (preset["builtin"] and preset["id"] in _RETIRED_BUILTIN_IDS),
+        index = {preset["id"]: {"active": True,
                                 "revision": preset["revision"]} for preset in definitions}
+        retired_index = {}
         if version == 3:
             saved = data["index"]
-            if not isinstance(saved, dict) or set(saved) - set(ids):
+            if not isinstance(saved, dict) or set(saved) - set(ids) - _RETIRED_BUILTIN_IDS:
                 raise ValueError("Preset index contains unknown definitions or has an invalid format")
-            if any(not preset["builtin"] and preset["id"] not in saved for preset in definitions):
+            if set(loaded_customs) - set(saved):
                 raise ValueError("Preset index is missing a custom definition; existing contents were not changed")
             for preset_id, entry in saved.items():
                 if (not isinstance(entry, dict) or not {"active", "revision"} <= set(entry)
                         or set(entry) - {"active", "revision", "label"}
                         or type(entry.get("active")) is not bool
                         or type(entry.get("revision")) is not int
-                        or entry["revision"] < index[preset_id]["revision"]):
+                        or entry["revision"] < index.get(preset_id, {}).get("revision", 1)):
                     raise ValueError("Preset index entry has an invalid format or revision")
+                if "label" in entry:
+                    _text(entry["label"], "label", 100)
+                if preset_id not in index:
+                    # These IDs remain readable only for old index compatibility;
+                    # their definitions are gone and cannot appear in restore.
+                    retired_index[preset_id] = deepcopy(entry)
+                    continue
                 index[preset_id] = deepcopy(entry)
                 if "label" in entry:
                     index[preset_id]["label"] = _text(entry["label"], "label", 100)
-        return _Catalog(definitions, index, original, version)
+        return _Catalog(definitions, index, original, version, stored_customs,
+                        loaded_customs, promoted_ids, retired_index)
 
     def list_presets(self) -> list[dict[str, Any]]:
         """Read active entries without creating an index, lock file or backup."""
@@ -247,11 +300,11 @@ class PresetCatalogService:
             "warnings": ["旧预设未保存节点连线。每个输入已保留为独立素材槽，请确认连线、语言和参数后另存；原预设不变。"],
         }
 
-    def _backup_legacy(self, original: bytes) -> None:
-        """Verify an exact legacy backup before the first V3 replacement."""
+    def _backup_original(self, original: bytes, reason: str) -> None:
+        """Verify the exact pre-write bytes; never scan or delete older backups."""
         digest = hashlib.sha256(original).hexdigest()
         path = self._user_presets_path
-        backup = path.with_name(f"{path.name}.pre-v3.{digest}.bak")
+        backup = path.with_name(f"{path.name}.{reason}.{digest}.bak")
         if not backup.exists():
             try:
                 with backup.open("xb") as file:
@@ -262,13 +315,25 @@ class PresetCatalogService:
                 pass
         saved = backup.read_bytes()
         if saved != original or hashlib.sha256(saved).hexdigest() != digest:
-            raise OSError("Legacy preset backup verification failed; original catalog was not replaced")
+            raise OSError("Preset backup verification failed; original catalog was not replaced")
 
     def _write(self, catalog: _Catalog) -> None:
         path = self._user_presets_path
         path.parent.mkdir(parents=True, exist_ok=True)
         if catalog.storage_version in (1, 2) and catalog.original is not None:
-            self._backup_legacy(catalog.original)
+            self._backup_original(catalog.original, "pre-v3")
+        elif catalog.original is not None and (catalog.promoted_ids or catalog.retired_index):
+            self._backup_original(catalog.original, "pre-builtin-catalog")
+        remaining = {item["id"]: item for item in catalog.definitions if not item["builtin"]}
+        customs = []
+        for raw in catalog.stored_customs:
+            preset_id = raw["id"]
+            if preset_id in catalog.promoted_ids:
+                customs.append(raw)
+            elif preset_id in remaining:
+                current = remaining.pop(preset_id)
+                customs.append(raw if current == catalog.loaded_customs[preset_id] else current)
+        customs.extend(remaining.values())
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -277,8 +342,8 @@ class PresetCatalogService:
             ) as file:
                 temporary = Path(file.name)
                 json.dump({"version": 3,
-                           "presets": [item for item in catalog.definitions if not item["builtin"]],
-                           "index": catalog.index}, file, ensure_ascii=False, indent=2)
+                           "presets": customs,
+                           "index": {**catalog.retired_index, **catalog.index}}, file, ensure_ascii=False, indent=2)
                 file.write("\n")
                 file.flush()
                 os.fsync(file.fileno())

@@ -9,7 +9,7 @@ import { cloneDraft, draftFingerprint, emptyGraph, type WorkflowEditorDraft } fr
 
 type Destination = 'workbench' | 'settings'
 type SaveMode = 'update' | 'copy'
-type CatalogApi = Pick<typeof pipelineApi, 'graphPresets' | 'archivedPresets' | 'restorePreset' | 'graphDraft' | 'createGraphPreset' | 'updateGraphPreset' | 'deletePreset' | 'permanentlyDeletePreset'>
+type CatalogApi = Pick<typeof pipelineApi, 'graphPresets' | 'archivedPresets' | 'restorePreset' | 'graphDraft' | 'createGraphPreset' | 'updateGraphPreset' | 'deletePreset' | 'permanentlyDeletePreset' | 'copyPreset'>
 type EditorPatch = Partial<Pick<WorkflowEditorDraft, 'graph' | 'label' | 'description'>>
 export interface WorkflowState {
   catalog: (PresetItem | GraphPresetItem)[]
@@ -41,6 +41,15 @@ export interface WorkflowState {
   saveRuntime: (mode: SaveMode, label?: string) => Promise<GraphPresetItem | null>
   deletePreset: (id: string, revision: number) => Promise<boolean>
   permanentlyDeletePreset: (id: string, revision: number) => Promise<'deleted' | 'already_missing' | null>
+  deleteCatalogPreset: (preset: PresetItem | GraphPresetItem) => Promise<'deleted' | 'already_missing' | 'archived' | null>
+  copyPreset: (id: string, label: string) => Promise<PresetItem | GraphPresetItem | null>
+}
+
+export function presetDeleteConfirmation(preset: PresetItem | GraphPresetItem): string {
+  const identity = `「${preset.label}」\n编号：${preset.id} · 修订：${preset.revision}`
+  return preset.builtin
+    ? `删除内置预设 ${identity}？\n仅从目录移除，原定义保留，可恢复。当前草稿、运行参数及素材绑定保留并解除该预设关联；已提交任务不受影响。`
+    : `删除自定义预设 ${identity}？\n将永久删除保存定义与目录项，不能恢复。当前草稿、运行参数及素材绑定保留并解除该预设关联，可另存为新预设；已提交任务继续使用冻结的修订，不受影响。`
 }
 
 const message = (error: unknown) => error instanceof Error ? error.message : '保存失败，请重试'
@@ -109,13 +118,18 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
           const result = await client.graphPresets()
           if (generation === catalogGeneration) {
             const state = get(), editor = state.editor
+            const promotedSelection = !!state.selectedPreset && !state.selectedPreset.builtin && result.presets.some(item => item.id === state.selectedPreset?.id && item.builtin)
+            const promotedEditor = !!editor?.preset && !editor.preset.builtin && result.presets.some(item => item.id === editor.preset?.id && item.builtin)
             const removedSelection = !!state.selectedPreset && !result.presets.some(item => item.id === state.selectedPreset?.id)
             const removedEditor = !!editor?.preset && !result.presets.some(item => item.id === editor.preset?.id)
             if (removedSelection) selectionGeneration++
             if (removedEditor) editorGeneration++
             set({ catalog: result.presets,
+              ...(promotedSelection && state.selectedPreset ? { selectedPreset: { ...state.selectedPreset, builtin: true } } : {}),
+              ...(promotedEditor && editor?.preset ? { editor: { ...editor, preset: { ...editor.preset, builtin: true } } } : {}),
               ...(removedSelection ? { selectedPreset: null } : {}),
               ...(removedEditor && editor ? { editor: { ...editor, preset: null, initialFingerprint: '' } } : {}),
+              ...(promotedSelection || promotedEditor ? { catalogNotice: '此预设已归入内置目录；当前草稿和原修订已保留，修改需另存为副本。' } : {}),
               ...(removedSelection || removedEditor ? { catalogNotice: '原预设已不在活动目录中。编辑草稿、运行参数与素材绑定已保留，可另存为新预设；若仅移出目录，可从已移除列表恢复。' } : {}),
             })
           }
@@ -225,6 +239,20 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
           })
           return result.status
         } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return null }
+        finally { set({ saving: false }) }
+      },
+      deleteCatalogPreset: async preset => preset.builtin
+        ? await get().deletePreset(preset.id, preset.revision) ? 'archived' : null
+        : get().permanentlyDeletePreset(preset.id, preset.revision),
+      copyPreset: async (id, label) => {
+        if (get().saving || get().catalogLoading) return null
+        set({ saving: true, error: null })
+        try {
+          const item = await client.copyPreset(id, label)
+          upsert(item)
+          set({ catalogNotice: '副本已保存到目录。当前编辑草稿、运行参数和素材绑定保持不变。' })
+          return item
+        } catch (error) { set({ error: message(error) }); return null }
         finally { set({ saving: false }) }
       },
       restorePreset: async (id, revision, label) => {

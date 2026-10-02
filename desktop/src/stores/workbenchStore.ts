@@ -6,11 +6,12 @@ import { applyFlowPreset, emptyFlow, restoreFlow, toggleFlowStage, type FlowDraf
 import type { PresetItem } from '@/api/types'
 import type { BatchRunResponse } from '@/api/types'
 import type { GraphBindings, GraphDefinition, GraphMaterialBinding } from '@/domain/workflowGraph'
-import { attachSubmittedBatch, createImportedGroups, groupEditable, queueId, type QueueGroup, type QueueSubmission } from '@/domain/queueGroups'
+import { attachSubmittedBatch, createImportedGroups, groupEditable, groupPaths, migrateMaterialGroups, queueId, type QueueGroup, type QueueSubmission } from '@/domain/queueGroups'
 import { cloneDraft } from '@/domain/workflowDraft'
 import {
   inputPathKey,
   mergeInputItems,
+  pathToInput,
   type WorkbenchInputItem,
 } from '@/domain/workbenchInput'
 
@@ -65,6 +66,7 @@ interface WorkbenchStore {
   bindQueueGroup: (id: string, slotId: string, binding: GraphMaterialBinding | undefined) => void
   selectQueueGroups: (ids: string[], selected: boolean) => void
   duplicateQueueGroup: (id: string) => void
+  removeQueueMaterials: (ids: string[]) => void
   beginQueueSubmission: (submission: QueueSubmission) => void
   failQueueSubmission: (error: string, uncertain: boolean) => void
   receiveQueueBatch: (batch: BatchRunResponse) => void
@@ -165,12 +167,23 @@ export const useWorkbenchStore = create<WorkbenchStore>()(persist((set, get) => 
     return { ...group, bindings, materialPaths: [...new Set([...group.materialPaths, ...(binding ? [binding.path, ...(binding.audio_path ? [binding.audio_path] : [])] : [])])] }
   }) })),
   selectQueueGroups: (ids, selected) => set(state => ({ queueGroups: state.queueGroups.map(group =>
-    ids.includes(group.id) && groupEditable(group) && !group.excluded ? { ...group, selected } : group) })),
+    ids.includes(group.id) && groupEditable(group) ? { ...group, selected } : group) })),
   duplicateQueueGroup: id => set(state => {
     const group = state.queueGroups.find(item => item.id === id)
     if (!group) return {}
     return { queueGroups: [...state.queueGroups, { id: queueId(), label: `${group.label.slice(0, 95)} · 副本`,
-      materialPaths: [...group.materialPaths], bindings: cloneDraft(group.run?.bindings ?? group.bindings), selected: false, excluded: false }] }
+      materialPaths: [...group.materialPaths], bindings: cloneDraft(group.bindings), selected: false, excluded: false }] }
+  }),
+  removeQueueMaterials: ids => set(state => {
+    const removing = state.queueGroups.filter(group => ids.includes(group.id) && groupEditable(group))
+    const removedIds = new Set(removing.map(group => group.id))
+    const groups = state.queueGroups.filter(group => !removedIds.has(group.id))
+    const pendingPaths = state.queueSubmission?.request.groups.flatMap(group => Object.values(group.bindings)
+      .flatMap(binding => [binding.path, ...(binding.audio_path ? [binding.audio_path] : [])])) ?? []
+    const remainingPaths = new Set([...groups.flatMap(groupPaths), ...pendingPaths].map(inputPathKey))
+    const removedPaths = new Set(removing.flatMap(group => groupPaths(group).map(inputPathKey)).filter(path => !remainingPaths.has(path)))
+    return { queueGroups: groups, inputItems: state.inputItems.filter(item => !removedPaths.has(inputPathKey(item.path))),
+      selectedInputPaths: state.selectedInputPaths.filter(path => !removedPaths.has(inputPathKey(path))) }
   }),
   beginQueueSubmission: submission => set(state => {
     if (state.queueSubmission) return {}
@@ -191,6 +204,8 @@ export const useWorkbenchStore = create<WorkbenchStore>()(persist((set, get) => 
       deletedQueueBatchIds: [...state.deletedQueueBatchIds, batch.batch_id],
       queueBatches: state.queueBatches.filter(item => item.batch_id !== batch.batch_id),
       queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => id !== batch.batch_id)),
+      queueGroups: state.queueGroups.map(group => group.run?.batchId === batch.batch_id
+        ? { ...group, run: { ...group.run, state: 'history_deleted' as const } } : group),
     }
     const matching = state.queueSubmission?.request.client_request_id === batch.client_request_id ? state.queueSubmission : null
     if (matching) {
@@ -213,6 +228,8 @@ export const useWorkbenchStore = create<WorkbenchStore>()(persist((set, get) => 
     set(state => {
       const deleted = new Set([...state.deletedQueueBatchIds, ...knownBatchIdsAtRequest.filter(id => !present.has(id))])
       return { deletedQueueBatchIds: [...deleted], queueBatches: state.queueBatches.filter(batch => !deleted.has(batch.batch_id)),
+        queueGroups: migrateMaterialGroups(state.queueGroups.map(group => group.run && deleted.has(group.run.batchId)
+          ? { ...group, run: { ...group.run, state: 'history_deleted' as const } } : group)),
         queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => !deleted.has(id))) }
     })
     for (const batch of batches) get().receiveQueueBatch(batch)
@@ -222,6 +239,7 @@ export const useWorkbenchStore = create<WorkbenchStore>()(persist((set, get) => 
     const normalized = state.queueBatches.map(batch => withoutDeletedTaskHistory(batch, deletedTasks))
     const deletedBatches = new Set([...state.deletedQueueBatchIds, ...normalized.filter(hasNoBatchHistory).map(batch => batch.batch_id)])
     return { deletedQueueTaskIds: [...deletedTasks], deletedQueueBatchIds: [...deletedBatches],
+      queueGroups: migrateMaterialGroups(normalized.reduce((groups, batch) => attachSubmittedBatch(groups, batch), state.queueGroups)),
       queueBatches: normalized.filter(batch => !deletedBatches.has(batch.batch_id)),
       queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => !deletedBatches.has(id))) }
   }),
@@ -356,8 +374,17 @@ export const useWorkbenchStore = create<WorkbenchStore>()(persist((set, get) => 
     // Old execution switches are not read by the workflow. Preserve other parameters.
     const params = { ...current.params, ...saved.params } as WorkbenchParams & Record<string, unknown>
     for (const old of ['subtitleInputMode', 'reuseTranslations', 'useVocalSeparator', 'alignSubtitles']) delete params[old]
+    const queueGroups = (Array.isArray(saved.queueGroups) ? saved.queueGroups : []).map(group => {
+      const bindings = group.bindings ?? cloneDraft(group.run?.bindings ?? {})
+      return { ...group, bindings, materialPaths: [...new Set([...group.materialPaths, ...Object.values(bindings).flatMap(binding =>
+        [binding.path, ...(binding.audio_path ? [binding.audio_path] : [])])])],
+        ...(group.run ? { selected: false, run: { ...group.run, state: 'unknown' as const } } : {}) }
+    })
+    const inputItems = saved.inputItems ?? current.inputItems
+    const present = new Set(inputItems.map(item => inputPathKey(item.path)))
+    const recovered = queueGroups.flatMap(groupPaths).filter(path => path && !present.has(inputPathKey(path)))
     return { ...current, ...saved, params, flow: restoreFlow(saved.flow),
-      queueGroups: Array.isArray(saved.queueGroups) ? saved.queueGroups : [], queueBatches: [],
+      queueGroups, inputItems: mergeInputItems(inputItems, recovered.map(pathToInput)), queueBatches: [],
       queueBatchActions: saved.queueBatchActions ?? {},
       queueSubmission: saved.queueSubmission ? { ...saved.queueSubmission, state: 'unknown' as const } : null }
   },
