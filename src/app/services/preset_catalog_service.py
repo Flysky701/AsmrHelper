@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from copy import deepcopy
+from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,6 +25,11 @@ _ALIASES = {"separation": "separate", "translation": "translate"}
 _DRAFT_FIELDS = {"label", "description", "stages", "outputs", "version", "graph"}
 _ITEM_FIELDS = _DRAFT_FIELDS | {"id", "revision", "builtin"}
 _write_lock = threading.RLock()
+_RETIRED_BUILTIN_IDS = frozenset({
+    "audio_subtitles", "subtitle_translation", "subtitle_speech", "audio_translation_speech",
+    "asmr_bilingual", "asr_only", "graph_audio_subtitles", "graph_subtitle_translation",
+    "graph_subtitle_speech", "graph_audio_translation_speech",
+})
 
 
 class PresetConflictError(ValueError):
@@ -29,7 +37,27 @@ class PresetConflictError(ValueError):
 
 
 class BuiltinPresetError(ValueError):
-    """Built-ins can be copied, but never edited or deleted in place."""
+    """Built-in definitions can be copied or indexed, but never edited in place."""
+
+
+@dataclass
+class _Catalog:
+    definitions: list[dict[str, Any]]
+    index: dict[str, dict[str, Any]]
+    original: bytes | None
+    storage_version: int | None
+
+    def item(self, preset_id: str) -> dict[str, Any]:
+        definition = next((item for item in self.definitions if item["id"] == preset_id), None)
+        if definition is None:
+            raise KeyError("Preset does not exist")
+        entry = self.index[preset_id]
+        return {**deepcopy(definition), "revision": entry["revision"],
+                "label": entry.get("label", definition["label"])}
+
+    def items(self, *, active: bool) -> list[dict[str, Any]]:
+        return [self.item(item["id"]) for item in self.definitions
+                if self.index[item["id"]]["active"] is active]
 
 
 def _text(value: Any, name: str, limit: int, *, required: bool = True) -> str:
@@ -131,7 +159,7 @@ def _file_lock(path: Path):
 
 
 class PresetCatalogService:
-    """One catalog for settings and workbench, with revision-checked custom saves."""
+    """Portable definitions plus a revisioned, recoverable active preset index."""
 
     def __init__(
         self, presets_path: Path | str | None = None, user_presets_path: Path | str | None = None,
@@ -144,28 +172,65 @@ class PresetCatalogService:
             else self._presets_path.parent / "voice_lab" / "flow_presets.json"
         )
 
-    def _read(self, *, builtin: bool) -> list[dict[str, Any]]:
-        path = self._presets_path if builtin else self._user_presets_path
-        if not path.exists():
+    def _read_builtins(self) -> list[dict[str, Any]]:
+        if not self._presets_path.exists():
             return []
         try:
-            with path.open(encoding="utf-8") as file:
-                data = yaml.safe_load(file) if builtin else json.load(file)
+            with self._presets_path.open(encoding="utf-8") as file:
+                data = yaml.safe_load(file)
         except (ValueError, yaml.YAMLError) as exc:
             raise ValueError("Preset catalog is unreadable; existing contents were not changed") from exc
-        allowed_keys = {"presets"} if builtin else {"version", "presets"}
-        if (not isinstance(data, dict) or data.keys() - allowed_keys
-                or not isinstance(data.get("presets"), list)
-                or (not builtin and (type(data.get("version")) is not int or data["version"] not in (1, 2)))):
+        if (not isinstance(data, dict) or set(data) != {"presets"}
+                or not isinstance(data["presets"], list)):
             raise ValueError("Preset catalog has an invalid format; existing contents were not changed")
-        return [_item(value, builtin=builtin) for value in data["presets"]]
+        return [_item(value, builtin=True) for value in data["presets"]]
 
-    def list_presets(self) -> list[dict[str, Any]]:
-        presets = self._read(builtin=True) + self._read(builtin=False)
-        ids = [preset["id"] for preset in presets]
+    def _load_catalog(self) -> _Catalog:
+        definitions = self._read_builtins()
+        path = self._user_presets_path
+        original = path.read_bytes() if path.exists() else None
+        data, version = {}, None
+        if original is not None:
+            try:
+                data = json.loads(original)
+            except (ValueError, UnicodeError) as exc:
+                raise ValueError("Preset catalog is unreadable; existing contents were not changed") from exc
+            version = data.get("version") if isinstance(data, dict) else None
+            allowed = {"version", "presets", "index"} if version == 3 else {"version", "presets"}
+            if (not isinstance(data, dict) or set(data) != allowed
+                    or type(version) is not int or version not in (1, 2, 3)
+                    or not isinstance(data.get("presets"), list)):
+                raise ValueError("Preset catalog has an invalid format; existing contents were not changed")
+            definitions += [_item(value, builtin=False) for value in data["presets"]]
+        ids = [preset["id"] for preset in definitions]
         if len(set(ids)) != len(ids):
             raise ValueError("Preset catalog contains duplicate IDs")
-        return presets
+        index = {preset["id"]: {"active": not (preset["builtin"] and preset["id"] in _RETIRED_BUILTIN_IDS),
+                                "revision": preset["revision"]} for preset in definitions}
+        if version == 3:
+            saved = data["index"]
+            if not isinstance(saved, dict) or set(saved) - set(ids):
+                raise ValueError("Preset index contains unknown definitions or has an invalid format")
+            if any(not preset["builtin"] and preset["id"] not in saved for preset in definitions):
+                raise ValueError("Preset index is missing a custom definition; existing contents were not changed")
+            for preset_id, entry in saved.items():
+                if (not isinstance(entry, dict) or not {"active", "revision"} <= set(entry)
+                        or set(entry) - {"active", "revision", "label"}
+                        or type(entry.get("active")) is not bool
+                        or type(entry.get("revision")) is not int
+                        or entry["revision"] < index[preset_id]["revision"]):
+                    raise ValueError("Preset index entry has an invalid format or revision")
+                index[preset_id] = deepcopy(entry)
+                if "label" in entry:
+                    index[preset_id]["label"] = _text(entry["label"], "label", 100)
+        return _Catalog(definitions, index, original, version)
+
+    def list_presets(self) -> list[dict[str, Any]]:
+        """Read active entries without creating an index, lock file or backup."""
+        return self._load_catalog().items(active=True)
+
+    def list_archived_presets(self) -> list[dict[str, Any]]:
+        return self._load_catalog().items(active=False)
 
     def graph_draft(self, preset_id: str) -> dict[str, Any]:
         """Read-only, explicit conversion; stage order never implies wiring."""
@@ -182,9 +247,28 @@ class PresetCatalogService:
             "warnings": ["旧预设未保存节点连线。每个输入已保留为独立素材槽，请确认连线、语言和参数后另存；原预设不变。"],
         }
 
-    def _write(self, presets: list[dict[str, Any]]) -> None:
+    def _backup_legacy(self, original: bytes) -> None:
+        """Verify an exact legacy backup before the first V3 replacement."""
+        digest = hashlib.sha256(original).hexdigest()
+        path = self._user_presets_path
+        backup = path.with_name(f"{path.name}.pre-v3.{digest}.bak")
+        if not backup.exists():
+            try:
+                with backup.open("xb") as file:
+                    file.write(original)
+                    file.flush()
+                    os.fsync(file.fileno())
+            except FileExistsError:
+                pass
+        saved = backup.read_bytes()
+        if saved != original or hashlib.sha256(saved).hexdigest() != digest:
+            raise OSError("Legacy preset backup verification failed; original catalog was not replaced")
+
+    def _write(self, catalog: _Catalog) -> None:
         path = self._user_presets_path
         path.parent.mkdir(parents=True, exist_ok=True)
+        if catalog.storage_version in (1, 2) and catalog.original is not None:
+            self._backup_legacy(catalog.original)
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -192,10 +276,15 @@ class PresetCatalogService:
                 suffix=".tmp", delete=False,
             ) as file:
                 temporary = Path(file.name)
-                json.dump({"version": 2 if any("graph" in item for item in presets) else 1, "presets": presets}, file, ensure_ascii=False, indent=2)
+                json.dump({"version": 3,
+                           "presets": [item for item in catalog.definitions if not item["builtin"]],
+                           "index": catalog.index}, file, ensure_ascii=False, indent=2)
                 file.write("\n")
                 file.flush()
                 os.fsync(file.fileno())
+            current = path.read_bytes() if path.exists() else None
+            if current != catalog.original:
+                raise PresetConflictError("Preset catalog changed while saving; reload before retrying")
             os.replace(temporary, path)
         finally:
             if temporary is not None:
@@ -204,20 +293,24 @@ class PresetCatalogService:
     def create_preset(self, draft: dict[str, Any]) -> dict[str, Any]:
         value = _draft(draft)
         with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
-            presets = self.list_presets()
+            catalog = self._load_catalog()
             item = {"id": f"custom_{uuid4().hex}", **value, "revision": 1, "builtin": False}
-            self._write([preset for preset in presets if not preset["builtin"]] + [item])
+            catalog.definitions.append(item)
+            catalog.index[item["id"]] = {"active": True, "revision": 1}
+            self._write(catalog)
             return item
 
     def copy_preset(self, preset_id: str, label: str) -> dict[str, Any]:
         with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
-            presets = self.list_presets()
-            source = next((preset for preset in presets if preset["id"] == preset_id), None)
-            if source is None:
+            catalog = self._load_catalog()
+            source = catalog.item(preset_id)
+            if not catalog.index[preset_id]["active"]:
                 raise KeyError("Preset does not exist")
             value = _draft({**{key: source[key] for key in _DRAFT_FIELDS if key in source}, "label": label})
             item = {"id": f"custom_{uuid4().hex}", **value, "revision": 1, "builtin": False}
-            self._write([preset for preset in presets if not preset["builtin"]] + [item])
+            catalog.definitions.append(item)
+            catalog.index[item["id"]] = {"active": True, "revision": 1}
+            self._write(catalog)
             return item
 
     def update_preset(self, preset_id: str, draft: dict[str, Any], revision: int) -> dict[str, Any]:
@@ -225,38 +318,59 @@ class PresetCatalogService:
         if type(revision) is not int or revision < 1:
             raise ValueError("Preset revision must be a positive integer")
         with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
-            presets = self.list_presets()
-            current = next((preset for preset in presets if preset["id"] == preset_id), None)
-            if current is None:
-                raise KeyError("Preset does not exist")
+            catalog = self._load_catalog()
+            current = catalog.item(preset_id)
             if current["builtin"]:
                 raise BuiltinPresetError("Built-in presets are read-only; copy to a custom preset first")
             if current["revision"] != revision:
                 raise PresetConflictError("Preset changed since it was loaded; reload before saving")
+            if not catalog.index[preset_id]["active"]:
+                raise PresetConflictError("Preset is archived; restore it before editing")
             item = {"id": preset_id, **value, "revision": revision + 1, "builtin": False}
-            self._write([
+            catalog.definitions = [
                 item if preset["id"] == preset_id else preset
-                for preset in presets if not preset["builtin"]
-            ])
+                for preset in catalog.definitions
+            ]
+            catalog.index[preset_id] = {"active": True, "revision": revision + 1}
+            self._write(catalog)
             return item
 
     def delete_preset(self, preset_id: str, revision: int) -> None:
-        """Delete one custom preset only if the caller still owns its revision."""
+        """Remove only index visibility; keep both custom and builtin definitions."""
         if type(revision) is not int or revision < 1:
             raise ValueError("Preset revision must be a positive integer")
         with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
-            presets = self.list_presets()
-            current = next((preset for preset in presets if preset["id"] == preset_id), None)
-            if current is None:
-                raise KeyError("Preset does not exist")
-            if current["builtin"]:
-                raise BuiltinPresetError("Built-in presets are read-only and cannot be deleted")
+            catalog = self._load_catalog()
+            current = catalog.item(preset_id)
             if current["revision"] != revision:
                 raise PresetConflictError("Preset changed since it was loaded; reload before deleting")
-            self._write([
-                preset for preset in presets
-                if not preset["builtin"] and preset["id"] != preset_id
-            ])
+            entry = catalog.index[preset_id]
+            if not entry["active"]:
+                raise PresetConflictError("Preset is already archived; reload the archived list")
+            entry.update(active=False, revision=revision + 1)
+            self._write(catalog)
+
+    def restore_preset(self, preset_id: str, revision: int, label: str | None = None) -> dict[str, Any]:
+        """Explicitly restore one ID; a name conflict never replaces another entry."""
+        if type(revision) is not int or revision < 1:
+            raise ValueError("Preset revision must be a positive integer")
+        if label is not None:
+            label = _text(label, "label", 100)
+        with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
+            catalog = self._load_catalog()
+            current = catalog.item(preset_id)
+            if current["revision"] != revision:
+                raise PresetConflictError("Preset changed since it was loaded; reload before restoring")
+            entry = catalog.index[preset_id]
+            if entry["active"]:
+                raise PresetConflictError("Preset is already active; reload the preset list")
+            restored_label = current["label"] if label is None else label
+            if any(item["label"].strip().casefold() == restored_label.strip().casefold()
+                   for item in catalog.items(active=True)):
+                raise PresetConflictError("An active preset already uses this name; choose another name before restoring")
+            entry.update(active=True, revision=revision + 1, label=restored_label)
+            self._write(catalog)
+            return catalog.item(preset_id)
 
 
 _service: PresetCatalogService | None = None

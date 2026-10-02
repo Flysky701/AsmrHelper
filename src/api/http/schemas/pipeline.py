@@ -60,3 +60,10 @@ class PresetCopyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     label: str = Field(min_length=1, max_length=100)
+
+
+class PresetRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    revision: int = Field(ge=1)
+    label: str | None = Field(default=None, min_length=1, max_length=100)

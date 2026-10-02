@@ -11,6 +11,7 @@ from src.api.http.schemas.pipeline import (
     PresetCreateRequest,
     PresetItem,
     PresetUpdateRequest,
+    PresetRestoreRequest,
     GraphPresetItem,
     GraphPresetCreateRequest,
     GraphPresetUpdateRequest,
@@ -43,6 +44,12 @@ def _call(fn, *args):
 def list_presets(include_graph: bool = False, svc: PresetCatalogService = Depends(preset_catalog_service)):
     # Existing clients only understand stages/outputs. One catalog, versioned views.
     presets = _call(svc.list_presets)
+    return PipelinePresetsResponse(presets=[p for p in presets if include_graph or p.get("version") != 2])
+
+
+@router.get("/presets/archived", response_model=PipelinePresetsResponse)
+def list_archived_presets(include_graph: bool = False, svc: PresetCatalogService = Depends(preset_catalog_service)):
+    presets = _call(svc.list_archived_presets)
     return PipelinePresetsResponse(presets=[p for p in presets if include_graph or p.get("version") != 2])
 
 
@@ -88,3 +95,11 @@ def delete_preset(
 ):
     _call(svc.delete_preset, preset_id, revision)
     return Response(status_code=204)
+
+
+@router.post("/presets/{preset_id}/restore", response_model=GraphPresetItem | PresetItem)
+def restore_preset(
+    preset_id: str, body: PresetRestoreRequest,
+    svc: PresetCatalogService = Depends(preset_catalog_service),
+):
+    return _call(svc.restore_preset, preset_id, body.revision, body.label)

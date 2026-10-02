@@ -16,6 +16,9 @@ export const pipelineApi = {
 
   presets: () => api.get<PipelinePresetsResponse>('/pipeline/presets'),
   graphPresets: () => api.get<{ presets: (PresetItem | GraphPresetItem)[] }>('/pipeline/presets?include_graph=true'),
+  archivedPresets: () => api.get<{ presets: (PresetItem | GraphPresetItem)[] }>('/pipeline/presets/archived?include_graph=true'),
+  restorePreset: (id: string, revision: number, label?: string) =>
+    api.post<PresetItem | GraphPresetItem>(`/pipeline/presets/${encodeURIComponent(id)}/restore`, { revision, ...(label === undefined ? {} : { label }) }),
   graphDraft: (id: string) => api.get<{
     source: PresetItem | GraphPresetItem
     graph: import('../domain/workflowGraph').GraphDefinition

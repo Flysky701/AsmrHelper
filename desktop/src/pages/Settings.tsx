@@ -250,7 +250,7 @@ export default function Settings() {
               <button type="button" onClick={() => useNavStore.getState().setPage('workflow-presets')}>打开流水线编辑</button>
               <button type="button" disabled={presetsLoading} onClick={() => void reloadPresets()}>刷新目录</button>
             </div>
-            <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 16 }}>内置预设保持只读，复制后可编辑；保存不会修改已有任务或自动开始执行。</p>
+            <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 16 }}>内置定义另存后编辑；预设均可从目录移除，并在流水线编辑页显式恢复。不会修改已有任务或自动开始执行。</p>
           </section>}
 
           {/* Panel: 路径配置 */}

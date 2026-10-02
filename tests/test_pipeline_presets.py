@@ -29,8 +29,10 @@ def _make_pipeline_service() -> PipelineService:
     )
 
 
-def test_builtin_presets_expose_only_verified_closed_loops():
-    catalog = PresetCatalogService().list_presets()
+def test_retired_builtin_definitions_remain_recoverable_without_active_defaults(tmp_path):
+    service = PresetCatalogService(user_presets_path=tmp_path / "flow_presets.json")
+    assert service.list_presets() == []
+    catalog = service.list_archived_presets()
     presets = [preset for preset in catalog if preset.get("version") != 2]
 
     assert [preset["id"] for preset in presets] == [
@@ -63,8 +65,8 @@ def test_builtin_presets_expose_only_verified_closed_loops():
     }
 
 
-def test_builtin_preset_stages_are_known_unique_and_described():
-    presets = PresetCatalogService().list_presets()
+def test_archived_builtin_stages_are_known_unique_and_described(tmp_path):
+    presets = PresetCatalogService(user_presets_path=tmp_path / "flow_presets.json").list_archived_presets()
 
     for preset in presets:
         assert preset["label"].strip()

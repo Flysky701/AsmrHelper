@@ -9,12 +9,16 @@ import { cloneDraft, draftFingerprint, emptyGraph, type WorkflowEditorDraft } fr
 
 type Destination = 'workbench' | 'settings'
 type SaveMode = 'update' | 'copy'
-type CatalogApi = Pick<typeof pipelineApi, 'graphPresets' | 'graphDraft' | 'createGraphPreset' | 'updateGraphPreset' | 'deletePreset'>
+type CatalogApi = Pick<typeof pipelineApi, 'graphPresets' | 'archivedPresets' | 'restorePreset' | 'graphDraft' | 'createGraphPreset' | 'updateGraphPreset' | 'deletePreset'>
 type EditorPatch = Partial<Pick<WorkflowEditorDraft, 'graph' | 'label' | 'description'>>
 export interface WorkflowState {
   catalog: (PresetItem | GraphPresetItem)[]
   catalogLoading: boolean
   catalogError: string | null
+  catalogNotice: string | null
+  archivedCatalog: (PresetItem | GraphPresetItem)[]
+  archivedLoading: boolean
+  archivedError: string | null
   selectedPreset: GraphPresetItem | null
   runtimeGraph: GraphDefinition | null
   bindings: GraphBindings
@@ -24,6 +28,8 @@ export interface WorkflowState {
   /** An unrecognized saved draft is retained rather than erased during restore. */
   recoveryDraft: unknown | null
   loadCatalog: () => Promise<void>
+  loadArchivedCatalog: () => Promise<void>
+  restorePreset: (id: string, revision: number, label?: string) => Promise<PresetItem | GraphPresetItem | null>
   selectPreset: (preset: GraphPresetItem) => void
   updateRuntimeNode: (node: GraphNode) => void
   setBinding: (slotId: string, value: GraphMaterialBinding | undefined) => void
@@ -76,9 +82,9 @@ function draftFor(graph: GraphDefinition, label: string, description: string): G
 
 /** One draft store, one server catalog. Dependency injection is only for local mock verification. */
 export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: StateStorage) {
-  let selectionGeneration = 0, editorGeneration = 0, catalogGeneration = 0
+  let selectionGeneration = 0, editorGeneration = 0, catalogGeneration = 0, archiveGeneration = 0
   return create<WorkflowState>()(persist((set, get) => {
-    const upsert = (item: GraphPresetItem) => {
+    const upsert = (item: PresetItem | GraphPresetItem) => {
       catalogGeneration++
       set(state => ({ catalog: state.catalog.some(preset => preset.id === item.id)
         ? state.catalog.map(preset => preset.id === item.id ? item : preset) : [...state.catalog, item] }))
@@ -91,19 +97,42 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
       return client.createGraphPreset(draft)
     }
     return {
-      catalog: [], catalogLoading: false, catalogError: null, selectedPreset: null, runtimeGraph: null,
+      catalog: [], catalogLoading: false, catalogError: null, catalogNotice: null,
+      archivedCatalog: [], archivedLoading: false, archivedError: null, selectedPreset: null, runtimeGraph: null,
       bindings: {}, editor: null, saving: false, error: null, recoveryDraft: null,
       loadCatalog: async () => {
-        if (get().catalogLoading) return
+        if (get().catalogLoading || get().saving) return
         const generation = catalogGeneration
         set({ catalogLoading: true, catalogError: null })
-        try { const result = await client.graphPresets(); if (generation === catalogGeneration) set({ catalog: result.presets }) }
+        try {
+          const result = await client.graphPresets()
+          if (generation === catalogGeneration) {
+            const state = get(), editor = state.editor
+            const removedSelection = !!state.selectedPreset && !result.presets.some(item => item.id === state.selectedPreset?.id)
+            const removedEditor = !!editor?.preset && !result.presets.some(item => item.id === editor.preset?.id)
+            if (removedSelection) selectionGeneration++
+            if (removedEditor) editorGeneration++
+            set({ catalog: result.presets,
+              ...(removedSelection ? { selectedPreset: null } : {}),
+              ...(removedEditor && editor ? { editor: { ...editor, preset: null, initialFingerprint: '' } } : {}),
+              ...(removedSelection || removedEditor ? { catalogNotice: '原预设已不在活动目录中。编辑草稿、运行参数与素材绑定已保留，可另存或从已移除列表恢复。' } : {}),
+            })
+          }
+        }
         catch (error) { if (generation === catalogGeneration) set({ catalogError: message(error) }) }
         finally { set({ catalogLoading: false }) }
       },
+      loadArchivedCatalog: async () => {
+        if (get().archivedLoading) return
+        const generation = archiveGeneration
+        set({ archivedLoading: true, archivedError: null })
+        try { const result = await client.archivedPresets(); if (generation === archiveGeneration) set({ archivedCatalog: result.presets }) }
+        catch (error) { if (generation === archiveGeneration) set({ archivedError: message(error) }) }
+        finally { set({ archivedLoading: false }) }
+      },
       selectPreset: preset => {
         selectionGeneration++
-        set({ selectedPreset: cloneDraft(preset), runtimeGraph: cloneDraft(preset.graph), error: null })
+        set({ selectedPreset: cloneDraft(preset), runtimeGraph: cloneDraft(preset.graph), error: null, catalogNotice: null })
       },
       updateRuntimeNode: node => {
         const graph = get().runtimeGraph, previous = graph?.nodes.find(item => item.id === node.id)
@@ -149,17 +178,13 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
       closeEditor: () => { editorGeneration++; set({ editor: null, error: null }) },
       deletePreset: async (id, revision) => {
         if (get().saving) return false
-        const preset = get().catalog.find(item => item.id === id)
-        if (preset?.builtin) {
-          set({ error: '内置预设不可删除；可以保存为自己的副本。' })
-          return false
-        }
         const generation = editorGeneration
         set({ saving: true, error: null })
         try {
           await client.deletePreset(id, revision)
           // Invalidate an older catalog request so it cannot restore the deleted entry.
           catalogGeneration++
+          archiveGeneration++
           const state = get(), editor = state.editor
           if (state.selectedPreset?.id === id) selectionGeneration++
           if (editor?.preset?.id === id) editorGeneration++
@@ -168,14 +193,35 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
             selectedPreset: state.selectedPreset?.id === id ? null : state.selectedPreset,
             // Deleting a saved template must not erase material bindings or an open draft.
             editor: editor?.preset?.id === id ? { ...editor, preset: null, initialFingerprint: '' } : editor,
+            catalogNotice: '预设已移出活动目录，原定义可恢复；当前草稿、运行参数及素材绑定已保留。',
           })
+          // DELETE returns no body. Reload authoritative archive revisions, never guess them.
+          const archive = archiveGeneration
+          try { const result = await client.archivedPresets(); if (archive === archiveGeneration) set({ archivedCatalog: result.presets, archivedError: null }) }
+          catch (error) { if (archive === archiveGeneration) set({ archivedError: message(error) }) }
           return true
         } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return false }
+        finally { set({ saving: false }) }
+      },
+      restorePreset: async (id, revision, label) => {
+        if (get().saving) return null
+        const generation = editorGeneration
+        set({ saving: true, error: null })
+        try {
+          const item = await client.restorePreset(id, revision, label)
+          upsert(item)
+          archiveGeneration++
+          set(state => ({ archivedCatalog: state.archivedCatalog.filter(preset => preset.id !== id),
+            catalogNotice: '预设已恢复到目录。当前草稿与运行参数保持不变，可自行选择要使用的预设。' }))
+          // Restoring a catalog entry must not select it or replace an open editor/runtime draft.
+          return item
+        } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return null }
         finally { set({ saving: false }) }
       },
       saveEditor: async mode => {
         const state = get(), editor = state.editor
         if (state.saving || !editor) return null
+        if (state.catalogLoading) { set({ error: '正在核对预设目录，请读取完成后再保存；当前草稿已保留。' }); return null }
         const generation = editorGeneration, selection = selectionGeneration
         const fingerprint = draftFingerprint({ graph: editor.graph, label: editor.label, description: editor.description })
         set({ saving: true, error: null })
@@ -190,7 +236,7 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
             return null
           }
           selectionGeneration++
-          set({ selectedPreset: cloneDraft(item), runtimeGraph: cloneDraft(item.graph), editor: editorFor(item, item.graph, editor.returnTo) })
+          set({ selectedPreset: cloneDraft(item), runtimeGraph: cloneDraft(item.graph), editor: editorFor(item, item.graph, editor.returnTo), catalogNotice: null })
           return item
         } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return null }
         finally { set({ saving: false }) }
@@ -198,6 +244,7 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
       saveRuntime: async (mode, label) => {
         const state = get()
         if (state.saving || !state.runtimeGraph) return null
+        if (state.catalogLoading) { set({ error: '正在核对预设目录，请读取完成后再保存；当前运行参数已保留。' }); return null }
         const generation = selectionGeneration, preset = state.selectedPreset
         set({ saving: true, error: null })
         try {
@@ -205,7 +252,7 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
           upsert(item)
           if (generation !== selectionGeneration) return null
           selectionGeneration++
-          set({ selectedPreset: cloneDraft(item), runtimeGraph: cloneDraft(item.graph) })
+          set({ selectedPreset: cloneDraft(item), runtimeGraph: cloneDraft(item.graph), catalogNotice: null })
           return item
         } catch (error) { if (generation === selectionGeneration) set({ error: message(error) }); return null }
         finally { set({ saving: false }) }
