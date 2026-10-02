@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
-
 import { tasksApi } from '@/api/tasks'
+import { batchesApi } from '@/api/batches'
 import { apiUrl } from '@/api/client'
+import type { BatchRunResponse, TaskStatusResponse } from '@/api/types'
 import BatchRunsPanel from '@/components/tasks/BatchRunsPanel'
 import TaskRecoveryAction from '@/components/tasks/TaskRecoveryAction'
+import TaskCenterDetails, { TaskStatusLabel, TaskSymbol } from '@/components/task-center/TaskCenterDetails'
 import { useTaskPolling } from '@/hooks/useTaskPolling'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
 import { useLogStore } from '@/stores/logStore'
@@ -12,344 +13,31 @@ import type { LogLevel } from '@/stores/logStore'
 import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
 import type { JobType, Task, TaskStatus } from '@/stores/taskStore'
-import type { TaskStatusResponse } from '@/api/types'
 import { taskExecutionView } from '@/domain/taskExecutionView'
 import type { TaskExecutionView } from '@/domain/taskExecutionView'
-
-const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; bg: string; color: string }> = {
-  running: { label: '运行中', dot: 'var(--accent)', bg: 'var(--accent-soft)', color: 'var(--accent)' },
-  pending: { label: '排队中', dot: 'var(--muted)', bg: 'var(--panel-muted)', color: 'var(--muted-strong)' },
-  completed: { label: '已完成', dot: 'var(--success)', bg: 'var(--success-soft)', color: 'var(--success)' },
-  failed: { label: '失败', dot: 'var(--error)', bg: 'var(--error-soft)', color: 'var(--error)' },
-  cancelled: { label: '已取消', dot: 'var(--muted)', bg: 'var(--panel-muted)', color: 'var(--muted-strong)' },
-  skipped: { label: '已跳过', dot: 'var(--warning)', bg: 'var(--warning-soft)', color: 'var(--warning)' },
-}
-
-const SURFACE_STYLE: CSSProperties = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-card)',
-  boxShadow: 'var(--shadow-panel)',
-}
-
-const TASK_CENTER_LAYOUT_STYLES = `
-  .task-center-page {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .task-center-header {
-    padding: 22px 28px 18px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-    display: flex;
-    gap: 18px;
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .task-center-header-copy {
-    flex: 1 1 420px;
-    min-width: 0;
-  }
-
-  .task-center-toolbar {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-left: auto;
-  }
-
-  .task-center-toolbar-button {
-    white-space: nowrap;
-  }
-
-  .task-center-stats {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
-    gap: 12px;
-  }
-
-  .task-center-content {
-    display: grid;
-    grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
-    gap: 20px;
-    flex: 1;
-    min-height: 0;
-    padding: 20px;
-  }
-
-  .task-center-list-panel {
-    min-width: 0;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .task-center-task-list {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    padding: 14px;
-    display: grid;
-    gap: 12px;
-    align-content: start;
-    grid-auto-rows: max-content;
-  }
-
-  .task-center-list-panel > :not(.task-center-task-list) {
-    flex: 0 0 auto;
-  }
-
-  .task-center-task-card {
-    align-self: start;
-    min-height: 122px;
-  }
-
-  .task-center-task-summary {
-    display: -webkit-box;
-    overflow: hidden;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-height: 1.45;
-  }
-
-  .task-center-detail {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    min-width: 0;
-    min-height: 0;
-    overflow: auto;
-    padding-right: 4px;
-  }
-
-  .task-center-detail > * {
-    flex: 0 0 auto;
-  }
-
-  .task-center-detail-pair {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-    gap: 16px;
-  }
-
-  .task-center-break-anywhere {
-    overflow-wrap: anywhere;
-    word-break: break-word;
-  }
-
-  @media (max-width: 1100px) {
-    .task-center-page {
-      overflow: auto;
-    }
-
-    .task-center-content {
-      grid-template-columns: minmax(0, 1fr);
-      flex: none;
-      min-height: auto;
-      padding: 16px;
-    }
-
-    .task-center-list-panel {
-      min-height: 320px;
-      max-height: min(48vh, 520px);
-    }
-
-    .task-center-detail {
-      overflow: visible;
-      padding-right: 0;
-    }
-  }
-
-  @media (max-width: 680px) {
-    .task-center-header {
-      padding: 18px 16px 14px;
-      gap: 14px;
-    }
-
-    .task-center-header-copy {
-      flex-basis: 100%;
-    }
-
-    .task-center-toolbar {
-      width: 100%;
-      margin-left: 0;
-    }
-
-    .task-center-toolbar > button {
-      flex: 1 1 150px;
-    }
-
-    .task-center-stats {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-    }
-
-    .task-center-stats > div {
-      padding: 11px 12px !important;
-    }
-
-    .task-center-content {
-      gap: 14px;
-      padding: 12px;
-    }
-
-    .task-center-list-panel {
-      min-height: 300px;
-      max-height: 420px;
-    }
-  }
-`
-
-type FilterValue = 'all' | TaskStatus
+import { taskBatchMembership, taskPresentationEvents } from '@/domain/taskCenterPresentation'
+import './TaskCenter.css'
 
 type TaskCategory = 'processing' | 'models' | 'tools'
-const TASK_CATEGORIES: { id: TaskCategory; label: string; description: string }[] = [
-  { id: 'processing', label: 'ASMR 处理', description: '翻译、对齐、配音与混音流水线' },
-  { id: 'models', label: '模型下载', description: '模型下载、安装与依赖准备' },
-  { id: 'tools', label: '工具任务', description: '音频、字幕、音色工具及其他任务' },
+type FilterValue = TaskStatus | 'all'
+const TASK_CATEGORIES: Array<{ id: TaskCategory; label: string }> = [
+  { id: 'processing', label: 'ASMR 处理' }, { id: 'models', label: '模型下载' }, { id: 'tools', label: '工具任务' },
 ]
-
+const FILTER_TABS: Array<{ value: FilterValue; label: string }> = [
+  { value: 'all', label: '全部' }, { value: 'running', label: '运行中' }, { value: 'pending', label: '待处理' },
+  { value: 'failed', label: '失败' }, { value: 'completed', label: '已完成' },
+  { value: 'cancelled', label: '已取消' }, { value: 'skipped', label: '已跳过' },
+]
 function taskCategory(jobType: JobType): TaskCategory {
-  if (jobType === 'pipeline') return 'processing'
-  if (jobType === 'model-install') return 'models'
-  return 'tools'
+  return jobType === 'pipeline' ? 'processing' : jobType === 'model-install' ? 'models' : 'tools'
+}
+async function copyToClipboard(text: string) {
+  try { await navigator.clipboard.writeText(text) } catch { window.prompt('复制路径', text) }
 }
 
-const FILTER_TABS: { value: FilterValue; label: string }[] = [
-  { value: 'all', label: '全部' },
-  { value: 'running', label: '运行中' },
-  { value: 'pending', label: '排队' },
-  { value: 'completed', label: '已完成' },
-  { value: 'failed', label: '失败' },
-  { value: 'cancelled', label: '已取消' },
-  { value: 'skipped', label: '已跳过' },
-]
-
-const LOG_LEVELS: { value: LogLevel; label: string }[] = [
-  { value: 'info', label: 'INFO' },
-  { value: 'warn', label: 'WARN' },
-  { value: 'error', label: 'ERROR' },
-]
-
-function StatusPill({ status }: { status: TaskStatus }) {
-  const config = STATUS_CONFIG[status]
-
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '4px 10px',
-        borderRadius: 999,
-        fontSize: 11,
-        fontWeight: 700,
-        background: config.bg,
-        color: config.color,
-        flexShrink: 0,
-      }}
-    >
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: config.dot }} />
-      {config.label}
-    </span>
-  )
-}
-
-function ToolbarButton({
-  children,
-  onClick,
-  disabled,
-  pressed,
-  variant = 'secondary',
-}: {
-  children: ReactNode
-  onClick?: () => void
-  disabled?: boolean
-  pressed?: boolean
-  variant?: 'primary' | 'secondary' | 'ghost'
-}) {
-  const variants: Record<string, CSSProperties> = {
-    primary: {
-      background: 'var(--accent)',
-      color: 'white',
-      border: '1px solid var(--accent)',
-      boxShadow: 'var(--shadow-float)',
-    },
-    secondary: {
-      background: 'var(--surface)',
-      color: 'var(--fg)',
-      border: '1px solid var(--border)',
-    },
-    ghost: {
-      background: 'transparent',
-      color: 'var(--muted)',
-      border: '1px solid transparent',
-    },
-  }
-
-  return (
-    <button
-      className="task-center-toolbar-button"
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={pressed}
-      style={{
-        minHeight: 36,
-        padding: '0 14px',
-        borderRadius: 'var(--radius-button)',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        fontSize: 13,
-        fontWeight: 600,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.45 : 1,
-        ...variants[variant],
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
-function formatRelativeTime(timestamp: number) {
-  const delta = Math.max(0, Date.now() - timestamp)
-  const minutes = Math.floor(delta / 60000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes} 分钟前`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} 小时前`
-  return `${Math.floor(hours / 24)} 天前`
-}
-
-function formatDateTime(timestamp?: number) {
-  if (!timestamp) return '—'
-  return new Date(timestamp).toLocaleString()
-}
-
-function formatDuration(durationMs?: number) {
-  if (!durationMs || durationMs <= 0) return '—'
-  const totalSeconds = Math.floor(durationMs / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  if (minutes === 0) return `${seconds}s`
-  return `${minutes}m ${seconds}s`
-}
-
-function shouldSuggestProviderVerification(task: Task): boolean {
-  if (task.status !== 'failed') return false
-  const action = typeof task.error?.action === 'string' ? task.error.action : ''
-  const code = typeof task.error?.code === 'string' ? task.error.code : ''
-  return action === 'settings' || code === 'PROVIDER_EXECUTION_FAILED'
+function TaskStatusPolling({ enabled }: { enabled: boolean }) {
+  useTaskPolling(3000, enabled)
+  return null
 }
 
 function stageLabel(task: Task, execution?: TaskExecutionView) {
@@ -391,148 +79,88 @@ function jobTypeLabel(jobType: JobType) {
   return labels[jobType] ?? jobType
 }
 
-function paramLabel(key: string) {
-  const labels: Record<string, string> = {
-    input_path: '输入文件',
-    source_lang: '源语言',
-    target_lang: '目标语言',
-    use_vocal_separator: '人声分离',
-    tts_engine: 'TTS 引擎',
-    tts_voice: 'TTS 声线',
-    vocal_model: '分离模型',
-    asr_model: 'ASR 模型',
-    translate_provider: '翻译提供方',
-    tts_speed: '语速',
-    original_volume: '原声保留',
-    tts_volume_ratio: 'TTS 音量占比',
-    tts_delay: 'TTS 延迟',
-    skip_existing: '跳过已有输出',
-    voice_profile_id: '音色档案',
-  }
-
-  return labels[key] ?? key
-}
-
-function formatParamValue(value: unknown) {
-  if (typeof value === 'boolean') return value ? '开启' : '关闭'
-  if (typeof value === 'number') return Number.isInteger(value) ? `${value}` : value.toFixed(2)
-  if (value === null || value === undefined || value === '') return '—'
-  if (typeof value === 'object') return JSON.stringify(value, null, 2)
-  return String(value)
-}
-
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-  } catch {
-    window.prompt('复制路径', text)
-  }
-}
-
-function PipelineTimeline({ execution }: { execution: TaskExecutionView }) {
-  return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      {!execution.steps.length && <div style={{ fontSize: 12, color: 'var(--muted)' }}>执行配置不可用，仅显示后端当前阶段。</div>}
-      {execution.steps.map((stage, index) => {
-        const completed = stage.state === 'completed'
-        const active = stage.state === 'running'
-        const failed = stage.state === 'failed'
-
-        return (
-          <div key={stage.id} style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr)', gap: 12 }}>
-            <div
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: 999,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 12,
-                fontWeight: 700,
-                border: '1px solid var(--border)',
-                background: completed ? 'var(--success-soft)' : active ? 'var(--accent-soft)' : failed ? 'var(--error-soft)' : 'var(--panel-muted)',
-                color: completed ? 'var(--success)' : active ? 'var(--accent)' : failed ? 'var(--error)' : 'var(--muted)',
-              }}
-            >
-              {index + 1}
-            </div>
-            <div style={{ paddingTop: 2 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, overflowWrap: 'anywhere' }}>{stage.label}</div>
-              <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                {completed ? '已确认完成' : active ? '当前进行中' : failed ? '在这里失败' : stage.state === 'cancelled' ? '在这里取消' : stage.state === 'pending' ? '等待执行' : '状态未确认'}
-              </div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 export default function TaskCenter() {
-  const taskCenterView = useNavStore((state) => state.taskCenterView)
-  const setTaskCenterView = useNavStore((state) => state.setTaskCenterView)
-  useTaskPolling(3000, taskCenterView === 'tasks')
-
-  const tasks = useTaskStore((state) => state.tasks)
-  const selectedTaskId = useTaskStore((state) => state.selectedTaskId)
-  const selectTask = useTaskStore((state) => state.selectTask)
-  const addTask = useTaskStore((state) => state.addTask)
-  const updateTask = useTaskStore((state) => state.updateTask)
-  const selectedJobType = tasks.find((task) => task.id === selectedTaskId)?.jobType
+  const taskCenterView = useNavStore(state => state.taskCenterView)
+  const setTaskCenterView = useNavStore(state => state.setTaskCenterView)
+  const [pollGeneration, setPollGeneration] = useState(0)
+  const tasks = useTaskStore(state => state.tasks)
+  const selectedTaskId = useTaskStore(state => state.selectedTaskId)
+  const selectTask = useTaskStore(state => state.selectTask)
+  const addTask = useTaskStore(state => state.addTask)
+  const updateTask = useTaskStore(state => state.updateTask)
+  const selectedJobType = tasks.find(task => task.id === selectedTaskId)?.jobType
   const [category, setCategory] = useState<TaskCategory>(() => selectedJobType ? taskCategory(selectedJobType) : 'processing')
   const [categoryFilters, setCategoryFilters] = useState<Record<TaskCategory, FilterValue>>({ processing: 'all', models: 'all', tools: 'all' })
   const filter = categoryFilters[category]
-  const setFilter = (value: FilterValue) => setCategoryFilters((current) => ({ ...current, [category]: value }))
+  const setFilter = (value: FilterValue) => setCategoryFilters(current => ({ ...current, [category]: value }))
+  const [query, setQuery] = useState('')
+  const [collapsedBatches, setCollapsedBatches] = useState<string[]>([])
+  const [mobileDetail, setMobileDetail] = useState(false)
+  const [batches, setBatches] = useState<BatchRunResponse[]>([])
+  const [batchLoaded, setBatchLoaded] = useState(false)
+  const [batchError, setBatchError] = useState('')
 
   useLayoutEffect(() => {
     if (!selectedJobType) return
     const target = taskCategory(selectedJobType)
-    const selected = useTaskStore.getState().tasks.find((task) => task.id === selectedTaskId)
     setCategory(target)
-    // Reveal an explicit selection before paint; polling must not reset browsing filters.
-    setCategoryFilters((current) =>
-      selected && current[target] !== 'all' && current[target] !== selected.status
-        ? { ...current, [target]: 'all' }
-        : current,
-    )
+    setMobileDetail(true)
   }, [selectedJobType, selectedTaskId])
 
-  const logs = useLogStore((state) => state.logs)
+  const logs = useLogStore(state => state.logs)
   const executionViews = useMemo(() => new Map(tasks.filter(task => task.jobType === 'pipeline')
     .map(task => [task.id, taskExecutionView(task, logs)])), [tasks, logs])
-  const levelFilter = useLogStore((state) => state.levelFilter)
-  const setLevelFilter = useLogStore((state) => state.setLevelFilter)
-  const clearLogs = useLogStore((state) => state.clearLogs)
-  const addLog = useLogStore((state) => state.addLog)
-  const addRuntimeEvent = useLogStore((state) => state.addRuntimeEvent)
-
-  const showAudio = useAudioPlayerStore((state) => state.show)
-
-  const categoryTasks = tasks.filter((task) => taskCategory(task.jobType) === category)
-  const filteredTasks = filter === 'all' ? categoryTasks : categoryTasks.filter((task) => task.status === filter)
-  const selectedTask = filteredTasks.find((task) => task.id === selectedTaskId) ?? filteredTasks[filteredTasks.length - 1] ?? null
+  const levelFilter = useLogStore(state => state.levelFilter)
+  const setLevelFilter = useLogStore(state => state.setLevelFilter)
+  const clearLogs = useLogStore(state => state.clearLogs)
+  const addLog = useLogStore(state => state.addLog)
+  const addRuntimeEvent = useLogStore(state => state.addRuntimeEvent)
+  const showAudio = useAudioPlayerStore(state => state.show)
+  const membership = useMemo(() => taskBatchMembership(tasks, batches), [tasks, batches])
+  const categoryTasks = tasks.filter(task => taskCategory(task.jobType) === category)
+    .slice().sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id))
+  const search = query.trim().toLocaleLowerCase()
+  const filteredTasks = categoryTasks.filter(task => (filter === 'all' || task.status === filter)
+    && (!search || [task.sourceName, task.id, task.serverTaskId, membership.get(task.id)?.name,
+      membership.get(task.id)?.batch_id].join(' ').toLocaleLowerCase().includes(search)))
+  // Browsing filters never silently switch the task whose details/actions are shown.
+  const selectedTask = categoryTasks.find(task => task.id === selectedTaskId)
+    ?? (selectedTaskId ? null : filteredTasks[0] ?? null)
   const selectedExecution = selectedTask ? executionViews.get(selectedTask.id) : undefined
-  const categoryInfo = TASK_CATEGORIES.find((item) => item.id === category)!
+  const visibleIds = new Set(filteredTasks.map(task => task.id))
+  const runningTasks = categoryTasks.filter(task => task.status === 'running')
+  const retryableFailedTasks = categoryTasks.filter(task => task.status === 'failed' && !task.historical)
+  const taskLogs = selectedTask ? taskPresentationEvents(selectedTask, logs) : []
+  const groupedBatches = batches.map(batch => ({ batch, children: filteredTasks.filter(task => membership.get(task.id)?.batch_id === batch.batch_id) }))
+    .filter(group => group.children.length)
+  const standalone = filteredTasks.filter(task => !membership.has(task.id))
 
-  const runningTasks = categoryTasks.filter((task) => task.status === 'running')
-  const pendingTasks = categoryTasks.filter((task) => task.status === 'pending')
-  const failedTasks = categoryTasks.filter((task) => task.status === 'failed')
-  const retryableFailedTasks = failedTasks.filter((task) => !task.historical)
-  const completedTasks = categoryTasks.filter((task) => task.status === 'completed')
-
-  const taskLogs = selectedTask ? logs.filter((entry) => entry.taskId === selectedTask.id) : logs
-  const filteredLogs = taskLogs.filter((entry) => levelFilter.includes(entry.level)).slice(-120).reverse()
-
-  const artifacts = selectedTask?.artifacts?.items ?? []
+  useEffect(() => {
+    if (taskCenterView !== 'tasks') return
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async () => {
+      try {
+        const response = await batchesApi.list()
+        if (disposed) return
+        setBatches(response.batches.slice().sort((a, b) => b.created_at.localeCompare(a.created_at)))
+        setBatchLoaded(true)
+        setBatchError('')
+      } catch {
+        if (!disposed) setBatchError('批次关联暂时无法刷新')
+      }
+      if (!disposed) timer = setTimeout(() => { void poll() }, 5000)
+    }
+    void poll()
+    return () => { disposed = true; if (timer) clearTimeout(timer) }
+  }, [taskCenterView])
 
   useEffect(() => {
     if (taskCenterView !== 'tasks') return
     if (!selectedTask?.serverTaskId) return
     return tasksApi.subscribeEvents(
       selectedTask.serverTaskId,
-      (event) => addRuntimeEvent(event, selectedTask.id),
+      (event) => { if (event.task_id === selectedTask.serverTaskId) addRuntimeEvent(event, selectedTask.id) },
     )
   }, [addRuntimeEvent, selectedTask?.id, selectedTask?.serverTaskId, taskCenterView])
 
@@ -545,6 +173,7 @@ export default function TaskCenter() {
     tasksApi.spec(selectedTask.serverTaskId)
       .then((spec) => {
         if (cancelled) return
+        if (spec.task_id !== selectedTask.serverTaskId) throw new Error('任务参数归属不匹配')
         updateTask(selectedTask.id, {
           params: spec.execution_profile,
           retryOfTaskId: spec.retry_of_task_id ?? undefined,
@@ -575,10 +204,11 @@ export default function TaskCenter() {
     tasksApi.result(selectedTask.serverTaskId)
       .then((response) => {
         if (cancelled) return
+        if (response.task_id !== selectedTask.serverTaskId) throw new Error('任务产物归属不匹配')
         updateTask(selectedTask.id, {
           artifacts: {
             primaryArtifactId: response.primary_artifact_id ?? undefined,
-            items: response.artifacts.map((artifact) => ({
+            items: response.artifacts.filter(artifact => artifact.task_id === selectedTask.serverTaskId).map((artifact) => ({
               artifactId: artifact.artifact_id,
               type: artifact.type,
               path: artifact.path,
@@ -724,459 +354,62 @@ export default function TaskCenter() {
     showAudio(apiUrl(`/artifacts/${encodeURIComponent(artifactId)}/file`), title)
   }
 
-  return (
-    <div className="task-center-page">
-      <style>{TASK_CENTER_LAYOUT_STYLES}</style>
-      <header className="task-center-header">
-        <div className="task-center-header-copy">
-          <h1 style={{ marginTop: 8, fontSize: 26, lineHeight: 1.15, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
-            任务中心
-          </h1>
-        </div>
+  const selectRow = (taskId: string) => { selectTask(taskId); setMobileDetail(true) }
+  const row = (task: Task, child = false) => <button type="button" key={task.id}
+    className={`tc-task-row ${child ? 'is-child' : ''} ${selectedTask?.id === task.id ? 'is-selected' : ''}`}
+    data-task-id={task.serverTaskId || task.id} aria-label={`查看任务 ${task.sourceName}`}
+    aria-pressed={selectedTask?.id === task.id} onClick={() => selectRow(task.id)}>
+    <span className="tc-row-title"><span className="tc-file-symbol"><TaskSymbol name="file" /></span><span>
+      <strong>{task.sourceName}</strong><small>{task.serverTaskId || task.id}</small>
+      {task.jobType !== 'pipeline' && <span className="tc-row-progress">{stageLabel(task)} · {task.progress}%</span>}
+    </span></span><TaskStatusLabel state={task.status} />
+    <span className="tc-time"><time>{task.startedAt ? new Date(task.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '尚未开始'}</time>
+      <small>{task.startedAt ? new Date(task.startedAt).toLocaleDateString([], { month: '2-digit', day: '2-digit' }) : '—'}</small></span>
+  </button>
 
-        <div className="task-center-toolbar">
-          <ToolbarButton pressed={taskCenterView === 'tasks'} variant={taskCenterView === 'tasks' ? 'primary' : 'secondary'} onClick={() => setTaskCenterView('tasks')}>
-            单项任务
-          </ToolbarButton>
-          <ToolbarButton pressed={taskCenterView === 'batches'} variant={taskCenterView === 'batches' ? 'primary' : 'secondary'} onClick={() => setTaskCenterView('batches')}>
-            批次
-          </ToolbarButton>
-          {taskCenterView === 'tasks' ? (
-            <>
-              <ToolbarButton variant="secondary" onClick={handleRetryFailedTasks} disabled={retryableFailedTasks.length === 0}>
-                重试本类失败任务
-              </ToolbarButton>
-              <ToolbarButton variant="secondary" onClick={handleCancelRunningTasks} disabled={runningTasks.length === 0}>
-                取消本类运行任务
-              </ToolbarButton>
-            </>
-          ) : null}
-        </div>
-
-        {taskCenterView === 'tasks' ? (
-          <nav aria-label="任务分类" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, width: '100%' }}>
-            {TASK_CATEGORIES.map((item) => {
-              const count = tasks.filter((task) => taskCategory(task.jobType) === item.id).length
-              return (
-                <button key={item.id} type="button" aria-pressed={category === item.id}
-                  onClick={() => { selectTask(null); setCategory(item.id) }}
-                  style={{ flex: '1 1 180px', textAlign: 'left', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: `1px solid ${category === item.id ? 'var(--accent)' : 'var(--border)'}`, background: category === item.id ? 'var(--accent-soft)' : 'var(--surface)', color: 'var(--fg)', cursor: 'pointer' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>{item.label} <span style={{ marginLeft: 6, color: 'var(--muted)', fontWeight: 400 }}>{count}</span></div>
-                  <div style={{ fontSize: 12, marginTop: 4, color: 'var(--muted)' }}>{item.description}</div>
-                </button>
-              )
-            })}
-          </nav>
-        ) : null}
-
-        {taskCenterView === 'tasks' ? (
-          <div className="task-center-stats">
-            {[
-              { label: '运行中', value: runningTasks.length, background: 'var(--accent-soft)', color: 'var(--accent)' },
-              { label: '排队中', value: pendingTasks.length, background: 'var(--panel-muted)', color: 'var(--muted-strong)' },
-              { label: '失败', value: failedTasks.length, background: 'var(--error-soft)', color: 'var(--error)' },
-              { label: '已完成', value: completedTasks.length, background: 'var(--success-soft)', color: 'var(--success)' },
-            ].map((item) => (
-              <div key={item.label} style={{ ...SURFACE_STYLE, padding: '14px 16px' }}>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.label}</div>
-                <div style={{ marginTop: 6, fontSize: 22, fontWeight: 700, color: item.color }}>{item.value}</div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </header>
-
-      {taskCenterView === 'batches' ? (
-        <BatchRunsPanel />
-      ) : (
-      <div className="task-center-content">
-        <section className="task-center-list-panel" style={SURFACE_STYLE}>
-          <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{categoryInfo.label}</div>
-            <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-              状态统计及批量操作仅针对当前分类。
-            </div>
-          </div>
-
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {FILTER_TABS.map((tab) => {
-              const count = tab.value === 'all'
-                ? categoryTasks.length
-                : categoryTasks.filter((task) => task.status === tab.value).length
-
-              return (
-                <button
-                  key={tab.value}
-                  type="button"
-                  onClick={() => setFilter(tab.value)}
-                  style={{
-                    padding: '7px 10px',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    background: filter === tab.value ? 'var(--accent-soft)' : 'var(--surface)',
-                    color: filter === tab.value ? 'var(--accent)' : 'var(--muted-strong)',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {tab.label} <span style={{ opacity: 0.72 }}>{count}</span>
-                </button>
-              )
-            })}
-          </div>
-
-          <div className="task-center-task-list">
-            {filteredTasks.length === 0 ? (
-              <div style={{ display: 'grid', placeItems: 'center', minHeight: 240, color: 'var(--muted)' }}>
-                当前筛选条件下没有{categoryInfo.label}任务。
-              </div>
-            ) : (
-              filteredTasks
-                .slice()
-                .reverse()
-                .map((task) => {
-                  const isSelected = selectedTask?.id === task.id
-                  const execution = executionViews.get(task.id)
-                  const primaryOutput = task.artifacts?.items.find(
-                    (artifact) => artifact.artifactId === task.artifacts?.primaryArtifactId,
-                  )?.path
-
-                  return (
-                    <button
-                      key={task.id}
-                      type="button"
-                      className="task-center-task-card"
-                      onClick={() => selectTask(task.id)}
-                      style={{
-                        width: '100%',
-                        minWidth: 0,
-                        textAlign: 'left',
-                        padding: '14px 14px 12px',
-                        borderRadius: 'var(--radius-card)',
-                        border: isSelected ? '1px solid var(--accent)' : '1px solid var(--border)',
-                        background: isSelected ? 'var(--accent-soft)' : 'var(--surface)',
-                        cursor: 'pointer',
-                        boxShadow: isSelected ? 'var(--shadow-float)' : 'none',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {task.sourceName}
-                          </div>
-                          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                            {jobTypeLabel(task.jobType)} · {formatRelativeTime(task.createdAt)}
-                          </div>
-                        </div>
-                        <StatusPill status={task.status} />
-                      </div>
-
-                      <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                        <div style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'anywhere' }}>当前阶段：{stageLabel(task, execution)}</div>
-                        {execution ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>{execution.summary}</div>
-                          : <div style={{ height: 6, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
-                          <div
-                            style={{
-                              width: `${Math.max(0, Math.min(100, task.progress))}%`,
-                              height: '100%',
-                              background: task.status === 'failed' ? 'var(--error)' : task.status === 'completed' ? 'var(--success)' : 'var(--accent)',
-                              borderRadius: 999,
-                            }}
-                          />
-                        </div>}
-                        <div className="task-center-task-summary task-center-break-anywhere" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          {task.message || '等待阶段消息'}
-                        </div>
-                        {primaryOutput ? (
-                          <div style={{ fontSize: 12, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            主要产物：{primaryOutput}
-                          </div>
-                        ) : null}
-                      </div>
-                    </button>
-                  )
-                })
-            )}
-          </div>
-        </section>
-
-        <section className="task-center-detail">
-          {!selectedTask ? (
-            <div style={{ ...SURFACE_STYLE, minHeight: 360, display: 'grid', placeItems: 'center', color: 'var(--muted)' }}>
-              选择一个任务查看阶段、产物和日志。
-            </div>
-          ) : (
-            <>
-              <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                  <div style={{ minWidth: 0, flex: '1 1 260px' }}>
-                    <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--font-display)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {selectedTask.sourceName}
-                    </div>
-                    <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      <StatusPill status={selectedTask.status} />
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{jobTypeLabel(selectedTask.jobType)}</span>
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>创建于 {formatDateTime(selectedTask.createdAt)}</span>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <ToolbarButton
-                      variant="secondary"
-                      onClick={() => handleRetry(selectedTask.id)}
-                      disabled={selectedTask.status !== 'failed' || selectedTask.historical}
-                    >
-                      重试
-                    </ToolbarButton>
-                    <ToolbarButton
-                      variant="secondary"
-                      onClick={() => handleCancel(selectedTask.id)}
-                      disabled={selectedTask.status !== 'running'}
-                    >
-                      取消
-                    </ToolbarButton>
-                  </div>
-                </div>
-
-                {selectedTask.serverTaskId && (selectedTask.status === 'failed' || selectedTask.status === 'cancelled') ? (
-                  <TaskRecoveryAction
-                    key={selectedTask.serverTaskId}
-                    taskId={selectedTask.serverTaskId}
-                    onResumed={(response) => handleResumed(selectedTask, response)}
-                  />
-                ) : null}
-
-                {selectedTask.status === 'failed' && selectedTask.errorMessage ? (
-                  <div role="alert" aria-label="任务错误" style={{ marginTop: 16, padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--error-soft)', border: '1px solid color-mix(in oklch, var(--error) 24%, transparent)' }}>
-                    <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 12, color: 'var(--muted-strong)' }}>
-                      <span>任务 {selectedTask.serverTaskId ?? selectedTask.id}</span>
-                      <span>{selectedTask.finishedAt
-                        ? `失败于 ${formatDateTime(selectedTask.finishedAt)}`
-                        : `创建于 ${formatDateTime(selectedTask.createdAt)} · 失败时间未记录`}</span>
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--error)' }}>
-                      {typeof selectedTask.error?.code === 'string' ? selectedTask.error.code : 'TASK_FAILED'}
-                      {' · '}{selectedTask.stage || '执行'}
-                    </div>
-                    <div style={{ marginTop: 6, fontSize: 13, color: 'var(--fg)', wordBreak: 'break-word' }}>
-                      {selectedTask.errorMessage}
-                    </div>
-                    {selectedTask.detail && selectedTask.detail !== selectedTask.errorMessage ? (
-                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)', wordBreak: 'break-word' }}>
-                        {selectedTask.detail}
-                      </div>
-                    ) : null}
-                    {shouldSuggestProviderVerification(selectedTask) ? (
-                      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 12, color: 'var(--muted)', flex: '1 1 280px' }}>
-                          任务已经实际尝试执行。请主动验证服务连接或检查配置，然后再重试。
-                        </span>
-                        <ToolbarButton variant="secondary" onClick={() => useNavStore.getState().openEngines('external')}>
-                          配置外部服务
-                        </ToolbarButton>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 12 }}>
-                  {[
-                    { label: '当前阶段', value: stageLabel(selectedTask, selectedExecution) },
-                    { label: '任务 ID', value: selectedTask.serverTaskId || selectedTask.id },
-                    ...(selectedTask.retryOfTaskId
-                      ? [{ label: '来源任务', value: selectedTask.retryOfTaskId }]
-                      : []),
-                    { label: '耗时', value: formatDuration((selectedTask.finishedAt ?? Date.now()) - (selectedTask.startedAt ?? selectedTask.createdAt)) },
-                    { label: '源文件', value: selectedTask.sourcePath },
-                  ].map((item) => (
-                    <div key={item.label} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{item.label}</div>
-                      <div style={{ marginTop: 6, fontSize: 13, fontWeight: 600, color: 'var(--fg)', wordBreak: 'break-all' }}>{item.value}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="task-center-detail-pair">
-                <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>{selectedExecution ? '节点状态' : '执行进度'}</div>
-                      <div className="task-center-break-anywhere" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>{selectedTask.message || '等待状态回传'}</div>
-                    </div>
-                    <div style={{ fontSize: selectedExecution ? 13 : 28, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
-                      {selectedExecution ? selectedExecution.summary : `${Math.max(0, Math.min(100, selectedTask.progress))}%`}
-                    </div>
-                  </div>
-
-                  {!selectedExecution && <div style={{ marginTop: 16, height: 8, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
-                    <div
-                      style={{
-                        width: `${Math.max(0, Math.min(100, selectedTask.progress))}%`,
-                        height: '100%',
-                        background: selectedTask.status === 'failed' ? 'var(--error)' : selectedTask.status === 'completed' ? 'var(--success)' : 'var(--accent)',
-                      }}
-                    />
-                  </div>}
-
-                  {selectedExecution ? (
-                    <div style={{ marginTop: 18 }}>
-                      <PipelineTimeline execution={selectedExecution} />
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: 18, padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>后端阶段</div>
-                      <div style={{ marginTop: 6, fontSize: 13, fontWeight: 600 }}>
-                        {selectedTask.stage || (selectedTask.status === 'pending' ? '等待执行' : '执行')}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>产物入口</div>
-                  <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                    完成后优先看主产物，其余文件作为排障或复核材料。
-                  </div>
-
-                  {artifacts.length === 0 ? (
-                    <div style={{ marginTop: 18, fontSize: 13, color: 'var(--muted)' }}>后端还没有返回产物文件。</div>
-                  ) : (
-                    <div style={{ marginTop: 18, display: 'grid', gap: 12 }}>
-                      {artifacts.map((artifact) => (
-                        <div key={artifact.artifactId} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <div style={{ minWidth: 0, flex: '1 1 240px' }}>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--fg)' }}>
-                                {artifact.primary ? '主产物' : artifact.label || artifact.type}
-                              </div>
-                              <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)', wordBreak: 'break-all' }}>
-                                {artifact.path}
-                              </div>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                              {artifact.preview && artifact.type.startsWith('audio.') ? (
-                                <ToolbarButton variant="secondary" onClick={() => handlePlayArtifact(artifact.artifactId, artifact.label || artifact.type)}>
-                                  播放
-                                </ToolbarButton>
-                              ) : null}
-                              <ToolbarButton variant="ghost" onClick={() => void copyToClipboard(artifact.path)}>
-                                复制路径
-                              </ToolbarButton>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="task-center-detail-pair">
-                <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>参数快照</div>
-                  <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                    失败排查先看这里，而不是先翻日志。
-                  </div>
-
-                  <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 12 }}>
-                    {Object.entries(selectedTask.params).map(([key, value]) => (
-                      <div key={key} style={{ padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{paramLabel(key)}</div>
-                        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--fg)', wordBreak: 'break-all' }}>
-                          {formatParamValue(value)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ ...SURFACE_STYLE, padding: '18px 20px', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>日志</div>
-                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                        日志只作为详情区的排障工具。
-                      </div>
-                    </div>
-                    <ToolbarButton variant="ghost" onClick={clearLogs} disabled={logs.length === 0}>
-                      清空日志
-                    </ToolbarButton>
-                  </div>
-
-                  <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {LOG_LEVELS.map((level) => (
-                      <button
-                        key={level.value}
-                        type="button"
-                        onClick={() => toggleLogLevel(level.value)}
-                        style={{
-                          padding: '6px 10px',
-                          borderRadius: 'var(--radius-sm)',
-                          border: '1px solid var(--border)',
-                          background: levelFilter.includes(level.value) ? 'var(--accent-soft)' : 'var(--surface)',
-                          color: levelFilter.includes(level.value) ? 'var(--accent)' : 'var(--muted-strong)',
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {level.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div
-                    style={{
-                      marginTop: 14,
-                      flex: 1,
-                      minHeight: 220,
-                      overflow: 'auto',
-                      display: 'grid',
-                      gap: 10,
-                    }}
-                  >
-                    {filteredLogs.length === 0 ? (
-                      <div style={{ display: 'grid', placeItems: 'center', minHeight: 180, color: 'var(--muted)' }}>
-                        当前任务暂无匹配日志。
-                      </div>
-                    ) : (
-                      filteredLogs.map((entry) => (
-                        <div
-                          key={entry.id}
-                          style={{
-                            padding: '12px 14px',
-                            borderRadius: 'var(--radius-sm)',
-                            background: 'var(--panel-muted)',
-                            borderLeft: `3px solid ${
-                              entry.level === 'error'
-                                ? 'var(--error)'
-                                : entry.level === 'warn'
-                                  ? 'var(--warning)'
-                                  : 'var(--accent)'
-                            }`,
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 11, color: 'var(--muted)' }}>
-                            <span>{entry.level.toUpperCase()}</span>
-                            <span>{formatDateTime(entry.timestamp)}</span>
-                          </div>
-                          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--fg)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                            {entry.content}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </section>
+  return <div className={`task-center-page ${mobileDetail ? 'detail-open' : ''}`}>
+    {/* Refresh restarts the existing serial poller; its cleanup discards older in-flight responses. */}
+    <TaskStatusPolling key={pollGeneration} enabled={taskCenterView === 'tasks'} />
+    <header className="tc-page-header"><div><h1>任务中心</h1><p>处理进度与每次运行的结果</p></div>
+      <div className="tc-page-actions"><button type="button" className="tc-action" aria-pressed={taskCenterView === 'tasks'} onClick={() => setTaskCenterView('tasks')}>任务记录</button>
+        <button type="button" className="tc-action" aria-pressed={taskCenterView === 'batches'} onClick={() => setTaskCenterView('batches')}>批次管理</button>
+        {taskCenterView === 'tasks' && <button type="button" className="tc-icon-button" aria-label="刷新任务状态" onClick={() => setPollGeneration(value => value + 1)}><TaskSymbol name="refresh" /></button>}</div>
+    </header>
+    {taskCenterView === 'batches' ? <BatchRunsPanel /> : <>
+      <div className="tc-category-toolbar"><label>任务分类 <select aria-label="任务分类" value={category} onChange={event => { selectTask(null); setCategory(event.target.value as TaskCategory); setMobileDetail(false) }}>
+        {TASK_CATEGORIES.map(item => <option key={item.id} value={item.id}>{item.label} · {tasks.filter(task => taskCategory(task.jobType) === item.id).length}</option>)}</select></label>
+        <details className="tc-bulk-actions"><summary>批量操作</summary><div><button type="button" disabled={!retryableFailedTasks.length} onClick={() => void handleRetryFailedTasks()}>重试本类失败任务 ({retryableFailedTasks.length})</button><button type="button" disabled={!runningTasks.length} onClick={() => void handleCancelRunningTasks()}>取消本类运行任务 ({runningTasks.length})</button></div></details>
       </div>
-      )}
-    </div>
-  )
+      <div className="tc-toolbar"><nav className="tc-filters" aria-label="任务状态筛选">{FILTER_TABS.map(tab => <button key={tab.value} type="button" aria-pressed={filter === tab.value} onClick={() => setFilter(tab.value)}>
+        {tab.label}<small>{tab.value === 'all' ? categoryTasks.length : categoryTasks.filter(task => task.status === tab.value).length}</small></button>)}</nav>
+        <label className="tc-search"><TaskSymbol name="search" /><input aria-label="搜索任务名称或 ID" placeholder="搜索任务名称或 ID" value={query} onChange={event => setQuery(event.target.value)} /></label></div>
+      {batchError && <p className="tc-refresh-error" role="status">{batchError}</p>}
+      <div className="tc-split"><section className="tc-list" aria-label="任务与批次列表"><div className="tc-table-heading"><span>任务 / 批次</span><span>状态</span><span>开始时间</span></div>
+        <div className="tc-list-scroll">{groupedBatches.map(({ batch, children }) => {
+          const open = !collapsedBatches.includes(batch.batch_id) || !!search
+          return <div className="tc-batch-group" key={batch.batch_id} data-batch-id={batch.batch_id}>
+            <button className="tc-batch-row" type="button" aria-label={`${open ? '收起' : '展开'}批次 ${batch.name}`} aria-expanded={open}
+              onClick={() => setCollapsedBatches(current => current.includes(batch.batch_id) ? current.filter(id => id !== batch.batch_id) : [...current, batch.batch_id])}>
+              <span className={`tc-chevron ${open ? 'open' : ''}`}><TaskSymbol name="chevron" /></span><TaskSymbol name="folder" /><span><strong>{batch.name}</strong><small>{batch.batch_id} · {batch.total_count} 组输入</small></span>
+              <span className="tc-batch-count">{batch.completed_count}/{batch.total_count} 完成{batch.failed_count > 0 && <i>含失败</i>}</span>
+            </button>{open && children.map(task => row(task, true))}
+          </div>
+        })}
+          {!!standalone.length && <div className="tc-section-label">{batchError ? '任务（批次关联暂不可用）' : batchLoaded ? '独立任务' : '任务（正在读取批次关联）'}</div>}{standalone.map(task => row(task))}
+          {!filteredTasks.length && <div className="tc-empty"><strong>没有匹配的任务</strong><p>尝试其他名称、ID 或状态。</p><button type="button" onClick={() => { setQuery(''); setFilter('all') }}>清除筛选</button></div>}
+        </div><footer className="tc-list-footer"><span>显示 {filteredTasks.length} 项任务 · {groupedBatches.length} 个批次</span><span>本地时间</span></footer>
+      </section>
+      <aside className="tc-detail" aria-label="所选任务详情" data-selected-task={selectedTask?.serverTaskId || selectedTask?.id}>
+        {selectedTask ? <TaskCenterDetails key={selectedTask.id} task={selectedTask} execution={selectedExecution} events={taskLogs}
+          batchName={membership.get(selectedTask.id)?.name || (batchError ? '批次关联未确认' : !batchLoaded ? '正在读取批次关联' : undefined)} visible={visibleIds.has(selectedTask.id)} stage={stageLabel(selectedTask, selectedExecution)} jobLabel={jobTypeLabel(selectedTask.jobType)}
+          onBack={() => setMobileDetail(false)} onPlay={handlePlayArtifact} onCopy={path => void copyToClipboard(path)} onConfigure={() => useNavStore.getState().openEngines('external')}
+          levelFilter={levelFilter} onToggleLevel={toggleLogLevel} onClearLogs={clearLogs}
+          actions={<><button type="button" className="tc-action" onClick={() => void handleRetry(selectedTask.id)} disabled={selectedTask.status !== 'failed' || selectedTask.historical}>重试</button>
+            <button type="button" className="tc-action" onClick={() => void handleCancel(selectedTask.id)} disabled={selectedTask.status !== 'running'}>取消</button></>}
+          recovery={selectedTask.serverTaskId && (selectedTask.status === 'failed' || selectedTask.status === 'cancelled')
+            ? <div className="tc-recovery"><TaskRecoveryAction key={selectedTask.serverTaskId} taskId={selectedTask.serverTaskId} onResumed={response => handleResumed(selectedTask, response)} /></div> : null}
+        /> : <div className="tc-empty">请选择一项任务</div>}
+      </aside></div>
+    </>}
+  </div>
 }
