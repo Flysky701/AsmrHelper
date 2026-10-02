@@ -468,6 +468,7 @@ class PipelineService:
         request: PipelineRequest,
         *,
         task_source: str = "pipeline-service",
+        _frozen_graph=None,
     ):
         workspace = self._workspace_service.resolve()
         inspected_assets = self._input_catalog_service.inspect_paths([request.input_path])
@@ -494,22 +495,28 @@ class PipelineService:
                 "custom_output_dir": request.output_dir or None,
             },
         )
-        execution_profile = self._resolve_execution_profile(request)
+        execution_profile = (_frozen_graph.profile if _frozen_graph is not None
+                             else self._resolve_execution_profile(request))
         from copy import deepcopy
         execution_profile = deepcopy(execution_profile)
         if execution_profile.get("version") == 2:
-            from .graph_pipeline_service import freeze_graph_speech, prepare_graph_profile
+            from .graph_pipeline_service import (freeze_graph_speech, prepare_graph_profile,
+                                                 validate_frozen_graph_submission)
             try:
-                execution_profile, _ = prepare_graph_profile(execution_profile,
-                    declared_paths=[primary_asset.absolute_path, *companion_paths])
-                execution_profile = freeze_graph_speech(execution_profile)
+                if _frozen_graph is None:
+                    execution_profile, _ = prepare_graph_profile(execution_profile,
+                        declared_paths=[primary_asset.absolute_path, *companion_paths])
+                    execution_profile = freeze_graph_speech(execution_profile)
+                else:
+                    execution_profile = validate_frozen_graph_submission(_frozen_graph)
             except (ValueError, KeyError, OSError, TypeError) as exc:
                 raise AppValidationError(str(exc)) from exc
             execution_profile["_graph_runtime"]["connections_frozen"] = True
             task_spec, _ = self._task_service.create_task_spec(
                 task_type="pipeline", task_source=task_source, session_id=session.session_id,
                 input_asset_id=primary_asset.asset_id, companion_asset_ids=companion_asset_ids,
-                execution_profile=execution_profile, graph_prepared=True)
+                execution_profile=execution_profile, graph_prepared=True,
+                frozen_graph_connections=(None if _frozen_graph is None else _frozen_graph.connections))
             self._task_service.save_pipeline_manifest(task_spec.task_id,
                 input_path=primary_asset.absolute_path, companion_paths=companion_paths,
                 output_root=session.resolved_output_dir)
@@ -559,6 +566,30 @@ class PipelineService:
             output_root=session.resolved_output_dir,
         )
         return task_spec
+
+    def create_frozen_graph_task(self, submission, *, output_dir: str, task_source: str):
+        """Admit one already prepared batch group through the ordinary task lifecycle."""
+        from .graph_pipeline_service import validate_frozen_graph_submission
+        try:
+            validate_frozen_graph_submission(submission)
+        except (ValueError, KeyError, OSError, TypeError) as exc:
+            raise AppValidationError(str(exc)) from exc
+        paths = submission.paths
+        spec = self.create_pipeline_task_spec(
+            PipelineRequest(input_path=paths[0], companion_paths=paths[1:],
+                            output_dir=output_dir, execution_profile=submission.profile),
+            task_source=task_source, _frozen_graph=submission)
+        return self._task_service.get_task(spec.task_id), spec
+
+    def validate_frozen_graph_resources(self, submission) -> None:
+        """Validate only the common selected capabilities before accepting a batch."""
+        from contextlib import nullcontext
+        from src.task_connection_context import connection_context
+        issues = self._resource_service._check_graph_profile(submission.profile,
+            node_context=lambda node: connection_context(submission.connections[node["id"]])
+            if node["kind"] == "translate" else nullcontext())
+        if issues:
+            raise AppValidationError("; ".join(f"{issue['stage']}: {issue['message']}" for issue in issues))
 
     def resume_pipeline_task(self, task_id: str):
         if self._task_service.get_task_spec(task_id).execution_profile.get("version") == 2:

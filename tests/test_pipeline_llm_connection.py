@@ -121,18 +121,25 @@ def test_batch_freezes_B_for_delayed_children_and_retry(monkeypatch, tmp_path):
     changed["connection_profiles"]["llm"][1]["api_key"] = "changed"
     monkeypatch.setattr(config, "_config", changed)
     observed = []
+    frozen_keys = {}
     def submit(request, **kwargs):
         effective = resolve_task_settings(config.to_dict(), request.execution_profile)
         observed.append(effective["api"]["openai_api_key"])
+        frozen_keys["task"] = effective["api"]["openai_api_key"]
         return Mock(task_id="task", state="failed", progress=1, message="failed", error=None)
+    def retry(task_id, **kwargs):
+        observed.append(frozen_keys[task_id])
+        return Mock(task_id="retry-task", state="failed", progress=1, message="failed", error=None)
     orchestrator.submit_task.side_effect = submit
+    orchestrator.retry_task.side_effect = retry
     live = batch._batches[record.batch_id]
     batch._launch_item_locked(live, live.items[0])
+    live.state = "completed_with_errors"
     batch.retry_failed(record.batch_id)
     batch._launch_item_locked(live, live.items[0])
     assert observed == ["secret-B", "secret-B"]
     assert config.to_dict() == changed
-    # A restarted process may restore unchanged credentials, never changed ones.
+    # Missing process-local snapshots must never fall back to current credentials.
     batch._llm_snapshots.clear()
     batch._launch_item_locked(live, live.items[0])
     assert live.items[0].state == "failed" and len(observed) == 2

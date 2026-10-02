@@ -63,6 +63,15 @@ class FakePipelineOrchestrator:
         with self._lock:
             return deepcopy(self._tasks[task_id])
 
+    def validate_retry_task(self, task_id: str):
+        assert self.get_task(task_id).state in {"failed", "cancelled"}
+
+    def retry_task(self, task_id: str, **kwargs):
+        self.validate_retry_task(task_id)
+        index = list(self._tasks).index(task_id)
+        request, task_source = self.submissions[index]
+        return self.submit_task(request, task_source=task_source)
+
     def request_cancel(self, task_id: str):
         with self._lock:
             status = self._tasks[task_id]
@@ -375,6 +384,7 @@ def test_batch_run_http_contract():
     assert alignment["provider"] == "qwen3_forced_aligner"
     assert alignment["model"] == "qwen3-forced-aligner-0.6b"
     resolved["stages"] = resolved_stages
+    assert resolved.pop("workflow") is None
     assert resolved == _profile()
     assert client.get("/api/v1/batch-runs").json()["batches"][0]["total_count"] == 1
     assert client.post("/api/v1/batch-runs/batch-api/cancel").status_code == 200

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
+import hashlib
+import json
 from pathlib import Path
+import re
 import threading
 from typing import Any
 from uuid import uuid4
@@ -49,9 +52,16 @@ class BatchRunService:
         self._threads: dict[str, threading.Thread] = {}
         self._cancel_events: dict[str, threading.Event] = {}
         self._llm_snapshots: dict[str, dict] = {}
+        self._graph_snapshots: dict[str, dict] = {}
+        self._input_identities: dict[str, dict] = {}
+        self._legacy_retry_tasks: dict[str, dict[str, str]] = {}
+        self._restored_batch_ids: set[str] = set()
+        self._retry_validation_errors: dict[str, dict[str, str]] = {}
+        self._retry_identity_cache: dict[tuple[str, str], tuple] = {}
 
         if self._state_store is not None:
             for record in self._state_store.load_batch_runs():
+                self._restored_batch_ids.add(record.batch_id)
                 self._restore_record(record)
                 self._batches[record.batch_id] = record
 
@@ -61,6 +71,7 @@ class BatchRunService:
         *,
         recursive: bool = True,
         limit: int | None = None,
+        media_kind: str = "audio",
     ) -> list[dict[str, Any]]:
         root = Path(directory).expanduser()
         if not root.exists():
@@ -68,12 +79,16 @@ class BatchRunService:
         if not root.is_dir():
             raise AppValidationError(f"input path is not a directory: {directory}")
 
+        if media_kind not in {"audio", "subtitle", "all"}:
+            raise AppValidationError("media_kind must be audio, subtitle or all")
+        extensions = (set(AUDIO_EXTENSIONS) if media_kind == "audio" else set(SUBTITLE_EXTENSIONS)
+                      if media_kind == "subtitle" else set(AUDIO_EXTENSIONS) | set(SUBTITLE_EXTENSIONS))
         iterator = root.rglob("*") if recursive else root.glob("*")
         paths = sorted(
             (
                 path.resolve()
                 for path in iterator
-                if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS
+                if path.is_file() and path.suffix.lower() in extensions
             ),
             key=lambda path: str(path).casefold(),
         )
@@ -84,7 +99,8 @@ class BatchRunService:
                 "path": str(path),
                 "name": path.name,
                 "size_bytes": path.stat().st_size,
-                "companion_paths": self._discover_companions(path),
+                "kind": "audio" if path.suffix.lower() in AUDIO_EXTENSIONS else "subtitle",
+                "companion_paths": self._discover_companions(path) if path.suffix.lower() in AUDIO_EXTENSIONS else [],
                 "companion_subtitles": self._subtitle_summaries(path),
             }
             for path in paths
@@ -94,11 +110,19 @@ class BatchRunService:
         self,
         *,
         name: str,
-        inputs: list[dict[str, Any]],
+        inputs: list[dict[str, Any]] | None = None,
         output_dir: str,
         execution_profile: dict[str, Any],
         max_parallel: int = 1,
+        groups: list[dict[str, Any]] | None = None,
+        client_request_id: str | None = None,
     ) -> BatchRunRecord:
+        if execution_profile.get("version") == 2:
+            return self._create_graph_batch(name=name, inputs=inputs or [], groups=groups or [],
+                output_dir=output_dir, execution_profile=execution_profile, max_parallel=max_parallel,
+                client_request_id=client_request_id)
+        if groups:
+            raise AppValidationError("version 1 batches do not accept graph groups")
         if not inputs:
             raise AppValidationError("batch run requires at least one input")
         if len(inputs) > 500:
@@ -198,6 +222,10 @@ class BatchRunService:
         )
 
         with self._lock:
+            from ..persistence.recovery_store import file_identity
+            self._input_identities[batch_id] = {
+                item.item_id: {path: file_identity(path) for path in [item.input_path, *item.companion_paths]}
+                for item in record.items}
             if selected_settings is not None:
                 self._llm_snapshots[batch_id] = {key: deepcopy(selected_settings.get(key, {}))
                     for key in ("api", "connection_profiles")}
@@ -207,11 +235,105 @@ class BatchRunService:
             self._start_monitor_locked(batch_id)
             return deepcopy(record)
 
+    def _create_graph_batch(self, *, name, inputs, groups, output_dir, execution_profile,
+                            max_parallel, client_request_id) -> BatchRunRecord:
+        from .graph_pipeline_service import (FrozenGraphSubmission, capture_graph_speech_connections,
+            freeze_graph_connections, freeze_graph_speech, prepare_graph_profile)
+        from src.core.orchestration.pipeline.graph_validation import validate_graph_profile
+
+        if inputs or not 1 <= len(groups) <= 500:
+            raise AppValidationError("graph batches require 1 to 500 explicit groups and no legacy inputs")
+        if not 1 <= max_parallel <= 4:
+            raise AppValidationError("max_parallel must be between 1 and 4")
+        if set(execution_profile) != {"version", "graph"}:
+            raise AppValidationError("graph batch profile accepts only version and graph")
+        if client_request_id is not None and (not isinstance(client_request_id, str)
+                or not client_request_id.strip() or len(client_request_id) > 100):
+            raise AppValidationError("client_request_id must contain 1 to 100 characters")
+        fingerprint = hashlib.sha256(json.dumps({"name": name, "groups": groups,
+            "output_dir": output_dir, "execution_profile": execution_profile,
+            "max_parallel": max_parallel}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        with self._lock:
+            existing = self._idempotent_record_locked(client_request_id, fingerprint)
+            if existing:
+                return deepcopy(existing)
+
+        prepared_groups, group_ids = [], set()
+        for group in groups:
+            group_id = group.get("group_id")
+            if not isinstance(group_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", group_id):
+                raise AppValidationError("each group needs a valid stable group_id")
+            if group_id in group_ids:
+                raise AppValidationError(f"duplicate group_id: {group_id}")
+            group_ids.add(group_id)
+            if set(group) - {"group_id", "label", "bindings"}:
+                raise AppValidationError(f"group {group_id}: unsupported fields; parameters belong to the shared graph")
+            label = group.get("label", "")
+            if not isinstance(label, str) or len(label) > 100:
+                raise AppValidationError(f"group {group_id}: label must contain at most 100 characters")
+            try:
+                profile = validate_graph_profile({**deepcopy(execution_profile), "bindings": group.get("bindings", {})})
+                profile, _ = prepare_graph_profile(profile)
+            except (ValueError, KeyError, OSError, TypeError) as exc:
+                raise AppValidationError(f"group {group_id}: {exc}") from exc
+            prepared_groups.append((group, profile))
+
+        # Resolve shared selections once, after every material group validates.
+        try:
+            shared = freeze_graph_speech(prepared_groups[0][1])
+            shared, connections = freeze_graph_connections(shared)
+            speech_connections = capture_graph_speech_connections(shared)
+        except (ValueError, KeyError, OSError, TypeError) as exc:
+            raise AppValidationError(str(exc)) from exc
+        snapshots, items = {}, []
+        for group, profile in prepared_groups:
+            profile["graph"] = deepcopy(shared["graph"])
+            profile["_graph_runtime"].update(
+                node_snapshots=deepcopy(shared["_graph_runtime"]["node_snapshots"]), connections_frozen=True)
+            frozen = FrozenGraphSubmission(profile, deepcopy(connections), deepcopy(speech_connections))
+            item_id = group["group_id"]
+            snapshots[item_id] = frozen
+            items.append(BatchRunItem(item_id=item_id, group_id=item_id, label=group.get("label", ""),
+                input_path=frozen.paths[0], companion_paths=frozen.paths[1:], bindings=deepcopy(profile["bindings"])))
+        self._pipeline_orchestrator.validate_frozen_graph_resources(next(iter(snapshots.values())))
+
+        created_at, batch_id = _now(), f"batch-{uuid4().hex[:12]}"
+        record = BatchRunRecord(batch_id=batch_id, name=name.strip() or f"Batch {created_at[:16]}",
+            state="pending", progress=0.0, created_at=created_at, updated_at=created_at, finished_at=None,
+            output_dir=str(Path(output_dir).expanduser().resolve()) if output_dir else "",
+            execution_profile={"version": 2, "graph": deepcopy(shared["graph"])},
+            max_parallel=max_parallel, items=items, client_request_id=client_request_id,
+            request_fingerprint=fingerprint)
+        with self._lock:
+            existing = self._idempotent_record_locked(client_request_id, fingerprint)
+            if existing:
+                return deepcopy(existing)
+            # Persist acceptance before publishing to memory or launching the monitor.
+            self._save_locked(record)
+            self._graph_snapshots[batch_id] = snapshots
+            self._batches[batch_id] = record
+            self._cancel_events[batch_id] = threading.Event()
+            self._annotate_retry_locked(record)
+            self._start_monitor_locked(batch_id)
+            return deepcopy(record)
+
+    def _idempotent_record_locked(self, request_id: str | None, fingerprint: str):
+        if request_id is None:
+            return None
+        for record in self._batches.values():
+            if record.client_request_id == request_id:
+                if record.request_fingerprint != fingerprint:
+                    raise AppValidationError("client_request_id already belongs to a different submission")
+                self._annotate_retry_locked(record)
+                return record
+        return None
+
     def list_batches(self) -> list[BatchRunRecord]:
         with self._lock:
             for record in self._batches.values():
                 if self._refresh_record_locked(record):
                     self._save_locked(record)
+                self._annotate_retry_locked(record)
             return sorted(
                 (deepcopy(record) for record in self._batches.values()),
                 key=lambda record: (record.created_at, record.batch_id),
@@ -223,6 +345,7 @@ class BatchRunService:
             record = self._require_locked(batch_id)
             if self._refresh_record_locked(record):
                 self._save_locked(record)
+            self._annotate_retry_locked(record)
             return deepcopy(record)
 
     def request_cancel(self, batch_id: str) -> BatchRunRecord:
@@ -255,17 +378,40 @@ class BatchRunService:
             if not retry_items:
                 raise AppValidationError("batch run has no failed items to retry")
 
+            self._annotate_retry_locked(record)
+            if record.retry_blocked_reason:
+                raise AppValidationError(record.retry_blocked_reason)
+            # Validate every candidate before resetting any group or admitting a task.
             for item in retry_items:
+                try:
+                    if record.execution_profile.get("version") == 2:
+                        from .graph_pipeline_service import validate_frozen_graph_submission
+                        validate_frozen_graph_submission(self._graph_snapshots[batch_id][item.item_id])
+                    else:
+                        self._validate_legacy_identities(record, item)
+                        self._pipeline_orchestrator.validate_retry_task(item.current_task_id)
+                except (ValueError, KeyError, OSError, TypeError, AppValidationError) as exc:
+                    reason = f"group {item.group_id or item.item_id}: {exc}; submit a new batch"
+                    self._retry_validation_errors.setdefault(batch_id, {})[item.item_id] = reason
+                    self._annotate_retry_locked(record)
+                    self._save_locked(record)
+                    raise AppValidationError(reason) from exc
+
+            for item in retry_items:
+                if record.execution_profile.get("version") != 2:
+                    self._legacy_retry_tasks.setdefault(batch_id, {})[item.item_id] = item.current_task_id
                 item.current_task_id = None
                 item.state = "pending"
                 item.progress = 0.0
                 item.message = "queued for batch retry"
                 item.output_path = ""
                 item.error = None
+                item.retry_blocked_reason = None
             record.state = "pending"
             record.progress = self._aggregate_progress(record)
             record.updated_at = _now()
             record.finished_at = None
+            record.retry_blocked_reason = None
             self._cancel_events[batch_id] = threading.Event()
             self._save_locked(record)
             self._start_monitor_locked(batch_id)
@@ -334,33 +480,26 @@ class BatchRunService:
         item: BatchRunItem,
     ) -> None:
         try:
-            from src.task_connection_context import connection_context, resolve_task_settings
-            snapshot = self._llm_snapshots.get(record.batch_id)
-            if snapshot is None and record.execution_profile.get("llm_connection_record"):
-                from src.config import config
-                from src.recovery_connections import restore_recovery_connections
-                settings = config.to_dict()
-                restore_recovery_connections(record.execution_profile["llm_connection_record"], settings)
-                selected = resolve_task_settings(settings, record.execution_profile)
-                snapshot = {key: deepcopy(selected.get(key, {}))
-                    for key in ("api", "connection_profiles")}
-                self._llm_snapshots[record.batch_id] = snapshot
-            with connection_context(snapshot):
-                task = self._pipeline_orchestrator.submit_task(
-                    PipelineRequest(
-                        input_path=item.input_path,
-                        output_dir=record.output_dir,
-                        companion_paths=list(item.companion_paths),
-                        execution_profile=deepcopy(record.execution_profile),
-                    ),
-                    task_source=f"batch-run:{record.batch_id}",
-                )
+            if record.execution_profile.get("version") == 2:
+                from .graph_pipeline_service import validate_frozen_graph_submission
+                frozen = self._graph_snapshots.get(record.batch_id, {}).get(item.item_id)
+                validate_frozen_graph_submission(frozen)
+                task = self._pipeline_orchestrator.submit_frozen_graph(frozen,
+                    output_dir=record.output_dir, task_source=f"batch-run:{record.batch_id}")
+            elif item.item_id in self._legacy_retry_tasks.get(record.batch_id, {}):
+                self._validate_legacy_identities(record, item)
+                previous = self._legacy_retry_tasks[record.batch_id].pop(item.item_id)
+                task = self._pipeline_orchestrator.retry_task(previous, _batch_managed=True)
+            else:
+                task = self._submit_legacy_item(record, item)
             item.current_task_id = task.task_id
             item.task_ids.append(task.task_id)
             item.state = task.state
             item.progress = task.progress
             item.message = task.message
             item.error = deepcopy(task.error)
+            if task.state == "completed" and task.detail:
+                item.output_path = task.detail
         except Exception as exc:
             item.state = "failed"
             item.progress = 1.0
@@ -369,9 +508,79 @@ class BatchRunService:
                 "code": "BATCH_ITEM_SUBMISSION_FAILED",
                 "stage": "prepare",
                 "message": str(exc),
-                "retryable": True,
+                "retryable": not isinstance(exc, (ValueError, AppValidationError, OSError)),
                 "detail": str(exc),
             }
+
+    def _submit_legacy_item(self, record: BatchRunRecord, item: BatchRunItem):
+        """Retain legacy initial submissions; retries use the original child snapshot."""
+        self._validate_legacy_identities(record, item)
+        from src.task_connection_context import connection_context
+        snapshot = self._llm_snapshots.get(record.batch_id)
+        if snapshot is None and record.execution_profile.get("llm_connection_record"):
+            raise AppValidationError("original translation snapshot unavailable; submit a new batch")
+        with connection_context(snapshot):
+            return self._pipeline_orchestrator.submit_task(
+                PipelineRequest(input_path=item.input_path, output_dir=record.output_dir,
+                    companion_paths=list(item.companion_paths), execution_profile=deepcopy(record.execution_profile)),
+                task_source=f"batch-run:{record.batch_id}")
+
+    def _validate_legacy_identities(self, record: BatchRunRecord, item: BatchRunItem) -> None:
+        from ..persistence.recovery_store import file_identity
+        original = self._input_identities.get(record.batch_id, {}).get(item.item_id)
+        if not original:
+            raise AppValidationError("original material identities unavailable; submit a new batch")
+        if any(file_identity(path) != fact for path, fact in original.items()):
+            raise AppValidationError("input materials changed since submission; submit a new batch")
+
+    def _annotate_retry_locked(self, record: BatchRunRecord) -> None:
+        candidates = [item for item in record.items if item.state in {"failed", "cancelled"}]
+        active = record.state not in BATCH_TERMINAL_STATES
+        for item in record.items:
+            reason = None
+            if item.state not in {"failed", "cancelled"}:
+                reason = "only failed or cancelled groups can be retried"
+            elif active:
+                reason = "batch run is still active"
+            elif record.batch_id in self._restored_batch_ids:
+                reason = "original private snapshots unavailable after restart; submit a new batch"
+            elif (item.error or {}).get("result_unknown"):
+                reason = "remote result is unknown; verify the provider outcome before a new submission"
+            elif (item.error or {}).get("code") == "BATCH_CHILD_TASK_UNAVAILABLE":
+                reason = "original child task outcome unavailable; submit a new batch after checking its outcome"
+            elif (item.error or {}).get("retryable") is False:
+                reason = (item.error or {}).get("message") or "group cannot be retried; submit a new batch"
+            elif record.execution_profile.get("version") == 2:
+                reason = self._graph_retry_reason(record, item)
+            elif not item.current_task_id:
+                reason = "unsubmitted legacy item has no frozen child snapshot; submit a new batch"
+            reason = self._retry_validation_errors.get(record.batch_id, {}).get(item.item_id, reason)
+            item.retry_blocked_reason = reason
+        record.retry_blocked_reason = ("batch run is still active" if active else
+            next((item.retry_blocked_reason for item in candidates if item.retry_blocked_reason), None)
+            if candidates else "batch run has no failed or cancelled groups")
+
+    def _graph_retry_reason(self, record: BatchRunRecord, item: BatchRunItem) -> str | None:
+        """Keep polling cheap; retry itself always repeats full identity validation."""
+        from .graph_pipeline_service import (capture_graph_speech_connections,
+                                             validate_frozen_graph_submission)
+        frozen = self._graph_snapshots.get(record.batch_id, {}).get(item.item_id)
+        if frozen is None:
+            return "original frozen graph unavailable; submit a new batch"
+        try:
+            states = []
+            for path in frozen.paths:
+                stat = Path(path).stat()
+                states.append((path, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+            key, states = (record.batch_id, item.item_id), tuple(states)
+            if self._retry_identity_cache.get(key) != states:
+                validate_frozen_graph_submission(frozen)
+                self._retry_identity_cache[key] = states
+            elif capture_graph_speech_connections(frozen.profile) != frozen.speech_connections:
+                raise ValueError("frozen speech credentials changed; submit a new batch")
+        except (ValueError, KeyError, OSError, TypeError) as exc:
+            return f"group {item.group_id or item.item_id}: {exc}; submit a new batch"
+        return None
 
     def _cancel_items_locked(self, record: BatchRunRecord) -> bool:
         changed = False
@@ -502,6 +711,7 @@ class BatchRunService:
             raise AppValidationError(f"unknown batch id: {batch_id}") from exc
 
     def _save_locked(self, record: BatchRunRecord) -> None:
+        self._annotate_retry_locked(record)
         if self._state_store is not None:
             self._state_store.save_batch_run(record)
 
@@ -529,6 +739,8 @@ class BatchRunService:
     @staticmethod
     def _subtitle_summaries(path: Path) -> list[dict]:
         from src.core.subtitles.companions import subtitle_summary
+        if path.suffix.lower() in SUBTITLE_EXTENSIONS:
+            return [subtitle_summary(str(path))]
         return [subtitle_summary(candidate) for candidate in BatchRunService._discover_companions(path)]
 
 

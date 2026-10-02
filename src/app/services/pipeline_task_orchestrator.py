@@ -73,6 +73,16 @@ class PipelineTaskOrchestrator:
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc
 
+    def submit_frozen_graph(self, submission, *, output_dir: str, task_source: str) -> TaskStatus:
+        """Create a child only when its batch monitor grants queue capacity."""
+        task, _ = self._pipeline_service.create_frozen_graph_task(
+            submission, output_dir=output_dir, task_source=task_source)
+        self.start_task(task.task_id)
+        return task
+
+    def validate_frozen_graph_resources(self, submission) -> None:
+        self._pipeline_service.validate_frozen_graph_resources(submission)
+
     def request_cancel(self, task_id: str) -> TaskStatus:
         """Request cooperative cancellation without claiming it already stopped."""
         try:
@@ -80,8 +90,16 @@ class PipelineTaskOrchestrator:
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc
 
-    def retry_task(self, task_id: str) -> TaskStatus:
+    def retry_task(self, task_id: str, *, _batch_managed: bool = False) -> TaskStatus:
         """Create a new task from a failed/cancelled pipeline task and launch it."""
+        self.validate_retry_task(task_id)
+        retried = (self._task_service.retry_task(task_id, _batch_managed=True) if _batch_managed
+                   else self._task_service.retry_task(task_id))
+        self.start_task(retried.task_id)
+        return self._task_service.get_task(retried.task_id)
+
+    def validate_retry_task(self, task_id: str) -> None:
+        """Check batch retry candidates without creating runnable tasks."""
         previous = self._task_service.get_task(task_id)
         if previous.state not in {"failed", "cancelled"}:
             raise AppValidationError(f"cannot retry task in state: {previous.state}")
@@ -89,14 +107,15 @@ class PipelineTaskOrchestrator:
             raise AppValidationError(
                 "historical tasks cannot be retried after restart; submit a new pipeline run"
             )
+        if (previous.error or {}).get("result_unknown"):
+            raise AppValidationError("remote result is unknown; verify the provider outcome before a new submission")
         stage = self._task_service.get_task_spec(task_id).execution_profile.get("stages", {}).get("tts", {})
         if stage.get("enabled") and not stage.get("provider_options", {}).get("speech_snapshot"):
             raise AppValidationError("旧配音任务仅保留历史，请选择新配方创建任务")
-        retried = self._task_service.retry_task(task_id)
-        self.start_task(retried.task_id)
-        return self._task_service.get_task(retried.task_id)
 
     def resume_task(self, task_id: str) -> TaskStatus:
+        if self._task_service.get_task(task_id).task_source.startswith("batch-run:"):
+            raise AppValidationError("retry this group from its batch controls; batch resume is not supported")
         task = self._pipeline_service.resume_pipeline_task(task_id)
         self.start_task(task.task_id)
         return task

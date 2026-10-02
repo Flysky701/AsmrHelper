@@ -26,6 +26,8 @@ def discover_batch_inputs(
     options = {"recursive": body.recursive}
     if body.limit is not None:
         options["limit"] = body.limit
+    if body.media_kind != "audio":
+        options["media_kind"] = body.media_kind
     files = svc.discover_audio_files(body.directory, **options)
     return BatchDiscoverResponse(directory=body.directory, files=files)
 
@@ -41,6 +43,8 @@ def create_batch_run(
         output_dir=body.output.directory,
         execution_profile=body.execution_profile.model_dump(),
         max_parallel=body.max_parallel,
+        groups=[group.model_dump(exclude_none=True) for group in body.groups],
+        client_request_id=body.client_request_id,
     )
     return BatchRunResponse.from_record(record)
 

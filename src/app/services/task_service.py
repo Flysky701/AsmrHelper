@@ -53,6 +53,7 @@ class TaskService:
         dedupe_key: str = "",
         retry_of_task_id: str | None = None,
         graph_prepared: bool = False,
+        frozen_graph_connections: dict | None = None,
     ) -> tuple[TaskSpec, TaskStatus]:
         with self._lock:
             from src.config import config
@@ -65,18 +66,18 @@ class TaskService:
             settings = config.to_dict() if is_graph else resolve_task_settings(config.to_dict(), execution_profile)
             graph_connections = {}
             if is_graph:
-                from .graph_pipeline_service import node_profile
-                for node in execution_profile["graph"]["nodes"]:
-                    if node["kind"] != "translate":
-                        continue
-                    if not node.get("options", {}).get("connection_ref"):
-                        raise AppValidationError(f"节点 {node['id']} 需要明确选择翻译连接")
-                    selected = resolve_task_settings(settings, node_profile(node))
-                    graph_connections[node["id"]] = capture_connections(selected)
-                    if node.get("model") in (None, "", "default"):
-                        node["model"] = selected["api"].get(f"{node['provider']}_model")
-                    if not node.get("model"):
-                        raise AppValidationError(f"节点 {node['id']} 缺少明确翻译模型")
+                from .graph_pipeline_service import freeze_graph_connections
+                if frozen_graph_connections is None:
+                    try:
+                        execution_profile, graph_connections = freeze_graph_connections(execution_profile, settings)
+                    except ValueError as exc:
+                        raise AppValidationError(str(exc)) from exc
+                else:
+                    required = {node["id"] for node in execution_profile["graph"]["nodes"]
+                                if node["kind"] == "translate"}
+                    if required != set(frozen_graph_connections):
+                        raise AppValidationError("frozen translation context unavailable; submit a new batch")
+                    graph_connections = deepcopy(frozen_graph_connections)
             connections = {} if is_graph else capture_connections(settings)
             from src.recovery_connections import capture_recovery_connections
             connection_record = {} if is_graph else capture_recovery_connections(settings, connections, include_tts=False)
@@ -224,7 +225,7 @@ class TaskService:
             lambda: self._registry.cancel_task(task_id, message=message),
         )
 
-    def retry_task(self, task_id: str, message: str = "queued for retry") -> TaskStatus:
+    def retry_task(self, task_id: str, message: str = "queued for retry", *, _batch_managed: bool = False) -> TaskStatus:
         with self._lock:
             if task_id in self._restored_task_ids:
                 raise AppValidationError(
@@ -232,9 +233,19 @@ class TaskService:
                 )
             try:
                 task_spec = self._registry.get_task_spec(task_id)
+                if task_spec.task_source.startswith("batch-run:") and not _batch_managed:
+                    raise AppValidationError("retry this group from its batch controls to preserve queue membership")
                 error = self._registry.get_task(task_id).error or {}
                 if error.get("result_unknown"):
                     raise AppValidationError("上次请求结果未知，请确认服务端结果与计费后在音色实验室显式生成新候选")
+                if task_id not in self._connection_snapshots:
+                    raise AppValidationError("original private task snapshot unavailable; submit a new task")
+                if task_spec.execution_profile.get("version") == 2:
+                    required = {node["id"] for node in task_spec.execution_profile["graph"]["nodes"]
+                                if node["kind"] == "translate"}
+                    if (task_id not in self._graph_connection_snapshots
+                            or required != set(self._graph_connection_snapshots[task_id])):
+                        raise AppValidationError("original private graph snapshot unavailable; submit a new task")
                 if task_spec.task_type == "voice.clone" and any(
                     task.retry_of_task_id == task_id
                     for task in self._registry.list_tasks()

@@ -18,6 +18,10 @@ class BatchRunItem:
     message: str = ""
     output_path: str = ""
     error: dict[str, Any] | None = None
+    group_id: str | None = None
+    label: str = ""
+    bindings: dict[str, Any] = field(default_factory=dict)
+    retry_blocked_reason: str | None = None
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "BatchRunItem":
@@ -32,6 +36,10 @@ class BatchRunItem:
             message=str(payload.get("message") or ""),
             output_path=str(payload.get("output_path") or ""),
             error=dict(payload["error"]) if isinstance(payload.get("error"), dict) else None,
+            group_id=payload.get("group_id"),
+            label=str(payload.get("label") or ""),
+            bindings=dict(payload.get("bindings") or {}),
+            retry_blocked_reason=payload.get("retry_blocked_reason"),
         )
 
 
@@ -48,6 +56,9 @@ class BatchRunRecord:
     execution_profile: dict[str, Any]
     max_parallel: int
     items: list[BatchRunItem] = field(default_factory=list)
+    client_request_id: str | None = None
+    request_fingerprint: str | None = None
+    retry_blocked_reason: str | None = None
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "BatchRunRecord":
@@ -63,4 +74,7 @@ class BatchRunRecord:
             execution_profile=dict(payload.get("execution_profile") or {}),
             max_parallel=max(1, int(payload.get("max_parallel") or 1)),
             items=[BatchRunItem.from_dict(item) for item in payload.get("items") or []],
+            client_request_id=payload.get("client_request_id"),
+            request_fingerprint=payload.get("request_fingerprint"),
+            retry_blocked_reason=payload.get("retry_blocked_reason"),
         )

@@ -6,6 +6,7 @@ to a single submitted run; private translation credentials stay in TaskService.
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 
 from src.core.orchestration.pipeline.graph_validation import build_graph_plan
@@ -16,6 +17,72 @@ from src.core.subtitles.translation_reuse import audio_duration
 from src.app.persistence.recovery_store import file_identity
 
 STAGES = ("separate", "asr", "align", "translate", "tts", "mix", "export")
+
+
+@dataclass(frozen=True)
+class FrozenGraphSubmission:
+    """Process-local prepared facts, never a runnable task or a public payload."""
+
+    profile: dict
+    connections: dict
+    speech_connections: dict
+
+    @property
+    def paths(self) -> list[str]:
+        return list(self.profile["_graph_runtime"]["asset_identities"])
+
+
+def freeze_graph_connections(profile: dict, settings: dict | None = None) -> tuple[dict, dict]:
+    """Capture selected translation instances without creating task identities."""
+    from src.config import config
+    from src.task_connection_context import capture_connections, resolve_task_settings
+
+    result = deepcopy(profile)
+    settings = config.to_dict() if settings is None else deepcopy(settings)
+    connections = {}
+    for node in result["graph"]["nodes"]:
+        if node["kind"] != "translate":
+            continue
+        if not node.get("options", {}).get("connection_ref"):
+            raise ValueError(f"node {node['id']} requires an explicit translation connection")
+        selected = resolve_task_settings(settings, node_profile(node))
+        connections[node["id"]] = capture_connections(selected)
+        if node.get("model") in (None, "", "default"):
+            node["model"] = selected["api"].get(f"{node['provider']}_model")
+        if not node.get("model"):
+            raise ValueError(f"node {node['id']} requires an explicit translation model")
+    return result, connections
+
+
+def capture_graph_speech_connections(profile: dict) -> dict:
+    """Retain private credential evidence for immutable speech connection refs."""
+    snapshots = profile.get("_graph_runtime", {}).get("node_snapshots", {})
+    contexts = {}
+    for node in profile["graph"]["nodes"]:
+        if node["kind"] == "tts":
+            from .speech_service import get_speech_service
+            if node["id"] not in snapshots:
+                raise ValueError("frozen speech snapshot unavailable; submit a new batch")
+            contexts[node["id"]] = get_speech_service().connection_context(
+                snapshots[node["id"]]["connection"])
+    return deepcopy(contexts)
+
+
+def validate_frozen_graph_submission(submission: FrozenGraphSubmission) -> dict:
+    """Recheck original facts; never replace snapshots with current selections."""
+    if not isinstance(submission, FrozenGraphSubmission):
+        raise ValueError("frozen graph submission unavailable; submit a new batch")
+    profile = submission.profile
+    runtime = profile.get("_graph_runtime", {})
+    if not runtime.get("asset_identities"):
+        raise ValueError("frozen material identities unavailable; submit a new batch")
+    translations = {node["id"] for node in profile["graph"]["nodes"] if node["kind"] == "translate"}
+    if translations != set(submission.connections):
+        raise ValueError("frozen translation context unavailable; submit a new batch")
+    prepared, _ = prepare_graph_profile(profile, declared_paths=submission.paths)
+    if capture_graph_speech_connections(prepared) != submission.speech_connections:
+        raise ValueError("frozen speech credentials changed; submit a new batch")
+    return prepared
 
 
 def node_profile(node: dict, snapshot: dict | None = None) -> dict:
