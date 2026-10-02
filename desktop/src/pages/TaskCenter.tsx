@@ -15,18 +15,14 @@ import { useTaskStore } from '@/stores/taskStore'
 import type { JobType, Task, TaskStatus } from '@/stores/taskStore'
 import { taskExecutionView } from '@/domain/taskExecutionView'
 import type { TaskExecutionView } from '@/domain/taskExecutionView'
-import { taskBatchMembership, taskPresentationEvents } from '@/domain/taskCenterPresentation'
+import { TASK_STATUS_GROUPS, TASK_STATUS_OPTIONS, taskMatchesStatusGroup, taskBatchMembership, taskPresentationEvents } from '@/domain/taskCenterPresentation'
+import type { TaskStatusGroup } from '@/domain/taskCenterPresentation'
 import './TaskCenter.css'
 
 type TaskCategory = 'processing' | 'models' | 'tools'
-type FilterValue = TaskStatus | 'all'
+type StatusFilter = { group: TaskStatusGroup; exact: TaskStatus | 'all' }
 const TASK_CATEGORIES: Array<{ id: TaskCategory; label: string }> = [
   { id: 'processing', label: 'ASMR 处理' }, { id: 'models', label: '模型下载' }, { id: 'tools', label: '工具任务' },
-]
-const FILTER_TABS: Array<{ value: FilterValue; label: string }> = [
-  { value: 'all', label: '全部' }, { value: 'running', label: '运行中' }, { value: 'pending', label: '待处理' },
-  { value: 'failed', label: '失败' }, { value: 'completed', label: '已完成' },
-  { value: 'cancelled', label: '已取消' }, { value: 'skipped', label: '已跳过' },
 ]
 function taskCategory(jobType: JobType): TaskCategory {
   return jobType === 'pipeline' ? 'processing' : jobType === 'model-install' ? 'models' : 'tools'
@@ -90,9 +86,12 @@ export default function TaskCenter() {
   const updateTask = useTaskStore(state => state.updateTask)
   const selectedJobType = tasks.find(task => task.id === selectedTaskId)?.jobType
   const [category, setCategory] = useState<TaskCategory>(() => selectedJobType ? taskCategory(selectedJobType) : 'processing')
-  const [categoryFilters, setCategoryFilters] = useState<Record<TaskCategory, FilterValue>>({ processing: 'all', models: 'all', tools: 'all' })
+  const [categoryFilters, setCategoryFilters] = useState<Record<TaskCategory, StatusFilter>>({
+    processing: { group: 'all', exact: 'all' }, models: { group: 'all', exact: 'all' }, tools: { group: 'all', exact: 'all' },
+  })
   const filter = categoryFilters[category]
-  const setFilter = (value: FilterValue) => setCategoryFilters(current => ({ ...current, [category]: value }))
+  const setFilter = (group: TaskStatusGroup) => setCategoryFilters(current => ({ ...current, [category]: { group, exact: 'all' } }))
+  const setExactStatus = (exact: TaskStatus | 'all') => setCategoryFilters(current => ({ ...current, [category]: { ...current[category], exact } }))
   const [query, setQuery] = useState('')
   const [collapsedBatches, setCollapsedBatches] = useState<string[]>([])
   const [mobileDetail, setMobileDetail] = useState(false)
@@ -120,9 +119,11 @@ export default function TaskCenter() {
   const categoryTasks = tasks.filter(task => taskCategory(task.jobType) === category)
     .slice().sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id))
   const search = query.trim().toLocaleLowerCase()
-  const filteredTasks = categoryTasks.filter(task => (filter === 'all' || task.status === filter)
+  // Counts and rows share the same category/search/exact-status scope; batch headings add no tasks.
+  const statusScope = categoryTasks.filter(task => (filter.exact === 'all' || task.status === filter.exact)
     && (!search || [task.sourceName, task.id, task.serverTaskId, membership.get(task.id)?.name,
       membership.get(task.id)?.batch_id].join(' ').toLocaleLowerCase().includes(search)))
+  const filteredTasks = statusScope.filter(task => taskMatchesStatusGroup(task.status, filter.group))
   // Browsing filters never silently switch the task whose details/actions are shown.
   const selectedTask = categoryTasks.find(task => task.id === selectedTaskId)
     ?? (selectedTaskId ? null : filteredTasks[0] ?? null)
@@ -380,8 +381,12 @@ export default function TaskCenter() {
         {TASK_CATEGORIES.map(item => <option key={item.id} value={item.id}>{item.label} · {tasks.filter(task => taskCategory(task.jobType) === item.id).length}</option>)}</select></label>
         <details className="tc-bulk-actions"><summary>批量操作</summary><div><button type="button" disabled={!retryableFailedTasks.length} onClick={() => void handleRetryFailedTasks()}>重试本类失败任务 ({retryableFailedTasks.length})</button><button type="button" disabled={!runningTasks.length} onClick={() => void handleCancelRunningTasks()}>取消本类运行任务 ({runningTasks.length})</button></div></details>
       </div>
-      <div className="tc-toolbar"><nav className="tc-filters" aria-label="任务状态筛选">{FILTER_TABS.map(tab => <button key={tab.value} type="button" aria-pressed={filter === tab.value} onClick={() => setFilter(tab.value)}>
-        {tab.label}<small>{tab.value === 'all' ? categoryTasks.length : categoryTasks.filter(task => task.status === tab.value).length}</small></button>)}</nav>
+      <div className="tc-toolbar"><nav className="tc-filters" aria-label="任务状态筛选">{TASK_STATUS_GROUPS.map(tab => <button key={tab.value} type="button" aria-pressed={filter.group === tab.value} onClick={() => setFilter(tab.value)}>
+        {tab.label}<small>{statusScope.filter(task => taskMatchesStatusGroup(task.status, tab.value)).length}</small></button>)}</nav>
+        <details className="tc-status-detail"><summary>精确状态{filter.exact !== 'all' && ` · ${TASK_STATUS_OPTIONS.find(option => option.value === filter.exact)?.label}`}</summary>
+          <label>状态<select aria-label="精确任务状态" value={filter.exact} onChange={event => setExactStatus(event.target.value as TaskStatus | 'all')}>
+            <option value="all">本组全部状态</option>{TASK_STATUS_OPTIONS.filter(option => taskMatchesStatusGroup(option.value, filter.group))
+              .map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></details>
         <label className="tc-search"><TaskSymbol name="search" /><input aria-label="搜索任务名称或 ID" placeholder="搜索任务名称或 ID" value={query} onChange={event => setQuery(event.target.value)} /></label></div>
       {batchError && <p className="tc-refresh-error" role="status">{batchError}</p>}
       <div className="tc-split"><section className="tc-list" aria-label="任务与批次列表"><div className="tc-table-heading"><span>任务 / 批次</span><span>状态</span><span>开始时间</span></div>

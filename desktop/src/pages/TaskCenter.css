@@ -7,6 +7,10 @@
 @media(max-height:450px){.tc-page-header{padding-block:6px}.tc-page-header h1{font-size:18px}.tc-toolbar{padding-bottom:6px}.tc-filters button{padding-block:5px}.tc-detail-header{padding:8px 14px}.tc-breadcrumb{display:none}.tc-back{padding-bottom:5px}.tc-detail-title h2{font-size:14px}.tc-task-meta{margin-top:4px}.tc-detail-tabs button{padding-block:6px}.tc-detail-footer{display:none}.tc-node-summary{padding:9px 14px}.tc-node-summary span{display:none}.tc-node-row{padding-block:10px}.tc-node-name small{display:none}.tc-error-card{margin:10px 14px;padding:12px}.tc-error-card h3{margin-block:7px}.tc-error-card p{margin-block:7px}.tc-error-card footer{margin-block:8px}}
 
 /* Production actions and snapshots use the approved task-center surfaces. */
+.tc-status-detail{position:relative;flex:none;color:#718893;font-size:11px}
+.tc-status-detail summary{cursor:pointer;padding:7px 4px}
+.tc-status-detail>label{position:absolute;top:100%;left:0;display:grid;gap:7px;min-width:150px;padding:12px;background:white;border:1px solid var(--tc-border);border-radius:6px;box-shadow:0 3px 15px #223c4020;z-index:3}
+.tc-status-detail select{font:inherit;padding:6px;border:1px solid var(--tc-border);border-radius:4px;background:white;color:#527480;max-width:100%}
 .task-center-page button:disabled{cursor:not-allowed;opacity:.45}
 .tc-action{border:1px solid var(--tc-border);border-radius:5px;padding:6px 10px;background:white;color:#64828d;font-size:11px}
 .tc-action[aria-pressed=true]{background:#eaf5f8;color:#087b96;border-color:#c3e0e8}

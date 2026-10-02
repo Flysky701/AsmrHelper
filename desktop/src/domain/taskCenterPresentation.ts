@@ -1,7 +1,26 @@
 import type { BatchRunResponse } from '@/api/types'
 import type { LogEntry } from '@/stores/logStore'
-import type { Task, TaskArtifact } from '@/stores/taskStore'
+import type { Task, TaskArtifact, TaskStatus } from '@/stores/taskStore'
 import type { TaskExecutionView } from './taskExecutionView'
+
+export type TaskStatusGroup = 'all' | 'processing' | 'attention' | 'ended'
+
+export const TASK_STATUS_GROUPS: ReadonlyArray<{ value: TaskStatusGroup; label: string }> = [
+  { value: 'all', label: '全部' }, { value: 'processing', label: '处理中' },
+  { value: 'attention', label: '需关注' }, { value: 'ended', label: '已结束' },
+]
+export const TASK_STATUS_OPTIONS: ReadonlyArray<{ value: TaskStatus; label: string }> = [
+  { value: 'running', label: '运行中' }, { value: 'pending', label: '待处理' },
+  { value: 'failed', label: '失败' }, { value: 'completed', label: '已完成' },
+  { value: 'cancelled', label: '已取消' }, { value: 'skipped', label: '已跳过' },
+]
+
+export function taskMatchesStatusGroup(status: TaskStatus, group: TaskStatusGroup): boolean {
+  if (group === 'all') return true
+  if (group === 'processing') return status === 'running' || status === 'pending'
+  if (group === 'attention') return status === 'failed'
+  return status === 'completed' || status === 'cancelled' || status === 'skipped'
+}
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
