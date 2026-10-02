@@ -390,15 +390,13 @@ class CapabilityDescriptorService:
                         "device_map",
                         "string",
                         required=False,
-                        default="cpu",
-                        description="Transformers device map",
+                        description="Transformers device map; omitted selects CUDA when available, otherwise CPU",
                     ),
                     _option(
                         "dtype",
                         "string",
                         required=False,
-                        default="bfloat16",
-                        description="Model dtype hint",
+                        description="Model dtype hint; omitted leaves precision to the model loader",
                     ),
                     _option(
                         "attn_implementation",
@@ -424,8 +422,7 @@ class CapabilityDescriptorService:
                         "forced_aligner",
                         "string",
                         required=False,
-                        default="qwen3-forced-aligner-0.6b",
-                        description="Qwen forced aligner model id or local path",
+                        description="Optional Qwen forced aligner; setting it enables timestamps. Timestamp requests without an aligner use qwen3-forced-aligner-0.6b",
                     ),
                     _option(
                         "forced_aligner_kwargs",
@@ -437,8 +434,8 @@ class CapabilityDescriptorService:
                         "return_time_stamps",
                         "boolean",
                         required=False,
-                        default=True,
-                        description="Return alignment-based timestamps",
+                        default=False,
+                        description="Return alignment-based timestamps; an explicit forced aligner also enables them",
                     ),
                     _option(
                         "max_alignment_chunk_seconds",

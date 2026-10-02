@@ -105,6 +105,8 @@ async function resolveItems(
       item: {
         path: asset.absolute_path,
         kind: asset.kind,
+        inspection: { ready: asset.exists && asset.readable,
+          reason: !asset.exists ? '文件不存在' : !asset.readable ? '文件不可读取' : '' },
         subtitleSummary: asset.subtitle_summary,
         name: asset.display_name,
         size: asset.size_bytes,

@@ -2,15 +2,16 @@ import { api } from './client'
 import type {
   BatchDiscoverResponse,
   BatchRunCreateRequest,
+  GraphBatchRunCreateRequest,
   BatchRunListResponse,
   BatchRunResponse,
 } from './types'
 
 export const batchesApi = {
-  discover: (directory: string, recursive = true, limit?: number) =>
-    api.post<BatchDiscoverResponse>('/batch-runs/discover', { directory, recursive, limit }),
+  discover: (directory: string, recursive = true, limit?: number, media_kind: 'audio' | 'subtitle' | 'all' = 'audio') =>
+    api.post<BatchDiscoverResponse>('/batch-runs/discover', { directory, recursive, limit, media_kind }),
 
-  create: (body: BatchRunCreateRequest) =>
+  create: (body: BatchRunCreateRequest | GraphBatchRunCreateRequest) =>
     api.post<BatchRunResponse>('/batch-runs', body),
 
   list: () => api.get<BatchRunListResponse>('/batch-runs'),

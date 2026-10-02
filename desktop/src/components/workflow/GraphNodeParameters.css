@@ -21,3 +21,10 @@
 .graph-node-parameters [role=alert] { color: var(--warning, #f1bf76); }
 .graph-param-reference { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border, #334155); }
 .graph-param-reference audio { width: 100%; max-width: 360px; min-width: 0; }
+.graph-param-summary { font-weight: 500; overflow-wrap: anywhere; }
+.graph-param-advanced { order: 2; }
+.graph-param-structured, .graph-param-hotwords { min-width: 0; display: grid; gap: 8px; }
+.graph-param-structured code { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 100px; overflow: auto; }
+.graph-param-hotword { display: flex; min-width: 0; gap: 6px; }
+.graph-param-hotword input { flex: 1; }
+.graph-node-parameters button.graph-param-reset { padding: 2px 5px; border: 0; background: transparent; color: var(--muted, #a9b9cb); font-size: 12px; }

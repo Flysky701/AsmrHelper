@@ -180,6 +180,7 @@ export interface BatchDiscoveredFileResponse {
   path: string
   name: string
   size_bytes: number
+  kind?: 'audio' | 'subtitle'
   companion_paths: string[]
   companion_subtitles?: import('@/domain/workbenchInput').CompanionSubtitle[]
 }
@@ -202,6 +203,15 @@ export interface BatchRunCreateRequest {
   max_parallel: number
 }
 
+export interface GraphBatchRunCreateRequest {
+  name: string
+  client_request_id: string
+  groups: Array<{ group_id: string; label?: string; bindings: import('@/domain/workflowGraph').GraphBindings }>
+  output: { directory?: string }
+  execution_profile: { version: 2; graph: import('@/domain/workflowGraph').GraphDefinition }
+  max_parallel: number
+}
+
 export interface BatchRunItemResponse {
   item_id: string
   input_path: string
@@ -213,6 +223,11 @@ export interface BatchRunItemResponse {
   message: string
   output_path: string
   error: Record<string, unknown> | null
+  group_id?: string | null
+  label?: string
+  bindings?: import('@/domain/workflowGraph').GraphBindings
+  retry_available?: boolean
+  retry_blocked_reason?: string | null
 }
 
 export interface BatchRunResponse {
@@ -233,6 +248,9 @@ export interface BatchRunResponse {
   cancelled_count: number
   skipped_count: number
   items: BatchRunItemResponse[]
+  client_request_id?: string | null
+  retry_available?: boolean
+  retry_blocked_reason?: string | null
 }
 
 export interface BatchRunListResponse {

@@ -14,6 +14,7 @@ export interface WorkbenchInputItem {
   name: string
   size: number
   kind?: string
+  inspection?: { ready: boolean; reason?: string }
   subtitleSummary?: { language: string; valid: boolean; reason: string }
   companionPaths: string[]
   companionSubtitles?: CompanionSubtitle[]
@@ -34,6 +35,8 @@ export function discoveredFileToInput(
     path: item.path,
     name: item.name || fileName(item.path),
     size: item.size_bytes,
+    kind: item.kind,
+    inspection: { ready: false, reason: '尚未完成文件检查' },
     companionPaths: [...item.companion_paths],
     companionSubtitles: item.companion_subtitles ?? [],
   }
@@ -53,6 +56,7 @@ export function expandInputMaterials(items: WorkbenchInputItem[]): WorkbenchInpu
   return mergeInputItems([], items.flatMap(item => [item, ...item.companionPaths.map(path => {
     const summary = item.companionSubtitles?.find(candidate => inputPathKey(candidate.path) === inputPathKey(path))
     return { path, name: fileName(path), size: 0, kind: 'subtitle', companionPaths: [],
+      inspection: { ready: !!summary?.valid, reason: summary?.reason || (!summary ? '尚未检查伴随字幕' : '') },
       subtitleSummary: summary ? { language: summary.language, valid: summary.valid, reason: summary.reason } : undefined }
   })]))
 }
@@ -62,6 +66,7 @@ export function pathToInput(path: string): WorkbenchInputItem {
     path,
     name: fileName(path),
     size: 0,
+    inspection: { ready: false, reason: '尚未完成文件检查' },
     companionPaths: [],
   }
 }

@@ -96,16 +96,67 @@ export function graphSpeechIssue(node: GraphNode, provider: SpeechProvider | und
 }
 
 const reservedOptions = new Set(['language', 'source_lang', 'target_lang', 'connection_ref'])
+export type GraphParameterSection = 'common' | 'advanced' | 'all'
+
+export function graphNodeHasAdvancedParameters(node: GraphNode): boolean {
+  return !['align', 'export'].includes(node.kind) && !(node.kind === 'tts' && node.options.speech_recipe_id)
+}
+
 export function editableGraphOptions(fields: CapabilityOptionResponse[]): CapabilityOptionResponse[] {
   return fields.filter(field => !field.secret && !reservedOptions.has(field.name)
     && !field.name.endsWith('_path') && !['api_key', 'credential', 'token', 'headers'].includes(field.name)
-    && ['string', 'number', 'integer', 'boolean'].includes(field.type))
+    && (['string', 'number', 'integer', 'boolean', 'object'].includes(field.type)
+      || field.type === 'array' && field.name === 'hotwords'))
 }
 
 export function unknownGraphOptions(node: GraphNode, descriptor: CapabilityDescriptorResponse): string[] {
   return ([['options', descriptor.common_option_schema], ['provider_options', descriptor.provider_option_schema]] as const)
     .flatMap(([scope, fields]) => Object.keys(node[scope]).filter(key => !(scope === 'options' && key === 'connection_ref')
-      && !editableGraphOptions(fields).some(field => field.name === key)).map(key => `${scope}.${key}`))
+      && !fields.some(field => field.name === key)).map(key => `${scope}.${key}`))
+}
+
+/** A declared option can be preserved without being offered as a portable graph input. */
+export function retainedGraphOptions(node: GraphNode, descriptor: CapabilityDescriptorResponse): string[] {
+  return ([['options', descriptor.common_option_schema], ['provider_options', descriptor.provider_option_schema]] as const)
+    .flatMap(([scope, fields]) => Object.keys(node[scope]).filter(key => fields.some(field => field.name === key)
+      && !reservedOptions.has(key) && !editableGraphOptions(fields).some(field => field.name === key))
+      .map(key => `${scope}.${key}`))
+}
+
+export function graphCapabilityValue(node: GraphNode, field: CapabilityOptionResponse, value: unknown): unknown {
+  if (node.provider === 'qwen3_asr' && field.name === 'return_time_stamps'
+      && node.provider_options.forced_aligner) return true
+  return value ?? field.default
+}
+
+export function graphCapabilityDisabledReason(node: GraphNode, key: string): string {
+  if (node.provider === 'qwen3_asr' && key === 'return_time_stamps' && node.provider_options.forced_aligner)
+    return '已指定对齐模型，实际执行会启用时间戳；清空对齐模型后可关闭。原参数保留。'
+  return ''
+}
+
+/** Validate only the declared JSON container; nested kwargs belong to the upstream engine. */
+export function parseGraphObjectOption(text: string): { value?: Record<string, unknown>; error?: string } {
+  try {
+    const value: unknown = JSON.parse(text, (_key, item: unknown) => {
+      if (typeof item === 'number' && !Number.isFinite(item)) throw new Error('non-finite JSON number')
+      return item
+    })
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { error: '请输入 JSON 对象（不能是数组、null 或标量）。' }
+    return { value: value as Record<string, unknown> }
+  } catch { return { error: 'JSON 格式无效或数字超出有限范围，尚未修改已保存参数。' } }
+}
+
+export function graphSpeechOptionDisabledReason(node: GraphNode, source: GraphSpeechSource, key: string): string {
+  if (node.provider === 'qwen3' && source.provider_options.do_sample === false && ['temperature', 'top_p', 'top_k'].includes(key))
+    return '随机采样已关闭，此参数暂不参与主生成采样；数值保留。'
+  if (node.provider === 'fish_audio' && key === 'tag_density') {
+    if (node.model === 's1') return 'S1 不使用标签密度；数值保留。'
+    if (!(source.default_delivery && source.default_delivery !== 'normal')
+      && !(source.default_emotion && source.default_emotion !== 'neutral')
+      && !String(source.provider_options.style_description ?? '').trim()) return '设置演绎、情绪或风格描述后生效；数值保留。'
+  }
+  return ''
 }
 
 export function setGraphOption(node: GraphNode, scope: 'options' | 'provider_options', key: string, value: unknown): GraphNode {

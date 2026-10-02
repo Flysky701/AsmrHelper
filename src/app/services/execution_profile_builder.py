@@ -55,9 +55,21 @@ class ExecutionProfileBuilder:
             descriptor["common_option_schema"],
             common_options or {},
         )
+        provider_overrides = provider_options or {}
+        if category == "asr" and resolved_provider == "qwen3_asr":
+            # This legacy profile builder has always materialized these choices.
+            # Graph nodes bypass it and inherit the recognizer's dynamic defaults;
+            # the shared descriptor now accurately describes that omitted state.
+            provider_overrides = {
+                "device_map": "cpu",
+                "dtype": "bfloat16",
+                "forced_aligner": "qwen3-forced-aligner-0.6b",
+                "return_time_stamps": True,
+                **provider_overrides,
+            }
         resolved_provider_options = self._fill_defaults(
             descriptor["provider_option_schema"],
-            provider_options or {},
+            provider_overrides,
         )
         self.descriptor_service.validate_options(
             category=category,
