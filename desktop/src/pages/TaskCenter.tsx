@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 
 import { tasksApi } from '@/api/tasks'
@@ -13,6 +13,8 @@ import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
 import type { JobType, Task, TaskStatus } from '@/stores/taskStore'
 import type { TaskStatusResponse } from '@/api/types'
+import { taskExecutionView } from '@/domain/taskExecutionView'
+import type { TaskExecutionView } from '@/domain/taskExecutionView'
 
 const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; bg: string; color: string }> = {
   running: { label: '运行中', dot: 'var(--accent)', bg: 'var(--accent-soft)', color: 'var(--accent)' },
@@ -21,22 +23,6 @@ const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; bg: string
   failed: { label: '失败', dot: 'var(--error)', bg: 'var(--error-soft)', color: 'var(--error)' },
   cancelled: { label: '已取消', dot: 'var(--muted)', bg: 'var(--panel-muted)', color: 'var(--muted-strong)' },
   skipped: { label: '已跳过', dot: 'var(--warning)', bg: 'var(--warning-soft)', color: 'var(--warning)' },
-}
-
-const PIPELINE_STAGES = [
-  { id: 'prepare', label: '准备' },
-  { id: 'separate', label: '人声分离' },
-  { id: 'asr', label: 'ASR 识别' },
-  { id: 'align', label: '字幕对齐' },
-  { id: 'translate', label: '字幕翻译' },
-  { id: 'tts', label: 'TTS 合成' },
-  { id: 'mix', label: '混音输出' },
-  { id: 'export', label: '导出产物' },
-]
-
-function pipelineStages(task: Task) {
-  const stages = task.params.stages as Record<string, { enabled?: boolean }> | undefined
-  return PIPELINE_STAGES.filter(({ id }) => id !== 'align' || stages?.align?.enabled || task.stage === 'align')
 }
 
 const SURFACE_STYLE: CSSProperties = {
@@ -359,14 +345,6 @@ function formatDuration(durationMs?: number) {
   return `${minutes}m ${seconds}s`
 }
 
-function pipelineStageIndex(task: Task): number {
-  const stages = pipelineStages(task)
-  const index = stages.findIndex(({ id }) => id === task.stage)
-  if (index >= 0) return index
-  if (task.status === 'completed') return stages.length - 1
-  return 0
-}
-
 function shouldSuggestProviderVerification(task: Task): boolean {
   if (task.status !== 'failed') return false
   const action = typeof task.error?.action === 'string' ? task.error.action : ''
@@ -374,7 +352,7 @@ function shouldSuggestProviderVerification(task: Task): boolean {
   return action === 'settings' || code === 'PROVIDER_EXECUTION_FAILED'
 }
 
-function stageLabel(task: Task) {
+function stageLabel(task: Task, execution?: TaskExecutionView) {
   if (task.error?.code === 'TASK_INTERRUPTED') return '任务已中断'
   if (task.jobType === 'reference-analyze' && !['completed', 'failed', 'cancelled', 'skipped'].includes(task.status)) {
     const stages: Record<string, string> = { reference_analysis: '分析录音', reference_read: '读取录音', reference_subtitles: '检查已有字幕', reference_separate: '分离人声', reference_decode: '转换音频', reference_transcribe: '识别原文', reference_segment: '寻找片段', reference_score: '筛选片段' }
@@ -387,12 +365,7 @@ function stageLabel(task: Task) {
     if (task.status === 'skipped') return '任务被跳过'
     return task.stage || '等待执行'
   }
-  if (task.status === 'completed') return '成品已产出'
-  const currentStage = pipelineStages(task)[pipelineStageIndex(task)]?.label ?? '准备'
-  if (task.status === 'failed') return `任务在“${currentStage}”阶段失败`
-  if (task.status === 'cancelled') return '任务已取消'
-  if (task.status === 'skipped') return '任务被跳过'
-  return currentStage
+  return (execution ?? taskExecutionView(task)).currentLabel
 }
 
 function jobTypeLabel(jobType: JobType) {
@@ -456,16 +429,14 @@ async function copyToClipboard(text: string) {
   }
 }
 
-function PipelineTimeline({ task }: { task: Task }) {
-  const activeIndex = pipelineStageIndex(task)
-  const isFailed = task.status === 'failed'
-
+function PipelineTimeline({ execution }: { execution: TaskExecutionView }) {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      {pipelineStages(task).map((stage, index) => {
-        const completed = task.status === 'completed' || index < activeIndex
-        const active = task.status === 'running' && index === activeIndex
-        const failed = isFailed && index === activeIndex
+      {!execution.steps.length && <div style={{ fontSize: 12, color: 'var(--muted)' }}>执行配置不可用，仅显示后端当前阶段。</div>}
+      {execution.steps.map((stage, index) => {
+        const completed = stage.state === 'completed'
+        const active = stage.state === 'running'
+        const failed = stage.state === 'failed'
 
         return (
           <div key={stage.id} style={{ display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr)', gap: 12 }}>
@@ -487,9 +458,9 @@ function PipelineTimeline({ task }: { task: Task }) {
               {index + 1}
             </div>
             <div style={{ paddingTop: 2 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{stage.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, overflowWrap: 'anywhere' }}>{stage.label}</div>
               <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                {completed ? '阶段已完成' : active ? '当前进行中' : failed ? '在这里失败' : '等待执行'}
+                {completed ? '已确认完成' : active ? '当前进行中' : failed ? '在这里失败' : stage.state === 'cancelled' ? '在这里取消' : stage.state === 'pending' ? '等待执行' : '状态未确认'}
               </div>
             </div>
           </div>
@@ -529,6 +500,8 @@ export default function TaskCenter() {
   }, [selectedJobType, selectedTaskId])
 
   const logs = useLogStore((state) => state.logs)
+  const executionViews = useMemo(() => new Map(tasks.filter(task => task.jobType === 'pipeline')
+    .map(task => [task.id, taskExecutionView(task, logs)])), [tasks, logs])
   const levelFilter = useLogStore((state) => state.levelFilter)
   const setLevelFilter = useLogStore((state) => state.setLevelFilter)
   const clearLogs = useLogStore((state) => state.clearLogs)
@@ -540,6 +513,7 @@ export default function TaskCenter() {
   const categoryTasks = tasks.filter((task) => taskCategory(task.jobType) === category)
   const filteredTasks = filter === 'all' ? categoryTasks : categoryTasks.filter((task) => task.status === filter)
   const selectedTask = filteredTasks.find((task) => task.id === selectedTaskId) ?? filteredTasks[filteredTasks.length - 1] ?? null
+  const selectedExecution = selectedTask ? executionViews.get(selectedTask.id) : undefined
   const categoryInfo = TASK_CATEGORIES.find((item) => item.id === category)!
 
   const runningTasks = categoryTasks.filter((task) => task.status === 'running')
@@ -863,6 +837,7 @@ export default function TaskCenter() {
                 .reverse()
                 .map((task) => {
                   const isSelected = selectedTask?.id === task.id
+                  const execution = executionViews.get(task.id)
                   const primaryOutput = task.artifacts?.items.find(
                     (artifact) => artifact.artifactId === task.artifacts?.primaryArtifactId,
                   )?.path
@@ -898,8 +873,9 @@ export default function TaskCenter() {
                       </div>
 
                       <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>当前阶段：{stageLabel(task)}</div>
-                        <div style={{ height: 6, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'anywhere' }}>当前阶段：{stageLabel(task, execution)}</div>
+                        {execution ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>{execution.summary}</div>
+                          : <div style={{ height: 6, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
                           <div
                             style={{
                               width: `${Math.max(0, Math.min(100, task.progress))}%`,
@@ -908,7 +884,7 @@ export default function TaskCenter() {
                               borderRadius: 999,
                             }}
                           />
-                        </div>
+                        </div>}
                         <div className="task-center-task-summary task-center-break-anywhere" style={{ fontSize: 12, color: 'var(--muted)' }}>
                           {task.message || '等待阶段消息'}
                         </div>
@@ -1006,7 +982,7 @@ export default function TaskCenter() {
 
                 <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 12 }}>
                   {[
-                    { label: '当前阶段', value: stageLabel(selectedTask) },
+                    { label: '当前阶段', value: stageLabel(selectedTask, selectedExecution) },
                     { label: '任务 ID', value: selectedTask.serverTaskId || selectedTask.id },
                     ...(selectedTask.retryOfTaskId
                       ? [{ label: '来源任务', value: selectedTask.retryOfTaskId }]
@@ -1024,17 +1000,17 @@ export default function TaskCenter() {
 
               <div className="task-center-detail-pair">
                 <div style={{ ...SURFACE_STYLE, padding: '18px 20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>执行进度</div>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>{selectedExecution ? '节点状态' : '执行进度'}</div>
                       <div className="task-center-break-anywhere" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>{selectedTask.message || '等待状态回传'}</div>
                     </div>
-                    <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
-                      {Math.max(0, Math.min(100, selectedTask.progress))}%
+                    <div style={{ fontSize: selectedExecution ? 13 : 28, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
+                      {selectedExecution ? selectedExecution.summary : `${Math.max(0, Math.min(100, selectedTask.progress))}%`}
                     </div>
                   </div>
 
-                  <div style={{ marginTop: 16, height: 8, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
+                  {!selectedExecution && <div style={{ marginTop: 16, height: 8, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
                     <div
                       style={{
                         width: `${Math.max(0, Math.min(100, selectedTask.progress))}%`,
@@ -1042,11 +1018,11 @@ export default function TaskCenter() {
                         background: selectedTask.status === 'failed' ? 'var(--error)' : selectedTask.status === 'completed' ? 'var(--success)' : 'var(--accent)',
                       }}
                     />
-                  </div>
+                  </div>}
 
-                  {selectedTask.jobType === 'pipeline' ? (
+                  {selectedExecution ? (
                     <div style={{ marginTop: 18 }}>
-                      <PipelineTimeline task={selectedTask} />
+                      <PipelineTimeline execution={selectedExecution} />
                     </div>
                   ) : (
                     <div style={{ marginTop: 18, padding: '12px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)' }}>

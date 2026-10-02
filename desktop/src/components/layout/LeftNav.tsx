@@ -1,6 +1,7 @@
 import { useNavStore, PAGE_LABELS } from '@/stores/navStore'
 import type { PageId } from '@/stores/navStore'
-import type { ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 const NAV_ICONS: Record<PageId, ReactNode> = {
   'workflow-presets': (
@@ -53,12 +54,69 @@ const NAV_ICONS: Record<PageId, ReactNode> = {
   ),
 }
 
-const TOP_PAGES: PageId[] = ['workbench', 'task-center', 'audio-tools', 'subtitle-workshop', 'voice-lab']
-const BOTTOM_PAGES: PageId[] = ['workflow-presets', 'engines', 'settings']
+const WORKFLOW_PAGES: PageId[] = ['workbench', 'task-center', 'workflow-presets']
+const TOOL_PAGES: PageId[] = ['audio-tools', 'subtitle-workshop', 'voice-lab', 'engines']
+const PAGE_DESCRIPTIONS: Record<PageId, string> = {
+  workbench: '导入素材，配置并运行流水线',
+  'task-center': '查看任务进度、批次与运行结果',
+  'workflow-presets': '编辑节点流程，管理流水线预设',
+  'audio-tools': '处理、转换与整理音频',
+  'subtitle-workshop': '编辑、翻译与导出字幕',
+  'voice-lab': '管理音色与配音设置',
+  engines: '管理本地引擎、模型与外部服务',
+  settings: '调整应用配置与运行偏好',
+}
 
 export default function LeftNav() {
   const activePage = useNavStore((s) => s.activePage)
   const setPage = useNavStore((s) => s.setPage)
+  const tooltipId = useId()
+  const [tooltip, setTooltip] = useState<{ pageId: PageId; top: number; left: number } | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const tooltipRef = useRef<HTMLDivElement | null>(null)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelClose = () => {
+    if (closeTimer.current !== null) clearTimeout(closeTimer.current)
+    closeTimer.current = null
+  }
+  const showTooltip = (pageId: PageId, trigger: HTMLButtonElement) => {
+    cancelClose()
+    triggerRef.current = trigger
+    const rect = trigger.getBoundingClientRect()
+    setTooltip({ pageId, top: Math.max(8, Math.min(rect.top - 10, window.innerHeight - 88)), left: rect.right + 12 })
+  }
+  const scheduleClose = () => {
+    cancelClose()
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null
+      if (document.activeElement === triggerRef.current || triggerRef.current?.matches(':hover') || tooltipRef.current?.matches(':hover')) return
+      setTooltip(null)
+    }, 120)
+  }
+
+  useEffect(() => {
+    const reposition = () => setTooltip(current => {
+      const trigger = triggerRef.current
+      if (!current || !trigger) return null
+      const rect = trigger.getBoundingClientRect()
+      const scroller = trigger.closest('.app-nav__scroller')?.getBoundingClientRect()
+      if (scroller && (rect.bottom <= scroller.top || rect.top >= scroller.bottom)) return null
+      return { ...current, top: Math.max(8, Math.min(rect.top - 10, window.innerHeight - 88)), left: rect.right + 12 }
+    })
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setTooltip(null)
+    }
+    document.addEventListener('keydown', handleKey)
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+      if (closeTimer.current !== null) clearTimeout(closeTimer.current)
+    }
+  }, [])
 
   const renderItem = (pageId: PageId) => {
     const isActive = activePage === pageId
@@ -68,38 +126,41 @@ export default function LeftNav() {
         type="button"
         className="app-nav__item"
         data-page={pageId}
+        aria-label={PAGE_LABELS[pageId]}
         aria-current={isActive ? 'page' : undefined}
-        onClick={() => setPage(pageId)}
+        aria-describedby={tooltip?.pageId === pageId ? tooltipId : undefined}
+        onMouseEnter={event => showTooltip(pageId, event.currentTarget)}
+        onMouseLeave={scheduleClose}
+        onFocus={event => showTooltip(pageId, event.currentTarget)}
+        onBlur={scheduleClose}
+        onClick={() => { cancelClose(); setTooltip(null); setPage(pageId) }}
       >
-        {NAV_ICONS[pageId]}
-        <span className="app-nav__item-label">{PAGE_LABELS[pageId]}</span>
+        <span aria-hidden="true" className="app-nav__icon">{NAV_ICONS[pageId]}</span>
       </button>
     )
   }
 
   return (
     <nav className="app-nav" aria-label="主导航">
-      <div className="app-nav__brand">
-        <div className="app-nav__brand-title">
-          ASMR Helper
-        </div>
+      <div className="app-nav__brand" role="img" aria-label="ASMR Helper">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4" /></svg>
       </div>
 
       <div className="app-nav__scroller">
-        <div className="app-nav__group">
-          <div className="app-nav__group-label">工具</div>
-          <div className="app-nav__items">
-            {TOP_PAGES.map(renderItem)}
-          </div>
+        <div className="app-nav__items" role="group" aria-label="流水线与任务">
+          {WORKFLOW_PAGES.map(renderItem)}
         </div>
-
-        <div className="app-nav__group app-nav__group--control">
-          <div className="app-nav__group-label">配置</div>
-          <div className="app-nav__items">
-            {BOTTOM_PAGES.map(renderItem)}
-          </div>
+        <div className="app-nav__items app-nav__items--tools" role="group" aria-label="工具与资源">
+          {TOOL_PAGES.map(renderItem)}
         </div>
       </div>
+      <div className="app-nav__footer">{renderItem('settings')}</div>
+      {tooltip && createPortal(
+        <div ref={tooltipRef} id={tooltipId} role="tooltip" className="app-nav__tooltip" style={{ top: tooltip.top, left: tooltip.left }} onMouseEnter={cancelClose} onMouseLeave={scheduleClose}>
+          <strong>{PAGE_LABELS[tooltip.pageId]}</strong>
+          <span>{PAGE_DESCRIPTIONS[tooltip.pageId]}</span>
+        </div>, document.body,
+      )}
     </nav>
   )
 }

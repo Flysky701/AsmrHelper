@@ -53,3 +53,12 @@ ASR 通过 `RuntimeRouter` 路由隔离 Worker；当前 Speech 本地模型由 P
 ## 4. 明确不做
 
 本版本不引入 `root_task_id`、`executor_version`、CPU/GPU/网络资源标签、持久执行队列或分布式调度。`BatchRun` 仅为持久聚合与控制事实，不能绕过 TaskDispatcher，也不在进程重启后自动继续执行未完成音频；显式 Pipeline 阶段恢复不等于自动恢复执行队列。
+
+
+## 5. 任务中心的节点状态显示
+
+V2 任务的可显示节点来自其冻结 `execution_profile.graph`，不从固定阶段清单推断。`TaskStatus.stage` 在图执行阶段是 node ID，但生命周期准备阶段可为 `prepare`；重复的同类节点仍是不同实例。
+
+当前串行 GraphExecutor 在节点开始回调 `i/N`，在节点产物验证成功后回调 `(i+1)/N`。注册器将同阶段进度变化记录为 `stage_progress`，数据含 `state`、原始 `progress`；它不是节点内部耗时百分比。前端仅用同任务、有效时间/sequence、同 node 起止边界确认节点完成，缺证据显示未确认。不得从前序位置、日志文字、单个中间音频产物、另一个节点开始或四舍五入进度推断完成。
+
+V2 任务的 `state=completed` 证明实际图节点全部完成；`failed/cancelled/skipped` 与 SSE 流 `done` 不具有该含义。V1 仅显示明确启用的配置阶段，不能把复用或跳过伪装为实际执行成功。任务中心的最小准确性修复不改变调度、模型请求、任务冻结或混音行为。独立任务中心重设计预览不是生产页面替换。
