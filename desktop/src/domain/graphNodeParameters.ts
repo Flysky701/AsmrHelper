@@ -1,6 +1,7 @@
 import type { CapabilityDescriptorResponse, CapabilityOptionResponse } from '@/api/types'
 import type { Delivery, ReferenceAsset, SpeechConnection, SpeechProvider, SpeechRecipe, VoiceVariant } from '@/api/speech'
-import type { GraphNode } from './workflowGraph'
+import { GRAPH_MIX_OUTPUT_LENGTHS } from './workflowGraph'
+import type { GraphMixOutputLength, GraphNode } from './workflowGraph'
 import { speechLanguageMatches, speechOptionsIssue } from './speechAdvancedOptions'
 
 export interface GraphSpeechSource {
@@ -97,6 +98,17 @@ export function graphSpeechIssue(node: GraphNode, provider: SpeechProvider | und
 
 const reservedOptions = new Set(['language', 'source_lang', 'target_lang', 'connection_ref'])
 export type GraphParameterSection = 'common' | 'advanced' | 'all'
+
+export const graphMixOutputLengthOptions: { value: GraphMixOutputLength; label: string; description: string }[] = [
+  { value: 'main', label: '跟随主音轨（默认）', description: '输出时长跟随主音轨，超出主音轨结束位置的配音会被截断。' },
+  { value: 'longest', label: '保留完整音轨', description: '输出时长取主音轨与偏移后配音结束位置的较长值，音轨空缺部分补静音。' },
+]
+
+/** Old templates inherit main; invalid saved values remain visible for correction. */
+export function graphMixOutputLength(node: GraphNode): GraphMixOutputLength | null {
+  return node.options.output_length === undefined ? 'main'
+    : GRAPH_MIX_OUTPUT_LENGTHS.find(value => value === node.options.output_length) ?? null
+}
 
 export function graphNodeHasAdvancedParameters(node: GraphNode): boolean {
   return !['align', 'export'].includes(node.kind) && !(node.kind === 'tts' && node.options.speech_recipe_id)

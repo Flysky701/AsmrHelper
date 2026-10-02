@@ -154,7 +154,8 @@ class GraphExecutor:
             }[kind]
             metadata = {key: deepcopy(item) for key, item in value.metadata.items()
                         if key in {"language", "duration", "timeline_id", "pair_confirmed",
-                                   "sample_rate", "channels"}}
+                                   "sample_rate", "channels", "output_length", "tts_delay_ms",
+                                   "delay_behavior"}}
             metadata.update(node_id=node_id, port=port)
             results["workflow_outputs"].append({
                 "node_id": node_id, "port": port, "stage": kind, "type": artifact_type,

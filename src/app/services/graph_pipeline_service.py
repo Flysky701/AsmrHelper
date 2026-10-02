@@ -148,7 +148,7 @@ def prepare_graph_profile(profile: dict, *, declared_paths: list[str] | None = N
             if binding.get("pair_confirmed") is not True:
                 raise ValueError(f"输入槽 {slot['id']} 尚未确认与音频对应")
             duration = audio_duration(paired)
-            if duration is None or metadata["duration"] > duration + 0.1:
+            if duration is None or (slot["type"] == "subtitle" and metadata["duration"] > duration + 0.1):
                 raise ValueError(f"输入槽 {slot['id']} 时间轴超出对应音频")
             metadata.update(timeline_id=paired_fact["sha256"], pair_confirmed=True)
             if slot["type"] == "subtitle":
@@ -193,8 +193,6 @@ def _check_material_facts(graph: dict, values: dict) -> None:
             if (not audio.get("timeline_id") or audio.get("timeline_id") != other.get("timeline_id")
                     or audio.get("pair_confirmed") is not True or other.get("pair_confirmed") is not True):
                 raise ValueError(f"节点 {node_id} 的素材尚未确认属于同一录音和时间轴")
-            if node["kind"] == "mix" and node["options"].get("tts_delay_ms", 0) < 0:
-                raise ValueError(f"节点 {node_id} 的负延迟会截去配音开头，请先调整素材")
         source_port = "audio" if node["kind"] in {"separate", "asr", "mix"} else "subtitle"
         facts[node_id] = deepcopy(incoming[source_port])
         if node["kind"] == "asr":

@@ -3,6 +3,8 @@ export const GRAPH_NODE_KINDS = ['separate', 'asr', 'align', 'translate', 'tts',
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number]
 export type GraphLanguage = 'ja' | 'zh' | 'en'
 export type GraphPortType = 'audio' | 'subtitle'
+export const GRAPH_MIX_OUTPUT_LENGTHS = ['main', 'longest'] as const
+export type GraphMixOutputLength = (typeof GRAPH_MIX_OUTPUT_LENGTHS)[number]
 export interface GraphNode {
   id: string
   kind: GraphNodeKind
@@ -58,7 +60,7 @@ export const GRAPH_CATALOG: Record<GraphNodeKind, GraphCapability> = {
 export const GRAPH_OPTION_KEYS: Record<GraphNodeKind, readonly string[] | null> = {
   separate: ['mode'], asr: null, align: [], translate: null,
   tts: ['speech_recipe_id', 'speech_source', 'voice', 'speed'],
-  mix: ['original_volume', 'tts_volume_ratio', 'tts_delay_ms'], export: ['subtitle_format'],
+  mix: ['original_volume', 'tts_volume_ratio', 'tts_delay_ms', 'output_length'], export: ['subtitle_format'],
 }
 const languages = new Set(['ja', 'zh', 'en'])
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
@@ -138,6 +140,7 @@ export function validateGraph(graph: GraphDefinition): GraphIssue[] {
     if (node.kind === 'separate' && record(node.options) && (node.options.mode ?? 'vocals') !== 'vocals') add('unsupported_option', '分离节点当前仅提供人声轨', node.id)
     if (node.kind === 'mix' && record(node.options)) for (const [key, value] of Object.entries(node.options)) {
       if (['original_volume', 'tts_volume_ratio', 'tts_delay_ms'].includes(key) && (typeof value !== 'number' || !Number.isFinite(value) || key !== 'tts_delay_ms' && value < 0)) add('invalid_option', '混音参数必须是有效数值，音量不能为负数', node.id)
+      if (key === 'output_length' && !GRAPH_MIX_OUTPUT_LENGTHS.some(option => option === value)) add('invalid_option', '混音输出时长仅支持 main 或 longest', node.id)
     }
     if (node.kind === 'export' && record(node.options) && !['srt', 'vtt', 'lrc'].includes(String(node.options.subtitle_format ?? 'srt'))) add('invalid_format', '字幕导出仅支持 SRT、VTT、LRC', node.id)
   }

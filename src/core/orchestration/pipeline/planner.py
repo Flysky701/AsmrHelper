@@ -86,6 +86,9 @@ def _build_tts(profile: dict[str, Any], *, enabled: bool) -> StageBinding:
 def _build_mix(profile: dict[str, Any], pipeline_opts: dict[str, Any], *, enabled: bool) -> MixConfig:
     mix_profile = dict(profile.get("mix", {}))
     mix_options = dict(mix_profile.get("common_options", mix_profile))
+    output_length = mix_options.get("output_length", "main")
+    if output_length not in ("main", "longest"):
+        raise ValueError("混音输出长度必须为 main 或 longest")
     if "tts_delay_ms" in mix_options:
         tts_delay_ms = float(mix_options["tts_delay_ms"])
     else:
@@ -97,6 +100,7 @@ def _build_mix(profile: dict[str, Any], pipeline_opts: dict[str, Any], *, enable
         original_volume=float(mix_options.get("original_volume", pipeline_opts.get("original_volume", 0.85))),
         tts_volume_ratio=float(mix_options.get("tts_volume_ratio", pipeline_opts.get("tts_volume_ratio", 0.5))),
         tts_delay_ms=tts_delay_ms,
+        output_length=output_length,
     )
 
 

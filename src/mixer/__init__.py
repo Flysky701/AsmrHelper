@@ -8,6 +8,7 @@
 """
 
 import time
+import math
 from pathlib import Path
 import soundfile as sf
 import numpy as np
@@ -39,6 +40,8 @@ class Mixer:
     def detect_volume(self, audio_path: str) -> float:
         """检测音频音量"""
         data, _ = sf.read(audio_path)
+        if data.size == 0 or not np.isfinite(data).all():
+            raise ValueError("混音输入音频为空或包含无效采样")
         # 使用 RMS 作为统一音量口径，避免峰值检测受随机削波影响
         if data.dtype == np.float32 or data.dtype == np.float64:
             return float(np.sqrt(np.mean(np.square(data))))
@@ -50,6 +53,7 @@ class Mixer:
         tts_path: str,
         output_path: str,
         adjust_tts_volume: bool = True,
+        output_length: str = "main",
     ) -> str:
         """
         混音原音与 TTS 配音
@@ -59,10 +63,15 @@ class Mixer:
             tts_path: TTS 配音文件路径
             output_path: 输出文件路径
             adjust_tts_volume: 是否自动调整 TTS 音量
+            output_length: main 跟随主音轨；longest 保留偏移后较长的音轨
 
         Returns:
             str: 输出文件路径
         """
+        if output_length not in ("main", "longest"):
+            raise ValueError("混音输出长度必须为 main 或 longest")
+        if not math.isfinite(self.tts_delay_ms):
+            raise ValueError("混音延迟无效")
         original_path = Path(original_path)
         tts_path = Path(tts_path)
         output_path = Path(output_path)
@@ -89,6 +98,11 @@ class Mixer:
 
         # 计算延迟样本数
         info = sf.info(str(original_path))
+        speech_info = sf.info(str(tts_path))
+        if info.frames < 1 or speech_info.frames < 1:
+            raise ValueError("混音需要非空音频")
+        output_duration = (info.duration if output_length == "main" else
+                           max(info.duration, speech_info.duration + self.tts_delay_ms / 1000))
         delay_samples = int(self.tts_delay_ms * info.samplerate / 1000)
         print(f"  TTS 延迟: {self.tts_delay_ms}ms ({delay_samples} samples)")
 
@@ -114,18 +128,18 @@ class Mixer:
             ar = "44100"
 
         # 构建 ffmpeg 命令
-        # 延迟：负值表示TTS提前（需要在TTS前端padding）；正值表示TTS延后
+        # 时间零点之前的配音被裁掉；正偏移补前置静音。
         delay_ms = self.tts_delay_ms
         orig_vol = self.original_volume
         tts_vol_db = tts_gain_db
 
-        # 准备 pad/echo 滤镜实现负延迟（提前）
+        # 保留原有音量与 amix normalize 算法，仅改变时间范围。
         tts_filter = f"volume={tts_vol_db}dB"
         if delay_ms < 0:
-            # 负延迟：TTS提前，先padding静音再输出
-            abs_delay_ms = abs(delay_ms)
-            # 使用apad在TTS前面添加静音，atrim限制总时长
-            tts_filter += f",apad=whole_dur={info.duration + abs_delay_ms/1000}s,atrim=start={abs_delay_ms/1000}:duration={info.duration}"
+            # 有界尾部静音保证整条配音移出时间零点时仍产生合法静音轨。
+            advance = abs(delay_ms) / 1000
+            tts_filter += (f",apad=whole_dur={output_duration + advance},"
+                           f"atrim=start={advance}:duration={output_duration},asetpts=PTS-STARTPTS")
             orig_filter = f"volume={orig_vol},adelay=0|0"
         elif delay_ms > 0:
             # 正延迟：TTS延后，使用adelay
@@ -147,7 +161,7 @@ class Mixer:
             "-i", str(original_path),
             "-i", str(tts_path),
             "-filter_complex",
-            f"[0:a]{orig_filter}[orig];[1:a]{tts_filter}[tts];[orig][tts]amix=inputs=2:duration=first[mixed]",
+            f"[0:a]{orig_filter}[orig];[1:a]{tts_filter}[tts];[orig][tts]amix=inputs=2:duration={'first' if output_length == 'main' else 'longest'}[mixed]",
             "-map", "[mixed]",
             "-acodec", acodec,
             "-ar", final_ar,

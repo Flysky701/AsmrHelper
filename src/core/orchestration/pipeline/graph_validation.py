@@ -149,6 +149,8 @@ def validate_graph(graph: Any, *, template: bool = False) -> dict[str, Any]:
             if kind == "separate" and isinstance(options, dict) and options.get("mode", "vocals") != "vocals":
                 add("unsupported_option", "分离节点当前仅提供人声轨输出", node_id)
             if kind == "mix" and isinstance(options, dict):
+                if options.get("output_length", "main") not in ("main", "longest"):
+                    add("invalid_option", "output_length 必须是 main 或 longest", node_id)
                 for key, value in options.items():
                     if key in ("original_volume", "tts_volume_ratio", "tts_delay_ms") and (
                             type(value) not in (float, int) or not math.isfinite(value)

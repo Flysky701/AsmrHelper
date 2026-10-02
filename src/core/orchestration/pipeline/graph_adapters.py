@@ -98,12 +98,8 @@ class GraphStageRunner:
             delay = plan.mix.tts_delay_ms / 1000.0
             if not math.isfinite(delay):
                 raise ValueError("混音延迟无效")
-            if delay < 0:
-                raise ValueError("负延迟会截去配音开头；请先调整素材，图混音不自动裁剪")
-            if _duration(speech) + delay > _duration(audio) + 1e-6:
-                raise ValueError("配音加延迟后超过主音轨时长；当前混音会截断，请先调整素材或延迟")
-            if _duration(speech) + delay <= 0:
-                raise ValueError("混音延迟会移除整段配音，请调整延迟")
+            if plan.mix.output_length not in ("main", "longest"):
+                raise ValueError("混音输出长度必须为 main 或 longest")
         if kind == "tts" and subtitle is not None:
             duration = subtitle.metadata.get("duration")
             if duration is None:
@@ -129,6 +125,11 @@ class GraphStageRunner:
             source = subtitle if kind == "tts" else audio
             metadata = deepcopy(source.metadata if source else {})
             metadata.update(self.audio_inspector(Path(result["path"])))
+            if kind == "mix":
+                metadata.update(output_length=plan.mix.output_length,
+                                tts_delay_ms=plan.mix.tts_delay_ms,
+                                delay_behavior=("trim_before_zero" if plan.mix.tts_delay_ms < 0
+                                                else "pad_start" if plan.mix.tts_delay_ms > 0 else "none"))
             value = GraphValue("audio", result["path"], metadata=metadata)
             _duration(value)
             return {"audio": value}

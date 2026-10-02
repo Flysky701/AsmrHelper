@@ -9,6 +9,7 @@ import type { CapabilityDescriptorResponse, CapabilityOptionResponse } from '@/a
 import type { GraphLanguage, GraphNode } from '@/domain/workflowGraph'
 import { copyRecipeToGraphNode, editableGraphOptions, freshGraphSpeechNode, graphNodeFromRecipe,
   graphCapabilityDisabledReason, graphCapabilityValue, graphSpeechIssue, graphSpeechOptionDisabledReason,
+  graphMixOutputLength, graphMixOutputLengthOptions,
   parseGraphObjectOption, readGraphSpeechSource, retainedGraphOptions, setGraphOption, unknownGraphOptions, withGraphSpeechSource } from '@/domain/graphNodeParameters'
 import type { GraphParameterSection, GraphSpeechSource } from '@/domain/graphNodeParameters'
 import { availableSpeechOptions, speechLanguageMatches } from '@/domain/speechAdvancedOptions'
@@ -42,6 +43,8 @@ export default function GraphNodeParameters(props: Props) {
 
 function NodeParameters({ node, onChange, disabled = false, section = 'all' }: Props) {
   const common = section !== 'advanced'
+  const mixOutputLength = graphMixOutputLength(node)
+  const mixOutputLengthChoice = graphMixOutputLengthOptions.find(option => option.value === mixOutputLength)
   const [pending, setPending] = useState<{ description: string; node: GraphNode } | null>(null)
   const requestChange = (next: GraphNode, description: string) => setPending({ node: next, description })
   const scopedChange = (next: GraphNode) => { setPending(null); onChange(next) }
@@ -59,9 +62,15 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all' }: P
         {common && <div className="graph-param-grid">{([['original_volume', '音频轨音量', 0.85], ['tts_volume_ratio', '配音轨音量', 0.5]] as const).map(([key, label, fallback]) =>
           <Field key={key} label={label}><input type="number" min={0} step={0.1} value={String(node.options[key] ?? fallback)}
             onChange={event => scopedChange(setGraphOption(node, 'options', key, event.target.value === '' ? undefined : Number(event.target.value)))} /></Field>)}</div>}
-        <Advanced section={section}><Field label="配音延迟（毫秒）"><input type="number" min={0} step={1} value={String(node.options.tts_delay_ms ?? 0)}
-          onChange={event => scopedChange(setGraphOption(node, 'options', 'tts_delay_ms', event.target.value === '' ? undefined : Number(event.target.value)))} /></Field></Advanced>
-        {common && <p className="graph-param-note">两路音频需对应同一时间轴；不自动裁切超出底轨的配音。</p>}
+        {common && <Field label="输出时长"><select value={mixOutputLength ?? String(node.options.output_length)}
+          onChange={event => scopedChange(setGraphOption(node, 'options', 'output_length', event.target.value))}>
+          {!mixOutputLength && <option value={String(node.options.output_length)}>原设置（待确认）</option>}
+          {graphMixOutputLengthOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select><small>{mixOutputLengthChoice?.description || '请选择有效的输出时长策略；原参数尚未更改。'}</small></Field>}
+        <Advanced section={section}><Field label="配音延迟（毫秒）"><input type="number" step={1} value={String(node.options.tts_delay_ms ?? 0)}
+          onChange={event => scopedChange(setGraphOption(node, 'options', 'tts_delay_ms', event.target.value === '' ? undefined : Number(event.target.value)))} />
+          <small>正数后移，负数前移；前移会截去零点前的配音。</small></Field></Advanced>
+        {common && <p className="graph-param-note">两路音频需对应同一时间轴。</p>}
       </>}
       {common && node.kind === 'export' && <Field label="字幕格式"><select value={String(node.options.subtitle_format ?? 'srt')}
         onChange={event => scopedChange(setGraphOption(node, 'options', 'subtitle_format', event.target.value))}>

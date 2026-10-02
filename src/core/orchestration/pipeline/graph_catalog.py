@@ -20,7 +20,7 @@ GRAPH_PORT_TYPES = ("audio", "subtitle")
 GRAPH_OPTION_KEYS = {
     "separate": ("mode",), "asr": None, "align": (), "translate": None,
     "tts": ("speech_recipe_id", "speech_source", "voice", "speed"),
-    "mix": ("original_volume", "tts_volume_ratio", "tts_delay_ms"),
+    "mix": ("original_volume", "tts_volume_ratio", "tts_delay_ms", "output_length"),
     "export": ("subtitle_format",),
 }
 

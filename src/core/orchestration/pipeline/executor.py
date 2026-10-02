@@ -739,9 +739,11 @@ class PipelineExecutor:
                 original_path=str(input_path),
                 tts_path=str(tts_audio_path),
                 output_path=str(mix_path),
+                output_length=plan.mix.output_length,
             )
             results["steps"]["mixer"] = {
-                "duration": time.time() - t1, "output": str(mix_path)
+                "duration": time.time() - t1, "output": str(mix_path),
+                "output_length": plan.mix.output_length, "tts_delay_ms": plan.mix.tts_delay_ms,
             }
         except Exception as e:
             if plan.workflow.get("graph_node"):
@@ -757,6 +759,7 @@ class PipelineExecutor:
                 get_speech_service().record_formal_mix(results["speech_experiment_id"], str(input_path), {
                     "original_volume": plan.mix.original_volume, "tts_volume_ratio": plan.mix.tts_volume_ratio,
                     "tts_delay_ms": plan.mix.tts_delay_ms,
+                    "output_length": plan.mix.output_length,
                 })
             except Exception as exc:
                 warning = "混音音频已生成，但附加实验记录保存失败；音频结果仍可使用。"
