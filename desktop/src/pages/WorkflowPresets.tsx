@@ -12,6 +12,7 @@ export default function WorkflowPresets() {
   const { catalog, catalogLoading, catalogError, editor, saving, error } = workflow
   const [catalogId, setCatalogId] = useState(editor?.preset?.id || '')
   const [opening, setOpening] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [notice, setNotice] = useState('')
   const openingRef = useRef(false)
   const current = useRef({ editor, saving })
@@ -19,6 +20,8 @@ export default function WorkflowPresets() {
   const issues = editor ? validateGraph(editor.graph) : []
   const dirty = !!editor && editorDirty(editor)
   const busy = saving || opening
+  const saveReason = !editor ? '' : !editor.label.trim() ? '请填写流水线名称后保存。'
+    : issues.length ? `请先处理 ${issues.length} 项结构问题：${issues[0]!.message}` : ''
 
   useEffect(() => { void useWorkflowStore.getState().loadCatalog() }, [])
   useEffect(() => {
@@ -79,12 +82,28 @@ export default function WorkflowPresets() {
     useNavStore.getState().setPage(editor?.returnTo || 'settings')
   }
   const selected = catalog.find(preset => preset.id === catalogId)
+  async function deleteSelected() {
+    if (busy || !selected || selected.builtin) return
+    if (!window.confirm(`删除自定义预设「${selected.label}」？已创建的任务不受影响，当前打开的草稿和已绑定素材会保留。`)) return
+    setNotice('')
+    setDeleting(true)
+    try {
+      if (await workflow.deletePreset(selected.id, selected.revision)) {
+        setCatalogId('')
+        setNotice('自定义预设已删除。当前打开的草稿与素材绑定已保留；草稿可重新保存为新预设。')
+      }
+    } finally { setDeleting(false) }
+  }
 
   return <div className="workflow-presets">
     <header className="wfp-header">
       <div><p className="wfp-eyebrow">流水线预设</p><h1>{editor ? editor.preset ? '编辑流水线' : '新建流水线' : '流水线编辑器'}</h1>
         <p className="wfp-description">在这里定义可复用的结构。工作台负责选择流水线、绑定素材与调整本次运行参数。</p></div>
-      <button type="button" className="wfp-button" disabled={busy} onClick={goBack}>返回{editor?.returnTo === 'workbench' ? '工作台' : '设置'}</button>
+      <div className="wfp-actions">
+        {editor?.preset && !editor.preset.builtin && <button type="button" className="wfp-button" disabled={busy || !!saveReason} title={saveReason || undefined} onClick={() => void save('copy')}>另存为新预设</button>}
+        {editor && <button type="button" className="wfp-button is-primary" disabled={busy || !!saveReason} title={saveReason || undefined} aria-describedby={saveReason ? 'wfp-save-reason' : undefined} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving && !deleting ? '正在保存…' : editor.preset?.builtin ? '保存副本并返回' : '保存并返回'}</button>}
+        <button type="button" className="wfp-button" disabled={busy} onClick={goBack}>返回{editor?.returnTo === 'workbench' ? '工作台' : '设置'}</button>
+      </div>
     </header>
     <section className="wfp-catalog" aria-label="选择要编辑的流水线">
       <label><span>已保存流水线</span><select aria-label="已保存流水线" value={catalogId} disabled={busy || catalogLoading} onChange={event => setCatalogId(event.target.value)}>
@@ -93,10 +112,15 @@ export default function WorkflowPresets() {
       </select></label>
       <button type="button" className="wfp-button" disabled={busy || !selected} onClick={() => void openPreset()}>{opening ? '正在转换…' : selected && !('graph' in selected) ? '转换为节点草稿' : '打开编辑'}</button>
       <button type="button" className="wfp-button" disabled={busy} onClick={() => void openPreset(true)}>新建流水线</button>
+      {selected && <button type="button" className="wfp-button is-danger" disabled={busy || selected.builtin} title={selected.builtin ? '内置预设不可删除，可以保存为自己的副本。' : '仅删除所选自定义预设，保留打开的草稿。'} onClick={() => void deleteSelected()}>{deleting ? '正在删除…' : '删除预设'}</button>}
+      {selected?.builtin && <span className="wfp-catalog-hint">内置预设只读，可另存副本；不可删除。</span>}
     </section>
-    {catalogError && <div className="wfp-alert" role="alert">目录读取失败：{catalogError} <button type="button" disabled={catalogLoading || busy} onClick={() => void workflow.loadCatalog()}>重试</button></div>}
-    {notice && <p className="wfp-alert" role="status">{notice}</p>}
-    {error && <p className="wfp-alert" role="alert">{error} 当前草稿已保留；可调整后重试，或另存为新预设。</p>}
+    {(catalogError || notice || error || saveReason) && <div className="wfp-alerts">
+      {catalogError && <div className="wfp-alert" role="alert">目录读取失败：{catalogError} <button type="button" disabled={catalogLoading || busy} onClick={() => void workflow.loadCatalog()}>重试</button></div>}
+      {notice && <p className="wfp-alert" role="status">{notice}</p>}
+      {error && <p className="wfp-alert" role="alert">{error} 当前草稿已保留；可调整后重试，或另存为新预设。</p>}
+      {saveReason && <p id="wfp-save-reason" className="wfp-alert" role="status">{saveReason}</p>}
+    </div>}
     {!editor ? <section className="wfp-empty"><h2>把常用流程保存一次，之后重复使用</h2><p>选择一个已保存流水线，或从空白开始添加模块。旧版流程需显式转换，原预设会保留。</p><button type="button" className="wfp-button is-primary" disabled={busy} onClick={() => void openPreset(true)}>创建第一条节点流水线</button></section> : <>
       <fieldset className="wfp-editable" disabled={busy}>
         <div className="wfp-metadata">
@@ -109,12 +133,7 @@ export default function WorkflowPresets() {
           onChange={graph => workflow.updateEditor({ graph })} onBindingsChange={() => {}} createNode={newGraphNode}
           renderParameters={(node, onChange) => <GraphNodeParameters node={node} onChange={onChange} disabled={busy} />} />
       </fieldset>
-      <footer className="wfp-footer"><div><strong>{issues.length ? `${issues.length} 项结构问题需处理` : '可保存结构与默认参数'}</strong><p>保存不会启动执行。实际文件、声音预设与引擎可用性在工作台检查。</p></div>
-        <div className="wfp-actions"><button type="button" className="wfp-button" disabled={busy} onClick={goBack}>取消并返回</button>
-          {editor.preset && !editor.preset.builtin && <button type="button" className="wfp-button" disabled={busy || !!issues.length || !editor.label.trim()} onClick={() => void save('copy')}>另存为新预设</button>}
-          <button type="button" className="wfp-button is-primary" disabled={busy || !!issues.length || !editor.label.trim()} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving ? '正在保存…' : editor.preset?.builtin ? '保存副本并返回' : '保存并返回'}</button>
-        </div>
-      </footer>
+      <footer className="wfp-footer"><p>保存仅更新预设，不会执行流水线。实际素材、声音与引擎可用性在工作台检查。</p></footer>
     </>}
   </div>
 }

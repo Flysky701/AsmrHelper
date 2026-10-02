@@ -18,7 +18,8 @@ export function WorkflowInspector({ graph, node, issues, onNodeChange, onConnect
   const catalog = GRAPH_CATALOG[node.kind]
   return <aside className="wg-inspector" aria-label="节点设置">
     <div className="wg-panel-heading"><span>节点设置</span><small>{node.id}</small></div>
-    <div className="wg-inspector-title"><h2>{catalog.label}</h2><p>每个实例独立配置</p></div>
+    <div className="wg-inspector-title"><div><h2>{catalog.label}</h2><p>每个实例独立配置</p></div><button type="button" className="wg-remove" aria-label={`移除节点 ${node.id}`} title="移除此节点及其连线；下游需要重新指定来源" onClick={() => onRemove(node.id)}>移除节点</button></div>
+    <div className="wg-inspector-scroll" role="region" aria-label={`${node.id} 参数与来源`} tabIndex={0}>
     <section><h3>输入来源</h3>{Object.entries(catalog.inputs).map(([port, type]) => {
       const edge = graph.edges.find(edge => edge.target.node_id === node.id && edge.target.port === port)
       const value = edge ? sourceKey(edge.source) : ''
@@ -38,6 +39,6 @@ export function WorkflowInspector({ graph, node, issues, onNodeChange, onConnect
       <span>{PORT_NAMES[port] || port}<small>{TYPE_NAMES[type]}</small></span>
     </label>)}<p className="wg-hint">未交付的输出仍可供下游节点使用。</p></section>
     {!!issues.length && <section className="wg-node-problems"><h3>需要补充</h3>{issues.map((issue, index) => <p key={index}>{issue}</p>)}</section>}
-    <button type="button" className="wg-remove" onClick={() => onRemove(node.id)}>移除此节点</button>
+    </div>
   </aside>
 }

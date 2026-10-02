@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from src.api.http.dependencies import preset_catalog_service
 from src.api.http.schemas.pipeline import (
@@ -79,3 +79,12 @@ def update_preset(
     svc: PresetCatalogService = Depends(preset_catalog_service),
 ):
     return _call(svc.update_preset, preset_id, body.model_dump(exclude={"revision"}, exclude_none=True), body.revision)
+
+
+@router.delete("/presets/{preset_id}", status_code=204, response_class=Response)
+def delete_preset(
+    preset_id: str, revision: int = Query(..., ge=1),
+    svc: PresetCatalogService = Depends(preset_catalog_service),
+):
+    _call(svc.delete_preset, preset_id, revision)
+    return Response(status_code=204)

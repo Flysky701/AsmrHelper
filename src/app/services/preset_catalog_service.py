@@ -29,7 +29,7 @@ class PresetConflictError(ValueError):
 
 
 class BuiltinPresetError(ValueError):
-    """Built-ins can be copied, but never edited in place."""
+    """Built-ins can be copied, but never edited or deleted in place."""
 
 
 def _text(value: Any, name: str, limit: int, *, required: bool = True) -> str:
@@ -239,6 +239,24 @@ class PresetCatalogService:
                 for preset in presets if not preset["builtin"]
             ])
             return item
+
+    def delete_preset(self, preset_id: str, revision: int) -> None:
+        """Delete one custom preset only if the caller still owns its revision."""
+        if type(revision) is not int or revision < 1:
+            raise ValueError("Preset revision must be a positive integer")
+        with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
+            presets = self.list_presets()
+            current = next((preset for preset in presets if preset["id"] == preset_id), None)
+            if current is None:
+                raise KeyError("Preset does not exist")
+            if current["builtin"]:
+                raise BuiltinPresetError("Built-in presets are read-only and cannot be deleted")
+            if current["revision"] != revision:
+                raise PresetConflictError("Preset changed since it was loaded; reload before deleting")
+            self._write([
+                preset for preset in presets
+                if not preset["builtin"] and preset["id"] != preset_id
+            ])
 
 
 _service: PresetCatalogService | None = None

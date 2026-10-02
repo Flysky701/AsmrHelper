@@ -33,7 +33,7 @@ function autoPositions(graph: GraphDefinition, narrow: boolean, templateMode: bo
   const maxCount = Math.max(2, ...Object.values(layers).map(items => items.length))
   const height = Math.max(520, maxCount * rowHeight + 45)
   const points: Record<string, Point> = {}
-  for (const [layer, ids] of Object.entries(layers)) ids.forEach((id, index) => { points[id] = { x: 26 + Number(layer) * 262, y: 50 + index * rowHeight + (maxCount - ids.length) * 75 } })
+  for (const [layer, ids] of Object.entries(layers)) ids.forEach((id, index) => { points[id] = { x: 26 + Number(layer) * 262, y: 28 + index * rowHeight + (maxCount - ids.length) * 28 } })
   return { points, width: 26 + (Math.max(0, ...Object.values(depth)) + 1) * 262, height }
 }
 
@@ -41,21 +41,38 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
   const [selectedId, setSelectedId] = useState(graph.nodes[0]?.id || '')
   const [pendingSource, setPendingSource] = useState<GraphEdge['source'] | null>(null)
   const [error, setError] = useState('')
-  const [narrow, setNarrow] = useState(() => window.innerWidth < 760)
+  const [editorWidth, setEditorWidth] = useState(1000)
+  const [narrow, setNarrow] = useState(false)
+  const [compactPane, setCompactPane] = useState<'canvas' | 'inspector'>('canvas')
   const [moved, setMoved] = useState<Record<string, Point>>({})
   const [lines, setLines] = useState<Line[]>([])
+  const [measuredExtent, setMeasuredExtent] = useState({ width: 0, height: 0 })
+  const editorRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<{ id: string; x: number; y: number; origin: Point } | null>(null)
+  const dragRef = useRef<{ id: string; x: number; y: number; origin: Point; scrollLeft: number; scrollTop: number } | null>(null)
+  const revealRef = useRef<string | null>(null)
   const layout = autoPositions(graph, narrow, templateMode)
-  const positions = narrow ? layout.points : { ...layout.points, ...moved }
+  // Deleted nodes cannot keep the stage expanded through an obsolete drag position.
+  const positions = Object.fromEntries(Object.entries(layout.points).map(([id, point]) => [id, narrow ? point : moved[id] || point]))
+  const extent = { width: Math.max(layout.width, measuredExtent.width, ...Object.values(positions).map(point => point.x + 242)),
+    height: Math.max(layout.height, measuredExtent.height, ...Object.values(positions).map(point => point.y + 260)) }
   const node = graph.nodes.find(item => item.id === selectedId)
   const materialIssues = templateMode ? [] : bindingIssues(graph, bindings, materials)
   const allIssues = [...issues.map(issue => issue.message), ...materialIssues]
-  useEffect(() => {
-    const media = window.matchMedia('(max-width: 759px)')
-    const change = () => setNarrow(media.matches)
-    media.addEventListener('change', change)
-    return () => media.removeEventListener('change', change)
+  useLayoutEffect(() => {
+    const editor = editorRef.current, scroll = scrollRef.current
+    if (!editor || !scroll) return
+    const measure = () => {
+      setEditorWidth(editor.clientWidth)
+      // The available canvas width, rather than window width or device pixels,
+      // determines whether the compact one-column arrangement is useful.
+      if (scroll.clientWidth) setNarrow(scroll.clientWidth < 340)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(editor); observer.observe(scroll)
+    return () => observer.disconnect()
   }, [])
   useEffect(() => { if (!graph.nodes.some(item => item.id === selectedId)) setSelectedId(graph.nodes[0]?.id || '') }, [graph.nodes, selectedId])
   useLayoutEffect(() => {
@@ -63,6 +80,10 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
     if (!stage) return
     const measure = () => {
       const origin = stage.getBoundingClientRect()
+      const cards = Array.from(stage.querySelectorAll<HTMLElement>('[data-canvas-id]'))
+      const bounds = { width: Math.max(0, ...cards.map(card => card.offsetLeft + card.offsetWidth + 36)),
+        height: Math.max(0, ...cards.map(card => card.offsetTop + card.offsetHeight + 36)) }
+      setMeasuredExtent(current => current.width === bounds.width && current.height === bounds.height ? current : bounds)
       const endpoints = new Map(Array.from(stage.querySelectorAll<HTMLElement>('[data-endpoint]')).map(element => [element.dataset.endpoint, element]))
       setLines(graph.edges.flatMap((edge, index) => {
         const from = endpoints.get(`source:${sourceKey(edge.source)}`)
@@ -79,8 +100,21 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(stage)
+    stage.querySelectorAll<HTMLElement>('[data-canvas-id]').forEach(card => observer.observe(card))
     return () => observer.disconnect()
   }, [graph, bindings, narrow, moved])
+  function reveal(id: string) {
+    const scroll = scrollRef.current, stage = stageRef.current
+    const card = Array.from(stage?.querySelectorAll<HTMLElement>('[data-canvas-id]') || []).find(item => item.dataset.canvasId === id)
+    if (!scroll || !card) return
+    scroll.scrollTo({ left: Math.max(0, card.offsetLeft - 24), top: Math.max(0, card.offsetTop - 24), behavior: 'instant' })
+  }
+  useLayoutEffect(() => {
+    if (!revealRef.current) return
+    const id = revealRef.current
+    revealRef.current = null
+    reveal(id)
+  }, [graph.nodes.length, graph.input_slots.length, narrow, compactPane])
   function connect(target: GraphEdge['target'], source: GraphEdge['source'] | null) {
     const result = connectPort(graph, target, source)
     setError(result.error)
@@ -88,45 +122,48 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
   }
   function moveStart(id: string, event: PointerEvent<HTMLElement>) {
     if (narrow || event.button !== 0) return
-    dragRef.current = { id, x: event.clientX, y: event.clientY, origin: positions[id]! }
+    dragRef.current = { id, x: event.clientX, y: event.clientY, origin: positions[id]!, scrollLeft: scrollRef.current?.scrollLeft || 0, scrollTop: scrollRef.current?.scrollTop || 0 }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
   function move(event: PointerEvent<HTMLDivElement>) {
     const drag = dragRef.current
     if (!drag || narrow) return
-    const x = Math.max(10, drag.origin.x + event.clientX - drag.x)
-    const y = Math.max(12, drag.origin.y + event.clientY - drag.y)
+    const x = Math.max(10, drag.origin.x + event.clientX - drag.x + (scrollRef.current?.scrollLeft || 0) - drag.scrollLeft)
+    const y = Math.max(12, drag.origin.y + event.clientY - drag.y + (scrollRef.current?.scrollTop || 0) - drag.scrollTop)
     setMoved(current => ({ ...current, [drag.id]: { x, y } }))
   }
   function patchBinding(slotId: string, patch: Partial<GraphBindings[string]>) {
     const binding = bindings[slotId]
     if (binding) onBindingsChange({ ...bindings, [slotId]: { ...binding, ...patch } })
   }
-  return <div className="wg-editor" onKeyDown={event => { if (event.key === 'Escape') { setPendingSource(null); setError('') } }}>
-    <aside className="wg-library" aria-label="模块库"><div className="wg-panel-heading"><span>模块库</span><small>7 项能力</small></div><p className="wg-hint">点击添加，可重复使用。</p>
+  return <div ref={editorRef} className={`wg-editor${editorWidth < 960 ? ' is-condensed' : ''}${editorWidth < 720 ? ' is-compact' : ''}${editorWidth < 540 ? ' is-small' : ''} show-${compactPane}${narrow ? ' has-narrow-canvas' : ''}`} onKeyDown={event => { if (event.key === 'Escape') { setPendingSource(null); setError('') } }}>
+    <aside className="wg-library" aria-label="模块库" tabIndex={0}><div className="wg-panel-heading"><span>模块库</span><small>7 项能力</small></div><p className="wg-hint">点击添加，可重复使用。</p>
       <div className="wg-library-list">{GRAPH_NODE_KINDS.map(kind => <button type="button" key={kind} onClick={() => {
         const added = createNode(kind, graph)
+        revealRef.current = added.id; setCompactPane('canvas')
         onChange({ ...graph, nodes: [...graph.nodes, added] }); setSelectedId(added.id); setError('')
       }} aria-label={`添加${GRAPH_CATALOG[kind].label}`}><span className={`wg-module-symbol kind-${kind}`} aria-hidden="true">{kind === 'tts' ? '♫' : kind === 'translate' ? '译' : kind === 'mix' ? '≋' : kind === 'export' ? '↗' : kind === 'align' ? '↔' : kind === 'asr' ? '文' : '∿'}</span><span>{GRAPH_CATALOG[kind].label}<small>{Object.values(GRAPH_CATALOG[kind].inputs).join(' + ')} → {Object.values(GRAPH_CATALOG[kind].outputs).join(', ')}</small></span><b aria-hidden="true">+</b></button>)}</div>
       <div className="wg-slot-tools"><strong>添加输入槽</strong>{(['audio', 'subtitle'] as const).map(type => <button type="button" key={type} onClick={() => {
         let index = 1
         while (graph.input_slots.some(slot => slot.id.toLowerCase() === `${type}_${index}`)) index++
+        revealRef.current = `slot:${type}_${index}`; setCompactPane('canvas')
         onChange({ ...graph, input_slots: [...graph.input_slots, { id: `${type}_${index}`, type, label: `${type === 'audio' ? '音频' : '字幕'}输入 ${index}` }] })
       }}>+ {type === 'audio' ? '音频槽' : '字幕槽'}</button>)}</div>
       <div className="wg-library-note"><strong>素材与模板分开</strong><p>模板记住输入槽、连线和参数。每次使用时，再指定当前素材。</p></div>
     </aside>
-    <main className="wg-main"><div className="wg-canvas-toolbar"><div><strong>流程画布</strong><span>{graph.nodes.length} 节点 · {graph.edges.length} 连线</span></div><button type="button" onClick={() => setMoved({})}>整理布局</button></div>
+    <nav className="wg-pane-switch" aria-label="编辑区域"><button type="button" aria-pressed={compactPane === 'canvas'} onClick={() => setCompactPane('canvas')}>流程画布</button><button type="button" aria-pressed={compactPane === 'inspector'} onClick={() => setCompactPane('inspector')}>节点设置{node ? ` · ${node.id}` : ''}</button></nav>
+    <main className="wg-main"><div className="wg-canvas-toolbar"><div><strong>流程画布</strong><span>{graph.nodes.length} 节点 · {graph.edges.length} 连线</span></div><div className="wg-canvas-actions"><select aria-label="定位画布节点" value="" onChange={event => { const id = event.target.value; if (!id) return; if (!id.startsWith('slot:')) setSelectedId(id); reveal(id) }}><option value="">定位节点…</option>{graph.input_slots.map(slot => <option key={`slot:${slot.id}`} value={`slot:${slot.id}`}>{slot.label} · {slot.id}</option>)}{graph.nodes.map(item => <option key={item.id} value={item.id}>{GRAPH_CATALOG[item.kind].label} · {item.id}</option>)}</select><button type="button" onClick={() => { setMoved({}); scrollRef.current?.scrollTo({ left: 0, top: 0 }) }}>整理布局</button></div></div>
       <div className="wg-connect-instruction" role="status">{pendingSource ? <><strong>已选：{sourceLabel(graph, pendingSource)}</strong><span>点击目标输入完成连线</span><button type="button" onClick={() => setPendingSource(null)}>取消</button></> : <><i className="wg-port-dot subtitle" /><span>选择输出端口，再选择输入端口；也可在右侧指定来源。</span></>}</div>
       {error && <div className="wg-connection-error" role="alert">{error}</div>}
-      <div className="wg-canvas-scroll" role="region" aria-label="节点画布" tabIndex={0}>
-        <div className="wg-canvas-stage" ref={stageRef} style={{ width: layout.width, height: Math.max(layout.height, ...Object.values(positions).map(point => point.y + 230)) }} onPointerMove={move} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }}>
+      <div className="wg-canvas-scroll" ref={scrollRef} role="region" aria-label="节点画布" tabIndex={0}>
+        <div className="wg-canvas-stage" ref={stageRef} style={{ width: extent.width, height: extent.height }} onPointerMove={move} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }}>
           <svg className="wg-connections" width="100%" height="100%" aria-hidden="true"><defs><marker id="wg-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8z" fill="currentColor" /></marker></defs>{lines.map(line => <path key={line.id} className={`wg-line ${line.type}`} d={line.path} markerEnd="url(#wg-arrow)" />)}</svg>
           {graph.input_slots.map(slot => {
             const source: GraphEdge['source'] = { kind: 'slot', slot_id: slot.id }
             const point = positions[`slot:${slot.id}`]!
             const binding = bindings[slot.id]
             const material = materials.find(item => item.path === binding?.path)
-            return <article className={`wg-slot ${templateMode || binding ? '' : 'has-issue'}`} key={slot.id} style={{ left: point.x, top: point.y }}>
+            return <article className={`wg-slot ${templateMode || binding ? '' : 'has-issue'}`} data-canvas-id={`slot:${slot.id}`} key={slot.id} style={{ left: point.x, top: point.y }}>
               <div className="wg-slot-label"><span>输入槽</span><b>{TYPE_NAMES[slot.type]}</b></div><h3>{slot.label}</h3>
               {templateMode ? <>
                 <label className="wg-field"><span>名称</span><input aria-label={`${slot.id} 输入槽名称`} maxLength={100} value={slot.label} onChange={event => onChange(updateInputSlot(graph, { ...slot, label: event.target.value }))} /></label>
@@ -146,7 +183,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
               <button type="button" className={`wg-port output ${pendingSource && sourceKey(pendingSource) === sourceKey(source) ? 'armed' : ''}`} data-endpoint={`source:${sourceKey(source)}`} onClick={() => { setPendingSource(source); setError('') }} aria-label={`从输入槽 ${slot.id} 连线`}><span>{TYPE_NAMES[slot.type]}</span><i className={`wg-port-dot ${slot.type}`} /></button>
             </article>
           })}
-          {graph.nodes.map(item => <div className="wg-node-position" key={item.id} style={{ left: positions[item.id]!.x, top: positions[item.id]!.y }}><WorkflowNode node={item} graph={graph} selected={item.id === selectedId} issues={issues.filter(issue => issue.nodeId === item.id).map(issue => issue.message)} pendingSource={pendingSource}
+          {graph.nodes.map(item => <div className="wg-node-position" data-canvas-id={item.id} key={item.id} style={{ left: positions[item.id]!.x, top: positions[item.id]!.y }}><WorkflowNode node={item} graph={graph} selected={item.id === selectedId} issues={issues.filter(issue => issue.nodeId === item.id).map(issue => issue.message)} pendingSource={pendingSource}
             onSelect={() => setSelectedId(item.id)} onSource={source => { setPendingSource(source); setError('') }} onTarget={target => { if (pendingSource) connect(target, pendingSource) }} onMoveStart={event => moveStart(item.id, event)} /></div>)}
         </div>
       </div>
@@ -156,7 +193,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
       }) : <span className="wg-warning">尚未选择产出</span>}</div>
       <details className="wg-problems" open={allIssues.length > 0}><summary>{allIssues.length ? `${allIssues.length} 项需要补充` : templateMode ? '结构检查通过' : '结构与素材已连接'}<span>{templateMode ? '保存模板不运行任务；素材与环境在工作台检查' : '仅检查图与素材，不代表引擎已就绪'}</span></summary>{allIssues.map((issue, index) => <p key={index}>{issue}</p>)}</details>
     </main>
-    <WorkflowInspector graph={graph} node={node} issues={issues.filter(issue => issue.nodeId === selectedId).map(issue => issue.message)} onNodeChange={updated => onChange(updateNode(graph, updated))} onConnect={connect} renderParameters={renderParameters} onRemove={id => { onChange(removeNode(graph, id)); setPendingSource(null) }} onOutput={(id, port, selected) => {
+    <WorkflowInspector graph={graph} node={node} issues={issues.filter(issue => issue.nodeId === selectedId).map(issue => issue.message)} onNodeChange={updated => onChange(updateNode(graph, updated))} onConnect={connect} renderParameters={renderParameters} onRemove={id => { onChange(removeNode(graph, id)); setPendingSource(null); setError(`已移除 ${id} 及其关联连线与产出；下游需要重新指定来源。`) }} onOutput={(id, port, selected) => {
       const outputs = graph.outputs.filter(output => output.node_id !== id || output.port !== port)
       onChange({ ...graph, outputs: selected ? [...outputs, { node_id: id, port }] : outputs })
     }} />

@@ -9,7 +9,7 @@ import { cloneDraft, draftFingerprint, emptyGraph, type WorkflowEditorDraft } fr
 
 type Destination = 'workbench' | 'settings'
 type SaveMode = 'update' | 'copy'
-type CatalogApi = Pick<typeof pipelineApi, 'graphPresets' | 'graphDraft' | 'createGraphPreset' | 'updateGraphPreset'>
+type CatalogApi = Pick<typeof pipelineApi, 'graphPresets' | 'graphDraft' | 'createGraphPreset' | 'updateGraphPreset' | 'deletePreset'>
 type EditorPatch = Partial<Pick<WorkflowEditorDraft, 'graph' | 'label' | 'description'>>
 export interface WorkflowState {
   catalog: (PresetItem | GraphPresetItem)[]
@@ -33,6 +33,7 @@ export interface WorkflowState {
   closeEditor: () => void
   saveEditor: (mode: SaveMode) => Promise<GraphPresetItem | null>
   saveRuntime: (mode: SaveMode, label?: string) => Promise<GraphPresetItem | null>
+  deletePreset: (id: string, revision: number) => Promise<boolean>
 }
 
 const message = (error: unknown) => error instanceof Error ? error.message : '保存失败，请重试'
@@ -146,6 +147,32 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
         if (editor) set({ editor: { ...editor, ...cloneDraft(patch) }, error: null })
       },
       closeEditor: () => { editorGeneration++; set({ editor: null, error: null }) },
+      deletePreset: async (id, revision) => {
+        if (get().saving) return false
+        const preset = get().catalog.find(item => item.id === id)
+        if (preset?.builtin) {
+          set({ error: '内置预设不可删除；可以保存为自己的副本。' })
+          return false
+        }
+        const generation = editorGeneration
+        set({ saving: true, error: null })
+        try {
+          await client.deletePreset(id, revision)
+          // Invalidate an older catalog request so it cannot restore the deleted entry.
+          catalogGeneration++
+          const state = get(), editor = state.editor
+          if (state.selectedPreset?.id === id) selectionGeneration++
+          if (editor?.preset?.id === id) editorGeneration++
+          set({
+            catalog: state.catalog.filter(item => item.id !== id),
+            selectedPreset: state.selectedPreset?.id === id ? null : state.selectedPreset,
+            // Deleting a saved template must not erase material bindings or an open draft.
+            editor: editor?.preset?.id === id ? { ...editor, preset: null, initialFingerprint: '' } : editor,
+          })
+          return true
+        } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return false }
+        finally { set({ saving: false }) }
+      },
       saveEditor: async mode => {
         const state = get(), editor = state.editor
         if (state.saving || !editor) return null
@@ -170,11 +197,11 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
       },
       saveRuntime: async (mode, label) => {
         const state = get()
-        if (state.saving || !state.runtimeGraph || !state.selectedPreset) return null
+        if (state.saving || !state.runtimeGraph) return null
         const generation = selectionGeneration, preset = state.selectedPreset
         set({ saving: true, error: null })
         try {
-          const item = await save(mode, preset, draftFor(state.runtimeGraph, label ?? preset.label, preset.description))
+          const item = await save(mode, preset, draftFor(state.runtimeGraph, label ?? preset?.label ?? '', preset?.description ?? ''))
           upsert(item)
           if (generation !== selectionGeneration) return null
           selectionGeneration++
