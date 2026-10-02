@@ -212,6 +212,12 @@ def freeze_graph_speech(profile: dict) -> dict:
         snapshot = snapshots.get(node["id"])
         if snapshot is None:
             snapshot = speech.pipeline_snapshot(node_profile(node)["stages"]["tts"])
+            # Auto is a portable recipe preference; a newly submitted node has
+            # an explicit output language. Freeze that choice only in this run.
+            # Existing task snapshots and the saved recipe remain unchanged.
+            if snapshot["recipe"].get("language", "auto") == "auto":
+                snapshot = deepcopy(snapshot)
+                snapshot["recipe"]["language"] = node["target_lang"]
         language = snapshot["recipe"].get("language", "auto")
         if language not in ("auto", node.get("target_lang")):
             raise ValueError(f"节点 {node['id']} 的声音规则语言与目标字幕不一致")

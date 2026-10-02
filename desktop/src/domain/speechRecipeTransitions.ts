@@ -3,7 +3,7 @@ import { availableSpeechOptions, speechOptionsIssue } from './speechAdvancedOpti
 
 export function blankSpeechRecipe(): SpeechRecipe {
   return { id: '', revision: 0, name: '', voice_id: '', provider_id: '', model: '', mode: '', connection_ref: '',
-    variant: { kind: 'reference', value: '', style: 'normal' }, language: 'zh', provider_options: { schema_version: 1 } }
+    variant: { kind: 'reference', value: '', style: 'normal' }, language: 'auto', provider_options: { schema_version: 1 } }
 }
 
 export function referenceModes(provider: SpeechProvider | undefined): SpeechMode[] {
@@ -71,7 +71,7 @@ export function recipeFromReference(current: SpeechRecipe, asset: ReferenceAsset
   const provider = compatible.find(item => item.provider_id === current.provider_id) || (compatible.length === 1 ? compatible[0] : undefined)
   const mode = referenceModes(provider).find(item => item.id === current.mode) || referenceModes(provider)[0]
   const model = modelFor(mode, provider?.provider_id === current.provider_id ? current.model : '')
-  const draft = { ...blankSpeechRecipe(), name: asset.name || '参考音色', language: asset.language || 'auto',
+  const draft = { ...blankSpeechRecipe(), name: asset.name || '参考音色',
     provider_id: provider?.provider_id || '', connection_ref: provider?.provider_id === current.provider_id ? current.connection_ref : '' }
   return applySelection(draft, provider, mode, model, { kind: 'reference', value: asset.id, style: 'normal' })
 }

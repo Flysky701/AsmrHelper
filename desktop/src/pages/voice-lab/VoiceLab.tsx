@@ -1,4 +1,5 @@
 import SpeechOptionsFields from '@/components/SpeechOptionsFields'
+import QwenReferenceMode from '@/components/QwenReferenceMode'
 import FishVoicePicker from '@/components/FishVoicePicker'
 import { speechOptionsIssue } from '@/domain/speechAdvancedOptions'
 import { blankSpeechRecipe, recipeFromReference, referenceModes, selectSpeechProvider, selectSpeechMode, selectSpeechModel, speechRecipeCapabilityIssue } from '@/domain/speechRecipeTransitions'
@@ -18,7 +19,7 @@ const emptyLibrary: SpeechLibrary = { voices: [], recipes: [], assets: [], exper
 const variantNames = { hosted: '服务端音色 ID', builtin: '内置说话人 ID', reference: '参考素材', design: '声音描述', default: '引擎默认声音' }
 const modeNames: Record<string, string> = { default: '引擎默认声音', hosted: '服务端音色', builtin: '内置声音', reference: '参考声音克隆', design: '声音设计' }
 const deploymentNames = { local: '本机', lan: '局域网', cloud: '云端' }
-const languageNames: Record<string, string> = { auto: '自动识别', zh: '中文', en: '英语', ja: '日语', ko: '韩语', fr: '法语', de: '德语', es: '西班牙语', it: '意大利语', pt: '葡萄牙语', ru: '俄语' }
+const languageNames: Record<string, string> = { auto: '自动（按合成文本识别）', zh: '中文', en: '英语', ja: '日语', ko: '韩语', fr: '法语', de: '德语', es: '西班牙语', it: '意大利语', pt: '葡萄牙语', ru: '俄语' }
 const deliveryNames = { normal: '普通', soft: '轻柔', whisper: '耳语' }
 const emotionNames: Record<string, string> = { neutral: '中性', happy: '开心', sad: '悲伤', angry: '生气', excited: '兴奋', calm: '平静', nervous: '紧张', relaxed: '放松' }
 const blankRecipe = blankSpeechRecipe
@@ -60,6 +61,7 @@ export default function VoiceLab() {
   const connectionProvider = providers.find(item => item.provider_id === connection.provider_id)
   const selectedMode = provider?.modes.find(mode => mode.id === recipe.mode)
   const availableReferenceMode = referenceModes(provider)[0]
+  const qwenReference = provider?.provider_id === 'qwen3' && recipe.mode === 'reference' && recipe.model === 'qwen3-base' && provider.options_schema.properties.x_vector_only_mode?.type === 'boolean'
   const experiment = library.experiments.find(item => item.id === experimentId)
   const takes = library.takes.filter(item => item.experiment_id === experimentId)
   const legacyRule = !!recipe.id && (!!library.voices.find(item => item.id === recipe.voice_id)?.bindings.length || recipe.variant.style !== 'normal')
@@ -82,7 +84,7 @@ export default function VoiceLab() {
   const configurationReason = capabilityIssue || (((provider?.connection_required || localProvider || recipe.connection_ref) && !selectedConnection && !engineDefaultConnection) || (selectedConnection && selectedConnection.provider_id !== provider?.provider_id) ? '请确认属于当前引擎的运行连接。'
     : sourceRequired && !recipe.variant.value.trim() ? '请补充所选方式要求的声音来源。'
     : recipe.variant.kind === 'reference' && (!referenceAsset || referenceAsset.archived) ? '参考录音不存在或已归档。'
-    : recipe.provider_id === 'qwen3' && recipe.mode === 'reference' && recipe.provider_options.x_vector_only_mode !== true && (!referenceAsset?.transcript.trim() || !referenceAsset.confirmed) ? 'Qwen参考克隆需要已核对原文，或在高级选项中启用“仅使用声音特征”。'
+    : recipe.provider_id === 'qwen3' && recipe.mode === 'reference' && recipe.provider_options.x_vector_only_mode !== true && (!referenceAsset?.transcript.trim() || !referenceAsset.confirmed) ? '请选择“仅声音特征”，或为“参考音频 + 原文”补充已核对的录音原文。'
     : speechOptionsIssue(provider, recipe.mode, checkedOptions, recipe.model))
   const saveReason = legacyRule ? '历史音色保持只读，可复制为新规则。' : !recipe.name.trim() ? '请填写音色名称。' : configurationReason
   const performance = selectedMode?.capabilities || provider?.capabilities || {}
@@ -223,11 +225,17 @@ export default function VoiceLab() {
     setProbeResult(null); setLocalResolution(null)
     applyRecipeSelection(selectSpeechModel(recipe, provider, model))
   }
+  function referenceModeField() {
+    return qwenReference && <QwenReferenceMode value={recipe.provider_options.x_vector_only_mode === true} onChange={value => editRecipe({ provider_options: { ...recipe.provider_options, x_vector_only_mode: value } })} />
+  }
+  function targetLanguageField() {
+    return <Field title="合成目标语言"><select value={recipe.language} onChange={event => editRecipe({ language: event.target.value })}>{!languageNames[recipe.language] && <option value={recipe.language}>{recipe.language || '未指定'}（当前值）</option>}{Object.entries(languageNames).map(([code, label]) => <option value={code} key={code}>{label}</option>)}</select></Field>
+  }
   function advancedFields() {
     return <>
-      {recipe.provider_id === 'qwen3' && recipe.mode === 'reference' && <p className="muted">Qwen Base 的参考克隆本身就是 Zero-shot，无需训练。默认需要参考音频和已核对原文；“仅使用声音特征”可免原文，仍需参考音频。</p>}
+      {recipe.provider_id === 'qwen3' && recipe.mode === 'reference' && <p className="muted">Qwen Base 的参考克隆本身就是 Zero-shot，无需训练。它不支持用自然语言指令直接控制情绪；生成方式与 VoiceDesign、CustomVoice 不同。</p>}
       {savedLegacyDevice && <p className="muted">历史规则的设备设置会在执行副本中保留。编辑新参数时，请先在连接中设置相应设备，再明确移除旧设备字段；原规则保持不变。</p>}
-      <SpeechOptionsFields provider={provider} mode={recipe.mode} model={recipe.model} values={checkedOptions} onChange={provider_options => editRecipe({ provider_options: savedLegacyDevice ? { ...provider_options, device: recipe.provider_options.device } : provider_options })} />
+      <SpeechOptionsFields provider={provider} mode={recipe.mode} model={recipe.model} omit={qwenReference ? ['x_vector_only_mode'] : []} values={checkedOptions} onChange={provider_options => editRecipe({ provider_options: savedLegacyDevice ? { ...provider_options, device: recipe.provider_options.device } : provider_options })} />
       <div className="recipe-fields performance-options">
         {(directDeliveries.length > 1 || defaultDelivery !== 'normal') && <Field title="默认发声方式"><select value={defaultDelivery} onChange={event => editRecipe({ default_delivery: event.target.value as SpeechRecipe['default_delivery'] })}>
           {!directDeliveries.includes(defaultDelivery) && <option value={defaultDelivery}>{deliveryNames[defaultDelivery]}（需要兼容声音来源）</option>}{directDeliveries.map(value => <option key={value} value={value}>{deliveryNames[value as keyof typeof deliveryNames]}</option>)}</select></Field>}
@@ -250,7 +258,7 @@ export default function VoiceLab() {
     setProbeResult(null); setLocalResolution(null)
     setLibrary(previous => ({ ...previous, assets: [...previous.assets.filter(asset => asset.id !== item.id), item] }))
     setRecipeDirty(true); setShowConnection(false); setAdvancedConnection(false); setVoiceListOpen(false); setCompiled(null)
-    setTab(1); setNotice('已用此录音创建新音色草稿，原音色不会被覆盖。' + (draft.provider_id ? '' : '参考录音和原文已保留，请选择支持参考克隆的引擎。'))
+    setTab(1); setNotice('已用此录音创建新音色草稿，原音色不会被覆盖。合成目标语言默认按合成文本识别，可手动选择中文等语言。' + (draft.provider_id ? '' : '参考录音和原文已保留，请选择支持参考克隆的引擎。'))
   }
   async function toggleArchive() {
     const { id, archived } = recipe
@@ -286,7 +294,8 @@ export default function VoiceLab() {
           <fieldset className="lab-fieldset" disabled={legacyRule}>
             <section className="recipe-section"><h3>基本信息</h3><div className="recipe-fields">
               <Field title="音色名称"><input value={recipe.name} onChange={event => editRecipe({ name: event.target.value })} /></Field>
-              <Field title="语言"><select value={recipe.language} onChange={event => editRecipe({ language: event.target.value })}>{!languageNames[recipe.language] && <option value={recipe.language}>{recipe.language || '未指定'}（当前值）</option>}{Object.entries(languageNames).map(([code, label]) => <option value={code} key={code}>{label}</option>)}</select></Field>
+              {targetLanguageField()}
+              <p className="muted recipe-wide">这里选择要生成的语音语言，与参考录音语言独立。例如日语录音配中文台词，合成目标选中文，参考原文仍保留日语。保存的旧音色保持原值，不会自动改语言。</p>
               <div className="recipe-wide"><Field title="备注（可选）"><input value={recipe.description || ''} onChange={event => editRecipe({ description: event.target.value })} /></Field></div>
             </div></section>
             <section className="recipe-section"><h3>生成方式</h3><div className="recipe-fields">
@@ -301,8 +310,9 @@ export default function VoiceLab() {
             {retainedReference && recipe.variant.kind !== 'reference' && <p className="notice">参考录音“{retainedReference.name || '未命名录音'}”及原文已保留，当前生成方式不使用这段录音。{availableReferenceMode && <button type="button" onClick={() => changeMode(availableReferenceMode.id)}>返回参考声音克隆</button>}</p>}
             {provider?.provider_id === 'fish_audio' && recipe.mode === 'hosted' && <FishVoicePicker connectionId={recipe.connection_ref} value={recipe.variant.value} onSelect={value => editRecipe({ variant: { ...recipe.variant, value } })} />}
             {recipe.variant.kind === 'reference' && <div className="recipe-reference">
-              {referenceAsset ? <><div className="row spread"><span>{referenceAsset.name || '参考录音'} · {languageNames[referenceAsset.language] || referenceAsset.language} · {(referenceAsset.duration || 0).toFixed(1)} 秒</span><button onClick={() => setTab(0)}>管理录音</button></div><audio key={referenceAsset.id} controls preload="none" src={speechApi.referenceAudio(referenceAsset.id)} /><p className="reference-inline-transcript">{referenceAsset.transcript || '未填写原文；所选引擎可能要求参考原文。'}</p></> : <div className="row"><span className="muted">{library.assets.length ? '选择已保存的录音，可在这里试听。' : '声音库为空，请先导入并保存录音。'}</span><button onClick={() => setTab(0)}>导入或管理录音</button></div>}
-            </div>}</section>
+              {referenceAsset ? <><div className="row spread"><span>{referenceAsset.name || '参考录音'} · 参考录音语言：{referenceAsset.language === 'auto' ? '未明确' : languageNames[referenceAsset.language] || referenceAsset.language} · {(referenceAsset.duration || 0).toFixed(1)} 秒</span><button onClick={() => setTab(0)}>管理录音</button></div><audio key={referenceAsset.id} controls preload="none" src={speechApi.referenceAudio(referenceAsset.id)} /><p className="muted">参考录音原文（保持录音中的语言）</p><p className="reference-inline-transcript">{referenceAsset.transcript || '未填写原文；所选引擎可能要求参考原文。'}</p></> : <div className="row"><span className="muted">{library.assets.length ? '选择已保存的录音，可在这里试听。' : '声音库为空，请先导入并保存录音。'}</span><button onClick={() => setTab(0)}>导入或管理录音</button></div>}
+            </div>}
+            {referenceModeField()}</section>
             <section className="recipe-section"><h3>运行设置</h3>
               <div className="row spread connection-summary"><strong>{localProvider ? '本机运行' : provider?.connection_required ? '服务连接' : '引擎运行'}{selectedConnection ? ' · ' + selectedConnection.name : engineDefaultConnection ? ' · 引擎默认配置' : provider?.connection_required || localProvider ? ' · 待选择' : ' · 无需独立连接'}</strong><button type="button" aria-expanded={showConnectionChoice} onClick={() => { setAdvancedConnection(!showConnectionChoice); setShowConnection(false) }}>高级连接设置</button></div>
               <p className="muted" role="status">{localProvider ? currentLocalResolution?.detail || '保存音色只保存配置，不代表模型已可运行。可在高级连接设置中检查模型与运行环境。' : selectedConnection ? '已选择连接；保存不代表服务已就绪，可展开设置检查。' : provider?.connection_required ? '请选择明确的服务连接；多个连接不会自动代选。' : '此引擎无需独立连接，实际可用性在执行时检查。'}</p>
@@ -327,7 +337,10 @@ export default function VoiceLab() {
       {tab === 2 && <section className="panel audition-editor"><h2>新试音</h2>
         <Field title="载入已保存音色或TTS高级预设"><select value={recipe.id} onChange={event => { const item = ruleList.find(value => value.id === event.target.value); if (item && (!recipeDirty || window.confirm('当前试听设置尚未保存，载入其他预设？'))) useRecipe(item) }}><option value="">当前未保存草稿</option>{recipe.id && !ruleList.some(item => item.id === recipe.id) && <option value={recipe.id}>{recipe.name}（历史修订）</option>}{ruleList.filter(item => !item.archived).map(item => <option key={item.id} value={item.id}>{item.name} · r{item.revision}</option>)}</select></Field>
         <p className="muted">{recipe.name || '未命名草稿'} · {provider?.name || '未选引擎'} · {modeNames[recipe.mode] || '未选方式'}{recipeDirty || !recipe.id ? ' · 本次使用草稿快照' : ' · 已保存修订'} <button type="button" onClick={() => setTab(1)}>编辑声音来源</button></p>
-        <textarea aria-label="试音原文" rows={4} value={script} onChange={event => { setScript(event.target.value); setCompiled(null) }} placeholder="输入想试听的台词" />
+        {targetLanguageField()}
+        <p className="muted">合成目标语言用于下面的试听台词，保存后也用于此音色预设。{referenceAsset && <>参考录音语言：{referenceAsset.language === 'auto' ? '未明确' : languageNames[referenceAsset.language] || referenceAsset.language}；参考原文保持不变。</>}</p>
+        {referenceModeField()}
+        <textarea aria-label="试音原文" rows={4} value={script} onChange={event => { setScript(event.target.value); setCompiled(null) }} placeholder="输入要合成的新台词，例如中文配音文本" />
         {provider && <details className="recipe-advanced"><summary>试听高级选项</summary>{advancedFields()}</details>}
         <div className="row" style={{ marginTop: 14 }}><button className="primary" disabled={!!busy || !!auditionReason || !script.trim()} onClick={() => void run('提交试音', () => generate())}>生成试音</button></div>
         {auditionReason && <p className="error" role="status">{auditionReason}</p>}

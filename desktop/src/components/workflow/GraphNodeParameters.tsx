@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import type { ReactNode } from 'react'
+import QwenReferenceMode from '@/components/QwenReferenceMode'
 import { capabilitiesApi } from '@/api/capabilities'
 import { settingsApi } from '@/api/settings'
 import type { SettingsView } from '@/api/settings'
@@ -30,7 +31,7 @@ function Advanced({ section, children }: { section: GraphParameterSection; child
     : <div className="graph-param-section">{children}</div>
 }
 function Language({ node, field, onChange }: Props & { field: 'source_lang' | 'target_lang' }) {
-  return <Field label={field === 'source_lang' ? '输入语言' : '目标语言'}><select value={node[field] ?? ''}
+  return <Field label={field === 'source_lang' ? '输入语言' : node.kind === 'tts' ? '合成目标语言' : '目标语言'}><select value={node[field] ?? ''}
     onChange={event => onChange({ ...node, [field]: event.target.value || null })}>
     <option value="">选择语言</option>{Object.entries(languageNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
   </select></Field>
@@ -281,9 +282,12 @@ function SpeechParameters({ node, onChange, requestChange, section = 'all' }: Ed
     {source.connection_ref && !selectedConnection && <option value={source.connection_ref}>{source.connection_ref === `engine-default-${node.provider}` ? '引擎默认连接' : `${source.connection_ref}（待确认）`}</option>}
     {matchingConnections.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
   </select></Field>
-  const speechFields = (isCommon: boolean) => source && fields.filter(([key]) => commonKeys.has(key) === isCommon).map(([key, field]) =>
-    <SpeechOption key={key} name={key} field={field} value={source.provider_options[key]} disabledReason={graphSpeechOptionDisabledReason(node, source, key)}
-      onChange={value => { const provider_options = { ...source.provider_options }; if (value === undefined) delete provider_options[key]; else provider_options[key] = value; updateSource({ provider_options }) }} />)
+  const speechFields = (isCommon: boolean) => source && fields.filter(([key]) => commonKeys.has(key) === isCommon).map(([key, field]) => {
+    const update = (value: unknown) => { const provider_options = { ...source.provider_options }; if (value === undefined) delete provider_options[key]; else provider_options[key] = value; updateSource({ provider_options }) }
+    return provider?.provider_id === 'qwen3' && source.mode === 'reference' && key === 'x_vector_only_mode'
+      ? <QwenReferenceMode key={key} className="graph-param-field" value={source.provider_options[key] === true} onChange={update} />
+      : <SpeechOption key={key} name={key} field={field} value={source.provider_options[key]} disabledReason={graphSpeechOptionDisabledReason(node, source, key)} onChange={update} />
+  })
   return <div className="graph-param-section">
     {loading && <p role="status">正在读取语音能力和已保存素材…</p>}
     {error && <p role="alert">{error}</p>}
@@ -294,9 +298,9 @@ function SpeechParameters({ node, onChange, requestChange, section = 'all' }: Ed
         <option value="">选择已保存预设，预览后应用</option>{recipes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select></Field> : <button type="button" onClick={() => setChoosingPreset(true)}>更换声音预设</button>}
       {preview && <section className="graph-param-confirm" aria-label="配音预设应用预览">
-        <p>{preview.name} · {preview.provider_id} / {preview.model} · {modeNames[preview.mode] || preview.mode} · {preview.language || '自动语言'}</p>
-        <p>应用将替换此节点的声音来源、连接和合成参数，目标语言仍为 {languageNames[node.target_lang ?? 'zh']}。</p>
-        {!speechLanguageMatches(preview.language, node.target_lang ?? '') && <p role="alert">预设语言与此节点目标语言不一致，请更换预设或自行调整目标语言。</p>}
+        <p>{preview.name} · {preview.provider_id} / {preview.model} · {modeNames[preview.mode] || preview.mode} · 合成目标：{preview.language === 'auto' || !preview.language ? '跟随本节点目标语言' : languageNames[preview.language as GraphLanguage] || preview.language}</p>
+        <p>应用将替换此节点的声音来源、连接和合成参数，合成目标语言仍为 {node.target_lang ? languageNames[node.target_lang] : '未选择'}，不使用参考录音语言替代。</p>
+        {!speechLanguageMatches(preview.language, node.target_lang ?? '') && <p role="alert">预设合成目标语言与此节点不一致，请更换预设或自行调整目标语言。</p>}
         <div className="graph-param-actions"><button type="button" disabled={!speechLanguageMatches(preview.language, node.target_lang ?? '')}
           onClick={() => { onChange(graphNodeFromRecipe(node, preview)); setPreviewId(''); setChoosingPreset(false) }}>应用到此节点</button><button type="button" onClick={() => setPreviewId('')}>取消预览</button></div>
       </section>}
@@ -366,9 +370,9 @@ function SpeechParameters({ node, onChange, requestChange, section = 'all' }: Ed
               <datalist id={voiceList}>{catalog.presets.map(item => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</datalist></>}
         </Field>}
         {catalog?.description && <p className="graph-param-note">{catalog.description}</p>}
-        {reference && <div className="graph-param-reference"><p>{reference.name || reference.id} · {reference.language || '语言未知'} · {reference.confirmed ? '原文已核对' : '原文未确认'}</p>
+        {reference && <div className="graph-param-reference"><p>{reference.name || reference.id} · 参考录音语言：{reference.language === 'auto' || !reference.language ? '未明确' : languageNames[reference.language as GraphLanguage] || reference.language} · {reference.confirmed ? '原文已核对' : '原文未确认'}</p>
           <audio controls preload="none" src={speechApi.referenceAudio(reference.id)} aria-label="试听所选参考录音" />
-          <p>{reference.transcript || '无参考原文'}</p></div>}
+          <p>参考原文（不翻译）：{reference.transcript || '未提供'}</p></div>}
         {fields.some(([key]) => commonKeys.has(key)) && <div className="graph-param-grid">{speechFields(true)}</div>}
       </>}
     </fieldset>

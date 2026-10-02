@@ -1,14 +1,16 @@
 import { useId } from 'react'
 import type { SpeechProvider } from '@/api/speech'
 import { availableSpeechOptions, speechOptionsIssue, unsupportedSpeechOptions } from '@/domain/speechAdvancedOptions'
+import QwenReferenceMode from './QwenReferenceMode'
 import './SpeechOptionsFields.css'
 
 const names: Record<string, string> = { speed: '语速', temperature: '采样温度', top_p: '采样范围（top_p）', style_description: '风格描述', tag_density: '标签密度', cfg_value: '引导强度', inference_timesteps: '推理步数', instructions: '合成指令' }
-export default function SpeechOptionsFields({ provider, mode, model, values, onChange }: {
+export default function SpeechOptionsFields({ provider, mode, model, values, onChange, omit = [] }: {
   provider: SpeechProvider | undefined; mode: string; model: string; values: Record<string, unknown>; onChange: (values: Record<string, unknown>) => void
+  omit?: string[]
 }) {
   const id = useId()
-  const fields = availableSpeechOptions(provider, mode, model)
+  const fields = availableSpeechOptions(provider, mode, model).filter(([key]) => !omit.includes(key))
   const unknown = unsupportedSpeechOptions(provider, mode, values, model)
   const issue = speechOptionsIssue(provider, mode, values, model)
   const update = (key: string, value: unknown) => { const next = { ...values }; if (value === undefined) delete next[key]; else next[key] = value; onChange(next) }
@@ -16,6 +18,7 @@ export default function SpeechOptionsFields({ provider, mode, model, values, onC
     {fields.map(([key, field]) => {
       const controlId = id + key
       const value = values[key] ?? field.default
+      if (provider?.provider_id === 'qwen3' && mode === 'reference' && key === 'x_vector_only_mode') return <QwenReferenceMode key={key} value={value === true} onChange={next => update(key, next)} />
       return <div key={key} className="speech-option">
         <label htmlFor={controlId}>{field.title || names[key] || key}</label>
         {field.type === 'boolean' ? <input id={controlId} type="checkbox" checked={value === true} aria-describedby={field.description ? controlId + '-hint' : undefined} onChange={event => update(key, event.target.checked)} />

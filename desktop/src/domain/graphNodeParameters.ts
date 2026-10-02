@@ -66,7 +66,7 @@ export function graphSpeechIssue(node: GraphNode, provider: SpeechProvider | und
   const recipe = typeof recipeId === 'string' ? recipes.find(item => item.id === recipeId && !item.archived) : undefined
   if (recipeId && !recipe) return '引用的 TTS 高级预设不存在或已归档，请重新选择。'
   if (recipe && (recipe.provider_id !== node.provider || recipe.model !== node.model)) return '预设与此节点的引擎或模型不一致，请重新应用。'
-  if (recipe && !speechLanguageMatches(recipe.language, node.target_lang ?? '')) return `预设语言 ${recipe.language} 与节点目标语言不一致，请选择匹配预设或自行调整语言。`
+  if (recipe && !speechLanguageMatches(recipe.language, node.target_lang ?? '')) return `预设合成目标语言 ${recipe.language} 与节点目标语言不一致，请选择匹配预设或自行调整语言。`
   const source = recipe ? { ...recipe, provider_options: recipe.provider_options } : readGraphSpeechSource(node)
   if (!source) return '请选择 TTS 高级预设或明确配置声音来源。'
   const mode = provider.modes.find(item => item.id === source.mode && (!item.models.length || item.models.includes(node.model ?? '')))
