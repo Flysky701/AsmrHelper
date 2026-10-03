@@ -28,3 +28,27 @@
 .graph-param-hotword { display: flex; min-width: 0; gap: 6px; }
 .graph-param-hotword input { flex: 1; }
 .graph-node-parameters button.graph-param-reset { padding: 2px 5px; border: 0; background: transparent; color: var(--muted, #a9b9cb); font-size: 12px; }
+
+.graph-engine-control{display:grid;gap:10px;border:1px solid #dce5eb;background:#fbfdfe;border-radius:8px;padding:12px;color:#294758;min-width:0}
+.graph-engine-heading{display:flex;align-items:flex-end;gap:10px;justify-content:space-between;min-width:0;flex-wrap:wrap}
+.graph-engine-heading>label,.graph-engine-heading>div{display:grid;gap:6px;min-width:0;flex:1 1 170px}
+.graph-engine-heading small{font-size:11px;font-weight:400;color:#6c8291}
+.graph-engine-heading select{color:#294758!important;background:white!important}
+.graph-node-parameters .graph-engine-heading>button{white-space:normal;flex:none;background:white;color:#16758c;border-color:#cfdee5;font-size:12px}
+.graph-engine-status{display:grid;gap:4px;border-radius:6px;padding:9px 10px;background:#f1f5f7;font-size:11px;line-height:1.55;color:#607989}
+.graph-engine-status strong{font-size:12px;color:#4f6c7c;font-weight:600}
+.graph-engine-status.is-positive{background:#edf7f1}.graph-engine-status.is-positive strong{color:#28795c}
+.graph-engine-connection{font-size:11px;color:#597586;overflow-wrap:anywhere}
+.graph-engine-drawer{position:fixed;inset:0 0 0 auto;margin:0;width:min(560px,100vw);height:100dvh;max-height:100dvh;max-width:100vw;border:0;border-left:1px solid #d3e1e6;padding:0;background:#fff;color:#294758;box-shadow:-12px 0 45px #173b5024;overflow:auto;font:13px/1.6 'Segoe UI','Microsoft YaHei',sans-serif}
+.graph-engine-drawer::backdrop{background:#19324465}
+.graph-engine-drawer>header{position:sticky;top:0;background:white;padding:18px 20px;border-bottom:1px solid #dce5eb;display:flex;justify-content:space-between;gap:12px;align-items:center;z-index:1}
+.graph-engine-drawer h2{font-size:18px;margin:0;overflow-wrap:anywhere}.graph-engine-drawer h3{font-size:14px;margin:0 0 10px}
+.graph-engine-drawer-body{padding:20px;display:grid;gap:14px;min-width:0}.graph-engine-drawer-body>section{border:1px solid #dce5eb;border-radius:8px;padding:14px;display:grid;gap:10px;min-width:0}
+.graph-engine-drawer p{margin:0;overflow-wrap:anywhere}.graph-engine-drawer button{white-space:normal!important;background:white!important;color:#21647b!important;border:1px solid #cbdde5!important;font:inherit;justify-self:start}
+.graph-engine-drawer button:focus-visible{outline:2px solid #147b91;outline-offset:2px}.graph-engine-drawer select,.graph-engine-drawer input{color:#294758!important;background:white!important}
+.graph-engine-drawer option{color:#294758!important;background:white!important}.graph-engine-drawer .graph-param-note{color:#6c8391}
+.graph-engine-drawer .connection-delete-preview{max-height:none}
+@media(max-width:520px){.graph-engine-drawer>header{padding:14px 16px}.graph-engine-drawer-body{padding:16px}.graph-engine-heading{align-items:stretch}.graph-engine-heading>button{align-self:end}}
+.graph-engine-install-facts { display: grid; grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.3fr); gap: 8px 12px; margin: 14px 0; }
+.graph-engine-install-facts dt { color: var(--text-secondary, #64748b); }
+.graph-engine-install-facts dd { margin: 0; overflow-wrap: anywhere; }

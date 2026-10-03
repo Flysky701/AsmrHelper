@@ -10,6 +10,8 @@ import type {
 export const modelsApi = {
   list: () => api.get<ModelSummaryResponse[]>('/models'),
 
+  status: (modelId: string) => api.get<ModelStatusResponse>(`/models/${encodeURIComponent(modelId)}/status`),
+
   statuses: () =>
     api.get<ModelStatusResponse[]>('/models/statuses'),
 

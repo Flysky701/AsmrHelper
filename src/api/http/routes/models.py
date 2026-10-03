@@ -33,6 +33,7 @@ def list_models(
             category=m.category,
             backend=m.backend,
             display_name=m.display_name,
+            capability_models=m.capability_models,
             estimated_size_mb=m.estimated_size_mb,
             install_strategy=m.install_strategy,
             supports_install=m.supports_install,

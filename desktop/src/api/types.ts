@@ -261,6 +261,7 @@ export interface BatchRunListResponse {
 
 // ── Models ─────────────────────────────────────────────
 export interface ModelSummaryResponse {
+  capability_models?: string[]
   model_id: string
   kind: string
   category: string

@@ -11,6 +11,7 @@ class ModelSummaryResponse(BaseModel):
     category: str
     backend: str
     display_name: str
+    capability_models: list[str] = Field(default_factory=list)
     estimated_size_mb: int | None = None
     install_strategy: str = ""
     supports_install: bool = False
