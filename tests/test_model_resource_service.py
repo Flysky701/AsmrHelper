@@ -350,12 +350,16 @@ def test_interrupted_download_retries_with_resume(tmp_path, monkeypatch):
     installer = ModelInstaller(project_root=tmp_path)
     attempts = 0
     progress: list[str] = []
+    partial_path = entry.resolved_install_dir() / ".cache" / "model.safetensors.incomplete"
 
     def fake_run(*args, **kwargs):
         nonlocal attempts
         attempts += 1
         if attempts == 1:
+            partial_path.parent.mkdir(parents=True, exist_ok=True)
+            partial_path.write_bytes(b"partial")
             raise ModelDownloadError("connection interrupted")
+        assert partial_path.read_bytes() == b"partial"
         return True
 
     monkeypatch.setattr(installer, "_run_with_progress", fake_run)

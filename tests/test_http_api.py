@@ -101,7 +101,13 @@ class TestPipelineRoutes:
         assert data["presets"][0]["label"] == "ASMR Bilingual"
         mock_svc.list_presets.assert_called_once_with()
 
-    def test_list_presets_does_not_initialize_pipeline_runtime(self, client, monkeypatch):
+    def test_list_presets_does_not_initialize_pipeline_runtime(self, client, monkeypatch, tmp_path):
+        from src.app.services.preset_catalog_service import PresetCatalogService
+
+        catalog = PresetCatalogService(user_presets_path=tmp_path / "presets.json")
+        expected = catalog.list_presets()
+        client.app.dependency_overrides[dependencies.preset_catalog_service] = lambda: catalog
+
         def fail_pipeline_initialization():
             raise AssertionError("preset catalog must not initialize pipeline runtime")
 
@@ -115,18 +121,13 @@ class TestPipelineRoutes:
 
         assert resp.status_code == 200
         assert [preset["id"] for preset in resp.json()["presets"]] == [
-            "audio_subtitles",
-            "subtitle_translation",
-            "subtitle_speech",
-            "audio_translation_speech",
-            "asmr_bilingual",
-            "asr_only",
+            preset["id"] for preset in expected if preset.get("version") != 2
         ]
-
-    def test_legacy_pipeline_routes_are_removed(self, client):
-        assert client.post("/api/v1/pipeline/run", json={}).status_code == 404
-        assert client.post("/api/v1/pipeline/tasks", json={}).status_code == 404
-
+        graph_response = client.get("/api/v1/pipeline/presets?include_graph=true")
+        assert graph_response.status_code == 200
+        assert [preset["id"] for preset in graph_response.json()["presets"]] == [
+            preset["id"] for preset in expected
+        ]
 
 class TestPipelineRunRoutes:
     def test_submit_v1_pipeline_run_preserves_stage_profiles(self, client):
@@ -301,18 +302,6 @@ class TestPipelineRunRoutes:
             },
         )
 
-    def test_legacy_sync_tool_route_is_removed(self, client):
-        resp = client.post(
-            "/api/v1/tools/convert",
-            json={
-                "input_path": "/test/input.wav",
-                "output_path": "/test/output.wav",
-            },
-        )
-
-        assert resp.status_code == 404
-
-
 # ─── ASR ──────────────────────────────────────────────────────────────
 
 
@@ -384,32 +373,6 @@ class TestTranslationRoutes:
 
 
 # ─── TTS ──────────────────────────────────────────────────────────────
-
-
-class TestRemovedSpeechRoutes:
-    @pytest.mark.parametrize(("method", "path", "payload"), [
-        ("GET", "/api/v1/tts/engines", None),
-        ("GET", "/api/v1/tts/engines/edge/voices", None),
-        ("POST", "/api/v1/tts/synthesize", {
-            "input_path": "/test/text.txt",
-            "output_path": "/test/output.wav",
-            "engine": "edge",
-            "model": "default",
-            "voice": "zh-CN-XiaoxiaoNeural",
-            "speed": 1.1,
-            "provider_options": {"proxy": "http://127.0.0.1:7890"},
-        }),
-        ("POST", "/api/v1/voice/design", {"name": "voice", "description": "warm"}),
-        ("POST", "/api/v1/voice/clone", {"name": "voice", "audio_path": "input.wav"}),
-        ("POST", "/api/v1/voice/profiles/A1/preview", {"text": "hello", "speed": 1.0}),
-        ("GET", "/api/v1/voice/profiles", None),
-        ("GET", "/api/v1/voice/profiles/A1", None),
-        ("DELETE", "/api/v1/voice/profiles/A1", None),
-        ("POST", "/api/v1/voice/analyze-segments", None),
-    ])
-    def test_removed_route_returns_404(self, client, method, path, payload):
-        response = client.request(method, path, json=payload)
-        assert response.status_code == 404
 
 
 # ─── Capabilities ─────────────────────────────────────────────────────

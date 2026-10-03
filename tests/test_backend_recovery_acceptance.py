@@ -16,8 +16,6 @@ from src.app.services.artifact_service import ArtifactService
 from src.app.services.batch_pipeline_service import BatchPipelineService
 from src.app.services.pipeline_task_orchestrator import PipelineTaskOrchestrator
 from src.app.services.task_service import TaskService
-from src.core.resources.model_catalog import ModelEntry
-from src.core.resources.model_installer import ModelDownloadError, ModelInstaller
 from src.core.runtime.profiles import RuntimeProfileResolver
 from src.core.runtime.router import RuntimeRouter, RuntimeWorkerError
 
@@ -266,46 +264,6 @@ def test_worker_abnormal_exit_is_reported_and_exchange_files_are_cleaned(
 
     exchange_dir = tmp_path / ".tmp" / "runtime-workers"
     assert list(exchange_dir.iterdir()) == []
-
-
-def test_interrupted_model_download_preserves_partial_files_for_retry(
-    tmp_path,
-    monkeypatch,
-):
-    entry = ModelEntry(
-        id="sample-model",
-        kind="local",
-        category="tts",
-        provider="sample",
-        display_name="Sample",
-        description="acceptance fixture",
-        install_root=str(tmp_path / "models"),
-        install_path="sample",
-        required_files=["model.safetensors"],
-        supports_install=True,
-        install_strategy="huggingface_snapshot",
-        upstream_name="sample/model",
-    )
-    installer = ModelInstaller(project_root=tmp_path)
-    attempts = 0
-    partial_path = entry.resolved_install_dir() / ".cache" / "model.safetensors.incomplete"
-
-    def interrupted_then_resumed(*args, **kwargs):
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            partial_path.parent.mkdir(parents=True, exist_ok=True)
-            partial_path.write_bytes(b"partial")
-            raise ModelDownloadError("connection interrupted")
-        assert partial_path.read_bytes() == b"partial"
-        (entry.resolved_install_dir() / "model.safetensors").write_bytes(b"complete")
-        return True
-
-    monkeypatch.setattr(installer, "_run_with_progress", interrupted_then_resumed)
-    monkeypatch.setattr(time, "sleep", lambda seconds: None)
-
-    assert installer.install_with_progress(entry) is True
-    assert attempts == 2
 
 
 def test_verify_env_script_resolves_project_when_started_outside_repository(tmp_path):

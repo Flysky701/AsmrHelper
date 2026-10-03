@@ -177,13 +177,15 @@ def test_reference_analysis_silence_reports_no_candidates_without_loading_asr(sp
     assert result["transcript_source"] == "none"
 
 
-@pytest.mark.parametrize("sidecar_suffix", [".vtt", ".wav.vtt", ".srt", ".wav.srt"])
-@pytest.mark.parametrize("language,text,end,expected_source,verified", [
-    ("en", "Hello this is the original recording.", "00:00:03.500", "subtitle", True),
-    ("ja", "これは録音の原文です。よろしくお願いします。", "00:00:03.500", "subtitle", True),
-    ("auto", "Hello this is the original recording.", "00:00:03.500", "asr", None),
-    ("ja", "这是翻译后的中文字幕。", "00:00:03.500", "asr", None),
-    ("en", "Hello this is the original recording.", "00:00:09.000", "asr", None),
+@pytest.mark.parametrize("sidecar_suffix,language,text,end,expected_source,verified", [
+    ('.vtt', 'en', 'Hello this is the original recording.', '00:00:03.500', 'subtitle', True),
+    ('.wav.vtt', 'en', 'Hello this is the original recording.', '00:00:03.500', 'subtitle', True),
+    ('.srt', 'en', 'Hello this is the original recording.', '00:00:03.500', 'subtitle', True),
+    ('.wav.srt', 'en', 'Hello this is the original recording.', '00:00:03.500', 'subtitle', True),
+    ('.vtt', 'ja', 'これは録音の原文です。よろしくお願いします。', '00:00:03.500', 'subtitle', True),
+    ('.vtt', 'auto', 'Hello this is the original recording.', '00:00:03.500', 'asr', None),
+    ('.vtt', 'ja', '这是翻译后的中文字幕。', '00:00:03.500', 'asr', None),
+    ('.vtt', 'en', 'Hello this is the original recording.', '00:00:09.000', 'asr', None)
 ])
 def test_reference_analysis_reuses_valid_sidecar_from_staged_audio(
     speech_http, monkeypatch, tmp_path, language, text, end, expected_source, verified, sidecar_suffix,

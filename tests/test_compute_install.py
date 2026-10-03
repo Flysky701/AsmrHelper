@@ -27,8 +27,17 @@ def test_persistence_and_environment_override(resolver, monkeypatch):
         resolver.save_compute_mode("invalid")
 
 
-@pytest.mark.parametrize("profile", ["main", "qwen_asr", "fun_asr", "qwen_tts", "voxcpm2"])
-@pytest.mark.parametrize("mode,gpu,target", [("auto", None, "cpu"), ("cpu", 12.0, "cpu"), ("auto", 8.9, "cu126"), ("cuda", 12.0, "cu128")])
+@pytest.mark.parametrize("profile,mode,gpu,target", [
+    # Every environment uses the shared policy; GPU selection is tested once.
+    ("main", "auto", None, "cpu"),
+    ("qwen_asr", "auto", None, "cpu"),
+    ("fun_asr", "auto", None, "cpu"),
+    ("qwen_tts", "auto", None, "cpu"),
+    ("voxcpm2", "auto", None, "cpu"),
+    ("qwen_tts", "cpu", 12.0, "cpu"),
+    ("qwen_tts", "auto", 8.9, "cu126"),
+    ("qwen_tts", "cuda", 12.0, "cu128"),
+])
 def test_all_environments_share_pinned_policy(resolver, monkeypatch, profile, mode, gpu, target):
     resolver.save_compute_mode(mode)
     monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: gpu)

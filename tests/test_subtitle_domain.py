@@ -1,7 +1,4 @@
-"""Tests for the consolidated subtitle domain (core/subtitles/).
-
-Verifies that migrated modules work correctly from their new canonical locations.
-"""
+"""Subtitle cleaning, script processing, and file-format behavior."""
 
 from __future__ import annotations
 
@@ -10,12 +7,6 @@ import pytest
 
 class TestSubtitleCleaner:
     """Test SubtitleCleaner from its canonical location."""
-
-    def test_import_from_canonical_path(self):
-        from src.core.subtitles.cleaner import SubtitleCleaner, CleanerConfig, clean_subtitle_text
-        assert SubtitleCleaner is not None
-        assert CleanerConfig is not None
-        assert callable(clean_subtitle_text)
 
     def test_clean_sound_effects(self):
         from src.core.subtitles import clean_subtitle_text

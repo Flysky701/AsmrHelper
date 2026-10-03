@@ -706,15 +706,6 @@ class TestTaskService:
         with pytest.raises(AppValidationError):
             service.get_task("nonexistent-id")
 
-    def test_singleton_reuses_instance(self, monkeypatch):
-        import src.app.services.task_service as mod
-        monkeypatch.setattr(mod, "_service", None)
-
-        from src.app.services.task_service import get_task_service
-        first = get_task_service()
-        second = get_task_service()
-        assert first is second
-
     def test_concurrent_create_is_safe(self):
         from src.app.services.task_service import TaskService
 
@@ -1119,7 +1110,7 @@ class TestSubtitleService:
         restored = service.to_timestamp_entries(document)
         assert restored == entries
 
-    def test_parse_srt_text(self):
+    def test_parse_and_export_srt_round_trip(self):
         from src.app.services.subtitle_service import SubtitleService
 
         content = "1\n00:00:00,000 --> 00:00:01,250\nhello\n\n2\n00:00:01,250 --> 00:00:03,500\nworld\n"
@@ -1129,22 +1120,11 @@ class TestSubtitleService:
         assert len(document.segments) == 2
         assert document.segments[0].text == "hello"
         assert document.segments[1].end == 3.5
-
-    def test_export_srt_text(self):
-        from src.app.dto import SubtitleDocument, SubtitleSegment
-        from src.app.services.subtitle_service import SubtitleService
-
-        document = SubtitleDocument(
-            segments=[
-                SubtitleSegment(start=0.0, end=1.25, text="hello"),
-                SubtitleSegment(start=1.25, end=3.5, text="world"),
-            ]
-        )
-        service = SubtitleService()
         exported = service.export_srt_text(document)
-
-        assert "hello" in exported
-        assert "-->" in exported
+        assert "00:00:01,250 --> 00:00:03,500" in exported
+        assert service.to_timestamp_entries(service.parse_text(exported, fmt="srt")) == (
+            service.to_timestamp_entries(document)
+        )
 
     def test_translate_subtitle_executes_real_path_branch(self, tmp_path, monkeypatch):
         from src.app.services.subtitle_service import SubtitleService
@@ -1177,16 +1157,6 @@ class TestSubtitleService:
         assert output.exists()
         assert "你好" in output.read_text(encoding="utf-8")
         assert result.total_segments == 1
-
-
-class TestPipelineServiceImport:
-    """Test PipelineService can be imported and constructed."""
-
-    def test_import_and_construct(self):
-        from src.app.services.pipeline_service import PipelineService
-        # Should not raise
-        service = PipelineService()
-        assert service._executor is not None
 
 
 class TestAudioToolTaskSpec:

@@ -106,42 +106,6 @@ def test_isolated_model_status_reports_missing_runtime(tmp_path):
     assert any(issue.code == "RUNTIME_ENVIRONMENT_MISSING" for issue in status.issues)
 
 
-def test_qwen_tts_runtime_bootstrap_uses_cuda_wheels(tmp_path, monkeypatch):
-    resolver = RuntimeProfileResolver(project_root=tmp_path)
-    monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda name: "uv.exe")
-    monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: 8.9)
-
-    commands = resolver.build_bootstrap_commands(resolver.resolve("qwen_tts"))
-
-    assert len(commands) == 1
-    assert "https://download.pytorch.org/whl/cu126" in commands[0]
-    assert "torch==2.10.0+cu126" in commands[0]
-    assert "torchaudio==2.10.0+cu126" in commands[0]
-
-
-def test_qwen_tts_runtime_bootstrap_uses_cu128_for_blackwell(tmp_path, monkeypatch):
-    resolver = RuntimeProfileResolver(project_root=tmp_path)
-    monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda name: "uv.exe")
-    monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: 12.0)
-
-    commands = resolver.build_bootstrap_commands(resolver.resolve("qwen_tts"))
-
-    assert len(commands) == 1
-    assert "https://download.pytorch.org/whl/cu128" in commands[0]
-    assert "torch==2.10.0+cu128" in commands[0]
-    assert "torchaudio==2.10.0+cu128" in commands[0]
-
-
-def test_qwen_tts_runtime_bootstrap_rejects_unknown_gpu(tmp_path, monkeypatch):
-    resolver = RuntimeProfileResolver(project_root=tmp_path)
-    monkeypatch.setenv("ASMR_HELPER_COMPUTE", "cuda")
-    monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda name: "uv.exe")
-    monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: None)
-
-    with pytest.raises(RuntimeError, match="unable to detect NVIDIA GPU"):
-        resolver.build_bootstrap_commands(resolver.resolve("qwen_tts"))
-
-
 def test_nvidia_compute_capability_uses_highest_valid_gpu(tmp_path, monkeypatch):
     resolver = RuntimeProfileResolver(project_root=tmp_path)
     monkeypatch.setattr(

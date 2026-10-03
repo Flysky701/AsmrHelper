@@ -142,11 +142,12 @@ def test_faster_whisper_runtime_reuses_model_when_vad_changes(tmp_path) -> None:
     assert vad_calls == [True, False]
 
 
-def test_faster_whisper_no_word_confidence_complements_no_speech_probability(
+def test_faster_whisper_separates_speech_filter_score_from_explicit_confidence(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     import src.core.asr as asr_module
+    import math
     from src.core.engines.asr.service import _entry_confidence
 
     class FakeWhisperModel:
@@ -160,6 +161,7 @@ def test_faster_whisper_no_word_confidence_complements_no_speech_probability(
                 text="quiet",
                 words=[],
                 no_speech_prob=0.9,
+                avg_logprob=-0.42,
             )
             return iter((segment,)), SimpleNamespace(duration=1.0)
 
@@ -171,7 +173,12 @@ def test_faster_whisper_no_word_confidence_complements_no_speech_probability(
 
     entries = recognizer.recognize(str(input_path), show_progress=False)
 
-    assert _entry_confidence(entries[0]) == pytest.approx(0.1)
+    # Speech presence can guide the legacy filter; it is not transcript accuracy.
+    assert entries[0]["log_prob"] == pytest.approx(math.log(0.1 / 0.9))
+    assert _entry_confidence(entries[0]) is None
+    preserved = recognizer.recognize(str(input_path), show_progress=False, preserve_segments=True)
+    assert _entry_confidence(preserved[0]) == -0.42
+    assert preserved[0]["recognition_metadata"]["confidence_kind"] == "avg_logprob"
 
 
 
