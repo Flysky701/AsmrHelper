@@ -45,6 +45,7 @@ const inputStyle: CSSProperties = {
   background: 'var(--surface)',
   color: 'var(--fg)',
   fontFamily: 'inherit',
+  fontSize: 'var(--text-control)',
 }
 
 function fileName(path: string) {
@@ -196,14 +197,10 @@ export default function AudioTools() {
 
   return (
     <div className="audio-tools-page" style={{ height: '100%', overflow: 'auto', padding: 24 }}>
-      <header style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-          Task-driven Tools
+      <header className="page-heading" style={{ marginBottom: 20 }}>
+        <div className="page-heading__copy"><h1 className="page-title">音频工具</h1>
+          <p className="page-description">每次操作都会创建独立任务；进度、错误和产物统一在任务中心查看。</p>
         </div>
-        <h1 style={{ marginTop: 8, fontSize: 26, fontFamily: 'var(--font-display)' }}>音频工具</h1>
-        <p style={{ marginTop: 8, color: 'var(--muted)' }}>
-          每次操作都会创建独立任务；进度、错误和产物统一在任务中心查看。
-        </p>
       </header>
 
       {error ? (
@@ -214,7 +211,7 @@ export default function AudioTools() {
 
       <div className="audio-tools-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 360px) minmax(0, 1fr)', gap: 20 }}>
         <section style={{ ...surface, padding: 16, alignSelf: 'start' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>选择工具</div>
+          <h2 className="section-title" style={{ marginBottom: 12 }}>选择工具</h2>
           <div style={{ display: 'grid', gap: 8 }}>
             {TOOLS.map((tool) => {
               const available = catalogAvailable && supported.has(tool.id)
@@ -241,8 +238,8 @@ export default function AudioTools() {
                     opacity: available ? 1 : 0.45,
                   }}
                 >
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{tool.label}</div>
-                  <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>{tool.description}</div>
+                  <div style={{ fontSize: 'var(--text-control)', fontWeight: 700 }}>{tool.label}</div>
+                  <div style={{ marginTop: 4, fontSize: 'var(--text-help)', color: 'var(--muted)' }}>{tool.description}</div>
                 </button>
               )
             })}
@@ -252,8 +249,8 @@ export default function AudioTools() {
         <section style={{ ...surface, padding: 20 }}>
           <div className="audio-tools-panel-header" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
             <div>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>{selected.label}</div>
-              <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>{selected.id}</div>
+              <h2 className="panel-title">{selected.label}</h2>
+              <div style={{ marginTop: 4, fontSize: 'var(--text-help)', color: 'var(--muted)' }}>{selected.id}</div>
             </div>
             <button type="button" onClick={chooseInput} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>
               选择{selected.input === 'subtitle' ? '字幕' : '音频'}
@@ -261,8 +258,8 @@ export default function AudioTools() {
           </div>
 
           <div className="audio-tools-path" style={{ marginTop: 18, padding: '12px 14px', background: 'var(--panel-muted)', borderRadius: 'var(--radius-sm)', wordBreak: 'break-all' }}>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>输入文件</div>
-            <div style={{ marginTop: 5, fontSize: 13 }}>{inputPath || '尚未选择'}</div>
+            <div style={{ fontSize: 'var(--text-help)', color: 'var(--muted)' }}>输入文件</div>
+            <div style={{ marginTop: 5, fontSize: 'var(--text-control)' }}>{inputPath || '尚未选择'}</div>
           </div>
 
           <div className="audio-tools-form-grid" style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>

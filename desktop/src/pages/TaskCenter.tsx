@@ -399,8 +399,8 @@ export default function TaskCenter() {
   return <div className={`task-center-page ${mobileDetail ? 'detail-open' : ''}`}>
     {/* Refresh restarts the existing serial poller; its cleanup discards older in-flight responses. */}
     <TaskStatusPolling key={pollGeneration} enabled={taskCenterView === 'tasks'} />
-    <header className="tc-page-header"><div><h1>任务中心</h1><p>处理进度与每次运行的结果</p></div>
-      <div className="tc-page-actions"><button type="button" className="tc-action" aria-pressed={taskCenterView === 'tasks'} onClick={() => setTaskCenterView('tasks')}>任务记录</button>
+    <header className="tc-page-header page-heading"><div className="page-heading__copy"><h1 className="page-title">任务中心</h1><p className="page-description">处理进度与每次运行的结果</p></div>
+      <div className="tc-page-actions page-heading__actions"><button type="button" className="tc-action" aria-pressed={taskCenterView === 'tasks'} onClick={() => setTaskCenterView('tasks')}>任务记录</button>
         <button type="button" className="tc-action" aria-pressed={taskCenterView === 'batches'} onClick={() => setTaskCenterView('batches')}>批次管理</button>
         {taskCenterView === 'tasks' && <button type="button" className="tc-icon-button" aria-label="刷新任务状态" onClick={() => setPollGeneration(value => value + 1)}><TaskSymbol name="refresh" /></button>}</div>
     </header>

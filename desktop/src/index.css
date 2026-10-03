@@ -45,6 +45,17 @@
   --shadow-panel: 0 10px 26px oklch(28% 0.03 240 / 0.06);
   --shadow-float: 0 8px 20px oklch(40% 0.04 230 / 0.12);
 
+  /* Shared reading hierarchy; dense graph ports and table metadata stay local. */
+  --text-page: 26px;
+  --text-panel: 20px;
+  --text-section: 16px;
+  --text-body: 14px;
+  --text-control: 13px;
+  --text-help: 12px;
+  --text-compact: 11px;
+  --line-heading: 1.3;
+  --line-body: 1.6;
+
   /* Typography */
   --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Microsoft YaHei', system-ui, sans-serif;
   --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Microsoft YaHei', system-ui, sans-serif;
@@ -402,3 +413,16 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: oklch(72% 0.018 230);
 }
+
+/* Page headings share a hierarchy without changing canvas or table typography. */
+.page-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.page-heading__copy { min-width: 0; flex: 1 1 200px; }
+.page-title, .page-heading .page-title { margin: 0; font-family: var(--font-body); font-size: var(--text-page); font-weight: 700; line-height: var(--line-heading); letter-spacing: 0; overflow-wrap: anywhere; }
+.page-heading .page-description { margin: 6px 0 0; max-width: 72ch; color: var(--muted); font-size: var(--text-help); font-weight: 400; line-height: var(--line-body); overflow-wrap: anywhere; }
+.page-heading__actions { display: flex; flex: 0 1 auto; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px; }
+.section-title { margin: 0; font-size: var(--text-section); font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.panel-title { margin: 0; font-size: var(--text-panel); font-weight: 650; line-height: var(--line-heading); overflow-wrap: anywhere; }
+.subtitle-page-heading { flex: none; padding: 24px 24px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.engines-page > header { flex: none; }
+.engines-page button, .audio-tools-page button { font-family: var(--font-body); font-size: var(--text-control); line-height: 1.5; }
+@media (max-width: 600px) { .subtitle-page-heading { padding: 16px; } }

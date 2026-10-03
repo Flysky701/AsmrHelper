@@ -1,10 +1,10 @@
-.speech-lab { height: 100%; overflow: auto; color: var(--fg); background: var(--bg); }
+.speech-lab { height: 100%; overflow: auto; color: var(--fg); background: var(--bg); font-size: var(--text-body); line-height: var(--line-body); }
 .speech-lab header { padding: 24px 24px 0; background: var(--bg); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
-.speech-lab h1 { margin: 0; font-size: 26px; }
-.speech-lab h2 { margin: 0 0 16px; font-size: 18px; }
-.speech-lab h3 { margin: 0 0 10px; font-size: 15px; }
-.speech-lab p { line-height: 1.6; }
-.speech-lab .muted { color: var(--muted); font-size: 12px; }
+.speech-lab h2 { margin: 0 0 16px; font-size: var(--text-section); font-weight:600; line-height:1.4; }
+.speech-lab h3 { margin: 0 0 10px; font-size: var(--text-section); font-weight:600; line-height:1.4; }
+.speech-lab h2, .speech-lab h3 { line-height: var(--line-heading); min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.speech-lab p { line-height: var(--line-body); }
+.speech-lab .muted { color: var(--muted); font-size: var(--text-help); }
 .speech-lab .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .speech-lab .spread { justify-content: space-between; }
 .speech-lab .tabs { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
@@ -14,55 +14,55 @@
 .speech-lab .columns { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
 .speech-lab .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 18px; min-width: 0; }
 .speech-lab .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
-.speech-lab label.field { display: grid; align-content: start; gap: 6px; margin-bottom: 14px; font-size: 13px; }
-.speech-lab input:not([type=checkbox]):not([type=range]), .speech-lab select, .speech-lab textarea { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 9px 10px; }
-.speech-lab textarea { resize: vertical; line-height: 1.6; }
-.speech-lab button { font: inherit; font-size: 13px; padding: 8px 13px; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
+.speech-lab label.field { display: grid; align-content: start; gap: 6px; margin-bottom: 14px; font-size: var(--text-control); }
+.speech-lab input:not([type=checkbox]):not([type=range]), .speech-lab select, .speech-lab textarea { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; font-size: var(--text-control); color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 9px 10px; }
+.speech-lab textarea { resize: vertical; font-size: var(--text-body); line-height: var(--line-body); }
+.speech-lab button { font: inherit; font-size: var(--text-control); padding: 8px 13px; color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; max-width: 100%; overflow-wrap: anywhere; }
 .speech-lab button.primary { background: var(--accent); border-color: var(--accent); color: white; }
 .speech-lab button:disabled { opacity: .5; cursor: default; }
-.speech-lab .pill { background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 3px 7px; font-size: 11px; }
+.speech-lab .pill { background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 3px 7px; font-size: var(--text-compact); }
 .speech-lab .lab-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .speech-lab .subtitle-segments { max-height: 220px; overflow: auto; display: grid; gap: 6px; margin-top: 12px; }
 .speech-lab .waveform { cursor: crosshair; }
 .speech-lab .item { border: 1px solid var(--border); border-radius: 9px; padding: 14px; margin-top: 10px; overflow-wrap: anywhere; }
 .speech-lab .selected { border-color: var(--accent); background: var(--panel-muted); }
-.speech-lab .notice { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; background: var(--panel-muted); overflow-wrap: anywhere; font-size: 13px; }
+.speech-lab .notice { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; background: var(--panel-muted); overflow-wrap: anywhere; font-size: var(--text-body); }
 .speech-lab .error { color: var(--danger); }
-.speech-lab .empty { padding: 24px 12px; color: var(--muted); font-size: 13px; line-height: 1.8; }
-.speech-lab pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; padding: 12px; background: var(--panel-muted); border-radius: 8px; font-size: 12px; }
+.speech-lab .empty { padding: 24px 12px; color: var(--muted); font-size: var(--text-body); line-height: var(--line-body); }
+.speech-lab pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; padding: 12px; background: var(--panel-muted); border-radius: 8px; font-size: var(--text-help); }
 .speech-lab audio { width: 100%; margin-top: 8px; }
 .speech-lab .segment { border-left: 3px solid var(--accent); padding: 14px 16px; margin-bottom: 12px; background: var(--panel-muted); border-radius: 0 8px 8px 0; }
 .speech-lab .waveform { width: 100%; height: 100px; background: var(--panel-muted); border-radius: 8px; display: block; }
 @media (max-width: 600px) { .speech-lab main { padding: 16px; } .speech-lab header { padding: 18px 16px 0; } .speech-lab .tabs { gap: 0; } .speech-lab .tabs button { padding: 10px 8px; } }
 
 .speech-lab .voice-sidebar { padding: 20px; }
-.speech-lab .voice-sidebar h2 { margin: 0; font-size: 16px; }
+.speech-lab .voice-sidebar h2 { margin: 0; font-size: var(--text-section); font-weight:600; line-height:1.4; }
 .speech-lab .voice-sidebar > input { margin-top: 16px; }
-.speech-lab .voice-archive { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; margin: 14px 0; }
+.speech-lab .voice-archive { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--text-help); margin: 14px 0; }
 .speech-lab .voice-list { display: grid; gap: 10px; }
 .speech-lab button.voice-list-item { display: grid; gap: 8px; width: 100%; text-align: left; padding: 15px 12px; }
-.speech-lab .voice-list-item strong, .speech-lab .reference-asset strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-weight: 600; line-height: 1.5; }
-.speech-lab .voice-list-item > span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.speech-lab .voice-list-item strong, .speech-lab .reference-asset strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-size: var(--text-body); font-weight: 600; line-height: var(--line-body); }
+.speech-lab .voice-list-item > span { color: var(--muted); font-size: var(--text-help); overflow-wrap: anywhere; }
 .speech-lab .voice-list-item.is-selected { border-color: var(--accent); background: var(--panel-muted); }
 .speech-lab .voice-status { justify-self: start; padding: 3px 6px; border-radius: 4px; background: var(--panel-muted); }
 .speech-lab .voice-detail { padding: 24px; }
 .speech-lab .voice-detail-heading { align-items: flex-start; }
 .speech-lab .voice-detail-heading > div { flex: 1; min-width: 0; }
-.speech-lab .voice-detail-heading h2 { margin-bottom: 4px; font-size: 20px; overflow-wrap: anywhere; }
+.speech-lab .voice-detail-heading h2 { margin-bottom: 4px; font-size: var(--text-panel); overflow-wrap: anywhere; font-weight:650; line-height:var(--line-heading); }
 .speech-lab .voice-detail-heading p { margin: 0 0 16px; }
-.speech-lab .voice-more { flex-shrink: 0; font-size: 13px; }
+.speech-lab .voice-more { flex-shrink: 0; font-size: var(--text-control); }
 .speech-lab .voice-more summary { cursor: pointer; padding: 5px; }
 .speech-lab .voice-more button { display: block; margin-top: 8px; }
 .speech-lab .recipe-section { padding: 20px 0; border-top: 1px solid var(--border); }
-.speech-lab .recipe-section h3 { margin: 0 0 16px; font-size: 15px; }
+.speech-lab .recipe-section h3 { margin: 0 0 16px; font-size: var(--text-section); font-weight:600; line-height:1.4; }
 .speech-lab .recipe-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
 .speech-lab .recipe-wide { grid-column: 1 / -1; }
-.speech-lab .recipe-reference { padding-top: 6px; font-size: 13px; }
+.speech-lab .recipe-reference { padding-top: 6px; font-size: var(--text-control); }
 .speech-lab .recipe-reference audio, .speech-lab .reference-saved audio { display: block; height: 40px; }
-.speech-lab .reference-inline-transcript { font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; max-height: 150px; overflow-y: auto; }
-.speech-lab .connection-summary strong { font-size: 13px; overflow-wrap: anywhere; }
+.speech-lab .reference-inline-transcript { font-size: 15px; line-height: var(--line-body); white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; max-height: 150px; overflow-y: auto; }
+.speech-lab .connection-summary strong { font-size: var(--text-control); overflow-wrap: anywhere; }
 .speech-lab .connection-controls { margin: 14px 0; }
-.speech-lab .recipe-advanced, .speech-lab .recipe-capabilities { margin-top: 18px; font-size: 13px; }
+.speech-lab .recipe-advanced, .speech-lab .recipe-capabilities { margin-top: 18px; font-size: var(--text-control); }
 .speech-lab .recipe-advanced summary, .speech-lab .recipe-capabilities summary { cursor: pointer; }
 .speech-lab .recipe-advanced[open] summary { margin-bottom: 16px; }
 .speech-lab .performance-options { margin-top: 16px; }

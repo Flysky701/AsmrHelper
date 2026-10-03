@@ -72,7 +72,7 @@ const S = {
   },
   toolbarTitle: {
     fontFamily: 'var(--font-display)',
-    fontSize: 14,
+    fontSize: 'var(--text-section)',
     fontWeight: 600,
     letterSpacing: '-0.01em',
     marginRight: 8,
@@ -117,7 +117,7 @@ const S = {
     borderColor: 'var(--accent)',
   },
   btnSm: {
-    fontSize: 12,
+    fontSize: 'var(--text-control)',
     padding: '5px 10px',
   },
   btnDisabled: {
@@ -239,11 +239,10 @@ const S = {
     gap: 20,
   },
   sidebarSectionTitle: {
-    fontSize: 11,
+    fontSize: 'var(--text-section)',
     fontWeight: 600,
     color: 'var(--muted)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
+    lineHeight: 1.4,
     marginBottom: 10,
   },
   infoRow: {
@@ -281,7 +280,7 @@ const S = {
   panelHeader: {
     padding: '14px 16px',
     borderBottom: '1px solid var(--border)',
-    fontSize: 13,
+    fontSize: 'var(--text-section)',
     fontWeight: 600,
     display: 'flex',
     alignItems: 'center',
@@ -301,7 +300,7 @@ const S = {
     gap: 6,
   },
   formLabel: {
-    fontSize: 12,
+    fontSize: 'var(--text-control)',
     fontWeight: 500,
     color: 'var(--muted)',
   },
@@ -318,7 +317,7 @@ const S = {
     transition: 'border-color 0.12s',
   },
   formHint: {
-    fontSize: 11,
+    fontSize: 'var(--text-help)',
     color: 'var(--muted)',
     marginTop: 4,
   },
@@ -488,7 +487,7 @@ const S = {
 
   // Help text
   helpText: {
-    fontSize: 12,
+    fontSize: 'var(--text-help)',
     color: 'var(--muted)',
     lineHeight: 1.6,
   },
@@ -919,6 +918,7 @@ export default function SubtitleWorkshop() {
   // ── Render ─────────────────────────────────────────────
   return (
     <div className="subtitle-workshop" style={S.container}>
+      <header className="page-heading subtitle-page-heading"><h1 className="page-title">字幕工坊</h1></header>
       {/* Status message */}
       {(message || error) && (
         <div className="subtitle-status-message" style={{
@@ -1270,7 +1270,7 @@ export default function SubtitleWorkshop() {
         <div className="subtitle-scroll-workspace" style={S.scrollWorkspace}>
           {/* Mode selector */}
           <div>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 600, marginBottom: 12 }}>
+            <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 'var(--text-section)', fontWeight: 600, marginBottom: 12 }}>
               台本转字幕
             </h2>
             <div className="subtitle-mode-selector" style={S.modeSelector}>

@@ -60,10 +60,10 @@ export default function EnginesResources() {
   const setView = useNavStore(state => state.setEnginesView)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <header style={{ padding: '16px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 14px' }}>引擎与资源</h1>
-        <div role="tablist" aria-label="资源类型" style={{ display: 'flex', gap: 8 }}>
+    <div className="engines-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <header style={{ padding: '24px 24px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+        <div className="page-heading" style={{ marginBottom: 14 }}><h1 className="page-title">引擎与资源</h1></div>
+        <div role="tablist" aria-label="资源类型" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {([{ id: 'local', label: '本地模型' }, { id: 'external', label: '外部服务' }] as const).map(tab => (
             <button key={tab.id} id={`engines-tab-${tab.id}`} role="tab" aria-selected={view === tab.id}
               aria-controls={`engines-panel-${tab.id}`} onClick={() => setView(tab.id)}
@@ -267,7 +267,7 @@ function LocalResources() {
         padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '12px',
       }}>
         <button onClick={() => void loadData()} disabled={loading || statusLoading} style={{
-          fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 500, padding: '7px 14px',
+          fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', fontWeight: 500, padding: '7px 14px',
           borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
           color: 'var(--fg)', cursor: loading || statusLoading ? 'not-allowed' : 'pointer',
           opacity: loading || statusLoading ? 0.6 : 1,
@@ -286,7 +286,7 @@ function LocalResources() {
             background: 'rgba(239,68,68,0.06)',
             border: '1px solid rgba(239,68,68,0.18)',
             borderRadius: '6px',
-            fontSize: '12px',
+            fontSize: 'var(--text-help)',
           }}>
             {error}
           </div>
@@ -294,12 +294,9 @@ function LocalResources() {
 
         {/* Runtime status cards */}
         <div>
-          <div style={{
-            fontSize: '11px', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase',
-            letterSpacing: '0.05em', marginBottom: '12px',
-          }}>
+          <h2 className="section-title" style={{ marginBottom: 12 }}>
             工作目录
-          </div>
+          </h2>
           <div className="engines-runtime-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
             {resources.map(res => (
               <div className="engines-runtime-card" key={res.name} style={{
@@ -310,33 +307,30 @@ function LocalResources() {
                     width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
                     background: res.available ? 'oklch(60% 0.16 145)' : 'oklch(55% 0.18 25)',
                   }} />
-                  <span style={{ fontSize: '13px', fontWeight: 600 }}>{RESOURCE_LABELS[res.name] ?? res.name}</span>
+                  <span style={{ fontSize: 'var(--text-control)', fontWeight: 600 }}>{RESOURCE_LABELS[res.name] ?? res.name}</span>
                   <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                     {res.available ? '可用' : '不可用'}
                   </span>
                 </div>
                 <div
                   title={typeof res.metadata.path === 'string' ? res.metadata.path : undefined}
-                  style={{ fontSize: '12px', lineHeight: 1.6, color: 'var(--muted)', overflowWrap: 'anywhere', userSelect: 'text' }}
+                  style={{ fontSize: 'var(--text-help)', lineHeight: 1.6, color: 'var(--muted)', overflowWrap: 'anywhere', userSelect: 'text' }}
                 >
                   {typeof res.metadata.path === 'string' ? res.metadata.path : '路径未提供'}
                 </div>
               </div>
             ))}
             {resources.length === 0 && (
-              <div style={{ fontSize: '13px', color: 'var(--muted)' }}>未检测到资源信息</div>
+              <div style={{ fontSize: 'var(--text-control)', color: 'var(--muted)' }}>未检测到资源信息</div>
             )}
           </div>
         </div>
 
         {/* Model management */}
         <div>
-          <div style={{
-            fontSize: '11px', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase',
-            letterSpacing: '0.05em', marginBottom: '12px',
-          }}>
+          <h2 className="section-title" style={{ marginBottom: 12 }}>
             模型管理
-          </div>
+          </h2>
 
           {/* Category tabs */}
           <div className="engines-category-tabs" style={{
@@ -348,7 +342,7 @@ function LocalResources() {
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 style={{
-                  flex: 1, padding: '8px 12px', textAlign: 'center', fontSize: '13px', fontWeight: 500,
+                  flex: 1, padding: '8px 12px', textAlign: 'center', fontSize: 'var(--text-control)', fontWeight: 500,
                   color: activeTab === tab ? 'var(--fg)' : 'var(--muted)',
                   background: activeTab === tab ? 'var(--surface)' : 'none',
                   boxShadow: activeTab === tab ? '0 1px 3px oklch(0% 0 0 / 0.08)' : 'none',
@@ -367,7 +361,7 @@ function LocalResources() {
 
           {/* Model groups */}
           {Object.entries(tabGroups).length === 0 ? (
-            <div style={{ fontSize: '13px', color: 'var(--muted)', padding: '16px' }}>该分类下暂无模型</div>
+            <div style={{ fontSize: 'var(--text-control)', color: 'var(--muted)', padding: '16px' }}>该分类下暂无模型</div>
           ) : (
             Object.entries(tabGroups).map(([groupKey, groupModels]) => {
               const isCollapsed = !!collapsed[groupKey]
@@ -402,7 +396,7 @@ function LocalResources() {
                     }}>
                       {CATEGORY_LABELS[cat as CategoryTab] || cat.toUpperCase()}
                     </span>
-                    <span style={{ fontSize: '13px', fontWeight: 600 }}>{groupKey}</span>
+                    <span style={{ fontSize: 'var(--text-control)', fontWeight: 600 }}>{groupKey}</span>
                     <span style={{ fontSize: '11px', color: 'var(--muted)', marginLeft: 'auto' }}>
                       {groupModels.length} 个模型
                     </span>
@@ -476,7 +470,7 @@ function LocalResources() {
                           <div className="engines-model-row" key={model.model_id} style={{
                             display: 'grid', gridTemplateColumns: '1fr auto auto',
                             padding: '10px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center',
-                            fontSize: '13px', gap: '12px',
+                            fontSize: 'var(--text-control)', gap: '12px',
                           }}>
                             <div className="engines-model-info">
                               <div style={{ fontWeight: 500 }}>{model.display_name}</div>
@@ -498,7 +492,7 @@ function LocalResources() {
                               )}
                             </div>
                             <div className="engines-model-status" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: 'var(--text-help)' }}>
                                 <span style={{
                                   width: '6px', height: '6px', borderRadius: '50%', background: resolvedStatusInfo.dot,
                                   animation: isInstalling || statusLoading ? 'pulse 1.5s infinite' : 'none',
@@ -517,7 +511,7 @@ function LocalResources() {
                             <div className="engines-model-actions" style={{ display: 'flex', gap: '4px' }}>
                               {isInstalling || statusLoading || !status ? (
                                 <button disabled style={{
-                                  fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
+                                  fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '4px 10px',
                                   borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
                                   color: 'var(--muted)', cursor: 'not-allowed',
                                 }}>
@@ -527,7 +521,7 @@ function LocalResources() {
                                 <>
                                   {needsInstall && model.supports_install ? (
                                     <button onClick={() => handleInstall(model)} style={{
-                                      fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
+                                      fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '4px 10px',
                                       borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
                                       color: 'white', cursor: 'pointer',
                                     }}>
@@ -535,7 +529,7 @@ function LocalResources() {
                                     </button>
                                   ) : (
                                     <button onClick={() => handleVerify(model.model_id)} style={{
-                                      fontFamily: 'var(--font-body)', fontSize: '12px', padding: '4px 10px',
+                                      fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '4px 10px',
                                       borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
                                       color: 'var(--fg)', cursor: 'pointer',
                                     }}>

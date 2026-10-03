@@ -136,10 +136,10 @@ export default function WorkflowPresets() {
   }
 
   return <div className="workflow-presets">
-    <header className="wfp-header">
-      <div><p className="wfp-eyebrow">流水线预设</p><h1>{editor ? editor.preset ? '编辑流水线' : '新建流水线' : '流水线编辑器'}</h1>
-        <p className="wfp-description">在这里定义可复用的结构。工作台负责选择流水线、绑定素材与调整本次运行参数。</p></div>
-      <div className="wfp-actions">
+    <header className="wfp-header page-heading">
+      <div className="page-heading__copy"><h1 className="page-title">{editor ? editor.preset ? '编辑流水线' : '新建流水线' : '流水线编辑器'}</h1>
+        <p className="wfp-description page-description">在这里定义可复用的结构。工作台负责选择流水线、绑定素材与调整本次运行参数。</p></div>
+      <div className="wfp-actions page-heading__actions">
         {editor?.preset && !editor.preset.builtin && <button type="button" className="wfp-button" disabled={busy || !!saveReason} title={saveReason || undefined} onClick={() => void save('copy')}>另存为新预设</button>}
         {editor && <button type="button" className="wfp-button is-primary" disabled={busy || !!saveReason} title={saveReason || undefined} aria-describedby={saveReason ? 'wfp-save-reason' : undefined} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving && !deletingId && !restoringId ? '正在保存…' : editor.preset?.builtin ? '保存副本并返回' : '保存并返回'}</button>}
         <button type="button" className="wfp-button" disabled={busy} onClick={goBack}>返回{editor?.returnTo === 'workbench' ? '工作台' : '设置'}</button>

@@ -221,25 +221,25 @@ export default function ExternalServices() {
       .external-services { max-width: 1040px; min-width: 0; }
       .external-service-section { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 20px; overflow: hidden; }
       .external-service-heading { display: flex; align-items: center; gap: 12px; padding: 18px 20px; background: var(--panel-muted); border-bottom: 1px solid var(--border); }
-      .external-service-heading h2 { flex: 1; font-size: 20px; margin: 0; font-weight: 700; }
-      .external-service-tag, .external-service-active { color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 600; }
+      .external-service-heading h2 { flex: 1; font-size: var(--text-section); margin: 0; font-weight: 600; line-height: 1.4; }
+      .external-service-tag, .external-service-active { color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 4px 8px; font-size: var(--text-help); font-weight: 600; }
       .external-service-body { padding: 16px 20px; }
       .external-service-card { padding: 16px; border: 1px solid var(--border); border-radius: 9px; margin-bottom: 12px; min-width: 0; }
       .external-service-card:last-child { margin-bottom: 0; }
       .external-service-card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-      .external-service-card-heading h3 { font-size: 16px; font-weight: 650; margin: 0; overflow-wrap: anywhere; }
+      .external-service-card-heading h3 { font-size: var(--text-section); font-weight: 600; line-height: 1.4; margin: 0; overflow-wrap: anywhere; }
       .external-service-actions { margin-left: auto; display: flex; gap: 8px; }
-      .external-service-muted { color: var(--muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+      .external-service-muted { color: var(--muted); font-size: var(--text-help); line-height: 1.7; overflow-wrap: anywhere; }
       .external-service-editor { border: 0; border-top: 1px solid var(--border); margin: 18px 0 0; padding: 20px 0 0; min-width: 0; }
       .external-service-editor > .external-service-card-heading { justify-content: space-between; margin-bottom: 20px; }
-      .external-service-field { display: grid; gap: 6px; font-size: 13px; margin-bottom: 16px; }
+      .external-service-field { display: grid; gap: 6px; font-size: var(--text-control); margin-bottom: 16px; }
       .external-service-field input, .external-service-field select, .external-service-field textarea { width: 100%; min-width: 0; font: inherit; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); }
-      .external-service-button { font: inherit; font-size: 13px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; }
+      .external-service-button { font: inherit; font-size: var(--text-control); padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; }
       .external-service-button:disabled { opacity: .6; cursor: default; }
       .external-service-primary { background: var(--accent); border-color: var(--accent); color: white; }
-      .external-service-editor summary { cursor: pointer; font-size: 12px; color: var(--muted); }
-      .external-service-notice { padding: 12px 16px; background: var(--panel-muted); border-radius: 8px; margin-bottom: 16px; font-size: 13px; overflow-wrap: anywhere; }
-      @media (max-width: 600px) { .external-service-heading { flex-wrap: wrap; padding: 14px; } .external-service-body { padding: 12px; } .external-service-heading h2 { font-size: 18px; } }
+      .external-service-editor summary { cursor: pointer; font-size: var(--text-help); color: var(--muted); }
+      .external-service-notice { padding: 12px 16px; background: var(--panel-muted); border-radius: 8px; margin-bottom: 16px; font-size: var(--text-control); overflow-wrap: anywhere; }
+      @media (max-width: 600px) { .external-service-heading { flex-wrap: wrap; padding: 14px; } .external-service-body { padding: 12px; } .external-service-heading h2 { font-size: var(--text-section); } }
     `}</style>
   </div>
 }

@@ -293,7 +293,7 @@ export default function VoiceLab() {
   }
 
   return <div className="speech-lab">
-    <header><div className="row spread"><div><h1>声音与音色</h1><p className="muted">录音素材、生成规则与试音记录独立管理。</p></div><button disabled={!!busy || referenceBusy} onClick={() => void run('刷新', refresh)}>刷新</button></div>
+    <header><div className="page-heading"><div className="page-heading__copy"><h1 className="page-title">声音与音色</h1><p className="page-description">录音素材、生成规则与试音记录独立管理。</p></div><div className="page-heading__actions"><button disabled={!!busy || referenceBusy} onClick={() => void run('刷新', refresh)}>刷新</button></div></div>
       <nav className="tabs" role="tablist" aria-label="声音管理">{['声音库', '我的音色', '试音记录'].map((title, index) => <button key={title} disabled={!!busy} role="tab" aria-selected={tab === index} onClick={() => (() => { document.querySelectorAll<HTMLAudioElement>('.speech-lab audio').forEach(player => player.pause()); setTab(index) })()}>{title}</button>)}</nav>
     </header>
     <main>{error && <div role="alert" className="notice error">{error}</div>}{notice && <div role="status" className="notice">{notice}</div>}{busy && <p role="status" className="muted">{busy}…</p>}

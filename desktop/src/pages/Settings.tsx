@@ -206,15 +206,15 @@ export default function Settings() {
     setActionError(''); setModal({ kind, preset, label: kind === 'copy' ? `${preset.label.slice(0, 96)}（副本）` : preset.label })
   }
   return <div className="settings-page">
-    <aside className="settings-sidebar"><h1>设置</h1><p className="settings-sidebar-caption">工作区</p>
+    <aside className="settings-sidebar"><h1 className="page-title">设置</h1><p className="settings-sidebar-caption">工作区</p>
       <nav className="settings-categories" aria-label="设置分类">
         <button type="button" aria-current={category === 'presets' ? 'page' : undefined} onClick={() => setCategory('presets')}><Icon kind="graph" /><span>预设管理<small>复用流水线</small></span></button>
         <button type="button" aria-current={category === 'paths' ? 'page' : undefined} onClick={() => setCategory('paths')}><Icon kind="folder" /><span>文件与缓存<small>输出与存储位置</small></span></button>
       </nav><p className="settings-sidebar-foot">● 与工作台共用</p>
     </aside>
     <main className="settings-main" aria-label="设置内容">
-      <header className="settings-header"><div><p className="settings-eyebrow">工作区设置</p><h2>{category === 'presets' ? '预设管理' : '文件与缓存'}</h2><p className="settings-description">{category === 'presets' ? '工作台共用的流水线，集中查看与维护。' : '留空沿用工作区默认位置。'}</p></div>
-        <div className="settings-header-actions">{category === 'presets' ? <><button className="settings-button quiet" disabled={catalogBusy} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadArchivedCatalog()]) }}><Icon kind="refresh" />刷新</button><button className="settings-button primary" disabled={catalogBusy} onClick={() => void openEditor()}><Icon kind="plus" />新建流水线</button></> : <button className="settings-button quiet" disabled={busy || pathsLoading} onClick={() => void loadPaths()}><Icon kind="refresh" />重新读取</button>}</div>
+      <header className="settings-header page-heading"><div className="page-heading__copy"><h2 className="panel-title">{category === 'presets' ? '预设管理' : '文件与缓存'}</h2><p className="settings-description page-description">{category === 'presets' ? '工作台共用的流水线，集中查看与维护。' : '留空沿用工作区默认位置。'}</p></div>
+        <div className="settings-header-actions page-heading__actions">{category === 'presets' ? <><button className="settings-button quiet" disabled={catalogBusy} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadArchivedCatalog()]) }}><Icon kind="refresh" />刷新</button><button className="settings-button primary" disabled={catalogBusy} onClick={() => void openEditor()}><Icon kind="plus" />新建流水线</button></> : <button className="settings-button quiet" disabled={busy || pathsLoading} onClick={() => void loadPaths()}><Icon kind="refresh" />重新读取</button>}</div>
       </header>
       <div className="settings-body">
         {category === 'presets' ? <>

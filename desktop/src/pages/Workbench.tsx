@@ -218,7 +218,7 @@ export default function Workbench() {
   }
 
   return <div className={`queue-workbench${panelOpen ? ' panel-open' : ''}${dragOver ? ' is-dragging' : ''}`} onDragOver={event => { event.preventDefault(); if (!busy && !discovering) setDragOver(true) }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOver(false) }} onDrop={event => void drop(event)}>
-    <header className="queue-page-heading"><h1>工作台</h1><button type="button" onClick={() => useNavStore.getState().openTaskCenter('batches')}>任务中心 · 历史与产物 ↗</button></header>
+    <header className="queue-page-heading page-heading"><div className="page-heading__copy"><h1 className="page-title">工作台</h1></div><div className="page-heading__actions"><button type="button" onClick={() => useNavStore.getState().openTaskCenter('batches')}>任务中心 · 历史与产物 ↗</button></div></header>
     <div className="queue-body"><div className="queue-pane">
       <div className="queue-preset-toolbar"><label>流水线预设<select aria-label="已保存的流水线" value={selectedPreset?.id ?? ''} disabled={busy || workflow.catalogLoading} onChange={event => changePreset(event.target.value)}>
         <option value="">{workflow.catalogLoading ? '正在加载流水线…' : presets.length ? '请选择流水线' : '暂无已保存流水线'}</option>{selectedPreset && !presets.some(preset => preset.id === selectedPreset.id) ? <option value={selectedPreset.id}>{selectedPreset.label}（等待目录核对）</option> : null}{presets.map(preset => <option key={preset.id} value={preset.id}>{preset.label}{preset.builtin ? ' · 内置' : ''}</option>)}</select></label>
