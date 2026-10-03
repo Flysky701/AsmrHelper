@@ -4,7 +4,6 @@ import QwenReferenceMode from '@/components/QwenReferenceMode'
 import GraphEngineControl from './GraphEngineControl'
 import SpeechConnectionManager from '@/components/SpeechConnectionManager'
 import { restoreEngineDraft, restoreSpeechModeDraft } from '@/domain/nodeEngineDrafts'
-import { useNavStore } from '@/stores/navStore'
 import { defaultSpeechConnection } from '@/domain/speechConnections'
 import { capabilitiesApi } from '@/api/capabilities'
 import { settingsApi } from '@/api/settings'
@@ -80,11 +79,6 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all' }: P
           connectionSummary="使用模型的托管运行环境；需对应音频与字幕。" onSelect={() => {}} onRefresh={() => {}} />
         <Language node={node} field="source_lang" onChange={scopedChange} />
       </>}
-      {common && ['mix', 'export', 'audio_export'].includes(node.kind) && <section className="graph-engine-control" aria-label="节点实现">
-        <div className="graph-engine-heading"><div><small>实现</small><strong>{node.kind === 'mix' ? 'FFmpeg 混音' : node.kind === 'export' ? '本机字幕写出' : '本机音频文件复制'}</strong></div></div>
-        <p className="graph-param-note">{node.kind === 'mix' ? '需要 FFmpeg 系统工具，不使用模型。工具环境尚未检查；正式提交时按所选步骤检查。' : node.kind === 'export' ? '支持 SRT、VTT、LRC；无需模型或 FFmpeg。' : '保留原音频格式，不转码；无需模型或 FFmpeg。'}</p>
-        {node.kind === 'mix' && <button type="button" onClick={() => useNavStore.getState().openEngines('local')}>前往模型与运行环境管理</button>}
-      </section>}
       {['asr', 'translate', 'separate'].includes(node.kind)
         && <CapabilityParameters node={node} onChange={scopedChange} requestChange={requestChange} requestEngineChange={requestEngineChange} section={section} />}
       {node.kind === 'tts' && <SpeechParameters node={node} onChange={scopedChange} requestChange={requestChange} requestEngineChange={requestEngineChange} requestSpeechChange={requestSpeechChange} section={section} />}
@@ -103,11 +97,11 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all' }: P
           <small>正数后移，负数前移；前移会截去零点前的配音。</small></Field></Advanced>
         {common && <p className="graph-param-note">两路音频需对应同一时间轴。</p>}
       </>}
-      {common && node.kind === 'export' && <Field label="字幕格式"><select value={String(node.options.subtitle_format ?? 'srt')}
+      {common && node.kind === 'export' && <><Field label="目标字幕格式"><select value={String(node.options.subtitle_format ?? 'srt')}
         onChange={event => scopedChange(setGraphOption(node, 'options', 'subtitle_format', event.target.value))}>
         {['srt', 'vtt', 'lrc'].map(format => <option key={format} value={format}>{format.toUpperCase()}</option>)}
-      </select></Field>}
-      {common && node.kind === 'audio_export' && <p className="graph-param-note">按输入音频的原格式导出独立文件，不转码。可连接原音频、合成或混音输出；在交付结果中勾选后，可从任务结果预览并查看文件路径。</p>}
+      </select></Field><p className="graph-param-note">将 SRT / VTT 素材或上游字幕转换为 SRT、VTT、LRC。保留文本；LRC 仅保留开始时间，精度为百分之一秒，多行合并为一行。</p></>}
+      {common && node.kind === 'audio_export' && <p className="graph-param-note">旧流程兼容：按原格式复制音频，不转码。新的音频产物可直接勾选交付。</p>}
       {switchNotice && <p role="status" className="graph-param-note">{switchNotice}</p>}
       {pending && <section className="graph-param-confirm" aria-label="确认节点参数变更">
         <p>{pending.description} 只修改当前节点；不修改其他节点、连线、素材或已保存的 TTS 预设。</p>

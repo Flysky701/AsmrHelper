@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
-import { GRAPH_CATALOG, GRAPH_NODE_KINDS, type GraphDefinition, type GraphNode, type GraphNodeKind, type GraphEdge, type GraphBindings } from '@/domain/workflowGraph'
+import { GRAPH_CATALOG, GRAPH_ADDABLE_NODE_KINDS, type GraphDefinition, type GraphNode, type GraphNodeKind, type GraphEdge, type GraphBindings } from '@/domain/workflowGraph'
 import { WorkflowNode } from './WorkflowNode'
 import { WorkflowInspector } from './WorkflowInspector'
 import { bindingIssues, connectPort, removeNode, removeInputSlot, sourceKey, sourceLabel, TYPE_NAMES, updateNode, updateInputSlot, type WorkflowMaterial } from './graphEditorModel'
@@ -148,8 +148,8 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
     if (binding) onBindingsChange({ ...bindings, [slotId]: { ...binding, ...patch } })
   }
   return <div ref={editorRef} className={`wg-editor${editorWidth < 960 ? ' is-condensed' : ''}${editorWidth < 720 ? ' is-compact' : ''}${editorWidth < 540 ? ' is-small' : ''} show-${compactPane}${narrow ? ' has-narrow-canvas' : ''}`} onKeyDown={event => { if (event.key === 'Escape') { setPendingSource(null); setRemoval(null); setError('') } }}>
-    <aside className="wg-library" aria-label="模块库" tabIndex={0}><div className="wg-panel-heading"><span>模块库</span><small>{GRAPH_NODE_KINDS.length} 项能力</small></div><p className="wg-hint">点击添加，可重复使用。</p>
-      <div className="wg-library-list">{GRAPH_NODE_KINDS.map(kind => <button type="button" key={kind} onClick={() => {
+    <aside className="wg-library" aria-label="模块库" tabIndex={0}><div className="wg-panel-heading"><span>模块库</span><small>{GRAPH_ADDABLE_NODE_KINDS.length} 项能力</small></div><p className="wg-hint">点击添加，可重复使用。</p>
+      <div className="wg-library-list">{GRAPH_ADDABLE_NODE_KINDS.map(kind => <button type="button" key={kind} onClick={() => {
         const added = createNode(kind, graph)
         revealRef.current = added.id; setCompactPane('canvas')
         onChange({ ...graph, nodes: [...graph.nodes, added] }); setSelectedId(added.id); setError('')
@@ -160,7 +160,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
         revealRef.current = `slot:${type}_${index}`; setCompactPane('canvas')
         onChange({ ...graph, input_slots: [...graph.input_slots, { id: `${type}_${index}`, type, label: `${type === 'audio' ? '音频' : '字幕'}输入 ${index}` }] })
       }}>+ {type === 'audio' ? '音频槽' : '字幕槽'}</button>)}</div>
-      <div className="wg-library-note"><strong>素材与模板分开</strong><p>模板记住输入槽、连线和参数。每次使用时，再指定当前素材。</p></div>
+      <div className="wg-library-note"><strong>素材与交付</strong><p>输入槽为节点提供素材；在节点设置顶部勾选要交付的音频或字幕。</p></div>
     </aside>
     <nav className="wg-pane-switch" aria-label="编辑区域"><button type="button" aria-pressed={compactPane === 'canvas'} onClick={() => setCompactPane('canvas')}>流程画布</button><button type="button" aria-pressed={compactPane === 'inspector'} onClick={() => setCompactPane('inspector')}>节点设置{node ? ` · ${node.id}` : ''}</button></nav>
     <main className="wg-main"><div className="wg-canvas-toolbar"><div><strong>流程画布</strong><span>{graph.nodes.length} 节点 · {graph.edges.length} 连线</span></div><div className="wg-canvas-actions"><select aria-label="定位画布节点" value="" onChange={event => { const id = event.target.value; if (!id) return; if (!id.startsWith('slot:')) setSelectedId(id); reveal(id) }}><option value="">定位节点…</option>{graph.input_slots.map(slot => <option key={`slot:${slot.id}`} value={`slot:${slot.id}`}>{slot.label} · {slot.id}</option>)}{graph.nodes.map(item => <option key={item.id} value={item.id}>{GRAPH_CATALOG[item.kind].label} · {item.id}</option>)}</select><button type="button" onClick={() => { setMoved({}); scrollRef.current?.scrollTo({ left: 0, top: 0 }) }}>整理布局</button></div></div>

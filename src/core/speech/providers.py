@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import base64
 from io import BytesIO
 import hashlib
 import json
@@ -404,7 +403,7 @@ class SpeechProvider:
         return self._http_audio(base if parsed.path.endswith(endpoint) else base + endpoint, headers, body, output_path, connection)
 
     @staticmethod
-    def _http_audio(url, headers, body, output_path, connection, *, chat_audio=False):
+    def _http_audio(url, headers, body, output_path, connection):
         try:
             with httpx.Client(timeout=httpx.Timeout(float(connection.get("timeout", 180)), connect=15)) as client:
                 response = client.post(url, headers=headers, json=body)
@@ -421,7 +420,7 @@ class SpeechProvider:
         if not response.is_success:
             raise ProviderError("remote_failed", f"外部语音服务失败（HTTP {response.status_code}）", result_unknown=response.status_code >= 500)
         try:
-            content = base64.b64decode(response.json()["choices"][0]["message"]["audio"]["data"], validate=True) if chat_audio else response.content
+            content = response.content
             audio, rate = sf.read(BytesIO(content), dtype="float32")
             if len(audio) == 0 or not np.isfinite(audio).all():
                 raise ValueError("empty")
@@ -500,13 +499,3 @@ def get_provider(provider_id):
 
 def list_providers():
     return [provider.describe() for provider in _PROVIDERS.values()]
-
-
-def _register_mimo():
-    # Import after the base contract exists; MiMo depends on SpeechProvider.
-    from .mimo import MimoProvider
-
-    register_provider(MimoProvider())
-
-
-_register_mimo()

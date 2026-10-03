@@ -194,30 +194,6 @@ def test_descriptors_have_no_load_side_effect_and_are_independent():
     assert get_provider("fish_audio").describe()["options_schema"]["properties"]
 
 
-def test_mimo_is_explicit_provider_with_chat_audio_contract(monkeypatch, tmp_path):
-    from base64 import b64encode
-    source = recipe("mimo_audio", model="mimo-v2.5-tts", variant={"kind": "hosted", "value": "mimo_default", "style": "normal"},
-        provider_options={"schema_version": 1, "instructions": "自然朗读"})
-    script = plan()
-    script["segments"][0]["delivery"] = "whisper"
-    request = compile_recipe(source, script, {})[0]
-    def handler(req):
-        assert str(req.url) == "https://mimo.invalid/v1/chat/completions"
-        payload = json.loads(req.content)
-        assert payload["messages"][0]["role"] == "user"
-        assert "自然朗读" in payload["messages"][0]["content"]
-        assert payload["messages"][1] == {"role": "assistant", "content": script["text"]}
-        assert payload["audio"] == {"voice": "mimo_default", "format": "wav"}
-        return httpx.Response(200, json={"choices": [{"message": {"audio": {"data": b64encode(wav()).decode()}}}]})
-    mock_http(monkeypatch, handler)
-    metadata = get_provider("mimo_audio").synthesize(request, tmp_path / "mimo.wav", {
-        "connection": {"provider_id": "mimo_audio", "base_url": "https://mimo.invalid/v1", "api_key": "secret"}}, lambda: False)
-    assert metadata["duration"] == .1
-    source["model"] = "mimo-v2.5-tts-voiceclone"
-    with pytest.raises(ProviderError, match="模型"):
-        compile_recipe(source, script, {})
-
-
 def test_local_probe_matches_selected_mode_and_runtime_override(tmp_path):
     import sys
     model = tmp_path / "model"

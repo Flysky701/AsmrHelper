@@ -162,7 +162,6 @@ def test_model_changes_during_inference_cannot_publish_reusable_fact(setup, tmp_
 @pytest.mark.parametrize("provider,model,mode,value", [
     ("fish_audio", "s2-pro", "hosted", "voice-id"),
     ("openai_compatible", "tts-1", "hosted", "alloy"),
-    ("mimo_audio", "mimo-v2.5-tts", "hosted", "mimo_default"),
     ("edge", "edge-tts", "builtin", "zh-CN-XiaoxiaoNeural"),
     ("qwen3", "qwen3-custom-voice", "builtin", "Vivian"),
     ("voxcpm2", "voxcpm2", "default", "default"),

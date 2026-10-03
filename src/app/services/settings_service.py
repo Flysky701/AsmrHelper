@@ -277,7 +277,7 @@ class SettingsService:
 
         internal: dict[str, Any] = {}
         if "external_tts" in updates or "tts" in updates:
-            raise AppValidationError("旧 TTS 配置已只读，请通过 Speech 命名连接配置或导入旧配置")
+            raise AppValidationError("旧 TTS 配置已只读，请在外部服务管理中配置 Speech 语音连接")
         for section in ("paths", "processing"):
             value = updates.get(section)
             if isinstance(value, dict):

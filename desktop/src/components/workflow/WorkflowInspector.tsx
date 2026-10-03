@@ -18,6 +18,11 @@ export function WorkflowInspector({ graph, node, issues, onNodeChange, onConnect
   return <aside className="wg-inspector" aria-label="节点设置">
     <div className="wg-panel-heading"><span>节点设置</span><small>{node.id}</small></div>
     <div className="wg-inspector-title"><div><h2>{catalog.label}</h2><p>每个实例独立配置</p></div></div>
+    <section className="wg-inspector-delivery" aria-label="交付结果"><h3>交付结果</h3>{Object.entries(catalog.outputs).map(([port, type]) => <label className="wg-check" key={port}>
+      <input type="checkbox" checked={graph.outputs.some(output => output.node_id === node.id && output.port === port)}
+        onChange={event => onOutput(node.id, port, event.target.checked)} aria-label={`交付 ${node.id} ${port}`} />
+      <span>{PORT_NAMES[port] || port}<small>{TYPE_NAMES[type]}</small></span>
+    </label>)}<p className="wg-hint">勾选后显示在任务结果中；未勾选仍可供下游使用。</p></section>
     <div className="wg-inspector-scroll" role="region" aria-label={`${node.id} 参数与来源`} tabIndex={0}>
     <section><h3>输入来源</h3>{Object.entries(catalog.inputs).map(([port, type]) => {
       const edge = graph.edges.find(edge => edge.target.node_id === node.id && edge.target.port === port)
@@ -32,11 +37,6 @@ export function WorkflowInspector({ graph, node, issues, onNodeChange, onConnect
       </label>
     })}<p className="wg-hint">可绑定输入槽或其他节点的兼容输出。没有来源时不会自动补跑前序。</p></section>
     <section><h3>参数</h3>{renderParameters(node, onNodeChange)}</section>
-    <section><h3>交付结果</h3>{Object.entries(catalog.outputs).map(([port, type]) => <label className="wg-check" key={port}>
-      <input type="checkbox" checked={graph.outputs.some(output => output.node_id === node.id && output.port === port)}
-        onChange={event => onOutput(node.id, port, event.target.checked)} aria-label={`交付 ${node.id} ${port}`} />
-      <span>{PORT_NAMES[port] || port}<small>{TYPE_NAMES[type]}</small></span>
-    </label>)}<p className="wg-hint">未交付的输出仍可供下游节点使用。</p></section>
     {!!issues.length && <section className="wg-node-problems"><h3>需要补充</h3>{issues.map((issue, index) => <p key={index}>{issue}</p>)}</section>}
     </div>
   </aside>

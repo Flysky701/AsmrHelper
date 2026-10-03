@@ -17,7 +17,6 @@ OPTIONAL_MODULES = (
     "torch",
     "demucs",
     "faster_whisper",
-    "imageio_ffmpeg",
     "edge_tts",
     "soundfile",
 )
@@ -34,6 +33,21 @@ def check_module(name: str) -> bool:
     return True
 
 
+def check_ffmpeg() -> bool:
+    try:
+        from src.app.services.resource_service import ResourceService
+
+        available, detail = ResourceService._check_ffmpeg_runtime()
+    except Exception as exc:
+        print(f"  [FAIL] FFmpeg: {exc}")
+        return False
+    if not available:
+        print(f"  [FAIL] FFmpeg: {detail}")
+        return False
+    print("  [OK] FFmpeg: executable verified")
+    return True
+
+
 def main() -> int:
     print("=" * 65)
     print("ASMR Helper startup environment")
@@ -45,6 +59,7 @@ def main() -> int:
         return 1
 
     required_ok = all(check_module(name) for name in REQUIRED_MODULES)
+    required_ok = check_ffmpeg() and required_ok
     if required_ok:
         try:
             from src.api.http.app import create_app

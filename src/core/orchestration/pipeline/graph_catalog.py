@@ -11,7 +11,7 @@ GRAPH_CATALOG = {
     "translate": {"label": "字幕翻译", "inputs": {"subtitle": "subtitle"}, "outputs": {"subtitle": "subtitle"}},
     "tts": {"label": "语音合成", "inputs": {"subtitle": "subtitle"}, "outputs": {"audio": "audio"}},
     "mix": {"label": "混音", "inputs": {"audio": "audio", "speech": "audio"}, "outputs": {"audio": "audio"}},
-    "export": {"label": "字幕导出", "inputs": {"subtitle": "subtitle"}, "outputs": {"subtitle": "subtitle"}},
+    "export": {"label": "字幕格式转换", "inputs": {"subtitle": "subtitle"}, "outputs": {"subtitle": "subtitle"}},
     "audio_export": {"label": "音频导出", "inputs": {"audio": "audio"}, "outputs": {"audio": "audio"}},
 }
 GRAPH_NODE_KINDS = tuple(GRAPH_CATALOG)
@@ -33,5 +33,6 @@ def graph_catalog() -> dict:
 
 
 def capabilities() -> list[dict]:
+    # Keep legacy nodes in the execution catalog without offering new copies.
     return [{"kind": kind, **deepcopy(value), "option_keys": GRAPH_OPTION_KEYS[kind]}
-            for kind, value in GRAPH_CATALOG.items()]
+            for kind, value in GRAPH_CATALOG.items() if kind != "audio_export"]

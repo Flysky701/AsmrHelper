@@ -118,7 +118,7 @@
 | 模块 | 已观察行为 | 复用价值 |
 | --- | --- | --- |
 | [api.js](https://github.com/zeroa234/ryza-ai-revive/blob/master/web/js/api.js)：`MODE_TTS`、`ttsStyleFor` | 基础音色描述与模式指令组合，ASMR 有单独提示 | 高：移植成后端风格解析器，中文配音需自己的提示模板 |
-| 同文件：`_qwenSpeak`、`speak` | 分别向支持指令的 Qwen 云模型与 MiMo 式聊天音频接口传风格 | Qwen 云接口不等于本地 qwen-tts；MiMo 形式本项目已经实现 |
+| 同文件：`_qwenSpeak`、`speak` | 分别向支持指令的 Qwen 云模型与聊天音频接口传风格 | Qwen 云接口不等于本地 qwen-tts；本项目当前只保留已支持的语音 Provider |
 | 同文件：`fishVoiceFor`、`_fishSpeak` | ASMR 优先选独立音色 ID；现代 Fish 请求使用 `reference_id` 与模型 header | 可借鉴风格与音色分离；该路径没有自动添加 `[whisper]`，音色未设置时可能仍用普通声音 |
 | [app.js](https://github.com/zeroa234/ryza-ai-revive/blob/master/web/js/app.js)：`speakThen`、`playUrl` | 应用 ASMR 播放倍率 0.93、音量乘数 0.82，结束时复位倍率 | 仅是播放效果，不能当作耳语模型；这些调整不会自动写入导出的 WAV |
 | 同文件：`_ensureVoiceGraph` | 媒体源接分析器再接输出 | 已检查的图没有声像/HRTF 节点，分析器用于角色嘴型；不能用来补本项目的双耳能力 |
@@ -132,7 +132,7 @@
 
 推荐新增一个纯函数式风格解析层，输入为音色基础描述、任务风格与用户覆盖项，输出为实际合成指令及可选音色 ID。再由各 Provider 适配器转换为自己的参数。字段名属于提案，应沿现有能力描述与 ExecutionProfile 契约落地。
 
-本项目的 `OpenAICompatibleTtsEngine` 已具备 MiMo 的“用户消息传语音指令、assistant 消息传朗读正文”结构，因此这部分没有重复移植价值。真正缺口是按任务选择耳语预设、明确型号能力，并使试音和批量流水线消费同一结果。
+本节记录历史设计判断；专属聊天音频适配器已于 2026-10-03 移除。通用 OpenAI 语音使用标准语音接口，不复用聊天消息音频协议。演绎参数应按当前 Provider 能力验证，并使试听与正式流水线共享同一参数映射。
 
 Fish 原生接口需专门 Provider 或明确的协议适配：不能把它的地址填进现有 `/audio/speech` 就认为接入完成；上游按域名推断协议的逻辑也不宜直接复制给任意自定义服务。必须对照服务商接口确认，不能把第三方客户端常量视作官方契约。
 

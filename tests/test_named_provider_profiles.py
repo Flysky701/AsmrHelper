@@ -21,7 +21,7 @@ def service(tmp_path, monkeypatch):
     cfg.save({"api": {"provider": "deepseek", "deepseek_api_key": "legacy-secret",
                       "deepseek_model": "legacy-model"},
               "external_tts": {"api_key": "tts-old", "model": "voice-model", "voice": "old-voice",
-                               "instructions": "old-instruction", "api_format": "mimo_chat"}})
+                               "instructions": "old-instruction", "api_format": "speech"}})
     cfg.reload()
     return SettingsService(config_manager=cfg, model_probe=Mock(return_value=["model-a"]))
 

@@ -1,5 +1,7 @@
 /** Graph V2 is the only execution authority. Runtime material bindings are separate. */
 export const GRAPH_NODE_KINDS = ['separate', 'asr', 'align', 'translate', 'tts', 'mix', 'export', 'audio_export'] as const
+/** Legacy kinds stay readable; the library offers only useful processing steps. */
+export const GRAPH_ADDABLE_NODE_KINDS = GRAPH_NODE_KINDS.filter(kind => kind !== 'audio_export')
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number]
 export type GraphLanguage = 'ja' | 'zh' | 'en'
 export type GraphPortType = 'audio' | 'subtitle'
@@ -55,7 +57,7 @@ export const GRAPH_CATALOG: Record<GraphNodeKind, GraphCapability> = {
   translate: { label: '字幕翻译', inputs: { subtitle: 'subtitle' }, outputs: { subtitle: 'subtitle' } },
   tts: { label: '语音合成', inputs: { subtitle: 'subtitle' }, outputs: { audio: 'audio' } },
   mix: { label: '混音', inputs: { audio: 'audio', speech: 'audio' }, outputs: { audio: 'audio' } },
-  export: { label: '字幕导出', inputs: { subtitle: 'subtitle' }, outputs: { subtitle: 'subtitle' } },
+  export: { label: '字幕格式转换', inputs: { subtitle: 'subtitle' }, outputs: { subtitle: 'subtitle' } },
   audio_export: { label: '音频导出', inputs: { audio: 'audio' }, outputs: { audio: 'audio' } },
 }
 export const GRAPH_OPTION_KEYS: Record<GraphNodeKind, readonly string[] | null> = {

@@ -23,6 +23,7 @@ dependencies = [
     "openai>=1.0.0",
     "httpx>=0.25.0",
     "soundfile>=0.12.0",
+    "imageio-ffmpeg>=0.4.0",
     "numpy>=1.24.0",
     "scipy>=1.11.0",
     # 工具
@@ -46,7 +47,6 @@ audio = [
     "torch>=2.4.0",
     "faster-whisper>=1.0.0",
     "demucs>=4.0.0",
-    "imageio-ffmpeg>=0.4.0",
     "pytsmod>=0.3.0,<1.0.0",
 ]
 qwen3 = [

@@ -17,7 +17,7 @@ class PipelineRecovery:
     # would incorrectly attest to the model which produced an earlier output.
     # Unknown/new providers must opt in only after their dependencies are audited.
     _REUSABLE_TTS_PROVIDERS = frozenset({"edge", "openai_compatible"})
-    _REUSABLE_SPEECH_PROVIDERS = frozenset({"edge", "openai_compatible", "fish_audio", "mimo_audio", "qwen3", "voxcpm2"})
+    _REUSABLE_SPEECH_PROVIDERS = frozenset({"edge", "openai_compatible", "fish_audio", "qwen3", "voxcpm2"})
 
     def __init__(self, store, task_id, source_task_id, plan, connection_fingerprint=""):
         self.store = store

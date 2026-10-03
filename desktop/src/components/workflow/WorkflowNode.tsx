@@ -44,7 +44,7 @@ export function WorkflowNode({ node, graph, selected, issues, pendingSource, onS
       })}</div>
     </div>
     <button type="button" className="wg-node-summary" onClick={onSelect}>
-      {node.kind === 'translate' ? `${node.source_lang || '?'} → ${node.target_lang || '?'}` : node.kind === 'tts' ? speechSummary : node.kind === 'export' ? `${String(node.options.subtitle_format || 'vtt').toUpperCase()} 文件` : node.kind === 'audio_export' ? '原格式音频文件' : node.kind === 'mix' ? '双音轨混合' : '查看节点参数'}
+      {node.kind === 'translate' ? `${node.source_lang || '?'} → ${node.target_lang || '?'}` : node.kind === 'tts' ? speechSummary : node.kind === 'export' ? `转换为 ${String(node.options.subtitle_format || 'srt').toUpperCase()}` : node.kind === 'audio_export' ? '原格式音频文件（兼容）' : node.kind === 'mix' ? '双音轨混合' : '查看节点参数'}
     </button>
     <footer className="wg-node-footer"><span className={issues.length ? 'wg-warning' : ''}>{issues.length ? `! ${issues.length} 项待补充` : '未运行'}</span>{hasOutput && <span className="wg-delivery-tag">交付</span>}</footer>
   </article>

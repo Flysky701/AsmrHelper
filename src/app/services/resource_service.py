@@ -533,10 +533,15 @@ class ResourceService:
 
     @classmethod
     def _check_ffmpeg_runtime(cls) -> tuple[bool, str]:
+        repair = (
+            " 请在项目目录运行：powershell -ExecutionPolicy Bypass -File .\\setup.ps1。"
+            "如果已安装的 FFmpeg 损坏，可运行 powershell -ExecutionPolicy Bypass "
+            "-File .\\setup.ps1 -CleanReinstall 完整重装主虚拟环境（会删除并重建 .venv）。"
+        )
         try:
             executable = cls._ffmpeg_executable()
             if not Path(executable).is_file():
-                return False, f"FFmpeg executable does not exist: {executable}"
+                return False, f"FFmpeg 可执行文件不存在：{executable}。{repair}"
             result = subprocess.run(
                 [executable, "-version"],
                 check=False,
@@ -544,10 +549,10 @@ class ResourceService:
                 timeout=5,
             )
             if result.returncode != 0:
-                return False, "FFmpeg executable could not be started"
+                return False, f"FFmpeg 可执行文件无法正常启动。{repair}"
             return True, ""
         except Exception as exc:
-            return False, f"FFmpeg runtime is unavailable: {exc}"
+            return False, f"FFmpeg 运行环境不可用：{exc}。{repair}"
 
     @classmethod
     def _probe_media(cls, input_path: str) -> tuple[bool, str]:
