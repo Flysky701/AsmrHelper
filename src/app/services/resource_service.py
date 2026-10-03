@@ -414,6 +414,10 @@ class ResourceService:
         issues = []
         snapshots = prepared["_graph_runtime"]["node_snapshots"]
         for node in prepared["graph"]["nodes"]:
+            if node["kind"] == "audio_export":
+                # Materials and graph options were already checked. A byte copy
+                # requires no model inventory, engine connection or FFmpeg.
+                continue
             if node["kind"] == "translate" and not node.get("options", {}).get("connection_ref"):
                 issues.append(self._issue(stage=node["id"], category="llm", provider=node["provider"],
                     model=node.get("model"), code="LLM_CONNECTION_NOT_READY", requirement="llm_connection",

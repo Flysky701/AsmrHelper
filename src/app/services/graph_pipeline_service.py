@@ -182,6 +182,10 @@ def _check_material_facts(graph: dict, values: dict) -> None:
         for port, ref in plan.inputs_for(node_id).items():
             incoming[port] = (values[ref["slot_id"]].metadata if ref["kind"] == "slot"
                               else facts[ref["node_id"]])
+            if node["kind"] == "audio_export" and ref["kind"] == "slot":
+                from src.utils.constants import AUDIO_EXTENSIONS
+                if Path(values[ref["slot_id"]].path).suffix.lower() not in AUDIO_EXTENSIONS:
+                    raise ValueError(f"节点 {node_id} 音频导出仅支持现有音频格式，保留原格式且不转码")
         language = incoming.get("subtitle", {}).get("language")
         if node["kind"] in {"translate", "align"} and language != node.get("source_lang"):
             raise ValueError(f"节点 {node_id} 缺少匹配源语言的字幕")
@@ -193,7 +197,7 @@ def _check_material_facts(graph: dict, values: dict) -> None:
             if (not audio.get("timeline_id") or audio.get("timeline_id") != other.get("timeline_id")
                     or audio.get("pair_confirmed") is not True or other.get("pair_confirmed") is not True):
                 raise ValueError(f"节点 {node_id} 的素材尚未确认属于同一录音和时间轴")
-        source_port = "audio" if node["kind"] in {"separate", "asr", "mix"} else "subtitle"
+        source_port = "audio" if node["kind"] in {"separate", "asr", "mix", "audio_export"} else "subtitle"
         facts[node_id] = deepcopy(incoming[source_port])
         if node["kind"] == "asr":
             facts[node_id]["language"] = node["source_lang"]
@@ -226,6 +230,10 @@ def freeze_graph_speech(profile: dict) -> dict:
 
 
 def make_node_plan(node: dict, *, task_id: str, output_dir: str, snapshots: dict):
+    if node["kind"] == "audio_export":
+        # This graph-only operation copies a validated audio value; it has no
+        # legacy engine plan, model, connection or implicit upstream stages.
+        return None
     return build_execution_plan(PipelineExecutionContext(
         task_id=task_id, input_path="", output_dir=output_dir,
         execution_profile=node_profile(node, snapshots.get(node["id"]))))

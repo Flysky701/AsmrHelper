@@ -31,18 +31,34 @@ class SpeechService:
 
     def library(self):
         data = {name: self.store.list(name) for name in ("voices", "recipes", "assets", "experiments", "takes", "plans", "selections", "assemblies", "connections")}
+        data["connections"], data["connection_defaults"] = self.store.connection_catalog()
         for connection in data["connections"]:
             connection["credential_configured"] = self._credential_path(connection).exists()
         return data
 
     def list_connections(self):
         """Return connection settings without loading credentials or other collections."""
-        fields = ("id", "name", "provider_id", "deployment", "base_url")
+        fields = ("id", "name", "provider_id", "deployment", "base_url", "revision", "is_default")
+        connections, _ = self.store.connection_catalog()
         return [
             {**{key: connection[key] for key in fields if key in connection},
              "credential_configured": self._credential_path(connection).exists()}
-            for connection in self.store.list("connections")
+            for connection in connections
         ]
+
+    def connection_defaults(self):
+        return self.store.connection_catalog()[1]
+
+    def set_default_connection(self, connection_id, expected_revision, expected_default_revision):
+        return self.store.set_default_connection(connection_id, expected_revision, expected_default_revision)
+
+    def connection_deletion_preview(self, connection_id):
+        from .speech_connection_service import SpeechConnectionService
+        return SpeechConnectionService(self).preview(connection_id)
+
+    def delete_connection(self, connection_id, **choice):
+        from .speech_connection_service import SpeechConnectionService
+        return SpeechConnectionService(self).execute(connection_id, **choice)
 
     def _credential_path(self, connection):
         ref = str(connection.get("credential_ref", ""))
@@ -155,11 +171,15 @@ class SpeechService:
         compile_recipe(data, probe_plan, self.assets())
         return data
 
-    def _recipe_connection(self, recipe):
+    def _recipe_connection(self, recipe, *, allow_default=True):
         provider = get_provider(recipe.get("provider_id"))
         ref = recipe.get("connection_ref")
         default_id = "engine-default-" + provider.provider_id
         connection_required = getattr(provider, "http", provider.remote)
+        if not ref and allow_default:
+            selected = self.store.default_connection(provider.provider_id)
+            if selected is not None:
+                return selected
         if not ref or (not connection_required and ref == default_id):
             if connection_required:
                 raise ValueError("请选择外部语音服务连接")
@@ -189,7 +209,7 @@ class SpeechService:
             if not isinstance(recipe_id, str) or not recipe_id.strip():
                 raise ValueError("recipe_id 必须是非空字符串")
             recipe = self.store.get("recipes", recipe_id)
-            connection = self._recipe_connection(recipe)
+            connection = self._recipe_connection(recipe, allow_default=False)
             # Old saved revisions retain their bytes. Move only their legacy device
             # into the execution connection copy; new draft/save options reject it.
             device = recipe.get("provider_options", {}).pop("device", None)

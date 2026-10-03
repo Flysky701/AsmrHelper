@@ -12,7 +12,7 @@ export default function QwenReferenceMode({ value, onChange, disabled = false, c
       <option value="true">仅声音特征（无需原文）</option>
     </select>
     <p id={id + '-hint'} className="muted">{value
-      ? '仍需参考音频，仅提取说话人特征，不使用参考原文；克隆质量可能降低。切换不会删除原文。'
-      : '使用参考音频及其准确原文。跨语言配音也应保留录音原语言的转录，不要替换成译文。'}</p>
+      ? '需要参考音频，无需录音原文。合成文本与目标语言另设；不保证跨语言效果更好。切换保留已有原文。'
+      : '需要参考音频及原文；原文须与录音内容、语言一致，不填译文。要生成的文本与目标语言另设。'}</p>
   </div>
 }

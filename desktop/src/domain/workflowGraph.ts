@@ -1,5 +1,5 @@
 /** Graph V2 is the only execution authority. Runtime material bindings are separate. */
-export const GRAPH_NODE_KINDS = ['separate', 'asr', 'align', 'translate', 'tts', 'mix', 'export'] as const
+export const GRAPH_NODE_KINDS = ['separate', 'asr', 'align', 'translate', 'tts', 'mix', 'export', 'audio_export'] as const
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number]
 export type GraphLanguage = 'ja' | 'zh' | 'en'
 export type GraphPortType = 'audio' | 'subtitle'
@@ -56,11 +56,12 @@ export const GRAPH_CATALOG: Record<GraphNodeKind, GraphCapability> = {
   tts: { label: '语音合成', inputs: { subtitle: 'subtitle' }, outputs: { audio: 'audio' } },
   mix: { label: '混音', inputs: { audio: 'audio', speech: 'audio' }, outputs: { audio: 'audio' } },
   export: { label: '字幕导出', inputs: { subtitle: 'subtitle' }, outputs: { subtitle: 'subtitle' } },
+  audio_export: { label: '音频导出', inputs: { audio: 'audio' }, outputs: { audio: 'audio' } },
 }
 export const GRAPH_OPTION_KEYS: Record<GraphNodeKind, readonly string[] | null> = {
   separate: ['mode'], asr: null, align: [], translate: null,
   tts: ['speech_recipe_id', 'speech_source', 'voice', 'speed'],
-  mix: ['original_volume', 'tts_volume_ratio', 'tts_delay_ms', 'output_length'], export: ['subtitle_format'],
+  mix: ['original_volume', 'tts_volume_ratio', 'tts_delay_ms', 'output_length'], export: ['subtitle_format'], audio_export: [],
 }
 const languages = new Set(['ja', 'zh', 'en'])
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
@@ -133,10 +134,10 @@ export function validateGraph(graph: GraphDefinition): GraphIssue[] {
     const allowed = GRAPH_OPTION_KEYS[node.kind]
     if (allowed && record(node.options) && Object.keys(node.options).some(key => !allowed.includes(key))) add('unsupported_option', '节点包含当前能力不会执行的参数', node.id)
     if (!['asr', 'translate'].includes(node.kind) && record(node.provider_options) && Object.keys(node.provider_options).length) add('unsupported_option', '该节点不接收顶层 provider_options', node.id)
-    const fixed = ({ separate: 'demucs', align: 'qwen3_forced_aligner', mix: 'ffmpeg', export: 'ffmpeg' } as Partial<Record<GraphNodeKind, string>>)[node.kind]
+    const fixed = ({ separate: 'demucs', align: 'qwen3_forced_aligner', mix: 'ffmpeg', export: 'ffmpeg', audio_export: 'local' } as Partial<Record<GraphNodeKind, string>>)[node.kind]
     if (fixed && node.provider !== fixed) add('unsupported_provider', `该能力当前仅接线 ${fixed}`, node.id)
     if (node.kind === 'align' && ![null, 'default', 'qwen3-forced-aligner-0.6b'].includes(node.model)) add('unsupported_model', '校准仅支持 qwen3-forced-aligner-0.6b', node.id)
-    if (['mix', 'export'].includes(node.kind) && ![null, 'default'].includes(node.model)) add('unsupported_model', '该节点不使用模型', node.id)
+    if (['mix', 'export', 'audio_export'].includes(node.kind) && ![null, 'default'].includes(node.model)) add('unsupported_model', '该节点不使用模型', node.id)
     if (node.kind === 'separate' && record(node.options) && (node.options.mode ?? 'vocals') !== 'vocals') add('unsupported_option', '分离节点当前仅提供人声轨', node.id)
     if (node.kind === 'mix' && record(node.options)) for (const [key, value] of Object.entries(node.options)) {
       if (['original_volume', 'tts_volume_ratio', 'tts_delay_ms'].includes(key) && (typeof value !== 'number' || !Number.isFinite(value) || key !== 'tts_delay_ms' && value < 0)) add('invalid_option', '混音参数必须是有效数值，音量不能为负数', node.id)

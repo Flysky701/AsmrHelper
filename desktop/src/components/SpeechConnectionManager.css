@@ -1,0 +1,17 @@
+.speech-connection-manager{margin-top:14px;padding-top:12px;border-top:1px solid #dce4dd;font-size:12px;min-width:0}
+.speech-connection-manager h4{font-size:13px;margin:0 0 8px}
+.speech-connection-manager p{line-height:1.6;margin:8px 0;color:inherit}
+.connection-manager-row{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #edf0eb;flex-wrap:wrap}
+.connection-manager-row>div:first-child{min-width:0;flex:1;overflow-wrap:anywhere}
+.connection-manager-row small,.connection-delete-preview li small{display:block;opacity:.75;margin-top:3px;overflow-wrap:anywhere}
+.connection-manager-actions{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.speech-connection-manager button{font:inherit;padding:5px 9px;border:1px solid #d7e0d8;border-radius:6px;background:#fafcf9;color:inherit;cursor:pointer}
+.speech-connection-manager button:disabled{opacity:.5;cursor:default}
+.speech-connection-manager button:focus-visible{outline:2px solid #287b6d;outline-offset:2px}
+.connection-delete-preview{margin-top:12px;padding:12px;border:1px solid #decdb6;border-radius:8px;background:#fffaf3;max-height:520px;overflow:auto;overflow-wrap:anywhere}
+.connection-delete-preview ul{padding-left:20px;max-height:180px;overflow:auto}
+.connection-delete-preview label{display:grid;gap:6px;margin:10px 0}
+.connection-delete-preview select{font:inherit;width:100%;min-width:0;padding:6px;border:1px solid #d8dacc;border-radius:5px}
+.connection-delete-preview .connection-delete-ack{display:flex;align-items:flex-start;gap:8px;line-height:1.6}
+.connection-delete-ack input{flex:none;width:16px;height:16px;margin-top:2px}
+.speech-connection-manager [role=alert]{color:#9d442c}

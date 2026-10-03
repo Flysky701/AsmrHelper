@@ -9,7 +9,7 @@ from src.core.orchestration.pipeline.graph_validation import validate_graph
 
 
 GraphLanguage = Literal["ja", "zh", "en"]
-GraphNodeKind = Literal["separate", "asr", "align", "translate", "tts", "mix", "export"]
+GraphNodeKind = Literal["separate", "asr", "align", "translate", "tts", "mix", "export", "audio_export"]
 
 
 class GraphValueRequest(BaseModel):

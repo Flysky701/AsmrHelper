@@ -3,9 +3,10 @@ import type { Task } from '@/stores/taskStore'
 
 const labels: Record<string, string> = {
   prepare: '准备', separate: '人声分离', asr: 'ASR 识别', align: '字幕对齐',
-  translate: '字幕翻译', tts: 'TTS 合成', mix: '混音输出', export: '导出产物',
+  translate: '字幕翻译', tts: 'TTS 合成', mix: '混音输出', export: '导出产物', audio_export: '音频导出',
 }
 const kinds = ['separate', 'asr', 'align', 'translate', 'tts', 'mix', 'export']
+const graphKinds = [...kinds, 'audio_export']
 type StepState = 'completed' | 'running' | 'failed' | 'cancelled' | 'pending' | 'unknown'
 export interface TaskExecutionStep { id: string; label: string; state: StepState }
 export interface TaskExecutionView {
@@ -28,7 +29,7 @@ function graphSteps(profile: Record<string, unknown>): TaskExecutionStep[] | nul
   const steps: TaskExecutionStep[] = []
   for (const node of graph.nodes) {
     if (!record(node) || typeof node.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(node.id)
-      || typeof node.kind !== 'string' || !kinds.includes(node.kind)) return null
+      || typeof node.kind !== 'string' || !graphKinds.includes(node.kind)) return null
     const id = node.id
     if (steps.some(step => step.id.toLowerCase() === id.toLowerCase())) return null
     steps.push({ id, label: `${labels[node.kind]} · ${id}`, state: 'unknown' })

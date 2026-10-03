@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import SpeechConnectionManager from './SpeechConnectionManager'
 import { speechApi } from '@/api/speech'
-import type { LegacySpeechImportReport, SpeechConnection, SpeechProvider } from '@/api/speech'
+import type { LegacySpeechImportReport, SpeechConnection, SpeechConnectionDefault, SpeechProvider } from '@/api/speech'
 
 type Editor = Partial<SpeechConnection> & { name: string; provider_id: string; deployment: SpeechConnection['deployment']; api_key: string }
 const FISH_BASE_URL = 'https://api.fish.audio/v1'
 
 export default function SpeechConnections() {
   const [connections, setConnections] = useState<SpeechConnection[]>([])
+  const [defaults, setDefaults] = useState<SpeechConnectionDefault[]>([])
+  const loadGeneration = useRef(0)
   const [providers, setProviders] = useState<SpeechProvider[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -27,16 +30,18 @@ export default function SpeechConnections() {
   }
 
   async function load() {
+    const generation = ++loadGeneration.current
     setLoading(true)
     setError('')
     try {
       const [result, descriptors] = await Promise.all([speechApi.connections(), speechApi.providers()])
-      setConnections(result.connections)
+      if (generation !== loadGeneration.current) return
+      setConnections(result.connections); setDefaults(result.defaults || [])
       setProviders(descriptors.providers.filter(item => item.connection_required))
-    } catch (cause) { setError('无法加载语音服务：' + String(cause)) }
-    finally { setLoading(false) }
+    } catch (cause) { if (generation === loadGeneration.current) setError('无法加载语音服务：' + String(cause)) }
+    finally { if (generation === loadGeneration.current) setLoading(false) }
   }
-  useEffect(() => { void load(); void loadLegacyReport() }, [])
+  useEffect(() => { void load(); void loadLegacyReport(); return () => { loadGeneration.current++ } }, [])
 
   async function importLegacy() {
     setBusy('导入中…')
@@ -45,7 +50,7 @@ export default function SpeechConnections() {
       setLegacyReport(await speechApi.importLegacy())
       // Refresh only the connection list; importing never selects a service or changes a draft.
       try {
-        setConnections((await speechApi.connections()).connections)
+        await load()
         setNotice('旧配置导入已处理。请查看各项结果；需要使用时再选择导入的服务。')
       } catch {
         setLegacyError('导入已处理，但服务列表刷新失败，请重新加载列表查看。')
@@ -80,6 +85,7 @@ export default function SpeechConnections() {
         ...(editor.api_key ? { api_key: editor.api_key } : {}),
       })
       setConnections(current => [...current.filter(item => item.id !== saved.id), saved])
+      await load()
       setChecks(current => ({ ...current, [saved.id]: '' }))
       setEditor(null)
       setNotice('语音服务已保存，可由声音与音色等功能引用。')
@@ -117,6 +123,7 @@ export default function SpeechConnections() {
         </div>)}
         {!external.length && !editor && <p className="external-service-muted">尚未添加外部语音服务</p>}
       </>}
+      {!error && <details><summary>管理默认运行配置与删除</summary><SpeechConnectionManager connections={external} defaults={defaults} providers={providers} disabled={loading || !!busy} onChanged={load} /></details>}
       {editor && <fieldset disabled={!!busy} className="external-service-editor">
         <div className="external-service-card-heading"><h3>{editor.id ? '编辑语音服务' : '添加语音服务'}</h3><button className="external-service-button" onClick={() => setEditor(null)}>收起</button></div>
         <label className="external-service-field">连接名称<input value={editor.name} maxLength={80} onChange={event => setEditor({ ...editor, name: event.target.value })} placeholder="例如：日常配音" /></label>

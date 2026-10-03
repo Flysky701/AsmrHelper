@@ -1,4 +1,4 @@
-"""Typed values and strict adapters for the existing seven pipeline capabilities."""
+"""Typed values and strict adapters for graph pipeline capabilities."""
 from __future__ import annotations
 
 from copy import deepcopy
@@ -64,6 +64,49 @@ def _inspect_audio(path):
             "channels": info.channels}
 
 
+def _export_audio(audio, directory, cancel_event):
+    """Make a task-owned byte copy, never a link to a material or upstream output.
+
+    Exclusive creation also protects files left by an earlier interrupted run.
+    A partial copy is removed on failure and is never registered as an artifact.
+    """
+    from src.core.subtitles.translation_reuse import unused_output
+    from src.utils.constants import AUDIO_EXTENSIONS
+
+    if audio is None or not audio.path:
+        raise ValueError("音频导出需要明确的音频输入")
+    source = Path(audio.path)
+    if source.suffix.lower() not in AUDIO_EXTENSIONS:
+        raise ValueError("音频导出仅支持现有音频格式，保留原格式且不转码")
+
+    def check_cancel():
+        if cancel_event and cancel_event.is_set():
+            raise InterruptedError("用户取消任务")
+
+    check_cancel()
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    target = unused_output(directory, f"audio{source.suffix}")
+    created = False
+    try:
+        with source.open("rb") as incoming, target.open("xb") as outgoing:
+            created = True
+            while True:
+                check_cancel()
+                chunk = incoming.read(1024 * 1024)
+                if not chunk:
+                    break
+                outgoing.write(chunk)
+        check_cancel()
+        if target.stat().st_size == 0:
+            raise ValueError("音频导出未产生有效文件")
+        return {"audio": GraphValue("audio", str(target), metadata=deepcopy(audio.metadata))}
+    except BaseException:
+        if created:
+            target.unlink(missing_ok=True)
+        raise
+
+
 class GraphStageRunner:
     """One node, one existing capability; no implicit upstream execution."""
 
@@ -79,6 +122,8 @@ class GraphStageRunner:
                 if value.kind != "audio" or not value.path or not Path(value.path).is_file():
                     raise ValueError("所选音频输入不存在或类型错误")
                 _duration(value)
+        if kind == "audio_export":
+            return _export_audio(audio, directory, cancel_event)
         if subtitle is not None:
             _subtitle(subtitle)
             language = subtitle.metadata["language"]

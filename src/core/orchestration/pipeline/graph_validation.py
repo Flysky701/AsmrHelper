@@ -139,12 +139,12 @@ def validate_graph(graph: Any, *, template: bool = False) -> dict[str, Any]:
                 add("unsupported_option", "节点包含当前能力不会执行的参数", node_id)
             if kind not in {"asr", "translate"} and provider_options:
                 add("unsupported_option", "该节点不接收顶层 provider_options；配音参数请放在 speech_source 中", node_id)
-            fixed_provider = {"separate": "demucs", "align": "qwen3_forced_aligner", "mix": "ffmpeg", "export": "ffmpeg"}.get(kind)
+            fixed_provider = {"separate": "demucs", "align": "qwen3_forced_aligner", "mix": "ffmpeg", "export": "ffmpeg", "audio_export": "local"}.get(kind)
             if fixed_provider and provider != fixed_provider:
                 add("unsupported_provider", f"该能力当前仅接线 {fixed_provider}", node_id)
             if kind == "align" and model not in (None, "default", "qwen3-forced-aligner-0.6b"):
                 add("unsupported_model", "时间轴校准当前仅接线 qwen3-forced-aligner-0.6b", node_id)
-            if kind in {"mix", "export"} and model not in (None, "default"):
+            if kind in {"mix", "export", "audio_export"} and model not in (None, "default"):
                 add("unsupported_model", "该节点不使用模型，请清空模型字段", node_id)
             if kind == "separate" and isinstance(options, dict) and options.get("mode", "vocals") != "vocals":
                 add("unsupported_option", "分离节点当前仅提供人声轨输出", node_id)

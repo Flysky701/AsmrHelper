@@ -13,6 +13,7 @@ import re
 import tempfile
 import threading
 from typing import Any
+from types import SimpleNamespace
 from uuid import uuid4
 
 import yaml
@@ -354,6 +355,94 @@ class PresetCatalogService:
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _speech_connection_references(catalog: _Catalog, connection_ref: str, recipe_ids: set[str]) -> dict:
+        references = []
+        for definition in catalog.definitions:
+            item = catalog.item(definition["id"])
+            for node in item.get("graph", {}).get("nodes", []):
+                if node["kind"] != "tts":
+                    continue
+                options = node["options"]
+                source = options.get("speech_source")
+                recipe_id = options.get("speech_recipe_id")
+                kinds = []
+                if isinstance(source, dict) and source.get("connection_ref") == connection_ref:
+                    kinds.append("inline")
+                if isinstance(recipe_id, str) and recipe_id in recipe_ids:
+                    kinds.append("recipe")
+                # A template may still be an unconfigured draft. Check both
+                # references independently, and never crash on portable but
+                # incomplete source data in an unrelated template.
+                for kind in kinds:
+                    references.append({"preset_id": item["id"], "label": item["label"],
+                                       "revision": item["revision"], "builtin": item["builtin"],
+                                       "active": catalog.index[item["id"]]["active"],
+                                       "node_id": node["id"], "kind": kind,
+                                       **({"recipe_id": recipe_id} if kind == "recipe" else {})})
+        # Include the complete catalog state: a new reference after preview must
+        # invalidate deletion even if the formerly affected items are unchanged.
+        guard = {"original": hashlib.sha256(catalog.original or b"").hexdigest(),
+                 "definitions": catalog.definitions, "index": catalog.index,
+                 "connection_ref": connection_ref, "recipe_ids": sorted(recipe_ids)}
+        token = hashlib.sha256(json.dumps(guard, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        return {"token": token, "references": references}
+
+    def speech_connection_references(self, connection_ref: str, recipe_ids: list[str]) -> dict:
+        """Read-only impact list, including archived custom and builtin graphs."""
+        with _write_lock:
+            return self._speech_connection_references(self._load_catalog(), connection_ref, set(recipe_ids))
+
+    @contextmanager
+    def speech_connection_migration(self, connection_ref: str, recipe_ids: list[str], expected_token: str):
+        """Hold catalog before speech-store locks; never rewrite submitted graphs.
+
+        The caller first creates immutable replacement recipe revisions while
+        retaining the connection, then applies this migration, and only finally
+        deletes the connection. A failure therefore leaves the old connection
+        available. Detach skips apply and deliberately leaves missing references.
+        """
+        with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
+            catalog = self._load_catalog()
+            impact = self._speech_connection_references(catalog, connection_ref, set(recipe_ids))
+            if impact["token"] != expected_token:
+                raise PresetConflictError("Workflow references changed; reload the deletion preview")
+            applied = False
+
+            def apply(recipe_id_map: dict[str, str], replacement_ref: str) -> list[dict]:
+                nonlocal applied
+                if applied:
+                    raise PresetConflictError("Connection migration has already been applied")
+                if not replacement_ref or replacement_ref == connection_ref:
+                    raise ValueError("Choose a different replacement connection")
+                refs = impact["references"]
+                if any(ref["builtin"] for ref in refs):
+                    raise BuiltinPresetError("Built-in workflows cannot be silently changed; copy and edit them first")
+                if any(ref["kind"] == "recipe" and ref["recipe_id"] not in recipe_id_map for ref in refs):
+                    raise PresetConflictError("A workflow uses a historical recipe revision; explicitly update it first")
+                changed = []
+                for preset_id in dict.fromkeys(ref["preset_id"] for ref in refs):
+                    item = catalog.item(preset_id)
+                    for ref in (ref for ref in refs if ref["preset_id"] == preset_id):
+                        node = next(node for node in item["graph"]["nodes"] if node["id"] == ref["node_id"])
+                        if ref["kind"] == "inline":
+                            node["options"]["speech_source"]["connection_ref"] = replacement_ref
+                        else:
+                            node["options"]["speech_recipe_id"] = recipe_id_map[ref["recipe_id"]]
+                    value = _draft({key: item[key] for key in _DRAFT_FIELDS if key in item})
+                    revised = {"id": preset_id, **value, "revision": item["revision"] + 1, "builtin": False}
+                    catalog.definitions = [revised if entry["id"] == preset_id else entry for entry in catalog.definitions]
+                    catalog.index[preset_id] = {**catalog.index[preset_id], "revision": revised["revision"]}
+                    changed.append({"id": preset_id, "label": item["label"], "revision": revised["revision"]})
+                if changed:
+                    if catalog.original is not None:
+                        self._backup_original(catalog.original, "pre-connection-replacement")
+                    self._write(catalog)
+                applied = True
+                return changed
+
+            yield SimpleNamespace(references=impact["references"], apply=apply)
 
     def create_preset(self, draft: dict[str, Any]) -> dict[str, Any]:
         value = _draft(draft)

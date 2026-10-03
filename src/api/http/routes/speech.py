@@ -8,6 +8,10 @@ from starlette.concurrency import run_in_threadpool
 from src.app.services.speech_service import get_speech_service
 from src.core.speech.providers import list_providers, get_provider
 from src.api.http.schemas.tasks import TaskStatusResponse
+from src.api.http.schemas.speech import (
+    ConnectionDefaultRequest, ConnectionDeletionPreviewRequest, ConnectionDeletionRequest,
+)
+from src.core.speech.store import ConnectionConflictError
 
 router = APIRouter(prefix="/speech", tags=["speech"])
 MAX_REFERENCE_UPLOAD = 100 * 1024 * 1024
@@ -53,7 +57,35 @@ def library(svc=Depends(get_speech_service)):
 
 @router.get("/connections")
 def connections(svc=Depends(get_speech_service)):
-    return {"connections": call(svc.list_connections)}
+    return {"connections": call(svc.list_connections), "defaults": call(svc.connection_defaults)}
+
+
+def connection_change(fn, *args, **kwargs):
+    from src.app.services.preset_catalog_service import PresetConflictError
+    try:
+        return fn(*args, **kwargs)
+    except (ConnectionConflictError, PresetConflictError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except (ValueError, TypeError, FileNotFoundError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/connections/{connection_id}/default")
+def default_connection(connection_id: str, body: ConnectionDefaultRequest, svc=Depends(get_speech_service)):
+    return connection_change(svc.set_default_connection, connection_id, **body.model_dump())
+
+
+@router.post("/connections/{connection_id}/deletion-preview")
+def connection_deletion_preview(connection_id: str, body: ConnectionDeletionPreviewRequest,
+                                svc=Depends(get_speech_service)):
+    return connection_change(svc.connection_deletion_preview, connection_id)
+
+
+@router.post("/connections/{connection_id}/deletion-execute")
+def delete_connection(connection_id: str, body: ConnectionDeletionRequest, svc=Depends(get_speech_service)):
+    return connection_change(svc.delete_connection, connection_id, **body.model_dump())
 
 
 @router.post("/connections")

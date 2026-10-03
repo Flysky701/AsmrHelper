@@ -31,7 +31,25 @@ export interface ReferenceTranscription { transcript: string; confirmed: false; 
 export interface ReferenceAnalysis { original: ReferenceInspection; analyzed: ReferenceInspection; segments: ReferenceCandidate[]; transcript_source?: 'subtitle' | 'asr' | 'none'; subtitle?: { name: string; language: string; language_verified: boolean } | null; warnings?: string[] }
 export interface ReferenceDraft { path: string; start: number; end: number; transcript: string; language: string; confirmed: boolean; name: string; notes: string; gain_db: number; fade_in: number; fade_out: number }
 export interface ReferenceInspection extends Waveform { id: string; path: string; companion_subtitles?: { name: string; format: string }[] }
-export interface SpeechConnection { id: string; name: string; provider_id: string; deployment: 'local' | 'lan' | 'cloud'; base_url?: string; credential_configured?: boolean; timeout?: number; model_path?: string; device?: string }
+export interface SpeechConnection { id: string; name: string; provider_id: string; deployment: 'local' | 'lan' | 'cloud'; base_url?: string; credential_configured?: boolean; timeout?: number; model_path?: string; device?: string; revision?: number; is_default?: boolean }
+export interface SpeechConnectionDefault { provider_id: string; connection_ref: string | null; revision: number }
+export interface SpeechConnectionCatalog { connections: SpeechConnection[]; defaults: SpeechConnectionDefault[] }
+export interface SpeechConnectionDeletionPreview {
+  connection: SpeechConnection
+  token: string
+  recipes: { id: string; name: string; revision: number; archived: boolean }[]
+  historical_recipe_ids: string[]
+  replacements: SpeechConnection[]
+  default_revision: number
+  presets: { preset_id: string; label: string; revision: number; builtin: boolean; active: boolean; node_id: string; kind: 'inline' | 'recipe'; recipe_id?: string }[]
+}
+export interface SpeechConnectionDeletionResult {
+  deleted_connection_id: string
+  recipe_revisions: { previous_id: string; id: string; revision: number }[]
+  defaults: SpeechConnectionDefault[]
+  action: 'replace' | 'detach'
+  updated_presets?: unknown[]
+}
 export interface LocalSpeechConnection { connection: SpeechConnection | null; readiness: { ready: boolean; verified: boolean; detail?: string; code?: string } | null; detail: string }
 export interface LegacySpeechImportEntry {
   source: string
@@ -96,7 +114,10 @@ export const speechApi = {
   },
   providers: () => api.get<{ providers: SpeechProvider[] }>('/speech/providers'),
   library: () => api.get<SpeechLibrary>('/speech/library'),
-  connections: () => api.get<{ connections: SpeechConnection[] }>('/speech/connections'),
+  connections: () => api.get<SpeechConnectionCatalog>('/speech/connections'),
+  setDefaultConnection: (id: string, expected_revision: number, expected_default_revision: number) => api.post<{ connection: SpeechConnection; defaults: SpeechConnectionDefault[] }>(`/speech/connections/${encodeURIComponent(id)}/default`, { expected_revision, expected_default_revision }),
+  previewConnectionDeletion: (id: string) => api.post<SpeechConnectionDeletionPreview>(`/speech/connections/${encodeURIComponent(id)}/deletion-preview`, {}),
+  executeConnectionDeletion: (id: string, token: string, action: 'replace' | 'detach', replacement_ref?: string) => api.post<SpeechConnectionDeletionResult>(`/speech/connections/${encodeURIComponent(id)}/deletion-execute`, { token, action, ...(replacement_ref ? { replacement_ref } : {}) }),
   localConnection: (provider_id: string, model: string, mode: string) => api.post<LocalSpeechConnection>('/speech/connections/local-default', { provider_id, model, mode }),
   hostedVoices: (connectionId: string, title: string, page: number, workspaceOnly: boolean) => {
     const query = new URLSearchParams({ title, page: String(page), page_size: '20', workspace_only: String(workspaceOnly) })

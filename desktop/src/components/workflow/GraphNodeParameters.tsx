@@ -1,11 +1,12 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import QwenReferenceMode from '@/components/QwenReferenceMode'
+import { defaultSpeechConnection } from '@/domain/speechConnections'
 import { capabilitiesApi } from '@/api/capabilities'
 import { settingsApi } from '@/api/settings'
 import type { SettingsView } from '@/api/settings'
 import { speechApi } from '@/api/speech'
-import type { Delivery, OptionSchema, ReferenceAsset, SpeechConnection, SpeechProvider, SpeechRecipe } from '@/api/speech'
+import type { Delivery, OptionSchema, ReferenceAsset, SpeechConnection, SpeechConnectionDefault, SpeechProvider, SpeechRecipe } from '@/api/speech'
 import type { CapabilityDescriptorResponse, CapabilityOptionResponse } from '@/api/types'
 import type { GraphLanguage, GraphNode } from '@/domain/workflowGraph'
 import { copyRecipeToGraphNode, editableGraphOptions, freshGraphSpeechNode, graphNodeFromRecipe,
@@ -77,6 +78,7 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all' }: P
         onChange={event => scopedChange(setGraphOption(node, 'options', 'subtitle_format', event.target.value))}>
         {['srt', 'vtt', 'lrc'].map(format => <option key={format} value={format}>{format.toUpperCase()}</option>)}
       </select></Field>}
+      {common && node.kind === 'audio_export' && <p className="graph-param-note">按输入音频的原格式导出独立文件，不转码。可连接原音频、合成或混音输出；在交付结果中勾选后，可从任务结果预览并查看文件路径。</p>}
       {pending && <section className="graph-param-confirm" aria-label="确认节点参数变更">
         <p>{pending.description} 只修改当前节点；不修改其他节点、连线、素材或已保存的 TTS 预设。</p>
         <div className="graph-param-actions"><button type="button" onClick={() => { onChange(pending.node); setPending(null) }}>确认更换</button>
@@ -234,6 +236,10 @@ function SpeechParameters({ node, onChange, requestChange, section = 'all' }: Ed
   const [recipes, setRecipes] = useState<SpeechRecipe[]>([])
   const [assets, setAssets] = useState<ReferenceAsset[]>([])
   const [connections, setConnections] = useState<SpeechConnection[]>([])
+  const [defaults, setDefaults] = useState<SpeechConnectionDefault[]>([])
+  const [connectionChoice, setConnectionChoice] = useState(false)
+  const latestNode = useRef(node)
+  latestNode.current = node
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
@@ -248,7 +254,7 @@ function SpeechParameters({ node, onChange, requestChange, section = 'all' }: Ed
       .then(([catalog, rules, references, connectionList]) => {
         if (!active) return
         setProviders(catalog.providers); setRecipes(rules.recipes.filter(item => !item.archived))
-        setAssets(references.assets.filter(item => !item.archived)); setConnections(connectionList.connections)
+        setAssets(references.assets.filter(item => !item.archived)); setConnections(connectionList.connections); setDefaults(connectionList.defaults || [])
       }).catch(() => { if (active) setError('声音能力、已保存预设或素材读取失败，请重试。当前节点设置仍保留。') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
@@ -266,6 +272,14 @@ function SpeechParameters({ node, onChange, requestChange, section = 'all' }: Ed
   const catalog = mode?.voice_sources
   const matchingConnections = connections.filter(item => item.provider_id === node.provider)
   const selectedConnection = matchingConnections.find(item => item.id === source?.connection_ref)
+  const defaultConnection = defaultSpeechConnection(node.provider, connections, defaults)
+  useEffect(() => {
+    // Bind an unbound inline draft once. Saved recipes and even missing explicit IDs stay untouched.
+    const current = latestNode.current, currentSource = readGraphSpeechSource(current)
+    if (loading || error || !defaultConnection || current.provider !== defaultConnection.provider_id
+      || current.options.speech_recipe_id || !currentSource || currentSource.connection_ref) return
+    onChange(withGraphSpeechSource(current, { ...currentSource, connection_ref: defaultConnection.id }))
+  }, [loading, error, defaultConnection?.id, node.provider, node.options.speech_recipe_id, source?.connection_ref, onChange])
   const reference = source?.variant.kind === 'reference' ? assets.find(item => item.id === source.variant.value) : undefined
   const issue = loading || error ? '' : graphSpeechIssue(node, provider, recipes, assets, connections)
   const updateSource = (patch: Partial<GraphSpeechSource>) => { if (source) onChange(withGraphSpeechSource(node, { ...source, ...patch })) }
@@ -277,10 +291,11 @@ function SpeechParameters({ node, onChange, requestChange, section = 'all' }: Ed
   const commonKeys = new Set(['speed', 'x_vector_only_mode'])
   const deliveryChoices = Object.entries(deliveryNames).filter(([value]) => value === 'normal' || deliveryCaps?.[value]?.support === 'direct' || value === source?.variant.style || value === source?.default_delivery)
   const connectionMissing = source && (!selectedConnection && !!source.connection_ref && source.connection_ref !== `engine-default-${node.provider}` || provider?.connection_required && !selectedConnection)
-  const connectionControl = source && <Field label="语音服务连接"><select value={source.connection_ref ?? ''} onChange={event => updateSource({ connection_ref: event.target.value || undefined })}>
-    <option value="">{provider?.connection_required ? '选择已保存连接' : '使用引擎默认连接'}</option>
-    {source.connection_ref && !selectedConnection && <option value={source.connection_ref}>{source.connection_ref === `engine-default-${node.provider}` ? '引擎默认连接' : `${source.connection_ref}（待确认）`}</option>}
-    {matchingConnections.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+  const connectionControl = source && <Field label="声音运行连接"><select value={source.connection_ref ?? ''} onChange={event => { if (event.target.value) updateSource({ connection_ref: event.target.value }) }}>
+    <option value="" disabled>选择已保存连接</option>
+    {source.connection_ref && source.connection_ref !== `engine-default-${node.provider}` && !selectedConnection && <option value={source.connection_ref}>{source.connection_ref === `engine-default-${node.provider}` ? '引擎默认环境' : `${source.connection_ref}（原连接已缺失，需重选）`}</option>}
+    {provider && !provider.connection_required && <option value={`engine-default-${node.provider}`}>明确使用引擎默认环境</option>}
+    {matchingConnections.map(item => <option key={item.id} value={item.id}>{item.name}{item.id === defaultConnection?.id ? '（此引擎默认）' : ''}</option>)}
   </select></Field>
   const speechFields = (isCommon: boolean) => source && fields.filter(([key]) => commonKeys.has(key) === isCommon).map(([key, field]) => {
     const update = (value: unknown) => { const provider_options = { ...source.provider_options }; if (value === undefined) delete provider_options[key]; else provider_options[key] = value; updateSource({ provider_options }) }
@@ -338,7 +353,7 @@ function SpeechParameters({ node, onChange, requestChange, section = 'all' }: Ed
           {!mode && <option value={source.mode}>{source.mode}（待确认）</option>}
           {modes.map(item => <option key={item.id} value={item.id}>{modeNames[item.id] || item.id}</option>)}
         </select></Field>}
-        {(section === 'advanced' || !connectionMissing) && (matchingConnections.length > 0 || connectionMissing) && connectionControl}
+        {section === 'advanced' && (matchingConnections.length > 0 || connectionMissing) && connectionControl}
         <div className="graph-param-grid">{speechFields(false)}</div>
         <div className="graph-param-grid">
           {deliveryChoices.length > 1 && <Field label="默认演绎"><select value={source.default_delivery ?? 'normal'} onChange={event => updateSource({ default_delivery: event.target.value as Delivery })}>
@@ -355,8 +370,8 @@ function SpeechParameters({ node, onChange, requestChange, section = 'all' }: Ed
       </Advanced>}
       {common && !node.options.speech_recipe_id && !source && provider && <button type="button" onClick={() => requestChange(freshGraphSpeechNode(node, provider, node.model && node.model !== 'default' ? node.model : undefined), '配置该引擎的明确声音来源将替换此节点已有简写声音参数。')}>配置声音来源</button>}
       {common && !node.options.speech_recipe_id && source && <>
-        {connectionMissing && connectionControl}
-        <p className="graph-param-note">{selectedConnection ? `连接：${selectedConnection.name}` : provider?.connection_required ? '缺少有效连接' : '引擎默认连接'} · 未检查</p>
+        <div className="graph-param-actions"><span>{selectedConnection ? `运行配置：${selectedConnection.name}${selectedConnection.id === defaultConnection?.id ? '（此引擎默认）' : ''}` : source.connection_ref && source.connection_ref !== `engine-default-${node.provider}` ? '原连接已缺失，需重选' : provider?.connection_required ? '尚未选择运行配置' : '引擎默认环境'} · 未检查</span>{matchingConnections.length > 1 && <button type="button" aria-expanded={connectionChoice} onClick={() => setConnectionChoice(value => !value)}>更换运行配置</button>}</div>
+        {(connectionMissing || connectionChoice || !source.connection_ref && provider?.connection_required) && connectionControl}
         {catalog && source.mode !== 'default' && <Field label={modeNames[source.mode] || '声音来源'}>
           {source.variant.kind === 'reference' ? <select value={source.variant.value} onChange={event => changeValue(event.target.value)}>
             <option value="">选择已保存参考录音</option>

@@ -41,6 +41,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
   const [selectedId, setSelectedId] = useState(graph.nodes[0]?.id || '')
   const [pendingSource, setPendingSource] = useState<GraphEdge['source'] | null>(null)
   const [error, setError] = useState('')
+  const [removal, setRemoval] = useState<{ kind: 'slot' | 'node'; id: string; graph: GraphDefinition } | null>(null)
   const [editorWidth, setEditorWidth] = useState(1000)
   const [narrow, setNarrow] = useState(false)
   const [compactPane, setCompactPane] = useState<'canvas' | 'inspector'>('canvas')
@@ -132,17 +133,27 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
     const y = Math.max(12, drag.origin.y + event.clientY - drag.y + (scrollRef.current?.scrollTop || 0) - drag.scrollTop)
     setMoved(current => ({ ...current, [drag.id]: { x, y } }))
   }
+  function confirmRemoval() {
+    if (!removal) return
+    if (removal.graph !== graph) { setRemoval(null); setError('流程已更改，请重新选择要删除的卡片。'); return }
+    if (removal.kind === 'slot') {
+      onChange(removeInputSlot(graph, removal.id))
+      const next = { ...bindings }; delete next[removal.id]; onBindingsChange(next)
+    } else onChange(removeNode(graph, removal.id))
+    setRemoval(null); setPendingSource(null)
+    setError('已删除卡片及关联连线与产出；下游需要重新指定来源。素材文件保持不变。')
+  }
   function patchBinding(slotId: string, patch: Partial<GraphBindings[string]>) {
     const binding = bindings[slotId]
     if (binding) onBindingsChange({ ...bindings, [slotId]: { ...binding, ...patch } })
   }
-  return <div ref={editorRef} className={`wg-editor${editorWidth < 960 ? ' is-condensed' : ''}${editorWidth < 720 ? ' is-compact' : ''}${editorWidth < 540 ? ' is-small' : ''} show-${compactPane}${narrow ? ' has-narrow-canvas' : ''}`} onKeyDown={event => { if (event.key === 'Escape') { setPendingSource(null); setError('') } }}>
-    <aside className="wg-library" aria-label="模块库" tabIndex={0}><div className="wg-panel-heading"><span>模块库</span><small>7 项能力</small></div><p className="wg-hint">点击添加，可重复使用。</p>
+  return <div ref={editorRef} className={`wg-editor${editorWidth < 960 ? ' is-condensed' : ''}${editorWidth < 720 ? ' is-compact' : ''}${editorWidth < 540 ? ' is-small' : ''} show-${compactPane}${narrow ? ' has-narrow-canvas' : ''}`} onKeyDown={event => { if (event.key === 'Escape') { setPendingSource(null); setRemoval(null); setError('') } }}>
+    <aside className="wg-library" aria-label="模块库" tabIndex={0}><div className="wg-panel-heading"><span>模块库</span><small>{GRAPH_NODE_KINDS.length} 项能力</small></div><p className="wg-hint">点击添加，可重复使用。</p>
       <div className="wg-library-list">{GRAPH_NODE_KINDS.map(kind => <button type="button" key={kind} onClick={() => {
         const added = createNode(kind, graph)
         revealRef.current = added.id; setCompactPane('canvas')
         onChange({ ...graph, nodes: [...graph.nodes, added] }); setSelectedId(added.id); setError('')
-      }} aria-label={`添加${GRAPH_CATALOG[kind].label}`}><span className={`wg-module-symbol kind-${kind}`} aria-hidden="true">{kind === 'tts' ? '♫' : kind === 'translate' ? '译' : kind === 'mix' ? '≋' : kind === 'export' ? '↗' : kind === 'align' ? '↔' : kind === 'asr' ? '文' : '∿'}</span><span>{GRAPH_CATALOG[kind].label}<small>{Object.values(GRAPH_CATALOG[kind].inputs).join(' + ')} → {Object.values(GRAPH_CATALOG[kind].outputs).join(', ')}</small></span><b aria-hidden="true">+</b></button>)}</div>
+      }} aria-label={`添加${GRAPH_CATALOG[kind].label}`}><span className={`wg-module-symbol kind-${kind}`} aria-hidden="true">{kind === 'tts' ? '♫' : kind === 'translate' ? '译' : kind === 'mix' ? '≋' : ['export', 'audio_export'].includes(kind) ? '↗' : kind === 'align' ? '↔' : kind === 'asr' ? '文' : '∿'}</span><span>{GRAPH_CATALOG[kind].label}<small>{Object.values(GRAPH_CATALOG[kind].inputs).join(' + ')} → {Object.values(GRAPH_CATALOG[kind].outputs).join(', ')}</small></span><b aria-hidden="true">+</b></button>)}</div>
       <div className="wg-slot-tools"><strong>添加输入槽</strong>{(['audio', 'subtitle'] as const).map(type => <button type="button" key={type} onClick={() => {
         let index = 1
         while (graph.input_slots.some(slot => slot.id.toLowerCase() === `${type}_${index}`)) index++
@@ -155,6 +166,10 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
     <main className="wg-main"><div className="wg-canvas-toolbar"><div><strong>流程画布</strong><span>{graph.nodes.length} 节点 · {graph.edges.length} 连线</span></div><div className="wg-canvas-actions"><select aria-label="定位画布节点" value="" onChange={event => { const id = event.target.value; if (!id) return; if (!id.startsWith('slot:')) setSelectedId(id); reveal(id) }}><option value="">定位节点…</option>{graph.input_slots.map(slot => <option key={`slot:${slot.id}`} value={`slot:${slot.id}`}>{slot.label} · {slot.id}</option>)}{graph.nodes.map(item => <option key={item.id} value={item.id}>{GRAPH_CATALOG[item.kind].label} · {item.id}</option>)}</select><button type="button" onClick={() => { setMoved({}); scrollRef.current?.scrollTo({ left: 0, top: 0 }) }}>整理布局</button></div></div>
       <div className="wg-connect-instruction" role="status">{pendingSource ? <><strong>已选：{sourceLabel(graph, pendingSource)}</strong><span>点击目标输入完成连线</span><button type="button" onClick={() => setPendingSource(null)}>取消</button></> : <><i className="wg-port-dot subtitle" /><span>选择输出端口，再选择输入端口；也可在右侧指定来源。</span></>}</div>
       {error && <div className="wg-connection-error" role="alert">{error}</div>}
+      {removal && <section className="wg-delete-confirm" aria-label="确认删除卡片">
+        <p>删除{removal.kind === 'slot' ? '输入槽' : '节点'}「{removal.id}」及其关联连线{removal.kind === 'node' ? '与产出' : ''}？下游会缺少来源；素材文件和历史任务保持不变。</p>
+        <div><button type="button" autoFocus onClick={() => setRemoval(null)}>取消</button><button type="button" onClick={confirmRemoval}>确认删除</button></div>
+      </section>}
       <div className="wg-canvas-scroll" ref={scrollRef} role="region" aria-label="节点画布" tabIndex={0}>
         <div className="wg-canvas-stage" ref={stageRef} style={{ width: extent.width, height: extent.height }} onPointerMove={move} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }}>
           <svg className="wg-connections" width="100%" height="100%" aria-hidden="true"><defs><marker id="wg-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8z" fill="currentColor" /></marker></defs>{lines.map(line => <path key={line.id} className={`wg-line ${line.type}`} d={line.path} markerEnd="url(#wg-arrow)" />)}</svg>
@@ -164,14 +179,10 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
             const binding = bindings[slot.id]
             const material = materials.find(item => item.path === binding?.path)
             return <article className={`wg-slot ${templateMode || binding ? '' : 'has-issue'}`} data-canvas-id={`slot:${slot.id}`} key={slot.id} style={{ left: point.x, top: point.y }}>
-              <div className="wg-slot-label"><span>输入槽</span><b>{TYPE_NAMES[slot.type]}</b></div><h3>{slot.label}</h3>
+              <div className="wg-slot-label"><span>输入槽 · {TYPE_NAMES[slot.type]}</span>{templateMode && <button type="button" className="wg-card-remove" aria-label={`删除输入槽 ${slot.id}`} title="删除输入槽及关联连线；不会删除素材文件" onClick={() => setRemoval({ kind: 'slot', id: slot.id, graph })}><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 10v7M14 10v7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg></button>}</div><h3>{slot.label}</h3>
               {templateMode ? <>
                 <label className="wg-field"><span>名称</span><input aria-label={`${slot.id} 输入槽名称`} maxLength={100} value={slot.label} onChange={event => onChange(updateInputSlot(graph, { ...slot, label: event.target.value }))} /></label>
                 <label className="wg-field"><span>要求的语言</span><select aria-label={`${slot.id} 输入槽语言`} value={slot.language || ''} onChange={event => onChange(updateInputSlot(graph, { ...slot, language: (event.target.value || null) as typeof slot.language }))}><option value="">使用时确认</option><option value="zh">中文</option><option value="ja">日语</option><option value="en">英语</option></select></label>
-                <button type="button" className="wg-slot-remove" onClick={() => {
-                  onChange(removeInputSlot(graph, slot.id)); setPendingSource(null)
-                  setError('输入槽已移除；使用它的节点需要重新指定来源。')
-                }} aria-label={`移除输入槽 ${slot.id}`}>移除输入槽</button>
               </> : <><label className="wg-field"><span className="wg-visually-hidden">{slot.label} 素材</span><select aria-label={`${slot.label} 素材`} value={binding?.path || ''} onChange={event => {
                 const next = { ...bindings }; const selected = materials.find(item => item.path === event.target.value)
                 if (selected) next[slot.id] = { path: selected.path, ...(selected.language ? { language: selected.language } : {}) }
@@ -184,7 +195,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
             </article>
           })}
           {graph.nodes.map(item => <div className="wg-node-position" data-canvas-id={item.id} key={item.id} style={{ left: positions[item.id]!.x, top: positions[item.id]!.y }}><WorkflowNode node={item} graph={graph} selected={item.id === selectedId} issues={issues.filter(issue => issue.nodeId === item.id).map(issue => issue.message)} pendingSource={pendingSource}
-            onSelect={() => setSelectedId(item.id)} onSource={source => { setPendingSource(source); setError('') }} onTarget={target => { if (pendingSource) connect(target, pendingSource) }} onMoveStart={event => moveStart(item.id, event)} /></div>)}
+            onSelect={() => setSelectedId(item.id)} onRemove={() => setRemoval({ kind: 'node', id: item.id, graph })} onSource={source => { setPendingSource(source); setError('') }} onTarget={target => { if (pendingSource) connect(target, pendingSource) }} onMoveStart={event => moveStart(item.id, event)} /></div>)}
         </div>
       </div>
       <div className="wg-deliveries"><strong>{templateMode ? '流水线产出' : '本次交付'}</strong>{graph.outputs.length ? graph.outputs.map(output => {
@@ -193,7 +204,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
       }) : <span className="wg-warning">尚未选择产出</span>}</div>
       <details className="wg-problems" open={allIssues.length > 0}><summary>{allIssues.length ? `${allIssues.length} 项需要补充` : templateMode ? '结构检查通过' : '结构与素材已连接'}<span>{templateMode ? '保存模板不运行任务；素材与环境在工作台检查' : '仅检查图与素材，不代表引擎已就绪'}</span></summary>{allIssues.map((issue, index) => <p key={index}>{issue}</p>)}</details>
     </main>
-    <WorkflowInspector graph={graph} node={node} issues={issues.filter(issue => issue.nodeId === selectedId).map(issue => issue.message)} onNodeChange={updated => onChange(updateNode(graph, updated))} onConnect={connect} renderParameters={renderParameters} onRemove={id => { onChange(removeNode(graph, id)); setPendingSource(null); setError(`已移除 ${id} 及其关联连线与产出；下游需要重新指定来源。`) }} onOutput={(id, port, selected) => {
+    <WorkflowInspector graph={graph} node={node} issues={issues.filter(issue => issue.nodeId === selectedId).map(issue => issue.message)} onNodeChange={updated => onChange(updateNode(graph, updated))} onConnect={connect} renderParameters={renderParameters} onOutput={(id, port, selected) => {
       const outputs = graph.outputs.filter(output => output.node_id !== id || output.port !== port)
       onChange({ ...graph, outputs: selected ? [...outputs, { node_id: id, port }] : outputs })
     }} />

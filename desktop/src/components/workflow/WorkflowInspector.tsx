@@ -9,16 +9,15 @@ export interface WorkflowInspectorProps {
   onNodeChange: (node: GraphNode) => void
   onConnect: (target: GraphEdge['target'], source: GraphEdge['source'] | null) => void
   onOutput: (nodeId: string, port: string, selected: boolean) => void
-  onRemove: (nodeId: string) => void
   /** Integration supplies a node-controlled capability/voice form, never a shared singleton draft. */
   renderParameters: (node: GraphNode, onChange: (node: GraphNode) => void) => ReactNode
 }
-export function WorkflowInspector({ graph, node, issues, onNodeChange, onConnect, onOutput, onRemove, renderParameters }: WorkflowInspectorProps) {
+export function WorkflowInspector({ graph, node, issues, onNodeChange, onConnect, onOutput, renderParameters }: WorkflowInspectorProps) {
   if (!node) return <aside className="wg-inspector"><div className="wg-panel-heading"><span>节点设置</span></div><p className="wg-empty">选择节点，检查输入、参数与产出。</p></aside>
   const catalog = GRAPH_CATALOG[node.kind]
   return <aside className="wg-inspector" aria-label="节点设置">
     <div className="wg-panel-heading"><span>节点设置</span><small>{node.id}</small></div>
-    <div className="wg-inspector-title"><div><h2>{catalog.label}</h2><p>每个实例独立配置</p></div><button type="button" className="wg-remove" aria-label={`移除节点 ${node.id}`} title="移除此节点及其连线；下游需要重新指定来源" onClick={() => onRemove(node.id)}>移除节点</button></div>
+    <div className="wg-inspector-title"><div><h2>{catalog.label}</h2><p>每个实例独立配置</p></div></div>
     <div className="wg-inspector-scroll" role="region" aria-label={`${node.id} 参数与来源`} tabIndex={0}>
     <section><h3>输入来源</h3>{Object.entries(catalog.inputs).map(([port, type]) => {
       const edge = graph.edges.find(edge => edge.target.node_id === node.id && edge.target.port === port)

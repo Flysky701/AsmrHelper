@@ -94,7 +94,6 @@
 .wg-check input { accent-color:var(--wg-green); width:16px; height:16px; margin:0; }
 .wg-check span { flex:1; display:flex; align-items:center; justify-content:space-between; }
 .wg-check small { font-size:10px; color:var(--wg-muted); }
-.wg-remove { margin:18px 20px; background:none; border:0; padding:0; color:#aa7060; font-size:11px!important; }
 .wg-node-problems { background:#fffcf4; }
 .wg-node-problems p { font-size:11px; color:var(--wg-amber); margin:7px 0 0; }
 .wg-empty { color:var(--wg-muted); padding:20px; font-size:12px; }
@@ -130,8 +129,6 @@
 .wg-inspector-title>div { min-width:0; }
 .wg-inspector-title h2 { font-size:16px; overflow-wrap:anywhere; }
 .wg-inspector-title p { font-size:10px; }
-.wg-inspector .wg-remove { flex:none; padding:5px 8px; margin:0; min-height:29px; border:1px solid #e4cbc3; border-radius:5px; background:#fff8f5; color:#a66554; white-space:nowrap; }
-.wg-inspector .wg-remove:hover { background:#ffefe8; border-color:#c88872; }
 .wg-inspector-scroll { flex:1 1 0; min-height:0; min-width:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
 .wg-inspector section { padding:14px; }
 .wg-pane-switch { display:none; }
@@ -160,3 +157,17 @@
 .wg-editor.has-narrow-canvas .wg-node-heading { cursor:pointer!important; }
 .wg-editor.has-narrow-canvas .wg-node-drag { display:none; }
 @media(max-height:650px) { .wg-panel-heading { padding-block:9px; } .wg-inspector-title { padding-block:9px; } .wg-canvas-toolbar { min-height:37px; padding-block:5px; } .wg-connect-instruction { min-height:27px; padding-block:4px; max-height:43px; } .wg-deliveries { padding-block:5px; max-height:42px; } .wg-problems { max-height:63px; padding-block:5px; } .wg-problems summary span { display:none; } .wg-editor.is-compact { grid-template-rows:51px minmax(0,1fr); } .wg-editor.is-small { grid-template-rows:51px 31px minmax(0,1fr); } }
+
+/* One deletion entry in the upper-right of every editable card. */
+.wg-card-heading { display:flex; align-items:center; border-bottom:1px solid #edf1eb; padding-right:7px; }
+.wg-card-heading .wg-node-heading { border-bottom:0; flex:1; min-width:0; padding-right:5px; }
+.wg-node-heading>span:nth-child(2) { min-width:0; overflow-wrap:anywhere; }
+.wg-card-remove { display:inline-flex; align-items:center; justify-content:center; flex:0 0 28px; width:28px; height:28px; padding:4px; border:1px solid transparent; border-radius:5px; background:transparent; color:#967060; cursor:pointer; }
+.wg-card-remove:hover { background:#fff0e8; border-color:#dec8be; }
+.wg-card-remove:focus-visible { outline:2px solid var(--wg-green); outline-offset:2px; }
+.wg-slot-label { align-items:center; min-height:28px; margin-top:-6px; margin-right:-6px; }
+.wg-module-symbol.kind-audio_export,.wg-module-icon.kind-audio_export { color:#4c7899; background:#e5eff6; }
+.wg-delete-confirm { flex:0 0 auto; padding:10px 12px; background:#fff8ee; border-bottom:1px solid #e5d6bf; font-size:12px; max-height:150px; overflow:auto; }
+.wg-delete-confirm p { margin:0 0 7px; line-height:1.5; overflow-wrap:anywhere; }
+.wg-delete-confirm>div { display:flex; gap:8px; }
+.wg-delete-confirm button { padding:5px 10px; border:1px solid #d7c5b8; border-radius:5px; background:white; color:#704d3f; }

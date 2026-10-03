@@ -150,7 +150,7 @@ class GraphExecutor:
             kind = nodes[node_id]["kind"]
             suffix = Path(value.path).suffix.lower().lstrip(".")
             artifact_type = f"subtitle.{suffix}" if value.kind == "subtitle" else {
-                "separate": "audio.vocals", "tts": "audio.tts", "mix": "audio.mix",
+                "separate": "audio.vocals", "tts": "audio.tts", "mix": "audio.mix", "audio_export": "audio.export",
             }[kind]
             metadata = {key: deepcopy(item) for key, item in value.metadata.items()
                         if key in {"language", "duration", "timeline_id", "pair_confirmed",

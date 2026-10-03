@@ -12,6 +12,7 @@ GRAPH_CATALOG = {
     "tts": {"label": "语音合成", "inputs": {"subtitle": "subtitle"}, "outputs": {"audio": "audio"}},
     "mix": {"label": "混音", "inputs": {"audio": "audio", "speech": "audio"}, "outputs": {"audio": "audio"}},
     "export": {"label": "字幕导出", "inputs": {"subtitle": "subtitle"}, "outputs": {"subtitle": "subtitle"}},
+    "audio_export": {"label": "音频导出", "inputs": {"audio": "audio"}, "outputs": {"audio": "audio"}},
 }
 GRAPH_NODE_KINDS = tuple(GRAPH_CATALOG)
 GRAPH_LANGUAGES = ("ja", "zh", "en")
@@ -22,6 +23,7 @@ GRAPH_OPTION_KEYS = {
     "tts": ("speech_recipe_id", "speech_source", "voice", "speed"),
     "mix": ("original_volume", "tts_volume_ratio", "tts_delay_ms", "output_length"),
     "export": ("subtitle_format",),
+    "audio_export": (),
 }
 
 

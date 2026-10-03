@@ -32,6 +32,10 @@ _REFERENCE_FILE_LOCK = threading.RLock()
 _SECRET_KEYS = {"api_key", "apikey", "authorization", "access_token", "secret", "password", "credential"}
 
 
+class ConnectionConflictError(ValueError):
+    """A connection or one of its references changed after review."""
+
+
 @contextmanager
 def reference_file_guard():
     """Serialize reference capture with deletion until source metadata is durable."""
@@ -253,6 +257,15 @@ class SpeechStore:
         with self._locked():
             state = self._read()
             connections = state["collections"]["connections"]
+            selection = state.get("connection_defaults", {}).get(provider_id)
+            if selection is not None:
+                selected = connections.get(selection.get("connection_ref"))
+                if selected is not None:
+                    return deepcopy(selected) if selected.get("deployment") == "local" else None
+                if selection.get("connection_ref") is None:
+                    return {"id": "engine-default-" + provider_id, "revision": 1,
+                            "name": name, "provider_id": provider_id, "deployment": "local"}
+                raise ConnectionConflictError("Default connection no longer exists; select a connection again")
             candidates = [item for item in connections.values() if item.get("provider_id") == provider_id]
             if candidates:
                 if len(candidates) == 1 and candidates[0].get("deployment") == "local":
@@ -265,6 +278,167 @@ class SpeechStore:
             connections[record["id"]] = record
             self._write(state)
             return deepcopy(record)
+
+    @staticmethod
+    def _connection_signature(state: dict) -> str:
+        records = state["collections"]
+        value = {key: records[key] for key in ("connections", "recipes", "rule_states")}
+        value["defaults"] = state.get("connection_defaults", {})
+        return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    @staticmethod
+    def _connection_summary(connection: dict, defaults: dict) -> dict:
+        fields = ("id", "name", "provider_id", "deployment", "revision")
+        return {**{key: connection[key] for key in fields},
+                "is_default": defaults.get(connection["provider_id"], {}).get("connection_ref") == connection["id"]}
+
+    def connection_catalog(self) -> tuple[list[dict], list[dict]]:
+        with self._locked():
+            state = self._read()
+            defaults = state.get("connection_defaults", {})
+            connections = [dict(item, is_default=defaults.get(item["provider_id"], {}).get("connection_ref") == item["id"])
+                           for item in state["collections"]["connections"].values()]
+            return deepcopy(connections), deepcopy(list(defaults.values()))
+
+    def default_connection(self, provider_id: str) -> dict | None:
+        with self._locked():
+            state = self._read()
+            ref = state.get("connection_defaults", {}).get(provider_id, {}).get("connection_ref")
+            if ref is None:
+                return None
+            connection = state["collections"]["connections"].get(ref)
+            if connection is None or connection["provider_id"] != provider_id:
+                raise ConnectionConflictError("Default connection is unavailable; select a connection again")
+            return deepcopy(connection)
+
+    def set_default_connection(self, connection_id: str, expected_revision: int,
+                               expected_default_revision: int) -> dict:
+        with self._locked():
+            state = self._read()
+            connection = state["collections"]["connections"].get(connection_id)
+            if connection is None:
+                raise KeyError("Connection no longer exists")
+            defaults = state.setdefault("connection_defaults", {})
+            previous = defaults.get(connection["provider_id"], {})
+            if (type(expected_revision) is not int or type(expected_default_revision) is not int
+                    or connection["revision"] != expected_revision
+                    or previous.get("revision", 0) != expected_default_revision):
+                raise ConnectionConflictError("Connection or default changed; reload before selecting")
+            defaults[connection["provider_id"]] = {"provider_id": connection["provider_id"],
+                "connection_ref": connection_id, "revision": expected_default_revision + 1}
+            self._write(state)
+            return {"connection": self._connection_summary(connection, defaults),
+                    "defaults": deepcopy(list(defaults.values()))}
+
+    def connection_deletion_preview(self, connection_id: str) -> dict:
+        with self._locked():
+            state = self._read()
+            records = state["collections"]
+            connection = records["connections"].get(connection_id)
+            if connection is None:
+                raise KeyError("Connection no longer exists")
+            latest = {}
+            for recipe in records["recipes"].values():
+                root = self._recipe_root(records["recipes"], recipe["id"])
+                if root not in latest or recipe["revision"] > latest[root]["revision"]:
+                    latest[root] = recipe
+            refs = [{"id": item["id"], "name": item["name"], "revision": item["revision"],
+                     "archived": bool(records["rule_states"].get(root, {}).get("archived"))}
+                    for root, item in latest.items() if item.get("connection_ref") == connection_id]
+            current_ids = {item["id"] for item in refs}
+            historical = sorted(item["id"] for item in records["recipes"].values()
+                                if item.get("connection_ref") == connection_id and item["id"] not in current_ids)
+            defaults = state.get("connection_defaults", {})
+            return {"connection": self._connection_summary(connection, defaults),
+                    "token": self._connection_signature(state), "recipes": refs,
+                    "historical_recipe_ids": historical,
+                    "default_revision": defaults.get(connection["provider_id"], {}).get("revision", 0),
+                    "replacements": [self._connection_summary(item, defaults)
+                        for item in records["connections"].values()
+                        if item["provider_id"] == connection["provider_id"] and item["id"] != connection_id]}
+
+    def connection_deletion_receipt(self, token: str) -> dict | None:
+        with self._locked():
+            return deepcopy(self._read().get("connection_deletions", {}).get(token))
+
+    def prepare_connection_deletion(self, connection_id: str, token: str, action: str,
+                                    replacement_ref: str | None = None, *, request_token: str | None = None,
+                                    catalog_token: str = "", recipe_ids: list[str] | None = None,
+                                    catalog_references: list[dict] | None = None) -> dict:
+        """Write only new immutable revisions first; retain the old connection on any failure."""
+        if action not in {"replace", "detach"} or (action == "replace") != bool(replacement_ref):
+            raise ValueError("Select a replacement connection or explicitly leave references missing")
+        request_token = request_token or token
+        with self._locked():
+            state = self._read()
+            receipts = state.setdefault("connection_deletions", {})
+            if request_token in receipts:
+                receipt = receipts[request_token]
+                if (receipt["connection_id"], receipt["action"], receipt["replacement_ref"]) != (connection_id, action, replacement_ref):
+                    raise ConnectionConflictError("Deletion confirmation belongs to a different choice")
+                return deepcopy(receipt)
+            if token != self._connection_signature(state):
+                raise ConnectionConflictError("Connection references changed; review deletion again")
+            records = state["collections"]
+            connection = records["connections"].get(connection_id)
+            if connection is None:
+                raise KeyError("Connection no longer exists")
+            if replacement_ref:
+                replacement = records["connections"].get(replacement_ref)
+                if (replacement is None or replacement_ref == connection_id
+                        or replacement["provider_id"] != connection["provider_id"]):
+                    raise ValueError("Replacement must be another connection for the same engine")
+            latest = {}
+            for recipe in records["recipes"].values():
+                root = self._recipe_root(records["recipes"], recipe["id"])
+                if root not in latest or recipe["revision"] > latest[root]["revision"]:
+                    latest[root] = recipe
+            revisions = []
+            if action == "replace":
+                for old in latest.values():
+                    if old.get("connection_ref") != connection_id:
+                        continue
+                    new = {**deepcopy(old), "id": str(uuid4()), "previous_id": old["id"],
+                           "revision": old["revision"] + 1, "connection_ref": replacement_ref,
+                           "created_at": _now(), "updated_at": _now()}
+                    self._validate("recipes", new)
+                    records["recipes"][new["id"]] = new
+                    revisions.append({"previous_id": old["id"], "id": new["id"], "revision": new["revision"]})
+            receipt = {"request_token": request_token, "connection_id": connection_id,
+                       "provider_id": connection["provider_id"], "action": action,
+                       "replacement_ref": replacement_ref, "catalog_token": catalog_token,
+                       "catalog_references": deepcopy(catalog_references or []),
+                       "recipe_ids": list(recipe_ids or []), "recipe_revisions": revisions,
+                       "recipe_id_map": {item["previous_id"]: item["id"] for item in revisions},
+                       "guard_token": self._connection_signature(state), "state": "prepared"}
+            receipts[request_token] = receipt
+            self._write(state)
+            return deepcopy(receipt)
+
+    def finalize_connection_deletion(self, receipt: dict) -> dict:
+        """Remove the connection record only after all selected reference migrations succeeded."""
+        with self._locked():
+            state = self._read()
+            saved = state.get("connection_deletions", {}).get(receipt.get("request_token"))
+            if saved is None or saved["connection_id"] != receipt.get("connection_id"):
+                raise ConnectionConflictError("Deletion preparation is unavailable; review again")
+            if saved["state"] == "completed":
+                return deepcopy(saved["result"])
+            if saved["guard_token"] != self._connection_signature(state):
+                raise ConnectionConflictError("Connection or rules changed during deletion; old connection was retained")
+            records = state["collections"]
+            old = records["connections"].pop(saved["connection_id"])
+            defaults = state.setdefault("connection_defaults", {})
+            previous = defaults.get(old["provider_id"], {})
+            remaining = any(item["provider_id"] == old["provider_id"] for item in records["connections"].values())
+            if previous.get("connection_ref") == old["id"] or not remaining:
+                defaults[old["provider_id"]] = {"provider_id": old["provider_id"],
+                    "connection_ref": saved["replacement_ref"], "revision": previous.get("revision", 0) + 1}
+            result = {"deleted_connection_id": old["id"], "action": saved["action"],
+                      "recipe_revisions": saved["recipe_revisions"], "defaults": deepcopy(list(defaults.values()))}
+            saved.update(state="completed", result=result)
+            self._write(state)
+            return deepcopy(result)
 
     @staticmethod
     def _validate(collection: str, record: dict) -> None:
@@ -314,6 +488,8 @@ class SpeechStore:
         self._validate(collection, record)
         with self._locked():
             state = self._read()
+            if collection == "recipes":
+                self._check_recipe_connection(state, record)
             if record["id"] in state["collections"][collection]:
                 raise ValueError("Record already exists; create a new revision")
             previous = state["collections"][collection].get(record.get("previous_id"))
@@ -345,6 +521,8 @@ class SpeechStore:
             if collection in IMMUTABLE:
                 record["previous_id"] = id
             self._validate(collection, record)
+            if collection == "recipes":
+                self._check_recipe_connection(state, record)
             state["collections"][collection][record["id"]] = record
             self._write(state)
         return deepcopy(record)
@@ -352,11 +530,21 @@ class SpeechStore:
     def build_plan(self, text: str) -> dict:
         return self.create("plans", build_plan(text))
 
+    @staticmethod
+    def _check_recipe_connection(state: dict, recipe: dict) -> None:
+        ref = recipe.get("connection_ref")
+        if not ref or ref == "engine-default-" + str(recipe.get("provider_id")):
+            return
+        connection = state["collections"]["connections"].get(ref)
+        if connection is None or connection["provider_id"] != recipe.get("provider_id"):
+            raise ConnectionConflictError("Connection was removed or changed before saving; select a connection again")
+
     def create_rule(self, voice_data: dict | None, recipe_data: dict) -> dict:
         with self._locked():
             state = self._read()
             records = state["collections"]
             recipe = deepcopy(recipe_data)
+            self._check_recipe_connection(state, recipe)
             variant = recipe.get("variant") or {}
             if variant.get("kind") == "reference":
                 asset = records["assets"].get(variant.get("value"))

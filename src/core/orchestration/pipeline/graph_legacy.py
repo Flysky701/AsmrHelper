@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from .graph_catalog import GRAPH_CATALOG, GRAPH_NODE_KINDS
+from .graph_catalog import GRAPH_CATALOG
 from .graph_models import GraphValidationError
 from .graph_validation import validate_graph
 
@@ -56,11 +56,11 @@ def legacy_profile_to_graph(profile: dict) -> dict:
     workflow, stages = profile.get("workflow"), profile.get("stages")
     if not isinstance(workflow, dict) or workflow.get("version") != 1 or not isinstance(stages, dict):
         _fail("旧配置没有明确素材绑定，请保留旧流程或重新选择节点输入")
-    if set(stages) - set(GRAPH_NODE_KINDS):
+    if set(stages) - set(_DEFAULTS):
         _fail("旧配置包含未知阶段")
     if any(not isinstance(stage, dict) or type(stage.get("enabled")) is not bool for stage in stages.values()):
         _fail("旧配置必须明确各阶段是否启用")
-    selected = [kind for kind in GRAPH_NODE_KINDS if stages.get(kind, {}).get("enabled") is True]
+    selected = [kind for kind in _DEFAULTS if stages.get(kind, {}).get("enabled") is True]
     graph = {"version": 2, "nodes": [_node(kind, stages[kind], profile.get("source_lang", "ja"),
                                          profile.get("target_lang", "zh")) for kind in selected],
              "edges": [], "input_slots": [], "outputs": []}
@@ -113,7 +113,7 @@ def legacy_preset_to_graph(preset: dict, *, source_lang: str = "ja", target_lang
         _fail("旧预设阶段名称无效")
     selected = [_ALIASES.get(kind, kind) for kind in stages]
     outputs = [_ALIASES.get(kind, kind) for kind in outputs]
-    if len(set(selected)) != len(selected) or any(kind not in GRAPH_CATALOG for kind in selected):
+    if len(set(selected)) != len(selected) or any(kind not in _DEFAULTS for kind in selected):
         _fail("旧预设包含重复或未知阶段")
     if any(kind not in selected for kind in outputs):
         _fail("旧预设产出对应阶段未选择")
