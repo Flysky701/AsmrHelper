@@ -1,269 +1,51 @@
-# 数据结构契约 v1
+# 公共数据结构
 
-> 状态：已落码  
-> 原则：只定义跨进程稳定字段；运行时对象、SDK 客户端和本机解析路径不进入公共契约。
+HTTP 请求与响应以 [Pydantic schema](../../src/api/http/schemas/) 为准，运行实例提供 `/openapi.json`。本页记录关键语义，不复制会随代码变化的完整 schema。
 
-## 1. 通用约定
+JSON 使用 snake_case，时间为带时区的 ISO 8601，任务 progress 为 0–1。图节点语言当前为 ja、zh、en；具体引擎可用语言另由能力声明限定。图请求严格拒绝未知字段，不接受服务内部快照或凭据作为客户端输入。
 
-- JSON 字段使用 `snake_case`。
-- 时间使用带时区的 ISO 8601 字符串。
-- `progress` 范围固定为 `0.0` 到 `1.0`。
-- 语言代码当前使用 `ja`、`zh`、`en`；扩展新语言时由能力描述声明。
-- 未知字段默认拒绝，Provider 私有扩展只允许进入 `provider_options`。
+## Pipeline 与图
 
-## 2. PipelineRunCreateRequest
-
-```json
-{
-  "input": {
-    "path": "E:/media/source.mp4",
-    "companion_paths": []
-  },
-  "output": {
-    "directory": "E:/media/output"
-  },
-  "execution_profile": {}
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `input.path` | string | 是 | 主输入文件 |
-| `input.companion_paths` | string[] | 否 | 字幕、音轨等伴随文件 |
-| `output.directory` | string | 否 | 输出目录；缺省时由后端工作区策略决定 |
-| `execution_profile` | ExecutionProfile | 是 | 可持久化的执行意图 |
-
-## 3. ExecutionProfile
-
-```json
-{
-  "version": 1,
-  "source_lang": "ja",
-  "target_lang": "zh",
-  "skip_existing": false,
-  "stages": {
-    "separate": {
-      "enabled": true,
-      "provider": "demucs",
-      "model": "htdemucs",
-      "options": {},
-      "provider_options": {}
-    },
-    "asr": {
-      "enabled": true,
-      "provider": "faster_whisper",
-      "model": "faster-whisper-small",
-      "options": {},
-      "provider_options": {}
-    },
-    "translate": {
-      "enabled": true,
-      "provider": "deepseek",
-      "model": "deepseek-chat",
-      "options": {},
-      "provider_options": {}
-    },
-    "tts": {
-      "enabled": true,
-      "provider": "edge",
-      "model": null,
-      "options": {},
-      "provider_options": {}
-    },
-    "mix": {
-      "enabled": true,
-      "provider": "ffmpeg",
-      "model": null,
-      "options": {},
-      "provider_options": {}
-    },
-    "export": {
-      "enabled": true,
-      "provider": "ffmpeg",
-      "model": null,
-      "options": {
-        "subtitle_format": "srt"
-      },
-      "provider_options": {}
-    }
-  }
-}
-```
-
-`skip_existing` 控制是否复用已存在的阶段输出。混音延迟在标准 `options` 中使用 `tts_delay_ms`，单位固定为毫秒。HTTP API 不再接受旧平铺请求或秒制 `tts_delay`。
-
-`StageProfile` 的稳定字段只有：
-
-| 字段 | 类型 | 说明 |
+| 结构 | 关键字段 | 来源 |
 | --- | --- | --- |
-| `enabled` | boolean | 是否执行该阶段 |
-| `provider` | string | Provider 稳定标识 |
-| `model` | string/null | 模型标识；无模型概念时为 `null` |
-| `options` | object | 已标准化、可跨 Provider 理解的参数 |
-| `provider_options` | object | Provider 私有参数，必须由对应适配器校验 |
+| 单任务请求 | input.path、input.companion_paths、output.directory、execution_profile | [pipeline_runs.py](../../src/api/http/schemas/pipeline_runs.py) |
+| V1 配置 | version=1、source_lang、target_lang、skip_existing、stages、可选 workflow | 同上 |
+| StageProfile | enabled、provider、model、options、provider_options | 同上 |
+| V2 配置 | version=2、graph、bindings | [workflow_graph.py](../../src/api/http/schemas/workflow_graph.py) |
+| 图定义 | version=2、nodes、edges、input_slots、outputs | 同上 |
+| 素材绑定 | path、language、language_confirmed、audio_path、pair_confirmed、sha256 | 同上 |
+| 批次请求 | V1 inputs 或 V2 groups、共同 execution_profile、提交标识及批次选项 | [batch_runs.py](../../src/api/http/schemas/batch_runs.py) |
 
-API Key、Base URL、本机模型绝对路径、设备句柄和已初始化客户端不属于 `ExecutionProfile`。这些值由设置和运行前解析产生。
+StageProfile 的 model 可以为 null；显式选项优先，未指定值由对应版本的解析器处理。混音延迟字段 `tts_delay_ms` 单位为毫秒。V1 `skip_existing` 不等于 V2 节点缓存。
 
-### 3.1 TaskReadiness
+V2 节点 ID 在 Windows 文件语义下也须唯一。连线来源是素材槽或节点输出，目标是一个节点输入端口；每个必需输入只能有一个来源。outputs 只能引用节点产物，不能直接引用素材槽。完整语义和兼容限制见[图契约](../guides/workflow-graph-v2.md)。
 
-`POST /api/v1/runtime/check-task-readiness` 接收 `task_type`、完整 `execution_profile` 和可选 `input_path`。服务端只检查已启用阶段，并按 capability、provider、model、运行依赖、媒体工具、输入可解码性与凭据判断是否可入队。
+API Key、SDK 客户端、设备句柄和私有凭据不进入公开执行配置；命名连接按 ID 引用。服务冻结任务所需快照，不能靠修改全局默认改变已经提交的任务。
 
-Workbench 的检查用于提前反馈；Pipeline 在创建任务前快速检查，并在 `prepare` 阶段再次执行同一检查。后端检查是所有调用入口的最终门禁。
+## 任务与错误
 
-响应稳定字段：
+[TaskStatusResponse](../../src/api/http/schemas/tasks.py) 的关键字段为 task_id、task_type、state、stage、progress、message、detail、error，及 created_at、queued_at、started_at、updated_at、finished_at。还包含来源、会话、产物集合、retry_of_task_id 与审阅字段。
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `task_type` | string | 被检查的任务类型 |
-| `ready` | boolean | 当前配置是否可执行 |
-| `missing_requirements` | string[] | 便于摘要展示的去重要求 |
-| `issues` | object[] | 结构化不可执行原因 |
-| `execution_profile` | object | 本次实际检查的 profile |
+state 取 pending、running、completed、failed、cancelled、skipped。响应没有通用的 stages 数组；V2 节点来自冻结图，运行证据来自同任务结构化事件。阶段显示不能把前序位置或四舍五入百分比当作完成证据。
 
-单个 `issue` 包含 `stage`、`category`、`provider`、`model`、`code`、`requirement`、`message` 和 `action`。`action` 当前使用 `engines`、`settings` 或 `workbench`，供客户端引导用户处理；客户端不得仅凭错误文本猜测去向。
+TaskError 使用 code、stage、message、retryable，以及可选 detail/data。message 面向用户，detail 保留脱敏诊断。节点和任务 ID、时间应能定位错误归属；凭据或完整敏感请求不能进入公开 detail/data。
 
-## 4. Task
+## 产物与结果
 
-```json
-{
-  "task_id": "task_01",
-  "task_type": "pipeline",
-  "state": "running",
-  "stage": "asr",
-  "progress": 0.35,
-  "message": "Transcribing audio",
-  "error": null,
-  "created_at": "2026-07-23T10:00:00Z",
-  "started_at": "2026-07-23T10:00:01Z",
-  "finished_at": null,
-  "stages": []
-}
-```
+[TaskResultResponse](../../src/api/http/schemas/artifacts.py) 返回 task_id、primary_artifact_id、artifacts、warnings。每个产物包含 artifact_id、task_id、type、path、stage、label、primary、preview 和 metadata。
 
-`state` 取值：`pending`、`running`、`completed`、`failed`、`cancelled`。
+path 是后端提供的本地定位信息，客户端不按文件命名猜测归属。primary 是主产物 ID 的列表表达；V2 交付还须匹配冻结图 outputs 的 node_id/port。speech_take 是中间片段，不能凭旧 primary 标记冒充最终交付。无法归类的历史记录保留并标注未确认。
 
-`stages` 在任务详情中返回，在创建响应和列表中可以省略。单项结构为：
+preview 表示服务声明可预览，实际方式通过 Preview 接口返回。路径型 primary_output/files 等内部执行字段不是公共 TaskResult。
 
-```json
-{
-  "stage": "asr",
-  "state": "running",
-  "progress": 0.4,
-  "message": "Transcribing audio",
-  "started_at": "2026-07-23T10:02:00Z",
-  "finished_at": null,
-  "error": null
-}
-```
+## 就绪检查与模型状态
 
-阶段状态额外允许 `skipped`。
+`POST /api/v1/runtime/check-task-readiness` 接收 task_type、execution_profile、可选 input_path；返回 ready、missing_requirements、issues 和实际检查的 execution_profile。每项 issue 包含 stage、category、provider、model、code、requirement、message、action，见 [resources.py](../../src/api/http/schemas/resources.py)。
 
-## 5. TaskError
+检查只针对实际选择的节点或阶段；提交服务负责最终素材及版本校验。配置通过不证明网络鉴权、模型推理或音频质量。模型的 installed 与 executable 分别表达资产状态和运行条件，见 [models.py](../../src/api/http/schemas/models.py)。超时未知不能显示成已就绪。
 
-```json
-{
-  "code": "PROVIDER_CONNECTION_FAILED",
-  "stage": "tts",
-  "message": "TTS provider returned no audio",
-  "retryable": true,
-  "detail": "Upstream response contained no audio frames",
-  "data": {}
-}
-```
+## RuntimeEvent
 
-- `message` 面向用户，必须完整且不得被阶段标签截断。
-- `detail` 面向诊断，可以省略，但不得包含密钥。
-- `data` 只存机器可读的附加信息，不承担核心语义。
-- 多阶段发生错误时，任务保留首个导致失败的错误；完整诊断可通过阶段状态或事件获取。
+事件字段为 sequence、time、level、type、task_id、stage、message、detail、data。sequence 在同任务内递增，客户端使用 after_sequence 增量读取。SSE 的 done 表示事件流结束，须读取携带的任务终态，不能直接视为成功。
 
-## 6. Artifact 与 TaskResult
-
-```json
-{
-  "task_id": "task_01",
-  "primary_artifact_id": "artifact_final",
-  "artifacts": [
-    {
-      "artifact_id": "artifact_final",
-      "task_id": "task_01",
-      "type": "video",
-      "path": "E:/media/output/result.mp4",
-      "stage": "export",
-      "label": "Final Output",
-      "primary": true,
-      "preview": true,
-      "metadata": {
-        "mime_type": "video/mp4"
-      }
-    }
-  ],
-  "warnings": []
-}
-```
-
-`path` 是后端管理的本地资源定位信息。桌面端不得根据命名规则猜测产物，应以结果接口返回值为准。
-
-权威结果入口是 `GET /api/v1/tasks/{task_id}/result`。Pipeline 和 Tool 的任务结果入口返回相同结构。`primary_artifact_id` 是唯一的主产物判断依据；`primary` 是同一事实在列表项上的便捷标记。`preview` 只表示后端声明该产物可预览，具体预览模式由 Preview 接口返回，桌面端不得通过扩展名猜测。
-
-旧 `files`、路径型 `primary_output`、`secondary_outputs`、`artifact_type`、`preview_kind` 和 `is_primary` 不属于 v1 公共结果结构，仅可暂留在内部执行模型，不得出现在公共 HTTP 响应。
-
-## 7. ModelStatus
-
-模型文件存在与模型可以执行是两个不同事实：
-
-```json
-{
-  "model_id": "faster-whisper-base",
-  "status": "installed",
-  "detail": "Model is installed but runtime requirements are unavailable",
-  "executable": false,
-  "issues": [
-    {
-      "code": "PYTHON_DEPENDENCY_MISSING",
-      "requirement": "faster_whisper",
-      "message": "Python dependency is unavailable: faster_whisper"
-    }
-  ]
-}
-```
-
-`status` 表示权重、包或云凭据的安装/配置状态；`executable` 表示当前进程是否具备实际运行条件。模型可以是 `installed` 但 `executable=false`。`issues` 当前稳定使用：
-
-- `MODEL_ASSET_MISSING`
-- `MODEL_ASSET_INVALID`
-- `PYTHON_DEPENDENCY_MISSING`
-- `SYSTEM_TOOL_MISSING`
-- `GPU_UNAVAILABLE`
-- `CREDENTIAL_MISSING`
-
-桌面端不得把 `installed` 直接显示为“可执行”，也不得等到 Pipeline 运行后才报告已知依赖缺失。
-
-## 8. RuntimeEvent
-
-事件用于诊断和增量展示，不替代 `Task` 事实状态。
-
-```json
-{
-  "sequence": 12,
-  "time": "2026-07-23T10:02:10Z",
-  "level": "info",
-  "type": "stage_progress",
-  "task_id": "pipeline-12",
-  "stage": "asr",
-  "message": "Decoded segment 24",
-  "detail": null,
-  "data": {
-    "progress": 0.4
-  }
-}
-```
-
-约束：
-
-- `sequence` 在单个任务内严格递增；客户端可用 `after_sequence` 增量续读。
-- `level` 当前使用 `info`、`warning`、`error`；`type` 保持字符串扩展点。
-- `data` 只放事件附加信息，不复制完整 TaskStatus，也不得包含 secret。
-- 模型安装事件使用 `type=model_operation`，`data` 明确包含 `operation`、`model_id`、`state` 和 `progress`。
-- `GET /tasks/{task_id}/events` 通过 SSE 推送事件；终态以 `done` 事件携带的 TaskStatus 快照结束。
-
-RuntimeEvent 当前只保存在进程内，用于实时诊断和增量展示；终态历史仍以 SQLite 中的 TaskStatus 与 Artifact 为准。App 启动和任务状态恢复不依赖事件持久化。
+事件用于进程内诊断和增量显示，不代替 SQLite 任务事实，也不承诺重启后事件回放。data 不复制完整任务状态或 secret。取消、重试与恢复语义见[任务执行契约](task-execution-v1.md)。

@@ -1,7 +1,5 @@
 # Task Execution V1
 
-更新时间：2026-09-29
-
 本文收口 AsmrHelper 的长耗时任务执行边界。它复用现有 `TaskRegistry`、`TaskDispatcher`、`PipelineTaskOrchestrator` 和 `RuntimeRouter`，并以持久化 `BatchRun` 聚合多个普通 Pipeline Task；不引入新的持久执行队列或分布式调度平台。
 
 ## 1. 统一入口
@@ -15,7 +13,7 @@
 | `subtitle.script_to_vtt` | `ScriptSubtitleService` → `core.subtitles` | 自动生成的 TXT/VTT/SRT/LRC 只归属创建它的 Task |
 | `model_install` | `ModelService` → `ModelInstaller` | 状态与 RuntimeEvent；安装文件不伪装成音频 Artifact |
 | `speech.generate` | `SpeechService` → Speech Provider（本地模型使用隔离 Worker） | Task Artifact 与实验记录关联；正式配音文件位于所属 Pipeline 任务目录 |
-| `speech.reference_analyze` | `SpeechService` → 字幕复用、停顿分析或显式 ASR | 分析进度与结构化候选结果，不自动保存声音库素材 |
+| `speech.reference_analyze` | `SpeechService` → 有效字幕复用或显式 ASR | 分析进度与结构化候选结果，不自动保存声音库素材 |
 
 `ExecutorRegistry` 在提交时拒绝未知任务类型。已声明但尚未绑定 callable 的类型也不能被 Dispatcher 执行：它会在执行边界明确失败，不会永久停留在 `pending`。
 
@@ -41,8 +39,8 @@ ASR、LLM 的单次直连接口是底层同步诊断面，不是桌面产品任�
 - 异常统一落在 `failed`，`error.stage` 使用执行时最后已知阶段，`error.code` 和 `detail` 保留可诊断信息。
 - 产物由产物服务以 `task_id` 注册；失败和取消任务不继承其他任务的产物。
 - 普通重试创建新 Task，原任务保持终态，新 Task 的 `retry_of_task_id` 指向原任务；重启加载的历史任务不支持普通重试。
-- 重启时先将有恢复清单的未完成任务保留为 `failed / TASK_INTERRUPTED`，再清理其余未完成任务。符合条件的失败、取消或中断 Pipeline 可通过 `POST /tasks/{id}/resume` 创建新任务；输入、连接与检查点通过校验后复用已完成阶段，中断阶段重跑，不自动续跑或恢复阶段内部进度。
-- BatchRun 的失败项重提会依据批次保存的输入与执行配置创建新的 Pipeline Task，并把新 task_id 追加到对应条目历史；成功项不会重复执行。APP 重启时批次标记为 `interrupted`，用户可显式重提失败项。子任务按上述 Pipeline 恢复规则保留或清理；批次重提与单个 Pipeline 的阶段恢复是不同操作。
+- 重启时先将有恢复清单的未完成任务保留为 `failed / TASK_INTERRUPTED`，再清理其余未完成任务。符合条件的 V1 失败、取消或中断 Pipeline 可通过 `POST /tasks/{id}/resume` 创建新任务；输入、连接与检查点通过校验后复用已完成阶段，中断阶段重跑，不自动续跑或恢复阶段内部进度。
+- BatchRun 的失败项重提按批次原配置创建新 Pipeline Task，并追加条目历史；成功项不重复执行。重启时批次标记 interrupted，但不代表可直接续跑。V2 的私有冻结上下文不持久化，缺少上下文的历史图批次须重新核对后新建；不能从最新设置拼出原任务。V1 检查点恢复与批次重提是不同操作。
 
 ## 3. Pipeline 与 Worker 边界
 
@@ -61,7 +59,7 @@ V2 任务的可显示节点来自其冻结 `execution_profile.graph`，不从固
 
 当前串行 GraphExecutor 在节点开始回调 `i/N`，在节点产物验证成功后回调 `(i+1)/N`。注册器将同阶段进度变化记录为 `stage_progress`，数据含 `state`、原始 `progress`；它不是节点内部耗时百分比。前端仅用同任务、有效时间/sequence、同 node 起止边界确认节点完成，缺证据显示未确认。不得从前序位置、日志文字、单个中间音频产物、另一个节点开始或四舍五入进度推断完成。
 
-V2 任务的 `state=completed` 证明实际图节点全部完成；`failed/cancelled/skipped` 与 SSE 流 `done` 不具有该含义。V1 仅显示明确启用的配置阶段，不能把复用或跳过伪装为实际执行成功。任务中心的最小准确性修复不改变调度、模型请求、任务冻结或混音行为。独立任务中心重设计预览不是生产页面替换。
+V2 任务的 `state=completed` 证明实际图节点全部完成；`failed/cancelled/skipped` 与 SSE 流 `done` 不具有该含义。V1 仅显示明确启用的配置阶段，不能把复用或跳过伪装为实际执行成功。任务中心的最小准确性修复不改变调度、模型请求、任务冻结或混音行为。
 
 
 ## 6. 任务中心列表、详情与产物归属

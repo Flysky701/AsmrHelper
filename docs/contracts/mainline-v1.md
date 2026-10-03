@@ -1,126 +1,37 @@
-# 主链路契约 v1
+# Pipeline 提交契约
 
-> 状态：目标契约  
-> 适用范围：桌面端、后端 API、Pipeline 编排器  
-> 实现差异：见 [兼容与迁移说明](compatibility.md)
+桌面端负责选择、提交、观察和控制；执行内容由后端冻结的配置决定。当前工作台使用 V2 节点图，V1 阶段请求继续兼容。文档文件名保留以维持链接，不表示只接受 V1。
 
-## 1. 目标
-
-桌面端只负责提交、观察和控制任务，不参与后端内部编排。一次主链路请求应完成输入登记、执行配置绑定、任务创建和排队，并立即返回可查询的任务。
-
-主链路固定为：
-
-`输入 → 分离 → ASR → 翻译 → TTS → 混音 → 导出`
-
-当前不支持用户自定义 DAG。阶段可按配置跳过，但顺序和阶段标识保持稳定。
-
-## 2. 桌面端主链路
-
-1. 桌面工作台选中一个输入时提交 `POST /api/v1/pipeline-runs`；选中多个输入时提交 `POST /api/v1/batch-runs`，其中每个批次条目仍创建普通 Pipeline Task。
-2. 后端完成轻量参数校验，创建任务或持久 BatchRun，并返回 `202 Accepted`。
-3. 普通任务通过 `GET /api/v1/tasks/{task_id}` 获取事实状态；批次通过 `GET /api/v1/batch-runs/{batch_id}` 获取聚合事实。
-4. 普通任务完成后，通过 `GET /api/v1/tasks/{task_id}/result` 获取产物；批次条目继续按各自 `task_id` 保留产物归属。
-5. 普通任务按任务取消、重试；BatchRun 额外提供整批取消和失败项重提，但不成为第二套执行器。
-
-桌面端不得依赖后端进程标准输出判断任务状态，也不得自行拼接内部工具命令。
-
-## 3. 权威 API
+## 提交与查询
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| `POST` | `/api/v1/pipeline-runs` | 创建并排队一个主链路任务 |
-| `GET` | `/api/v1/tasks/{task_id}` | 查询任务及各阶段状态 |
-| `GET` | `/api/v1/tasks/{task_id}/result` | 获取最终结果和产物索引 |
-| `POST` | `/api/v1/tasks/{task_id}/cancel` | 请求取消任务 |
-| `POST` | `/api/v1/tasks/{task_id}/retry` | 基于原始请求创建重试任务 |
-| `GET` | `/api/v1/tasks/{task_id}/artifacts` | 查询任务产物 |
+| POST | `/api/v1/pipeline-runs` | 校验并提交一个 Pipeline，返回 202 与 `{task: ...}` |
+| POST | `/api/v1/batch-runs` | 提交明确分组的批次，每组仍由普通 Pipeline Task 执行 |
+| GET | `/api/v1/tasks/{id}` | 查询状态、阶段、进度与结构化错误 |
+| GET | `/api/v1/tasks/{id}/spec` | 查询该任务的公开执行配置 |
+| GET | `/api/v1/tasks/{id}/result` | 查询结果和产物索引 |
+| GET | `/api/v1/tasks/{id}/artifacts` | 查询任务产物 |
+| POST | `/api/v1/tasks/{id}/cancel` | 请求协作取消 |
+| POST | `/api/v1/tasks/{id}/retry` | 按可用条件创建新任务，不覆盖原任务 |
+| POST | `/api/v1/tasks/{id}/resume` | 仅对符合条件的 V1 检查点任务显式恢复 |
 
-`/workspaces`、`/inputs`、`/sessions` 和通用 `/tasks` 属于高级或内部能力。它们可以保留，但不得要求 Workbench 为完成一次默认任务逐级编排这些资源。
+创建前校验结构、素材与所用资源，执行在共享 TaskDispatcher 中继续。桌面不能用 stdout 或旧错误卡代替任务状态；详情、迟到响应和产物须匹配所选任务 ID。选择流程或浏览历史不自动提交。
 
-## 4. 创建请求
+## 请求版本
 
-```json
-{
-  "input": {
-    "path": "E:/media/source.mp4",
-    "companion_paths": []
-  },
-  "output": {
-    "directory": "E:/media/output"
-  },
-  "execution_profile": {
-    "version": 1,
-    "source_lang": "ja",
-    "target_lang": "zh",
-    "stages": {}
-  }
-}
-```
+单任务外层为 `input`、可选 `output` 和 `execution_profile`。`input.path` 仍是必填入口路径；V2 的各输入端口由 `execution_profile.bindings` 决定，不能仅凭入口路径推测所有素材。
 
-字段定义以 [数据结构契约](schemas-v1.md) 为准。
+- **V2**：`{version: 2, graph, bindings}`。图包含节点、连线、素材槽和明确交付结果，不接收另一份全局阶段开关。只检查和执行图中的节点；无效依赖、语言、时间轴、循环或歧义均报错，不补跑全流程。
+- **V1**：`{version: 1, source_lang, target_lang, skip_existing, stages, workflow?}`。旧客户端未给版本且没有 graph 时按 V1 处理；保留已有阶段计划、显式 workflow 与恢复行为，不重新解释为 V2。
+- **V2 批次**：使用共同的 `{version: 2, graph}` 和 `groups: [{group_id, label, bindings}]`。不混用 V1 `inputs`；所有组先通过校验，才创建批次。
 
-创建接口只做可快速完成的校验。模型加载、Provider 连通性和媒体探测等耗时检查由任务的 `prepare` 阶段完成，并通过标准任务错误返回。
+完整字段见[数据结构](schemas-v1.md)与[节点图契约](../guides/workflow-graph-v2.md)。模型、路径、连接和字幕是否可执行仍需后端校验，结构合法不表示真实合成成功。
 
-## 5. 创建响应
+## 状态与结果
 
-成功时返回：
+后端是事实源。任务状态为 pending、running、completed、failed、cancelled 或 skipped，进度范围为 0–1。V2 的执行阶段使用 node ID；生命周期准备阶段可以是 prepare。同类节点是不同实例，不能按能力名称覆盖产物。
 
-```json
-{
-  "task": {
-    "task_id": "task_01",
-    "task_type": "pipeline",
-    "state": "pending",
-    "stage": "prepare",
-    "progress": 0,
-    "message": "Task queued",
-    "error": null,
-    "created_at": "2026-07-23T10:00:00Z",
-    "started_at": null,
-    "finished_at": null
-  }
-}
-```
+公共结果使用 `task_id / primary_artifact_id / artifacts / warnings`。V2 最终交付由图的 outputs 与产物的 node_id/port 对应，未勾选交付的中间产物仍保留给下游。失败、取消或跳过不能伪装成所有节点完成。
 
-HTTP 状态码为 `202`。业务任务执行失败不通过创建请求长时间阻塞后再返回，而是记录为任务状态。
-
-## 6. 阶段语义
-
-| 阶段 | 责任 | 典型产物 |
-| --- | --- | --- |
-| `prepare` | 输入探测、配置解析、运行前检查 | 输入元数据 |
-| `separate` | 人声与伴奏分离 | vocal、accompaniment |
-| `asr` | 语音识别 | 原文字幕 |
-| `translate` | 字幕翻译 | 译文字幕 |
-| `tts` | 语音合成 | 合成语音 |
-| `mix` | 音轨混合 | 混合音频 |
-| `export` | 封装与输出 | 最终视频或音频 |
-
-每个阶段必须产生明确的 `pending`、`running`、`completed`、`failed`、`cancelled` 或 `skipped` 状态。失败时必须注明真实失败阶段，不得统一折叠为“分离失败”或其他前置阶段。
-
-## 7. 队列与并发
-
-- 创建任务必须快速返回，不得在请求线程内执行完整 Pipeline。
-- 同一时刻只有一个任务时，不得因队列状态同步错误长期停留在 `pending`。
-- 后端是任务状态的唯一事实源；桌面端只展示，不推断状态。
-- 取消是请求语义。后端确认停止后，任务才进入 `cancelled`。
-- 重试创建新任务，并通过实现内部关联保留来源；不得覆盖原任务事实。
-- 终态任务（`completed`、`failed`、`cancelled`、`skipped`）及其产物索引持久化为历史记录。
-- APP 重启时，有恢复清单的未完成 Pipeline 保留为 `failed / TASK_INTERRUPTED`；其余未完成任务及其临时产物索引清理，不自动执行。
-- 历史任务不支持普通重试。具备有效恢复清单、原始输入与连接配置的失败、取消或中断 Pipeline 可显式创建新的恢复任务；已完成阶段经校验后复用，中断阶段重跑。其他任务需重新提交，不承诺阶段内部恢复。
-- 持久化历史不等同于持久化执行队列。当前低并发场景保留进程内线程，不建设独立调度器；未来只有在真实并发需求出现后才重新设计。
-
-## 8. 验收条件
-
-- 默认参数能够提交任务并立即获得 `task_id`。
-- 每个失败均能定位到阶段、错误代码和可读消息。
-- 任务完成后，结果接口能返回一个明确的主产物。
-- 前端无需读取后端日志即可区分排队、执行、失败、完成和取消。
-- Provider 私有参数不会泄漏为跨层必填字段。
-## 9. Task V1 execution boundary
-
-The mainline and other long-running capabilities execute through the existing `TaskDispatcher`. `ExecutorRegistry` is the submission allow-list and concrete handler binding: unknown task types are rejected, and a missing callable becomes an explicit failure at dispatch.
-
-Terminal states `completed`, `failed`, `cancelled`, and `skipped` do not accept lifecycle updates. Cancellation is a request; the dispatcher writes final `cancelled` only after the executor exits. Retry creates a new task with `retry_of_task_id`, and every artifact remains owned by the task that produced it.
-
-See [Task Execution V1](task-execution-v1.md).
+重试创建新任务；批次由自身控制入口管理，不能通过单任务重试绕开分组归属。V2 不支持部分续跑、自动重跑或节点缓存；允许的显式重试从头执行该组图。V1 的检查点、远端结果未知保护与任务历史持久化见[任务执行契约](task-execution-v1.md)。

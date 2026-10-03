@@ -1,73 +1,27 @@
-# AsmrHelper 文档索引
+# 文档
 
-## 使用参考与目录约定
+这里只维护当前行为和使用入口；过去的设计、排查过程与阶段验收通过 Git 历史查阅。
 
-- [工作台输入与伴随字幕](guides/workbench.md)
-- [音色描述词指南](guides/voice-description.md)
-- [历史模型下载备注](references/model-notes.md)：安装信息以 `config/models.yaml` 为准。
-- [待评估模型](roadmap/future-models.md)
-- [早期界面草图](archived/designs/sketch-2026-05-22T18-31-25.sketch.json)
+## 安装与使用
 
-根目录保留源码、配置、启动入口和依赖清单；指南、评估及历史材料统一放在 `docs/`。
-`tests/test_*.py` 是正式回归测试；一次性探测产物放 `.tmp/`，工具缓存统一放 `.cache/`。
-清理时保留 `models/`、`.runtimes/`、`.venv/`、`output/`、用户配置及原始测试素材。
+- [安装、运行、数据与备份](guides/installation.md)
+- [工作台](guides/workbench.md)
+- [节点流水线与图契约](guides/workflow-graph-v2.md)
+- [声音库、音色规则与试听](guides/voice-lab-v2.md)
+- [TTS 能力、连接与执行](guides/tts.md)
+- [声音库识别与手动选段](guides/reference-selection.md)
+- [声音库会话与页面切换](guides/reference-session-lifecycle.md)
+- [音色描述词](guides/voice-description.md)
 
-## 当前权威文档
+## 开发与接口
 
-TTS 的唯一当前入口是 [统一 TTS 指南](guides/tts.md)，其中链接声音库操作及迁移边界。其余文档只描述各自领域，不重复维护 TTS 参数、服务枚举或默认值。
+- [开发、目录职责与验证](guides/development.md)
+- [分支与发布](guides/branch-workflow.md)
+- [Pipeline 提交契约](contracts/mainline-v1.md)
+- [请求、任务、产物与事件字段](contracts/schemas-v1.md)
+- [任务执行、重试与恢复](contracts/task-execution-v1.md)
+- [Provider、设置与就绪检查](contracts/provider-v1.md)
+- [Provider / Model 接入](contracts/provider-model-onboarding.md)
+- [现有格式的兼容边界](contracts/compatibility.md)
 
-建议按以下顺序阅读：
-
-1. [当前源码基线](roadmap/current-source-baseline.md)：当前分支源码、入口、删除项、限制和验证状态。
-2. [后端能力事实清单](roadmap/backend-capability-baseline.md)：区分已实现、环境可执行、真实验收、已接线和受限能力。
-3. [主链路契约 v1](contracts/mainline-v1.md)：桌面端到后台任务的最小稳定流程。
-4. [Task Execution V1](contracts/task-execution-v1.md)：统一执行器、生命周期、取消、重提和 Artifact 归属。
-5. [数据结构契约 v1](contracts/schemas-v1.md)：请求、任务、错误、执行配置和产物字段。
-6. [Provider 与设置契约 v1](contracts/provider-v1.md)：能力、设置、凭据和运行前检查。
-7. [Provider / Model 轻量接入流程](contracts/provider-model-onboarding.md)：新增引擎或模型时使用的最小检查清单。
-8. [兼容与迁移说明](contracts/compatibility.md)：当前实现与目标契约的差异及迁移顺序。
-
-契约描述目标边界，源码基线描述当前事实。两者存在差异时，不应猜测；先在兼容说明登记，再通过测试和源代码确认。
-
-## 领域边界
-
-- [领域边界总览](domains/README.md)：输入、任务、Pipeline、Provider、文本资产和产物预览的责任划分。
-
-ASR、LLM 等通用能力按 Provider 契约扩展；TTS 以 Speech Provider 为唯一能力来源，接入规则见统一 TTS 指南。
-
-## 路线图与进度
-
-- [当前源码基线](roadmap/current-source-baseline.md)
-- [后端能力事实清单](roadmap/backend-capability-baseline.md)
-- [多引擎支持入口指引](roadmap/multi-engine-status.md)：指向当前基线与历史验收，不重复维护状态矩阵。
-- [运行环境隔离入口指引](roadmap/runtime-environment-isolation-todo.md)：指向安装与运行时说明，不重复维护环境清单或 TODO。
-
-2026-08-21 已将阶段性计划、旧进度快照、旧架构审计、旧验收矩阵和根目录重构草案移入历史归档；状态快照位于 [历史路线图](archived/roadmap/)，计划和架构草案位于 [已执行计划](archived/plans/)。它们只用于追溯，不再参与当前执行顺序。
-
-## 设计草案
-
-日常开发和发布流程见 [分支与发布约定](guides/branch-workflow.md)，本次迁移见 [2026-09-29 基线整理记录](roadmap/git-baseline-cleanup-2026-09-29.md)。
-
-- [声音库与音色生成规则（当前使用说明）](guides/voice-lab-v2.md)
-- [音色实验室 v2：完整目标与交互预览（历史设计草案）](designs/voice-lab-v2-product-preview.md)
-- [音色实验室初版专项设计（历史草案，范围已调整）](designs/voice-lab-multi-engine-design.md)
-- [耳语 TTS 功能探索与接入评估](designs/whisper-tts-feasibility.md)
-- [桌面端 UI 重设计蓝图](designs/desktop-ui-redesign-blueprint.md)
-- [模型资产管理需求草案](designs/model-asset-management-requirements.md)
-- [模型资产元数据与安装契约草案](designs/model-asset-schema-design.md)
-- [轻量结果预览方案](designs/lightweight-result-preview.md)
-
-设计草案用于讨论后续能力，不自动代表已经实现；草案中的 API 和字段必须以当前契约和源码为准。
-
-## 历史归档
-
-- [归档说明](archived/README.md)
-- [历史契约](archived/contracts/)
-- [历史领域文档](archived/domains/)
-- [历史路线图](archived/roadmap/)
-- [多引擎支持历史快照（2026-08-18）](archived/roadmap/multi-engine-status-2026-08-18.md)
-- [运行环境隔离历史快照（截至 2026-08-18）](archived/roadmap/runtime-environment-isolation-2026-08-18.md)
-- [已执行计划](archived/plans/)
-- [历史排查日志](archived/logs/)
-
-归档内容只用于追溯，不再作为当前开发入口。
+工作台以 V2 图为执行依据；V1 请求及历史数据的兼容并不代表桌面仍使用固定全流程。HTTP 字段以 [Pydantic schema](../src/api/http/schemas/) 为准，运行实例可通过 `/docs` 或 `/openapi.json` 查看接口定义。模型资源以 [模型目录](../config/models.yaml) 为准，实际可运行性还取决于本机依赖和服务权限。

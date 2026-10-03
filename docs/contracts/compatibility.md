@@ -1,74 +1,27 @@
-# 契约兼容与迁移说明
+# 兼容边界
 
-> 本文记录“当前实现”与“目标契约”的差异。目标契约见同目录其他 v1 文档；历史设计不再作为实现依据。
+清理源码和文档不改变已保存配置、公开 API、任务历史或图文件的含义。新增桌面流程使用 V2，兼容数据由原解析路径校验，不自动补节点、改语言或替换连接。
 
-## 1. 当前主要差异
-
-| 项目 | 当前实现或旧文档 | v1 目标 |
-| --- | --- | --- |
-| Pipeline 创建 | 仅支持 `POST /pipeline-runs` 一次提交并返回 `202` | `POST /pipeline-runs` 一次提交并立即返回 `202` |
-| 执行配置 | HTTP 仅接受统一 `StageProfile` | 每个阶段使用统一 `StageProfile` |
-| 进度范围 | 旧示例同时出现 `42` 和 `0.42` | 固定 `0.0` 到 `1.0` |
-| TTS 标识 | `edge` 与 `edge_tts` 混用 | `edge` |
-| 语言代码 | `zh` 与 `zh-CN` 混用 | 当前稳定使用 `ja`、`zh`、`en` |
-| 设置写入 | 后端使用 `{ "settings": ... }`，桌面端曾存在直传或错误方法 | 统一 `PUT` 和 `{ "settings": ... }` |
-| 凭据读取 | 掩码字符串兼作状态 | 独立 `credential_configured` |
-| Provider 测试 | 部分实现只检查字段是否存在 | 执行真实连通性或最小推理测试 |
-| 错误展示 | 已按后端 `stage` 和结构化错误展示 | 展示完整 `TaskError` 和真实阶段 |
-| 任务执行 | 已移出 API 请求线程；SQLite 保留历史、产物及 Pipeline 恢复清单，重启保留可恢复中断任务，其余未完成任务清理 | 低并发场景保留进程内线程；Pipeline 显式阶段恢复，不自动续跑或建设独立调度器 |
-| 产物 | 存在 `artifact_set_id` 等内部结构 | 公共结果以 `primary_artifact_id` 和 `artifacts` 为准 |
-| 运行事件 | 旧 SSE 推送整份 TaskStatus | SSE 推送单任务递增 RuntimeEvent；TaskStatus 仍是唯一状态事实 |
-
-## 2. 旧接口策略
-
-- 只支持当前 V1 客户端；`/pipeline/run`、`/pipeline/tasks`、`/pipeline-runs/start`、`/pipeline-runs/execute`、旧同步工具执行和旧 `/tools/*` 动作接口已删除。
-- `POST /pipeline-runs` 不再接受平铺 Pipeline 参数，只接受 `input/output/execution_profile`。
-- 公共结果固定为 TaskResult；HTTP 响应不得出现 `files/primary_output`。
-- 内部旧 DTO 或解析分支不得成为新能力入口，并应继续逐步移除。
-
-### 2.1 当前保留边界与删除条件
-
-| 兼容项 | 当前真实用途 | 删除条件 |
-| --- | --- | --- |
-| Python core 旧入口 | `src.core.model_manager` 与 `src.core.translate` 已删除；翻译、字幕和模型服务分别由各领域 registry 提供 | 已完成；历史负向架构测试已删除 |
-| 路径型 `primary_output/files` | 仅存在于内部执行器模型 | 内部执行器全面改用 ArtifactRecord 后删除 |
-
-## 3. 回归基线
-
-至少覆盖：
-
-- 默认参数启动一条完整任务；
-- 缺少 Python 依赖时定位到实际阶段和依赖名；
-- TTS 未返回音频时报告 `tts / PROVIDER_RESPONSE_INVALID`；
-- 单任务不会永久停留在队列；
-- 取消与重试不会覆盖原任务；
-- 重启后终态历史和产物索引存在；有恢复清单的中断 Pipeline 标为失败并保留，符合条件时可显式阶段恢复，其余未完成任务清理；
-- 设置保存后可读取脱敏状态，并能执行 Provider 实测；
-- 最终结果存在一个明确主产物。
-
-## 4. 接口精简（2026-09-10）
-
-项目仅维护同仓桌面端和当前 V1 客户端；本轮直接迁移调用方，不增加兼容转发。
-
-| 原入口 | 当前入口 |
+| 保留内容 | 当前规则 |
 | --- | --- |
-| POST `/tasks/{id}/review-status` | PATCH `/tasks/{id}/review` |
-| POST `/tasks/{id}/review-note` | PUT `/tasks/{id}/review-note` |
-| GET `/task-queue` | GET `/tasks/queue` |
-| GET `/settings/effective` | GET `/settings` |
-| GET `/capabilities/{category}` | GET `/capabilities?category=...` |
-| GET `/pipeline-runs/{id}`、`/tool-runs/{id}`、`/artifacts/by-task/{id}/result` | GET `/tasks/{id}/result` |
-| 上述 Pipeline/Tool 的 `/artifacts`、`/artifacts/by-task/{id}` | GET `/tasks/{id}/artifacts` |
-| POST `/pipeline/batch` | POST `/batch-runs`，使用现有 BatchRun 请求结构 |
-| GET `/tool-runs` | GET `/tools`（工具目录） |
-| POST `/tool-runs/tasks` | POST `/tool-runs`（创建并提交任务，201） |
-| POST `/subtitles/script-to-vtt` | POST `/subtitles/script-to-subtitle` |
-| POST `/subtitles/script-to-vtt/tasks` | POST `/subtitles/script-to-subtitle/tasks` |
+| Pipeline V1 | 未给版本且无 graph 的请求按 V1 解析；保留 StageProfile、model=null、显式 workflow 及符合条件的阶段恢复 |
+| Pipeline V2 | graph 与 bindings 是唯一执行依据；图任务和批次仍通过原 Dispatcher，不新增执行队列 |
+| 旧 export 节点 | 类型名与 subtitle_format 保留，界面显示“字幕格式转换”；SRT/VTT 输入，SRT/VTT/LRC 输出 |
+| 旧 audio_export 节点 | 仍可读取、编辑、执行原格式复制，但不出现在新建模块库；不悄悄删节点或改已有快照 |
+| 音色与连接 | 音色规则使用不可变修订，任务固定原快照；默认连接变化不覆盖已有明确引用，失效引用须明确修复 |
+| 旧配置原始数据 | 不清除原始设置或导入账本；旧语音配置导入界面/API 已移除，不把旧全局 TTS 字段恢复为新执行入口 |
+| 任务和产物 | 保留稳定 task_id、artifact_id、批次成员与旧修订；内部持久任务类型 subtitle.script_to_vtt 继续兼容 |
 
-结果字段保持 `task_id / primary_artifact_id / artifacts / warnings`。`ArtifactResponse` 和 `TaskResultResponse` 是规范 schema 名称；批量任务条目复用 `TaskCreateRequest`。
-台本请求与响应统一为 `ScriptToSubtitleRequest/Response`，因为输出支持 VTT、SRT 和 LRC。
-内部已持久化的任务类型 `subtitle.script_to_vtt` 保留，避免改动已有任务历史。
+旧 `/tts/*`、`/voice/*`、`/pipeline/run` 等已退出的 HTTP 入口不提供转发；当前路由以运行实例 OpenAPI 为准。CLI 和现有 V1 请求仍沿各自服务入口，不能据路由清理删除实际仍被调用的内部适配器。
 
-ASR/LLM 的同步诊断、字幕同步编辑、模型状态与能力目录的职责不同，保留各自入口。TTS 统一到 Speech；旧 TTS 配置和命令兼容边界以 [统一 TTS 指南](../guides/tts.md) 为准。
-CLI 的批量执行仍使用原应用服务；本轮只删除无人调用的同步批量 HTTP 入口。
-历史设计和旧验收材料通过 Git 历史追溯，不在工作树保留归档副本。
+## 流程预设和草稿
+
+内置目录来自 `config/presets.yaml`，自定义定义及活动索引使用 `config/voice_lab/flow_presets.json`。同一服务提供 V1/V2 视图；GET 默认只返回 V1，客户端通过 include_graph=true 读取图预设。
+
+V3 目录读取旧 V1/V2 文件时只计算视图，不写盘。首次显式保存、删除索引或恢复前按原文件 SHA256 保存 `flow_presets.json.pre-v3.<SHA256>.bak`，验证后原子替换。损坏、修订冲突、外部修改或备份失败均阻止覆盖。
+
+源内置定义与旧用户记录重合时，只有 ID、修订和配置匹配（允许已声明的可选 null 差异）才在视图中归为内置；冲突保留原数据并报错。旧目录索引和历史自定义按既有格式处理，不根据名字批量删除。
+
+内置删除只移出活动索引，可以明确恢复；自定义永久删除需确认。操作不会修改已提交快照，也不覆盖当前未保存图。无法识别的持久草稿保留供恢复。
+
+回退程序前先保护当前目录及草稿，再在停止实例后决定是否恢复旧格式备份；不要让旧程序覆盖新目录。Git 回退不自动回退数据库、凭据、音色或浏览器数据，备份位置见[安装指南](../guides/installation.md#数据与备份)。
