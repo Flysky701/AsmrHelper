@@ -1,6 +1,6 @@
 [package]
 name = "asmr-helper"
-version = "0.2.1-beta.3"
+version = "0.2.1-beta.4"
 edition = "2021"
 
 [lib]
@@ -17,4 +17,4 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_JobObjects"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_Storage_FileSystem"] }

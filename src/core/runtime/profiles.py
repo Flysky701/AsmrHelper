@@ -486,12 +486,13 @@ class RuntimeProfileResolver:
         from src.workspace_paths import model_directory, temporary_directory
         env["ASMR_HELPER_MODEL_ROOT"] = str(model_directory(project_root=self.project_root))
         env["ASMR_HELPER_TEMP_ROOT"] = str(temporary_directory(project_root=self.project_root))
-        env.setdefault("UV_CACHE_DIR", str(self.project_root / ".uv-cache"))
-        env.setdefault("UV_PYTHON_INSTALL_DIR", str(self.project_root / ".runtimes" / "python"))
+        from src.workspace_environment import application_environment
+        temporary = temporary_directory(project_root=self.project_root)
+        temporary.mkdir(parents=True, exist_ok=True)
+        env.update(application_environment(self.project_root, temporary=temporary))
         python_paths = [str(APP_ROOT), env.get("PYTHONPATH", "")]
         env["PYTHONPATH"] = os.pathsep.join(path for path in python_paths if path)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
-        env.setdefault("NUMBA_CACHE_DIR", str(self.project_root / ".cache" / "numba"))
         tool_dir = env.get("ASMR_HELPER_TOOL_DIR", "").strip()
         if tool_dir:
             env["PATH"] = tool_dir + os.pathsep + env.get("PATH", "")

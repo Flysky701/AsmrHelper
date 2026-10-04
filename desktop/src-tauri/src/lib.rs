@@ -3,13 +3,17 @@ use tauri_plugin_dialog::DialogExt;
 #[cfg(windows)]
 mod backend;
 #[cfg(windows)]
+mod workspace;
+#[cfg(windows)]
 mod single_instance {
     use std::iter;
     use std::ptr;
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
+    use std::sync::atomic::{AtomicIsize, Ordering};
     use windows_sys::Win32::System::Threading::CreateMutexW;
 
-    pub struct InstanceMutex(HANDLE);
+    static INSTANCE_HANDLE: AtomicIsize = AtomicIsize::new(0);
+    pub struct InstanceMutex;
 
     impl InstanceMutex {
         pub fn acquire() -> Result<Self, u32> {
@@ -31,15 +35,20 @@ mod single_instance {
                 unsafe { CloseHandle(handle) };
                 return Err(last_error);
             }
-            Ok(Self(handle))
+            INSTANCE_HANDLE.store(handle as isize, Ordering::SeqCst);
+            Ok(Self)
         }
     }
 
-    impl Drop for InstanceMutex {
-        fn drop(&mut self) {
-            // SAFETY: this handle is owned by the guard and closed once here.
-            unsafe { CloseHandle(self.0) };
+    pub fn release_for_restart() {
+        let handle = INSTANCE_HANDLE.swap(0, Ordering::SeqCst);
+        if handle != 0 {
+            // Close only this process's owned mutex, after task admission is frozen.
+            unsafe { CloseHandle(handle as _) };
         }
+    }
+    impl Drop for InstanceMutex {
+        fn drop(&mut self) { release_for_restart(); }
     }
 }
 
@@ -55,38 +64,18 @@ pub fn run() {
         }
     };
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            #[cfg(windows)]
-            let backend = match backend::Backend::start(app) {
-                Ok(value) => value,
-                Err(error) => {
-                    app.dialog()
-                        .message(error.to_string())
-                        .title("ASMR Helper Test - Startup failed")
-                        .kind(tauri_plugin_dialog::MessageDialogKind::Error)
-                        .blocking_show();
-                    return Err(error);
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    #[cfg(windows)]
+    let builder = builder.invoke_handler(tauri::generate_handler![workspace::workspace_info, workspace::workspace_choose, workspace::workspace_schedule_switch, workspace::workspace_restart]);
+    builder.setup(|app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Err(error) = initialize_desktop(&handle) {
+                    handle.dialog().message(error.to_string()).title("ASMR Helper Test - Startup failed")
+                        .kind(tauri_plugin_dialog::MessageDialogKind::Error).blocking_show();
+                    handle.exit(1);
                 }
-            };
-            let mut window = tauri::WebviewWindowBuilder::new(
-                app,
-                "main",
-                tauri::WebviewUrl::App("index.html".into()),
-            )
-            .title("ASMR Helper Test 0.2.1-beta.3")
-            .inner_size(1200.0, 800.0)
-            .min_inner_size(900.0, 600.0)
-            .center();
-            #[cfg(windows)]
-            {
-                if let Some(ref service) = backend {
-                    window = window.initialization_script(service.init_script());
-                }
-                app.manage(backend::BackendState::new(backend));
-            }
-            window.build()?;
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -111,4 +100,45 @@ pub fn run() {
                 }
             }
         });
+}
+
+fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+            #[cfg(windows)]
+            let workspace = match workspace::WorkspaceState::initialize(app)? {
+                Some(workspace) => workspace,
+                None => { app.exit(0); return Ok(()); }
+            };
+            #[cfg(windows)]
+            let backend = match backend::Backend::start(app, &workspace.active) {
+                Ok(value) => value,
+                Err(error) => {
+                    app.dialog()
+                        .message(error.to_string())
+                        .title("ASMR Helper Test - Startup failed")
+                        .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                        .blocking_show();
+                    return Err(error);
+                }
+            };
+            let mut window = tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("ASMR Helper Test 0.2.1-beta.4")
+            .inner_size(1200.0, 800.0)
+            .min_inner_size(900.0, 600.0)
+            .center();
+            #[cfg(windows)]
+            {
+                if let Some(ref service) = backend {
+                    window = window.initialization_script(service.init_script());
+                }
+                std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", workspace.active.join(".cache/webview2"));
+                window = window.data_directory(workspace.active.join(".cache/webview2"));
+                app.manage(workspace);
+                app.manage(backend::BackendState::new(backend));
+            }
+            window.build()?;
+    Ok(())
 }

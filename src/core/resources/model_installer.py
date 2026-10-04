@@ -344,7 +344,8 @@ class ModelInstaller:
 
     @staticmethod
     def _build_download_env(mirror: Optional[str]) -> dict[str, str]:
-        env = os.environ.copy()
+        from src.core.runtime.profiles import get_runtime_profile_resolver
+        env = get_runtime_profile_resolver().subprocess_env()
         if mirror:
             env["HF_ENDPOINT"] = mirror
         env.setdefault("HF_HUB_ETAG_TIMEOUT", "30")

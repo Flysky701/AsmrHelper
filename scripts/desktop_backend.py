@@ -9,7 +9,7 @@ import subprocess
 import sys
 import uuid
 
-VERSION = "0.2.1-beta.3"
+VERSION = "0.2.1-beta.4"
 
 def extended_path(path: Path) -> Path:
     """Use Win32 extended paths without requiring a machine policy change."""
@@ -50,9 +50,13 @@ def configure_environment(bundle: Path, data: Path) -> None:
     os.environ["IMAGEIO_FFMPEG_EXE"] = str(bundle / "ffmpeg" / "bin" / "ffmpeg.exe")
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     os.environ["PYTHONUTF8"] = "1"
-    os.environ["NUMBA_CACHE_DIR"] = str(data / ".cache" / "numba")
-    os.environ["UV_CACHE_DIR"] = str(data / ".uv-cache")
-    os.environ["UV_PYTHON_INSTALL_DIR"] = str(data / ".runtimes" / "python")
+    sys.path.insert(0, str(bundle / "app"))
+    from src.workspace_environment import application_environment
+    import tempfile
+    os.environ.update(application_environment(data))
+    Path(os.environ["TEMP"]).mkdir(parents=True, exist_ok=True)
+    tempfile.tempdir = None
+    os.environ["PYTHONNOUSERSITE"] = "1"
     os.environ["PATH"] = os.pathsep.join([str(bundle / "tools"), str(bundle / "ffmpeg" / "bin"), os.environ.get("PATH", "")])
     os.environ["PYTHONPATH"] = str(bundle / "app")
     sys.path.insert(0, str(bundle / "app"))
@@ -82,6 +86,14 @@ def serve(bundle: Path, data: Path, port: int, token: str) -> None:
     @app.get("/__desktop/health")
     def desktop_health():
         return {"status": "ok", "version": VERSION}
+    @app.get("/__desktop/workspace-switch-ready")
+    def workspace_switch_ready():
+        from src.app.services.task_service import get_task_service
+        return {"ready": get_task_service().workspace_switch_ready()}
+    @app.post("/__desktop/workspace-switch-ready")
+    def prepare_workspace_switch():
+        from src.app.services.task_service import get_task_service
+        return {"ready": get_task_service().prepare_workspace_switch()}
     @app.post("/__desktop/shutdown")
     def shutdown():
         server.should_exit = True
@@ -97,7 +109,7 @@ def main() -> int:
     bundle = extended_path(Path(__file__).resolve().parent.parent)
     data = extended_path(args.data_dir.resolve())
     if data == bundle or bundle in data.parents:
-        raise RuntimeError("User data must be outside the installation directory")
+        raise RuntimeError("Workspace must be outside the bundled backend resources")
     data.mkdir(parents=True, exist_ok=True)
     token = os.environ.get("ASMR_HELPER_DESKTOP_TOKEN", "")
     if len(token) < 32:
@@ -107,8 +119,8 @@ def main() -> int:
         return 0
     if os.environ.get("ASMR_HELPER_START_GATE") == "1" and sys.stdin.readline().strip() != "start":
         raise RuntimeError("Desktop process did not authorize startup")
-    python = prepare_runtime(bundle, data)
     configure_environment(bundle, data)
+    python = prepare_runtime(bundle, data)
     return subprocess.call([str(python), "-I", "-B", str(Path(__file__).resolve()), "--serve", "--data-dir", str(data), "--port", str(args.port)])
 
 if __name__ == "__main__":

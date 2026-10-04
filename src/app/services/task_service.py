@@ -29,6 +29,7 @@ class TaskService:
         self._restored_task_ids: set[str] = set()
         self._connection_snapshots: dict[str, dict] = {}
         self._directory_snapshots: dict[str, dict] = {}
+        self._workspace_switch_reserved = False
         self._graph_connection_snapshots: dict[str, dict] = {}
         self._connection_records: dict[str, dict] = {}
         self.recovery_store = None
@@ -81,6 +82,8 @@ class TaskService:
         frozen_graph_connections: dict | None = None,
     ) -> tuple[TaskSpec, TaskStatus]:
         with self._lock:
+            if self._workspace_switch_reserved:
+                raise AppValidationError("正在重启以切换工作目录，暂时不能创建新任务")
             from src.config import config
 
             from src.task_connection_context import resolve_task_settings
@@ -257,6 +260,8 @@ class TaskService:
 
     def retry_task(self, task_id: str, message: str = "queued for retry", *, _batch_managed: bool = False) -> TaskStatus:
         with self._lock:
+            if self._workspace_switch_reserved:
+                raise AppValidationError("正在重启以切换工作目录，暂时不能重试任务")
             if task_id in self._restored_task_ids:
                 raise AppValidationError(
                     "historical tasks cannot be retried after restart; submit a new task"
@@ -434,6 +439,17 @@ class TaskService:
     def can_start(self) -> bool:
         with self._lock:
             return self._registry.can_start()
+
+    def workspace_switch_ready(self) -> bool:
+        with self._lock:
+            return all(task.state in {"completed", "failed", "cancelled"} for task in self._registry.list_tasks())
+
+    def prepare_workspace_switch(self) -> bool:
+        with self._lock:
+            if not self.workspace_switch_ready():
+                return False
+            self._workspace_switch_reserved = True
+            return True
 
     def list_tasks(self, *, state: str | None = None) -> list[TaskStatus]:
         with self._lock:

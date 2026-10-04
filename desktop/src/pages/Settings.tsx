@@ -9,6 +9,7 @@ import { useFileSelector } from '@/hooks/useFileSelector'
 import { useNavStore } from '@/stores/navStore'
 import { presetDeleteConfirmation, useWorkflowStore } from '@/stores/workflowStore'
 import './Settings.css'
+import WorkspaceSettings from '@/components/WorkspaceSettings'
 
 type Preset = PresetItem | GraphPresetItem
 type Paths = SettingsView['paths']
@@ -39,6 +40,7 @@ export default function Settings() {
   const [notice, setNotice] = useState('')
   const [actionError, setActionError] = useState('')
   const [working, setWorking] = useState(false)
+  const [workspaceBusy, setWorkspaceBusy] = useState(false)
   const [modal, setModal] = useState<{ kind: 'copy' | 'restore'; preset: Preset; label: string } | null>(null)
   const dialog = useRef<HTMLDialogElement>(null)
   const [paths, setPaths] = useState<Paths>(EMPTY_PATHS)
@@ -55,7 +57,7 @@ export default function Settings() {
   pathState.current = { paths, savedPaths, pathsSaving, browsing }
   const dirty = !!savedPaths && PATH_FIELDS.some(field => paths[field.key] !== savedPaths[field.key])
   const navigation = useRef({ dirty, busy: false })
-  const busy = working || workflow.saving || pathsSaving || browsing !== null
+  const busy = workspaceBusy || working || workflow.saving || pathsSaving || browsing !== null
   navigation.current = { dirty, busy: busy || modal !== null }
   const guardRef = useRef<(() => Promise<boolean>) | null>(null)
   const catalogBusy = busy || workflow.catalogLoading || workflow.archivedLoading
@@ -244,6 +246,8 @@ export default function Settings() {
             <dl><div><dt>适用输入</dt><dd>{inputs(selected)}</dd></div><div><dt>交付内容</dt><dd>{outputs(selected)}</dd></div><div><dt>来源</dt><dd>{selected.builtin ? '内置 · 另存后编辑' : '自定义'} · 修订 {selected.revision}</dd></div></dl><div className="settings-definition-footer"><small>不绑定实际文件，不启动任务</small><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => catalogTab === 'active' ? void openEditor(selected) : openModal('restore', selected)}>{catalogTab === 'active' ? selected.builtin ? '另存并编辑 ↗' : '编辑流水线 ↗' : '恢复到目录'}</button></div>
           </> : <div className="settings-empty"><Icon kind="graph" /><strong>选择一个流水线</strong><p>查看输入、节点与交付内容。</p></div>}</aside></div>
         </> : <>
+          <WorkspaceSettings disabled={busy || dirty || pathsLoading} onBusy={setWorkspaceBusy} />
+          {dirty && <p className="settings-paths-summary">请先保存或放弃下方路径草稿，再切换工作目录。</p>}
           {pathsLoading && <p className="settings-status" role="status">正在读取路径…</p>}
           {pathsLoadError && <p className="settings-status error" role="alert">{pathsLoadError}<button onClick={() => void loadPaths()} disabled={pathsLoading || busy}>重试</button></p>}
           {pathsMessage && <p className={`settings-status${pathsSaveError ? ' error' : ''}`} role={pathsSaveError ? 'alert' : 'status'}>{pathsMessage}</p>}

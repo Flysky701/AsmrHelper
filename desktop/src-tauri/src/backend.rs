@@ -3,7 +3,7 @@ use std::{
     fs,
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
-    path::PathBuf,
+    path::Path,
     process::{Child, Command, Stdio},
     sync::Mutex,
     time::{Duration, Instant},
@@ -46,7 +46,7 @@ impl Backend {
         Ok(response)
     }
 
-    pub fn start(app: &tauri::App) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub fn start(app: &tauri::AppHandle, data: &Path) -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let bundle = app.path().resource_dir()?.join("backend");
         if !bundle.join("app/desktop_backend.py").is_file() {
             if cfg!(debug_assertions) {
@@ -54,10 +54,8 @@ impl Backend {
             }
             return Err("Bundled backend is missing. Please reinstall ASMR Helper Test.".into());
         }
-        let data: PathBuf = std::env::var_os("ASMR_HELPER_DATA_DIR")
-            .map(PathBuf::from)
-            .unwrap_or(app.path().local_data_dir()?.join("ASMRHelperTestData"));
         fs::create_dir_all(data.join("logs"))?;
+        fs::create_dir_all(data.join("debug/runtime"))?;
         let log = fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -98,6 +96,11 @@ impl Backend {
             .env("ASMR_HELPER_DESKTOP_TOKEN", &token)
             .env("ASMR_HELPER_START_GATE", "1")
             .env("PYTHONUTF8", "1")
+            .env("TEMP", data.join("debug/runtime"))
+            .env("TMP", data.join("debug/runtime"))
+            .env("TMPDIR", data.join("debug/runtime"))
+            .env_remove("ASMR_HELPER_MODEL_ROOT")
+            .env_remove("ASMR_HELPER_TEMP_ROOT")
             .current_dir(&data)
             .stdin(Stdio::piped())
             .stdout(Stdio::from(log.try_clone()?))
@@ -141,6 +144,15 @@ impl Backend {
             data.join("logs/launcher.log").display()
         )
         .into())
+    }
+
+    pub fn workspace_switch_ready(&self, reserve: bool) -> Result<(), String> {
+        let response = self.request(if reserve { "POST" } else { "GET" }, "/__desktop/workspace-switch-ready")
+            .map_err(|_| "无法确认任务状态，请稍后重试。".to_string())?;
+        let value: serde_json::Value = serde_json::from_str(response.split_once("\r\n\r\n").map(|(_, body)| body).unwrap_or(""))
+            .map_err(|_| "任务状态响应不可用，未切换目录。".to_string())?;
+        if value["ready"] != true { return Err("仍有排队或运行中的任务，请完成或取消任务后再切换工作目录。".into()); }
+        Ok(())
     }
 
     pub fn init_script(&self) -> String {
