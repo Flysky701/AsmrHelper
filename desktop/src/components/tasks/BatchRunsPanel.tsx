@@ -1,3 +1,4 @@
+import { displayPath } from '@/utils/displayPath'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 
@@ -441,18 +442,18 @@ export default function BatchRunsPanel() {
                     <div className="batch-runs-item" key={item.item_id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 150px', gap: 16, padding: '13px 18px', borderBottom: '1px solid var(--border)', alignItems: 'start' }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{historyDeleted ? `历史已删除 · ${item.group_id || item.item_id}` : fileName(item.input_path)}</div>
-                        <div style={{ marginTop: 4, fontSize: 10, color: 'var(--muted)', overflowWrap: 'anywhere' }}>{item.input_path}</div>
+                        <div style={{ marginTop: 4, fontSize: 10, color: 'var(--muted)', overflowWrap: 'anywhere' }}>{displayPath(item.input_path)}</div>
                         <div style={{ marginTop: 6, fontSize: 10, color: 'var(--muted)', overflowWrap: 'anywhere' }}>
                           当前任务：{historyDeleted ? '历史已删除' : item.current_task_id || '尚未创建'}
                           {historyDeleted && item.task_ids.length ? ` · 仍保留 ${item.task_ids.length} 条历史尝试` : item.task_ids.length > 1 ? ` · ${item.task_ids.length} 次尝试` : ''}
                         </div>
                         {item.companion_paths.length > 0 ? (
                           <div style={{ marginTop: 5, fontSize: 10, color: 'var(--muted)', overflowWrap: 'anywhere' }}>
-                            伴随文件：{item.companion_paths.join('、')}
+                            伴随文件：{item.companion_paths.map(displayPath).join('、')}
                           </div>
                         ) : null}
                         {item.message ? <div style={{ marginTop: 6, fontSize: 10, color: 'var(--muted-strong)', overflowWrap: 'anywhere' }}>{item.message}</div> : null}
-                        {!historyDeleted && item.output_path ? <div style={{ marginTop: 5, fontSize: 10, color: 'var(--success)', overflowWrap: 'anywhere' }}>输出：{item.output_path}</div> : null}
+                        {!historyDeleted && item.output_path ? <div style={{ marginTop: 5, fontSize: 10, color: 'var(--success)', overflowWrap: 'anywhere' }}>输出：{displayPath(item.output_path)}</div> : null}
                         {errorMessage ? <div style={{ marginTop: 5, fontSize: 10, color: 'var(--error)', overflowWrap: 'anywhere' }}>{errorMessage}</div> : null}
                       </div>
                       <div>

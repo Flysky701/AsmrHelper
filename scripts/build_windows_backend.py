@@ -13,7 +13,7 @@ import sys
 import tempfile
 import urllib.request
 
-VERSION = "0.2.1-beta.4"
+VERSION = "0.2.1-beta.5"
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_CONFIG = ("models.yaml", "presets.yaml", "asmr_terms.json", "config.example.json", "voice_profiles.example.json")
 EXCLUDED = ["developer venv/runtime", "config.json", "voice_profiles.json", "voice_lab", "models", "output", "logs", "databases", ".git", ".env", "__pycache__", "imageio_ffmpeg bundled executable", "ffplay"]

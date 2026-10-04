@@ -1,3 +1,4 @@
+import { displayPath } from '@/utils/displayPath'
 import type { GraphBindings, GraphDefinition, GraphLanguage, GraphMaterialBinding } from '@/domain/workflowGraph'
 import { GRAPH_CATALOG, topologicalNodeIds, validateGraph } from '@/domain/workflowGraph'
 import { inputPathKey, type WorkbenchInputItem } from '@/domain/workbenchInput'
@@ -85,8 +86,8 @@ export default function GraphRunBindings({ graph, bindings, items, onChange, dis
             onChange(slot.id, { path: item.path, ...(knownLanguage(language) ? { language } : {}) })
           }}>
             <option value="">请选择{slot.type === 'audio' ? '音频' : '字幕'}</option>
-            {binding && !selected ? <option value={binding.path}>原素材已移除：{binding.path}</option> : null}
-            {candidates.map(item => <option key={item.path} value={item.path}>{item.name} — {item.path}</option>)}
+            {binding && !selected ? <option value={binding.path}>原素材已移除：{displayPath(binding.path)}</option> : null}
+            {candidates.map(item => <option key={item.path} value={item.path}>{item.name} — {displayPath(item.path)}</option>)}
           </select>
         </label>
         {selected && slot.type === 'subtitle' ? knownLanguage(detected) ? <p className="graph-workbench-muted">字幕语言：{LANGUAGES.find(language => language.value === detected)?.label}（文件信息）</p> : <>
@@ -102,7 +103,7 @@ export default function GraphRunBindings({ graph, bindings, items, onChange, dis
             <select aria-label={`${slot.label} · 对应音频`} value={binding?.audio_path ?? ''} onChange={event => patch({ audio_path: event.target.value || null, pair_confirmed: false })}>
               <option value="">独立使用，不指定对应音频</option>
               {binding?.audio_path && !audioCandidates.some(item => item.path === binding.audio_path) ? <option value={binding.audio_path}>原对应音频已移除</option> : null}
-              {audioCandidates.map(item => <option key={item.path} value={item.path}>{item.name} — {item.path}</option>)}
+              {audioCandidates.map(item => <option key={item.path} value={item.path}>{item.name} — {displayPath(item.path)}</option>)}
             </select>
           </label>
           {binding?.audio_path ? <label className="graph-workbench-checkbox"><input type="checkbox" checked={!!binding.pair_confirmed} onChange={event => patch({ pair_confirmed: event.target.checked })} />我确认属于同一录音和时间轴；运行前还会校验时长</label> : null}

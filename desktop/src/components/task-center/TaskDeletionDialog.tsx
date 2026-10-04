@@ -1,3 +1,4 @@
+import { displayPath } from '@/utils/displayPath'
 import { useEffect, useRef, useState } from 'react'
 import { tasksApi } from '@/api/tasks'
 import type { TaskDeletionExecuteResponse, TaskDeletionMode, TaskDeletionPreviewResponse } from '@/api/types'
@@ -100,7 +101,7 @@ export default function TaskDeletionDialog({ taskIds, onDeleted, onClose }: {
             <summary><code>{task.task_id}</code> · {task.eligible ? '可删除' : '不可删除'} · {task.files.length} 个关联文件</summary>
             <p>批次：{task.batch_ids.join('、') || '无'}{task.reason ? ` · ${task.reason}` : ''}</p>
             {task.files.length ? <ul>{task.files.map((file, index) => <li key={`${file.path}-${index}`}>
-              <strong>{file.action === 'delete' ? '将删除' : '保留'}</strong><code>{file.path}</code>
+              <strong>{file.action === 'delete' ? '将删除' : '保留'}</strong><code>{displayPath(file.path)}</code>
               {file.reason && <span>{file.reason}</span>}</li>)}</ul> : <p>没有关联文件。</p>}
           </details>)}
           {!current.can_execute && <p className="tc-delete-error" role="alert">本次选择含不可删除的任务，请关闭面板并调整选择；不会取消或跳过这些任务后继续删除。</p>}
@@ -114,7 +115,7 @@ export default function TaskDeletionDialog({ taskIds, onDeleted, onClose }: {
         {result.results.map(item => <details key={item.task_id} className="tc-delete-item" open={item.status !== 'deleted'}>
           <summary><code>{item.task_id}</code> · {outcomes[item.status]} · 历史{item.history_deleted ? '已删除' : '仍保留'}</summary>
           {item.reason && <p>{item.reason}</p>}
-          <ul>{item.files.map((file, index) => <li key={`${file.path}-${index}`}><strong>{fileOutcomes[file.status]}</strong><code>{file.path}</code>{file.reason && <span>{file.reason}</span>}</li>)}</ul>
+          <ul>{item.files.map((file, index) => <li key={`${file.path}-${index}`}><strong>{fileOutcomes[file.status]}</strong><code>{displayPath(file.path)}</code>{file.reason && <span>{file.reason}</span>}</li>)}</ul>
         </details>)}
       </>}
       {error && <p className="tc-delete-error" role="alert">{error}</p>}

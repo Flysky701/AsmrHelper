@@ -125,7 +125,7 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("ASMR Helper Test 0.2.1-beta.4")
+            .title("ASMR Helper Test 0.2.1-beta.5")
             .inner_size(1200.0, 800.0)
             .min_inner_size(900.0, 600.0)
             .center();

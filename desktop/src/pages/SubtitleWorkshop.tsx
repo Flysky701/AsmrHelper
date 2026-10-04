@@ -1,3 +1,4 @@
+import { displayPath } from '@/utils/displayPath'
 import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { subtitlesApi } from '@/api/subtitles'
@@ -719,7 +720,7 @@ export default function SubtitleWorkshop() {
         output_path: outPath,
       })
       setIsDirty(false)
-      setMessage(`已导出到: ${outPath}`)
+      setMessage(`已导出到: ${displayPath(outPath)}`)
     } catch (err) {
       setError(`导出失败: ${err}`)
     } finally {

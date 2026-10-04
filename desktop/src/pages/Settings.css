@@ -84,6 +84,22 @@
 .settings-empty svg { width:33px; height:33px; }
 .settings-archive-hint { font-size:var(--text-help); color:var(--settings-muted); line-height:1.7; margin-bottom:16px!important; }
 .settings-path-section { margin-bottom:27px; max-width:790px; }
+.settings-workspace-card { max-width:790px; min-width:0; margin-bottom:27px; padding:20px; border:1px solid var(--settings-line); border-radius:12px; background:var(--surface); }
+.settings-workspace-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; margin-bottom:16px; }
+.settings-workspace-header h3 { font-size:var(--text-section); font-weight:600; line-height:1.4; }
+.settings-workspace-capacity,.settings-workspace-label,.settings-workspace-help { color:var(--settings-muted); font-size:var(--text-help); line-height:1.6; }
+.settings-workspace-capacity { font-variant-numeric:tabular-nums; }
+.settings-workspace-current,.settings-workspace-pending { min-width:0; }
+.settings-workspace-label { display:block; margin-bottom:4px; }
+.settings-workspace-path { font-size:var(--text-body); font-family:var(--font-mono); font-weight:550; line-height:1.65; overflow-wrap:anywhere; user-select:text; }
+.settings-workspace-pending { margin-top:14px; padding:10px 12px; border-left:2px solid var(--accent); border-radius:0 6px 6px 0; background:var(--accent-soft); }
+.settings-workspace-description { color:var(--settings-muted); font-size:var(--text-help); line-height:1.7; margin-top:10px!important; }
+.settings-workspace-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; margin-top:16px; }
+.settings-workspace-card>.settings-workspace-help { margin-top:16px; }
+.settings-workspace-rules { margin-top:16px; padding-top:12px; border-top:1px solid var(--settings-line); color:var(--settings-muted); font-size:var(--text-help); line-height:1.7; overflow-wrap:anywhere; }
+.settings-workspace-rules p+p { margin-top:3px; }
+.settings-workspace-message { margin-top:12px!important; font-size:var(--text-help); line-height:1.65; overflow-wrap:anywhere; }
+@container settings (max-width:700px) { .settings-workspace-card { padding:16px; margin-bottom:22px; } }
 .settings-path-section>h3 { font-size:var(--text-section); font-weight:600; margin-bottom:17px; display:flex; gap:8px; align-items:center; line-height:1.4; }
 .settings-path-section>h3 svg { width:15px; height:15px; color:var(--settings-muted); }
 .settings-path-field { padding:0 0 20px; margin-bottom:20px; border-bottom:1px solid var(--settings-line); }

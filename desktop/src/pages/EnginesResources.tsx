@@ -1,3 +1,4 @@
+import { displayPath } from '@/utils/displayPath'
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { modelsApi } from '@/api/models'
 import { resourcesApi } from '@/api/resources'
@@ -313,10 +314,10 @@ function LocalResources() {
                   </span>
                 </div>
                 <div
-                  title={typeof res.metadata.path === 'string' ? res.metadata.path : undefined}
+                  title={typeof res.metadata.path === 'string' ? displayPath(res.metadata.path) : undefined}
                   style={{ fontSize: 'var(--text-help)', lineHeight: 1.6, color: 'var(--muted)', overflowWrap: 'anywhere', userSelect: 'text' }}
                 >
-                  {typeof res.metadata.path === 'string' ? res.metadata.path : '路径未提供'}
+                  {typeof res.metadata.path === 'string' ? displayPath(res.metadata.path) : '路径未提供'}
                 </div>
               </div>
             ))}
