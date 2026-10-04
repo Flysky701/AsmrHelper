@@ -1,9 +1,14 @@
+declare global { interface Window { __ASMR_BACKEND__?: { base: string; token: string } } }
+const desktopBackend = window.__ASMR_BACKEND__
+
 export const DEFAULT_API_BASE = 'http://127.0.0.1:8000/api/v1'
-export const API_BASE = import.meta.env.VITE_API_BASE?.trim().replace(/\/+$/, '') || DEFAULT_API_BASE
+export const API_BASE = desktopBackend?.base || import.meta.env.VITE_API_BASE?.trim().replace(/\/+$/, '') || DEFAULT_API_BASE
 
 export function apiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  return `${API_BASE}${normalizedPath}`
+  const url = new URL(`${API_BASE}${normalizedPath}`)
+  if (desktopBackend) url.searchParams.set('_desktop_token', desktopBackend.token)
+  return url.toString()
 }
 
 export class ApiError extends Error {

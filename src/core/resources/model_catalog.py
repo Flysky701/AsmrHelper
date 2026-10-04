@@ -6,10 +6,10 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from src.config import PROJECT_ROOT
+from src.config import APP_ROOT, PROJECT_ROOT
 
 
-DEFAULT_CATALOG_PATH = PROJECT_ROOT / "config" / "models.yaml"
+DEFAULT_CATALOG_PATH = APP_ROOT / "config" / "models.yaml"
 VALID_KINDS = {"local", "cloud"}
 VALID_CATEGORIES = {"asr", "tts", "separator", "llm"}
 

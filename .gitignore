@@ -171,3 +171,6 @@ translation_cache/
 /desktop/tests/fixtures/flow-presets.html
 
 /desktop/tests/fixtures/flow-presets.tsx
+
+# Generated portable Windows installer resources
+desktop/src-tauri/bundle-resources/

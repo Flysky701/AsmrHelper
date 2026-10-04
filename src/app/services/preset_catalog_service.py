@@ -18,7 +18,7 @@ from uuid import uuid4
 
 import yaml
 
-from src.config import PROJECT_ROOT
+from src.config import APP_ROOT, PROJECT_ROOT
 
 
 STAGES = ("separate", "asr", "align", "translate", "tts", "mix", "export")
@@ -188,11 +188,12 @@ class PresetCatalogService:
         self, presets_path: Path | str | None = None, user_presets_path: Path | str | None = None,
     ) -> None:
         self._presets_path = (
-            Path(presets_path) if presets_path is not None else PROJECT_ROOT / "config" / "presets.yaml"
+            Path(presets_path) if presets_path is not None else APP_ROOT / "config" / "presets.yaml"
         )
         self._user_presets_path = (
             Path(user_presets_path) if user_presets_path is not None
-            else self._presets_path.parent / "voice_lab" / "flow_presets.json"
+            else (self._presets_path.parent if presets_path is not None else PROJECT_ROOT / "config")
+            / "voice_lab" / "flow_presets.json"
         )
 
     def _read_builtins(self) -> list[dict[str, Any]]:

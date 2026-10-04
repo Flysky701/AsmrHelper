@@ -8,12 +8,14 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
+from src.config import APP_ROOT
+
 
 def signature(profile, project_root: Path) -> str:
     executable = profile.python_executable
     root = profile.environment_dir or Path(sys.prefix)
     sites = [root / "Lib" / "site-packages", *root.glob("lib/python*/site-packages")]
-    paths = [executable, root / "pyvenv.cfg", project_root / "pyproject.toml"]
+    paths = [executable, root / "pyvenv.cfg", APP_ROOT / "pyproject.toml"]
     for site in sites:
         paths.append(site)
         if site.is_dir():

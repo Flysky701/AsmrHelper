@@ -15,7 +15,9 @@ from src.provider_profiles import project_profiles
 
 
 # 项目配置目录
-PROJECT_ROOT = Path(__file__).parent.parent
+APP_ROOT = Path(__file__).resolve().parent.parent
+_DATA_DIR = os.environ.get("ASMR_HELPER_DATA_DIR", "").strip()
+PROJECT_ROOT = Path(_DATA_DIR).expanduser().resolve() if _DATA_DIR else APP_ROOT
 CONFIG_DIR = PROJECT_ROOT / "config"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
@@ -193,7 +195,7 @@ class Config:
             return self.openai_api_key
         return ""
 
-    def validate(self, config_data: Dict[str, Any] | None = None) -> Tuple[bool, List[str]]:
+    def validate(self, config_data: Dict[str, Any] | None = None, *, require_api_key: bool = True) -> Tuple[bool, List[str]]:
         """
         验证配置有效性（Phase 3）
 
@@ -208,7 +210,7 @@ class Config:
         if provider not in ("deepseek", "openai"):
             errors.append(f"api.provider 必须是 'deepseek' 或 'openai'，当前: {provider}")
 
-        if provider and not self._get_api_key_from_mapping(target, provider):
+        if require_api_key and provider and not self._get_api_key_from_mapping(target, provider):
             errors.append(f"API provider '{provider}' 的 API Key 未设置")
 
         # Legacy TTS fields are retained for import/history, not runtime validation.

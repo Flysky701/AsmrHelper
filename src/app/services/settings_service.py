@@ -66,7 +66,9 @@ class SettingsService:
     def _update_settings_locked(self, updates: dict[str, Any]) -> dict[str, Any]:
         internal_updates = self._to_internal_updates(updates)
         candidate = self.config.build_effective_config(config_override=internal_updates)
-        valid, errors = self.config.validate(candidate)
+        # Saving local paths/processing must not require a paid-provider credential.
+        local_only = bool(internal_updates) and set(internal_updates) <= {"paths", "processing"}
+        valid, errors = self.config.validate(candidate, require_api_key=False) if local_only else self.config.validate(candidate)
         errors = list(errors) + self._profile_validation_errors(candidate)
         valid = valid and not errors
         if not valid:

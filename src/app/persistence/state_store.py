@@ -30,6 +30,10 @@ def _default_state_db_path() -> Path:
     if override:
         return Path(override).expanduser().resolve()
 
+    data_dir = os.environ.get("ASMR_HELPER_DATA_DIR", "").strip()
+    if data_dir:
+        return Path(data_dir).expanduser().resolve() / "state.sqlite3"
+
     local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
     if local_app_data:
         return Path(local_app_data) / "AsmrHelper" / "state.sqlite3"

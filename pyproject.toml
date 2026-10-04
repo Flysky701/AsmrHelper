@@ -1,6 +1,6 @@
 [project]
 name = "asmr-helper"
-version = "0.2.0"
+version = "0.2.1b1"
 description = "ASMR 音频汉化工具，支持人声分离、ASR、翻译、TTS 和智能混音"
 authors = [
     {name = "ASMR Helper Team"}
@@ -18,6 +18,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "huggingface-hub>=0.34,<2",
     # 启动 API 与桌面端所需依赖
     "edge-tts>=6.1.0",
     "openai>=1.0.0",

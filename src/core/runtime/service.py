@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from src.config import PROJECT_ROOT
+
 from .models import ResourceStatus, RuntimeWorkspace
 
 
@@ -12,7 +14,7 @@ class RuntimeWorkspaceManager:
     """Resolve and prepare runtime workspace directories."""
 
     def __init__(self, project_root: Path | None = None) -> None:
-        self.project_root = (project_root or Path.cwd()).resolve()
+        self.project_root = (project_root or PROJECT_ROOT).resolve()
 
     def ensure_workspace(self) -> RuntimeWorkspace:
         project_root = self.project_root

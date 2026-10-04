@@ -1,3 +1,7 @@
+use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
+#[cfg(windows)]
+mod backend;
 #[cfg(windows)]
 mod single_instance {
     use std::iter;
@@ -9,7 +13,7 @@ mod single_instance {
 
     impl InstanceMutex {
         pub fn acquire() -> Result<Self, u32> {
-            let name: Vec<u16> = "Local\\ASMRHelper.Desktop.SingleInstance"
+            let name: Vec<u16> = "Local\\ASMRHelper.Test.Desktop.SingleInstance"
                 .encode_utf16()
                 .chain(iter::once(0))
                 .collect();
@@ -53,6 +57,38 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            #[cfg(windows)]
+            let backend = match backend::Backend::start(app) {
+                Ok(value) => value,
+                Err(error) => {
+                    app.dialog()
+                        .message(error.to_string())
+                        .title("ASMR Helper Test - Startup failed")
+                        .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                        .blocking_show();
+                    return Err(error);
+                }
+            };
+            let mut window = tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("ASMR Helper Test 0.2.1-beta.1")
+            .inner_size(1200.0, 800.0)
+            .min_inner_size(900.0, 600.0)
+            .center();
+            #[cfg(windows)]
+            {
+                if let Some(ref service) = backend {
+                    window = window.initialization_script(service.init_script());
+                }
+                app.manage(backend::BackendState::new(backend));
+            }
+            window.build()?;
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -63,6 +99,16 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                #[cfg(windows)]
+                if let Some(state) = app.try_state::<backend::BackendState>() {
+                    if let Ok(mut backend) = state.lock() {
+                        backend.take();
+                    }
+                }
+            }
+        });
 }

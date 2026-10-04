@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from src.config import PROJECT_ROOT
+from src.config import APP_ROOT, PROJECT_ROOT
 from .probe_cache import ProbeCache, signature
 
 
@@ -99,7 +99,7 @@ class RuntimeProfileResolver:
         if not profile.isolated or profile.python_executable.is_file():
             return profile
 
-        uv_path = shutil.which("uv")
+        uv_path = shutil.which("uv", path=self.subprocess_env().get("PATH"))
         if not uv_path:
             raise RuntimeError("uv is required to create isolated runtime environments")
         assert profile.environment_dir is not None
@@ -172,7 +172,7 @@ class RuntimeProfileResolver:
 
     def build_bootstrap_commands(self, profile: RuntimeProfile) -> list[list[str]]:
         target = self.resolve_compute_target()
-        uv_path = shutil.which("uv")
+        uv_path = shutil.which("uv", path=self.subprocess_env().get("PATH"))
         if not uv_path:
             raise RuntimeError("uv is required to install the compute runtime")
         return [[
@@ -485,6 +485,13 @@ class RuntimeProfileResolver:
         env = os.environ.copy()
         env.setdefault("UV_CACHE_DIR", str(self.project_root / ".uv-cache"))
         env.setdefault("UV_PYTHON_INSTALL_DIR", str(self.project_root / ".runtimes" / "python"))
+        python_paths = [str(APP_ROOT), env.get("PYTHONPATH", "")]
+        env["PYTHONPATH"] = os.pathsep.join(path for path in python_paths if path)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env.setdefault("NUMBA_CACHE_DIR", str(self.project_root / ".cache" / "numba"))
+        tool_dir = env.get("ASMR_HELPER_TOOL_DIR", "").strip()
+        if tool_dir:
+            env["PATH"] = tool_dir + os.pathsep + env.get("PATH", "")
         env.setdefault("PYTHONUTF8", "1")
         env.setdefault("PYTHONIOENCODING", "utf-8")
         return env

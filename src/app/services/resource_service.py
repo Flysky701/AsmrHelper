@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
+
+from src.config import PROJECT_ROOT
 from typing import Callable
 
 from src.core.runtime import ResourceStatus, RuntimeWorkspaceManager
@@ -38,7 +40,7 @@ class ResourceService:
         ffmpeg_checker: Callable[[], tuple[bool, str]] | None = None,
         media_probe: Callable[[str], tuple[bool, str]] | None = None,
     ) -> None:
-        self.project_root = (project_root or Path.cwd()).resolve()
+        self.project_root = (project_root or PROJECT_ROOT).resolve()
         self._manager = RuntimeWorkspaceManager(self.project_root)
         self._descriptor_service = descriptor_service or get_capability_descriptor_service()
         self._model_service = model_service or get_model_service()

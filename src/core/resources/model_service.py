@@ -197,7 +197,7 @@ class ModelService:
         Both can be combined; extras are installed first, then explicit packages.
         Prefers uv if available, falls back to pip.
         """
-        from src.config import PROJECT_ROOT
+        from src.config import APP_ROOT, PROJECT_ROOT
 
         extras = list(entry.required_python_extras)
         packages = list(entry.required_runtime_packages)
@@ -230,7 +230,7 @@ class ModelService:
         if extras:
             try:
                 logger.info("installing extras for %s: %s", entry.id, extras)
-                cmd = installer["extras_cmd"](extras, str(PROJECT_ROOT))
+                cmd = installer["extras_cmd"](extras, str(APP_ROOT))
                 cmd.extend(["--constraint", str(constraints)])
                 result = subprocess.run(
                     cmd,
@@ -300,7 +300,9 @@ class ModelService:
         import shutil
 
         target_python = python_executable or sys.executable
-        uv_path = shutil.which("uv")
+        from src.core.runtime.profiles import get_runtime_profile_resolver
+        install_path = get_runtime_profile_resolver().subprocess_env().get("PATH")
+        uv_path = shutil.which("uv", path=install_path)
         if uv_path:
             return {
                 "extras_cmd": lambda extras, cwd: [
@@ -315,7 +317,7 @@ class ModelService:
         return {
             "extras_cmd": lambda extras, cwd: [
                 target_python, "-m", "pip", "install", "--quiet",
-                "-e", f"{cwd}[{','.join(extras)}]",
+                f"{cwd}[{','.join(extras)}]",
             ],
             "packages_cmd": lambda packages: [
                 target_python, "-m", "pip", "install", "--quiet", *packages,

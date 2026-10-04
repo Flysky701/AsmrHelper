@@ -209,13 +209,14 @@ sdist = { url = "https://files.pythonhosted.org/packages/8e/25/4422cf7777c0cedd2
 
 [[package]]
 name = "asmr-helper"
-version = "0.2.0"
+version = "0.2.1b1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "edge-tts" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "huggingface-hub" },
     { name = "imageio-ffmpeg" },
     { name = "numpy" },
     { name = "openai" },
@@ -275,6 +276,7 @@ requires-dist = [
     { name = "faster-whisper", marker = "extra == 'audio'", specifier = ">=1.0.0" },
     { name = "funasr", marker = "extra == 'funasr'", specifier = "==1.4.2" },
     { name = "httpx", specifier = ">=0.25.0" },
+    { name = "huggingface-hub", specifier = ">=0.34,<2" },
     { name = "huggingface-hub", marker = "extra == 'funasr'", specifier = ">=0.30.0" },
     { name = "imageio-ffmpeg", specifier = ">=0.4.0" },
     { name = "numpy", specifier = ">=1.24.0" },
