@@ -81,6 +81,19 @@ python -m src.cli tts --help
 
 统一安装抽屉提供真实模型目录及既有管理入口。尚未检查时不显示就绪；连接配置检查不执行合成，也不代表远端已认证。已保存音色明确引用的连接丢失时提示修复，不能用通用模型环境检查掩盖失效引用。
 
+### Fish Audio（开发版）
+
+1. 在“引擎与资源 → 外部服务”保存 Fish 连接，官方地址为 `https://api.fish.audio/v1`；密钥仅填在连接中。“检查配置”不进行联网或合成验证。
+2. 在音色规则选择 Fish、连接和模型，再查询当前工作区/公开声音或手填 Voice ID。模型名（如 `s2.1-pro-free`）与 Voice ID 是两回事；自己的云端克隆也通过 Voice ID 使用。
+3. 保存音色后进入试音，输入目标语言台词。Fish 自动判断语言，不接收语言强制参数。语速、temperature、top_p 会发送；轻柔/耳语/情绪转成文本标签。S2 支持自由描述，s1 使用固定圆括号标签；实际效果需要试听。
+4. 输出请求固定为 WAV，收到完整音频后播放，没有实时流式播放。超时表示结果未知，不自动重试，先核对计费；402 检查余额，401/403 检查凭据/权限，429 稍后再试。
+
+本软件目前**只使用已有云端声音**：声音库里的本地参考录音不会上传给 Fish。官方即时克隆是每次 TTS 发送参考音频及对应原文（`references`）；持久克隆是先创建云端模型，再用返回的 `reference_id`。这两种创建流程均未接入；如需克隆，应先在 Fish 平台按其流程创建，再填入已有 ID。
+
+当前未暴露：即时参考克隆、远程声音创建/修改/删除、多人单请求、WebSocket/时间戳流、输出格式/采样率/码率、音量/归一化/延迟/分块、发音词典等高级 API 参数。`drama-3-preview` 未列入模型选项；ASR、声音设计与语音代理不属于当前 Fish TTS 接线范围。
+
+核对于 2026-10-04：[官方 TTS 参数](https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech)、[两种克隆方式](https://docs.fish.audio/features/voice-cloning)、[官方 SDK](https://github.com/fishaudio/fish-audio-python)、[价格](https://docs.fish.audio/developer-guide/models-pricing/pricing-and-rate-limits)。当日 `s2.1-pro-free` 标价为免费，其他已列模型为 $15/百万 UTF-8 字节，以实际账户与官方最新规则为准。Mock 测试只能验证流程和参数，不能证明真实克隆音质。
+
 ## 开发边界
 
 1. 新能力只在 Speech Provider 声明，模型安装及依赖继续登记在 `config/models.yaml`，避免混淆运行能力与资源下载信息。

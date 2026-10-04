@@ -31,6 +31,7 @@ export default function FishVoicePicker({ connectionId, value, onSelect }: {
   }, [connectionId, title, workspaceOnly, page, requestKey])
 
   return <div className="fish-voice-picker" aria-label="Fish Audio 声音查询">
+    <p className="workbench-speech-muted">可使用 Fish 平台已有的克隆声音 ID。此处仅查询和选择声音，不会上传本地参考录音或创建云端克隆。</p>
     <div className="fish-voice-search">
       <label className="workbench-speech-field"><span>查找声音名称</span>
         <input value={title} maxLength={200} placeholder="输入名称筛选候选声音" disabled={!connectionId}

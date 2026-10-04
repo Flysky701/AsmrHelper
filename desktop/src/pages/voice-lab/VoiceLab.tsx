@@ -252,6 +252,7 @@ export default function VoiceLab() {
     return qwenReference && <QwenReferenceMode value={recipe.provider_options.x_vector_only_mode === true} onChange={value => editRecipe({ provider_options: { ...recipe.provider_options, x_vector_only_mode: value } })} />
   }
   function targetLanguageField() {
+    if (recipe.provider_id === 'fish_audio') return <p className="muted">Fish Audio 按合成文本识别语言，不支持在此强制指定目标语言；请直接输入目标语言的台词。</p>
     return <Field title="合成目标语言"><select value={recipe.language} onChange={event => editRecipe({ language: event.target.value })}>{!languageNames[recipe.language] && <option value={recipe.language}>{recipe.language || '未指定'}（当前值）</option>}{Object.entries(languageNames).map(([code, label]) => <option value={code} key={code}>{label}</option>)}</select></Field>
   }
   function advancedFields() {
@@ -318,7 +319,7 @@ export default function VoiceLab() {
             <section className="recipe-section"><h3>基本信息</h3><div className="recipe-fields">
               <Field title="音色名称"><input value={recipe.name} onChange={event => editRecipe({ name: event.target.value })} /></Field>
               {targetLanguageField()}
-              <p className="muted recipe-wide">这里选择要生成的语音语言，与参考录音语言独立。例如日语录音配中文台词，合成目标选中文，参考原文仍保留日语。保存的旧音色保持原值，不会自动改语言。</p>
+              {recipe.provider_id !== 'fish_audio' && <p className="muted recipe-wide">这里选择要生成的语音语言，与参考录音语言独立。例如日语录音配中文台词，合成目标选中文，参考原文仍保留日语。保存的旧音色保持原值，不会自动改语言。</p>}
               <div className="recipe-wide"><Field title="备注（可选）"><input value={recipe.description || ''} onChange={event => editRecipe({ description: event.target.value })} /></Field></div>
             </div></section>
             <section className="recipe-section"><h3>生成方式</h3><div className="recipe-fields">
@@ -362,7 +363,7 @@ export default function VoiceLab() {
         <Field title="载入已保存音色或TTS高级预设"><select value={recipe.id} onChange={event => { const item = ruleList.find(value => value.id === event.target.value); if (item && (!recipeDirty || window.confirm('当前试听设置尚未保存，载入其他预设？'))) useRecipe(item) }}><option value="">当前未保存草稿</option>{recipe.id && !ruleList.some(item => item.id === recipe.id) && <option value={recipe.id}>{recipe.name}（历史修订）</option>}{ruleList.filter(item => !item.archived).map(item => <option key={item.id} value={item.id}>{item.name} · r{item.revision}</option>)}</select></Field>
         <p className="muted">{recipe.name || '未命名草稿'} · {provider?.name || '未选引擎'} · {modeNames[recipe.mode] || '未选方式'}{recipeDirty || !recipe.id ? ' · 本次使用草稿快照' : ' · 已保存修订'} <button type="button" onClick={() => setTab(1)}>编辑声音来源</button></p>
         {targetLanguageField()}
-        <p className="muted">合成目标语言用于下面的试听台词，保存后也用于此音色预设。{referenceAsset && <>参考录音语言：{referenceAsset.language === 'auto' ? '未明确' : languageNames[referenceAsset.language] || referenceAsset.language}；参考原文保持不变。</>}</p>
+        {recipe.provider_id !== 'fish_audio' && <p className="muted">合成目标语言用于下面的试听台词，保存后也用于此音色预设。{referenceAsset && <>参考录音语言：{referenceAsset.language === 'auto' ? '未明确' : languageNames[referenceAsset.language] || referenceAsset.language}；参考原文保持不变。</>}</p>}
         {referenceModeField()}
         <textarea aria-label="试音原文" rows={4} value={script} onChange={event => { setScript(event.target.value); setCompiled(null) }} placeholder="输入要合成的新台词，例如中文配音文本" />
         {provider && <details className="recipe-advanced"><summary>试听高级选项</summary>{advancedFields()}</details>}

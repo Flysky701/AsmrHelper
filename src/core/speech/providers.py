@@ -391,6 +391,10 @@ class SpeechProvider:
         headers = {"Authorization": f"Bearer {key}"}
         if self.provider_id == "fish_audio":
             endpoint = "/tts"
+            # Accept the official origin as well as the documented /v1 base.
+            # Custom proxy prefixes remain explicit and are never rewritten.
+            if parsed.hostname == "api.fish.audio" and parsed.path in {"", "/"}:
+                base += "/v1"
             headers["model"] = request["model"]
             body = {"text": p["rendered_text"], "reference_id": p["variant"]["value"], "format": "wav",
                 "temperature": p["options"]["temperature"], "top_p": p["options"]["top_p"]}
@@ -413,6 +417,8 @@ class SpeechProvider:
             raise ProviderError("connection_failed", "外部语音服务连接失败", result_unknown=True) from None
         if response.status_code in {401, 403}:
             raise ProviderError("authentication_failed", "外部语音服务认证失败")
+        if response.status_code == 402:
+            raise ProviderError("payment_required", "外部语音服务余额不足或需要付费，请检查账户计费状态后再试")
         if response.status_code == 429:
             raise ProviderError("rate_limited", "外部语音服务请求限流")
         if response.status_code == 404:
