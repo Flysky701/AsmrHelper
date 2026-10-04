@@ -19,6 +19,10 @@ class SessionRegistry:
         self._sessions: dict[str, ProcessingSession] = {}
         self._counter = 0
 
+    def update_workspace(self, workspace: WorkspaceContext) -> None:
+        """Refresh defaults for future sessions; existing session paths are snapshots."""
+        self._workspace = workspace
+
     def create_session(
         self,
         *,

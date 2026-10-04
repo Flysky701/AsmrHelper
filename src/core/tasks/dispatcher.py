@@ -241,8 +241,10 @@ class TaskDispatcher:
         )
         try:
             bind_connections = getattr(self._task_service, "connection_context", None)
+            bind_directories = getattr(self._task_service, "directory_context", None)
             with bind_connections(task_id) if bind_connections else nullcontext():
-                record.result = self._invoke_executor(executor, task_spec, context)
+                with bind_directories(task_id) if bind_directories else nullcontext():
+                    record.result = self._invoke_executor(executor, task_spec, context)
             current = self._lifecycle().get_task(task_id)
             if current.state in self._registry.TERMINAL_STATES:
                 return

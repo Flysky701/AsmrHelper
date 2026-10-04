@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import SpeechConnectionManager from './SpeechConnectionManager'
+import { useConnectionDraftGuard } from '@/hooks/useConnectionDraftGuard'
 import { speechApi } from '@/api/speech'
 import type { SpeechConnection, SpeechConnectionDefault, SpeechProvider } from '@/api/speech'
 
@@ -17,13 +18,19 @@ export default function SpeechConnections() {
   const [busy, setBusy] = useState('')
   const [editor, setEditor] = useState<Editor | null>(null)
   const [checks, setChecks] = useState<Record<string, string>>({})
+  const editorBaseline = useRef('')
+  const canDiscard = useConnectionDraftGuard({ dirty: !!editor && JSON.stringify(editor) !== editorBaseline.current,
+    busy: !!busy, onBlocked: setNotice })
+  const lastLoadSucceeded = useRef(true)
   async function load() {
     const generation = ++loadGeneration.current
+    lastLoadSucceeded.current = false
     setLoading(true)
     setError('')
     try {
       const [result, descriptors] = await Promise.all([speechApi.connections(), speechApi.providers()])
       if (generation !== loadGeneration.current) return
+      lastLoadSucceeded.current = true
       setConnections(result.connections); setDefaults(result.defaults || [])
       setProviders(descriptors.providers.filter(item => item.connection_required))
     } catch (cause) { if (generation === loadGeneration.current) setError('无法加载语音服务：' + String(cause)) }
@@ -31,13 +38,16 @@ export default function SpeechConnections() {
   }
   useEffect(() => { void load(); return () => { loadGeneration.current++ } }, [])
 
-  function edit(connection?: SpeechConnection) {
+  async function edit(connection?: SpeechConnection) {
+    if (!(await canDiscard())) return
     setNotice('')
-    setEditor(connection ? {
+    const next: Editor = connection ? {
       id: connection.id, name: connection.name, provider_id: connection.provider_id,
       deployment: connection.deployment, base_url: connection.base_url || (connection.provider_id === 'fish_audio' ? FISH_BASE_URL : ''),
       credential_configured: connection.credential_configured, api_key: '',
-    } : { name: '', provider_id: providers.find(item => item.provider_id === 'openai_compatible')?.provider_id || providers[0]?.provider_id || '', deployment: 'cloud', base_url: '', api_key: '' })
+    } : { name: '', provider_id: providers.find(item => item.provider_id === 'openai_compatible')?.provider_id || providers[0]?.provider_id || '', deployment: 'cloud', base_url: '', api_key: '' }
+    editorBaseline.current = JSON.stringify(next)
+    setEditor(next)
   }
 
   async function save() {
@@ -59,7 +69,7 @@ export default function SpeechConnections() {
       await load()
       setChecks(current => ({ ...current, [saved.id]: '' }))
       setEditor(null)
-      setNotice('语音服务已保存，可由声音与音色等功能引用。')
+      setNotice(lastLoadSucceeded.current ? '语音服务已保存，可由声音与音色等功能引用。' : '语音服务已保存，但列表刷新失败。请重新加载核对，勿重复新增。')
     } catch (cause) { setNotice('保存失败：' + String(cause)) }
     finally { setBusy('') }
   }
@@ -94,9 +104,9 @@ export default function SpeechConnections() {
         </div>)}
         {!external.length && !editor && <p className="external-service-muted">尚未添加外部语音服务</p>}
       </>}
-      {!error && <details><summary>管理默认运行配置与删除</summary><SpeechConnectionManager connections={external} defaults={defaults} providers={providers} disabled={loading || !!busy} onChanged={load} /></details>}
+      {!error && <details><summary>管理默认运行配置与删除</summary><SpeechConnectionManager protectNavigation connections={external} defaults={defaults} providers={providers} disabled={loading || !!busy} onChanged={load} /></details>}
       {editor && <fieldset disabled={!!busy} className="external-service-editor">
-        <div className="external-service-card-heading"><h3>{editor.id ? '编辑语音服务' : '添加语音服务'}</h3><button className="external-service-button" onClick={() => setEditor(null)}>收起</button></div>
+        <div className="external-service-card-heading"><h3>{editor.id ? '编辑语音服务' : '添加语音服务'}</h3><button className="external-service-button" onClick={async () => { if (await canDiscard()) setEditor(null) }}>收起</button></div>
         <label className="external-service-field">连接名称<input value={editor.name} maxLength={80} onChange={event => setEditor({ ...editor, name: event.target.value })} placeholder="例如：日常配音" /></label>
         <label className="external-service-field">接口协议<select value={editor.provider_id} disabled={!!editor.id} onChange={event => setEditor({ ...editor, provider_id: event.target.value, base_url: event.target.value === 'fish_audio' ? FISH_BASE_URL : '', deployment: 'cloud', api_key: '' })}>
           {providers.map(item => <option key={item.provider_id} value={item.provider_id}>{item.name}</option>)}
@@ -106,7 +116,7 @@ export default function SpeechConnections() {
         {editor.provider_id === 'fish_audio' && <p className="external-service-muted">已预填 Fish Audio 官方云端地址，可直接填写密钥保存。</p>}
         <label className="external-service-field">API 密钥<input type="password" autoComplete="off" value={editor.api_key} onChange={event => setEditor({ ...editor, api_key: event.target.value })} placeholder={editor.credential_configured ? '已配置；留空保持此连接的密钥' : '输入 API 密钥'} /></label>
         {editor.id && <p className="external-service-muted">更换 API 地址时需重新填写密钥。</p>}
-        <div className="external-service-actions" style={{ marginTop: 20 }}><button className="external-service-button external-service-primary" onClick={() => void save()}>{busy || '保存服务'}</button><button className="external-service-button" onClick={() => setEditor(null)}>取消</button></div>
+        <div className="external-service-actions" style={{ marginTop: 20 }}><button className="external-service-button external-service-primary" onClick={() => void save()}>{busy || '保存服务'}</button><button className="external-service-button" onClick={async () => { if (await canDiscard()) setEditor(null) }}>取消</button></div>
       </fieldset>}
       <p className="external-service-muted">“检查配置”仅检查已保存的地址与凭据是否齐备，不会发起语音合成或验证服务可达性。</p>
     </div>

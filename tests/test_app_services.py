@@ -75,7 +75,7 @@ class _FakeConfig:
         self._merge(candidate, config_override or {})
         return candidate
 
-    def validate(self, candidate):
+    def validate(self, candidate, *, require_api_key=True):
         return True, []
 
     def persist_updates(self, updates):
@@ -844,7 +844,7 @@ class TestResourceService:
         statuses = {s.name: s for s in service.check_required_resources()}
 
         assert statuses["project_root"].available is True
-        assert statuses["output_dir"].available is True
+        assert statuses["output_dir"].available is False
 
     def test_pipeline_readiness_reports_selected_model_runtime_issue(self, tmp_path):
         from src.app.dto import ModelStatusIssueView, ModelStatusView, ModelSummary

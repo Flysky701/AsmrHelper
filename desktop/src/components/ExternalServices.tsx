@@ -3,6 +3,7 @@ import { settingsApi } from '@/api/settings'
 import type { ConnectionProfile, SettingsUpdate, SettingsView } from '@/api/settings'
 import { useWorkbenchStore } from '@/stores/workbenchStore'
 import SpeechConnections from './SpeechConnections'
+import { useConnectionDraftGuard } from '@/hooks/useConnectionDraftGuard'
 
 type Kind = 'llm'
 type Editor = ConnectionProfile & { kind: Kind; credential: string }
@@ -30,6 +31,9 @@ export default function ExternalServices() {
   const [verified, setVerified] = useState<Record<string, string>>({})
   const loadGeneration = useRef(0)
   const discoveryGeneration = useRef(0)
+  const editorBaseline = useRef('')
+  const canDiscard = useConnectionDraftGuard({ dirty: !!editor && JSON.stringify(editor) !== editorBaseline.current,
+    busy: saving || testing, onBlocked: setMessage })
 
   useEffect(() => {
     void load()
@@ -56,13 +60,16 @@ export default function ExternalServices() {
     setDiscovery(null)
   }
 
-  function edit(kind: Kind, profile?: ConnectionProfile) {
+  async function edit(kind: Kind, profile?: ConnectionProfile) {
+    if (!(await canDiscard())) return
     resetDiscovery()
     setMessage('')
-    setEditor({ kind, credential: '', ...(profile ?? {
+    const next = { kind, credential: '', ...(profile ?? {
       id: '', name: '', provider: 'deepseek',
       base_url: 'https://api.deepseek.com', model: '', credential_configured: false,
-    }) })
+    }) }
+    editorBaseline.current = JSON.stringify(next)
+    setEditor(next)
   }
 
   function candidate(current: Editor): SettingsUpdate {
@@ -145,7 +152,7 @@ export default function ExternalServices() {
     <fieldset disabled={saving} className="external-service-editor">
       <div className="external-service-card-heading">
         <h3>{editor.id ? '编辑配置' : '添加翻译服务'}</h3>
-        <button className="external-service-button" onClick={() => { resetDiscovery(); setEditor(null) }}>收起</button>
+        <button className="external-service-button" onClick={async () => { if (await canDiscard()) { resetDiscovery(); setEditor(null) } }}>收起</button>
       </div>
       <label className="external-service-field">配置名称
         <input value={editor.name} maxLength={80} onChange={event => setEditor({ ...editor, name: event.target.value })} placeholder="例如：日常翻译" />
@@ -182,7 +189,7 @@ export default function ExternalServices() {
       </>
       <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
         <button className="external-service-button external-service-primary" disabled={testing} onClick={() => void save()}>{saving ? '保存中...' : '保存并启用'}</button>
-        <button className="external-service-button" onClick={() => { resetDiscovery(); setEditor(null) }}>取消</button>
+        <button className="external-service-button" onClick={async () => { if (await canDiscard()) { resetDiscovery(); setEditor(null) } }}>取消</button>
       </div>
     </fieldset>
   )

@@ -3,15 +3,17 @@ import { speechApi } from '@/api/speech'
 import type { SpeechConnection, SpeechConnectionDefault, SpeechConnectionDeletionPreview, SpeechProvider } from '@/api/speech'
 import { connectionDeploymentNames } from '@/domain/speechConnections'
 import './SpeechConnectionManager.css'
+import { useConnectionDraftGuard } from '@/hooks/useConnectionDraftGuard'
 
 /** One server catalog, shared by the local voice editor and external services page. */
-export default function SpeechConnectionManager({ connections, defaults, providers, providerId, disabled = false, onChanged }: {
+export default function SpeechConnectionManager({ connections, defaults, providers, providerId, disabled = false, onChanged, protectNavigation = false }: {
   connections: SpeechConnection[]; defaults: SpeechConnectionDefault[]; providers: SpeechProvider[]
-  providerId?: string; disabled?: boolean; onChanged: () => Promise<void>
+  providerId?: string; disabled?: boolean; protectNavigation?: boolean; onChanged: () => Promise<void>
 }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  useConnectionDraftGuard({ dirty: false, busy: !!busy, onBlocked: setNotice }, protectNavigation)
   const [preview, setPreview] = useState<SpeechConnectionDeletionPreview | null>(null)
   const [previewFor, setPreviewFor] = useState('')
   const [action, setAction] = useState<'' | 'replace' | 'detach'>('')

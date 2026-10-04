@@ -1,3 +1,4 @@
+import { confirmAction } from '@/utils/confirmAction'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { ApiError } from '@/api/client'
 import { batchesApi } from '@/api/batches'
@@ -154,10 +155,10 @@ export default function Workbench() {
     || filter === 'missing' && row.state === 'missing' || filter === 'locked' && !groupEditable(row.group))
     && (!search.trim() || `${row.group.label} ${row.group.materialPaths.join(' ')}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())))
   const selectable = visible.filter(row => groupEditable(row.group))
-  const removeMaterials = (ids: string[]) => {
+  const removeMaterials = async (ids: string[]) => {
     if (busy || discovering) return
     const eligible = useWorkbenchStore.getState().queueGroups.filter(group => ids.includes(group.id) && groupEditable(group))
-    if (!eligible.length || !window.confirm(`从素材目录删除 ${eligible.length} 组素材引用？只移除本地目录中的这些组；磁盘音频、字幕和任务历史均保留。`)) return
+    if (!eligible.length || !await confirmAction(`从素材目录删除 ${eligible.length} 组素材引用？只移除本地目录中的这些组；磁盘音频、字幕和任务历史均保留。`)) return
     useWorkbenchStore.getState().removeQueueMaterials(eligible.map(group => group.id))
   }
 
@@ -199,20 +200,20 @@ export default function Workbench() {
     submitLock.current = true; setSubmitting(true)
     await submitFrozen(pending)
   }
-  const openEditor = (preset: GraphPresetItem | null, useRuntime = false) => {
+  const openEditor = async (preset: GraphPresetItem | null, useRuntime = false) => {
     if (busy) return
-    if (editorDirty(workflow.editor) && !window.confirm('存在未保存的流水线编辑草稿。打开此结构将替换该编辑草稿；工作台素材和本次参数会保留。继续？')) return
+    if (editorDirty(workflow.editor) && !await confirmAction('存在未保存的流水线编辑草稿。打开此结构将替换该编辑草稿；工作台素材和本次参数会保留。继续？')) return
     workflow.openEditor(preset, 'workbench', useRuntime); useNavStore.getState().setPage('workflow-presets')
   }
-  const changePreset = (id: string) => {
+  const changePreset = async (id: string) => {
     const preset = presets.find(item => item.id === id)
     if (!preset || preset.id === selectedPreset?.id || busy) return
-    if (dirty && !window.confirm('切换流水线会清除未保存的本次参数；素材组和已提交结果会保留。继续？')) return
+    if (dirty && !await confirmAction('切换流水线会清除未保存的本次参数；素材组和已提交结果会保留。继续？')) return
     workflow.selectPreset(preset); setSavedNotice('')
   }
   const saveParameters = async (mode: 'update' | 'copy') => {
     if (busy || !graph) return
-    if (mode === 'update' && (!selectedPreset || !window.confirm(`将本次节点参数保存到“${selectedPreset.label}”？`))) return
+    if (mode === 'update' && (!selectedPreset || !await confirmAction(`将本次节点参数保存到“${selectedPreset.label}”？`))) return
     const saved = await workflow.saveRuntime(mode, mode === 'copy' ? copyName.trim() : undefined)
     if (saved && active.current) { setSavedNotice(`已保存“${saved.label}”`); setSaveOpen(false) }
   }
@@ -231,8 +232,8 @@ export default function Workbench() {
       {!workflow.catalogLoading && !workflow.catalogError && !presets.length ? <div className="queue-draft-notice">活动目录暂无节点流水线。可以新建，或在流水线编辑页恢复已移除的预设。<button type="button" disabled={busy} onClick={() => useNavStore.getState().setPage('workflow-presets')}>新建或恢复流水线</button></div> : null}
       {workflow.editor ? <div className="queue-draft-notice">保留{editorDirty(workflow.editor) ? '未保存的' : '上次的'}编辑草稿：{workflow.editor.label || '未命名流水线'}<button type="button" disabled={busy} onClick={() => useNavStore.getState().setPage('workflow-presets')}>继续编辑</button></div> : null}
       {materials.queueMigrationNotice ? <div className="queue-draft-notice">原素材与路径草稿已保留，请检查绑定后明确勾选运行。<button type="button" onClick={() => useWorkbenchStore.setState({ queueMigrationNotice: false })}>知道了</button></div> : null}
-      {workflow.catalog.some(preset => !isGraphPreset(preset)) ? <details className="queue-legacy"><summary>旧版预设 · 转换查看</summary>{workflow.catalog.filter(preset => !isGraphPreset(preset)).map(preset => <button key={preset.id} type="button" disabled={busy} onClick={() => {
-        if (editorDirty(workflow.editor) && !window.confirm('转换将替换未保存的编辑草稿；原预设与队列保留。继续？')) return
+      {workflow.catalog.some(preset => !isGraphPreset(preset)) ? <details className="queue-legacy"><summary>旧版预设 · 转换查看</summary>{workflow.catalog.filter(preset => !isGraphPreset(preset)).map(preset => <button key={preset.id} type="button" disabled={busy} onClick={async () => {
+        if (editorDirty(workflow.editor) && !await confirmAction('转换将替换未保存的编辑草稿；原预设与队列保留。继续？')) return
         void workflow.openLegacyEditor(preset as PresetItem, 'workbench').then(() => { if (active.current && !useWorkflowStore.getState().error) useNavStore.getState().setPage('workflow-presets') })
       }}>{preset.label} → 转换</button>)}</details> : null}
       <section className="queue-section" aria-label="素材目录">

@@ -227,7 +227,8 @@ class ModelStatusResolver:
         return ModelStatus(
             entry.id,
             ModelState.INSTALLED,
-            "Model is installed and executable",
+            ("Runtime dependencies are available; weights use a separate PyTorch cache and are not verified"
+             if entry.install_strategy == "package" else "Model is installed and executable"),
             install_dir,
             executable=True,
         )

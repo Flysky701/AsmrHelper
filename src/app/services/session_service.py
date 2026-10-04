@@ -41,7 +41,9 @@ class SessionService:
     ) -> ProcessingSession:
         with self._lock:
             try:
-                return self._get_registry().create_session(
+                registry = self._get_registry()
+                registry.update_workspace(self.workspace_service.resolve())
+                return registry.create_session(
                     workspace_id=workspace_id,
                     mode=mode,
                     input_asset_ids=input_asset_ids,

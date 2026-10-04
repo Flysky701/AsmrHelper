@@ -1,3 +1,4 @@
+import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import type { SettingsView } from '@/api/settings'
@@ -56,7 +57,7 @@ export default function Settings() {
   const navigation = useRef({ dirty, busy: false })
   const busy = working || workflow.saving || pathsSaving || browsing !== null
   navigation.current = { dirty, busy: busy || modal !== null }
-  const guardRef = useRef<(() => boolean) | null>(null)
+  const guardRef = useRef<(() => Promise<boolean>) | null>(null)
   const catalogBusy = busy || workflow.catalogLoading || workflow.archivedLoading
   const builtinArchive = workflow.archivedCatalog.filter(preset => preset.builtin)
   const customArchive = workflow.archivedCatalog.filter(preset => !preset.builtin)
@@ -92,9 +93,9 @@ export default function Settings() {
     return () => { mounted.current = false; loadGeneration.current++ }
   }, [])
   useEffect(() => {
-    const guard = () => {
+    const guard = async () => {
       if (navigation.current.busy || actionRef.current) { setNotice('正在处理设置，请稍候再离开。'); return false }
-      return !navigation.current.dirty || window.confirm('路径有未保存的修改。离开设置页将放弃这些路径修改，继续离开？')
+      return !navigation.current.dirty || await confirmAction('路径有未保存的修改。离开设置页将放弃这些路径修改，继续离开？')
     }
     guardRef.current = guard
     useNavStore.getState().setNavigationGuard(guard)
@@ -111,10 +112,10 @@ export default function Settings() {
 
   async function openEditor(preset?: Preset) {
     if (catalogBusy || actionRef.current || (preset && workflow.catalogError)) return
-    if (!useNavStore.getState().confirmLeaveCurrentPage()) return
+    if (!(await useNavStore.getState().confirmLeaveCurrentPage())) return
     const current = useWorkflowStore.getState().editor
     const keepCurrent = !!current && !!preset && current.preset?.id === preset.id && editorDirty(current)
-    if (!keepCurrent && editorDirty(current) && !window.confirm('已有未保存的流水线草稿。打开新的编辑内容会替换该草稿；工作台素材和运行参数保留。继续？')) return
+    if (!keepCurrent && editorDirty(current) && !await confirmAction('已有未保存的流水线草稿。打开新的编辑内容会替换该草稿；工作台素材和运行参数保留。继续？')) return
     actionRef.current = true; setWorking(true); setActionError('')
     try {
       if (!keepCurrent) {
@@ -133,7 +134,7 @@ export default function Settings() {
   }
 
   async function deletePreset(preset: Preset) {
-    if (catalogBusy || catalogError || actionRef.current || !window.confirm(presetDeleteConfirmation(preset))) return
+    if (catalogBusy || catalogError || actionRef.current || !await confirmAction(presetDeleteConfirmation(preset))) return
     actionRef.current = true; setWorking(true); setActionError(''); setNotice('')
     try {
       const result = await useWorkflowStore.getState().deleteCatalogPreset(preset)

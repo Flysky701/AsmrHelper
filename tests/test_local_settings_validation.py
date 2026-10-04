@@ -30,12 +30,14 @@ def service(tmp_path, monkeypatch):
     ('processing', 'asr_model', 'faster-whisper-small'),
     ('processing', 'original_volume', 0.7),
 ])
-def test_local_preflight_and_save_without_llm_credentials(service, migrated, section, field, value):
+def test_local_preflight_and_save_without_llm_credentials(service, migrated, section, field, value, tmp_path):
     if migrated:
         # An unrelated incomplete saved LLM profile must not block local settings.
         service.config.persist_updates({'connection_profiles': {
             'active_llm': 'incomplete', 'llm': [{'id': 'incomplete', 'name': 'Unconfigured',
             'provider': 'deepseek', 'base_url': 'https://api.deepseek.com', 'model': '', 'api_key': ''}]}})
+    if section == 'paths':
+        value = str(tmp_path / field)
     updates = {section: {field: value}}
     before = deepcopy(service.config.get_file_config())
     valid, errors, _ = service.validate_settings(updates)

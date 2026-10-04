@@ -24,25 +24,28 @@ export const PAGE_LABELS: Record<PageId, string> = {
   settings: '设置',
 }
 
+type NavigationGuard = () => boolean | Promise<boolean>
+let checkingNavigation = false
+
 interface NavStore {
   activePage: PageId
-  setPage: (page: PageId) => void
+  setPage: (page: PageId) => Promise<void>
   enginesView: EnginesView
   setEnginesView: (view: EnginesView) => void
-  openEngines: (view?: EnginesView) => void
+  openEngines: (view?: EnginesView) => Promise<void>
   taskCenterView: TaskCenterView
   setTaskCenterView: (view: TaskCenterView) => void
-  openTaskCenter: (view?: TaskCenterView) => void
-  navigationGuard: (() => boolean) | null
-  confirmLeaveCurrentPage: () => boolean
-  setNavigationGuard: (guard: (() => boolean) | null) => void
+  openTaskCenter: (view?: TaskCenterView) => Promise<void>
+  navigationGuard: NavigationGuard | null
+  confirmLeaveCurrentPage: () => Promise<boolean>
+  setNavigationGuard: (guard: NavigationGuard | null) => void
 }
 
 export const useNavStore = create<NavStore>((set, get) => ({
   activePage: 'workbench',
-  setPage: (page) => {
+  setPage: async (page) => {
     const state = get()
-    if (page !== state.activePage && !state.confirmLeaveCurrentPage()) return
+    if (page !== state.activePage && !(await state.confirmLeaveCurrentPage())) return
     set(page === 'task-center'
       ? { activePage: page, taskCenterView: 'tasks' }
       : { activePage: page })
@@ -50,18 +53,25 @@ export const useNavStore = create<NavStore>((set, get) => ({
   taskCenterView: 'tasks',
   enginesView: 'local',
   setEnginesView: (enginesView) => set({ enginesView }),
-  openEngines: (enginesView = 'local') => {
+  openEngines: async (enginesView = 'local') => {
     const state = get()
-    if (state.activePage !== 'engines' && !state.confirmLeaveCurrentPage()) return
+    if (state.activePage !== 'engines' && !(await state.confirmLeaveCurrentPage())) return
     set({ activePage: 'engines', enginesView })
   },
   setTaskCenterView: (taskCenterView) => set({ taskCenterView }),
-  openTaskCenter: (taskCenterView = 'tasks') => {
+  openTaskCenter: async (taskCenterView = 'tasks') => {
     const state = get()
-    if (state.activePage !== 'task-center' && !state.confirmLeaveCurrentPage()) return
+    if (state.activePage !== 'task-center' && !(await state.confirmLeaveCurrentPage())) return
     set({ activePage: 'task-center', taskCenterView })
   },
   navigationGuard: null,
-  confirmLeaveCurrentPage: () => get().navigationGuard?.() ?? true,
+  confirmLeaveCurrentPage: async () => {
+    if (checkingNavigation) return false
+    checkingNavigation = true
+    const guard = get().navigationGuard
+    try { return (await guard?.() ?? true) && get().navigationGuard === guard }
+    catch (error) { console.error('无法确认离开页面', error); return false }
+    finally { checkingNavigation = false }
+  },
   setNavigationGuard: (navigationGuard) => set({ navigationGuard }),
 }))

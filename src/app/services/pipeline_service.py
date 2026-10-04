@@ -144,6 +144,14 @@ class PipelineService:
         cancel_event=None,
         manage_lifecycle: bool = True,
     ) -> PipelineResult:
+        from src.workspace_paths import directory_context
+        session = self._session_service.get_session(task_spec.session_id)
+        with directory_context(temp_root=session.resolved_temp_dir):
+            return self._run_pipeline_task_spec(task_spec, progress_callback=progress_callback,
+                cancel_event=cancel_event, manage_lifecycle=manage_lifecycle)
+
+    def _run_pipeline_task_spec(self, task_spec, *, progress_callback=None,
+                                cancel_event=None, manage_lifecycle=True):
         if task_spec.execution_profile.get("version") == 2:
             from .graph_pipeline_service import run_graph_task
             return run_graph_task(self, task_spec, progress_callback=progress_callback,

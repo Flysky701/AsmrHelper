@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.config import PROJECT_ROOT, config
+from src.workspace_paths import model_directory, resolve_directory
 
 from .models import WorkspaceContext
 
@@ -17,9 +18,9 @@ class WorkspaceResolver:
         paths = settings.get("paths", {})
 
         workspace_root = PROJECT_ROOT.resolve()
-        output_root = Path(paths.get("output_dir") or workspace_root / "output").resolve()
-        temp_root = Path(paths.get("temp_dir") or workspace_root / "debug" / "runtime").resolve()
-        models_root = Path(paths.get("model_cache_dir") or workspace_root / "models").resolve()
+        output_root = resolve_directory(paths.get("output_dir"), "output", project_root=workspace_root)
+        temp_root = resolve_directory(paths.get("temp_dir"), "debug/runtime", project_root=workspace_root)
+        models_root = model_directory(project_root=workspace_root)
 
         output_root.mkdir(parents=True, exist_ok=True)
         temp_root.mkdir(parents=True, exist_ok=True)

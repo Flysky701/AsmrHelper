@@ -1,3 +1,4 @@
+import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useRef, useState } from 'react'
 import type { GraphPresetItem, PresetItem } from '@/api/types'
 import WorkflowEditor from '@/components/workflow/WorkflowEditor'
@@ -38,13 +39,13 @@ export default function WorkflowPresets() {
     void store.loadArchivedCatalog()
   }, [])
   useEffect(() => {
-    const guard = () => {
+    const guard = async () => {
       if (current.current.saving || openingRef.current || mutationRef.current) {
         setNotice('正在处理预设，请稍候再离开。')
         return false
       }
       if (current.current.editor && editorDirty(current.current.editor)
-          && !window.confirm('流水线有未保存的修改。离开后将放弃这些修改，工作台素材草稿会保留。继续离开？')) return false
+          && !await confirmAction('流水线有未保存的修改。离开后将放弃这些修改，工作台素材草稿会保留。继续离开？')) return false
       useWorkflowStore.getState().closeEditor()
       return true
     }
@@ -68,7 +69,7 @@ export default function WorkflowPresets() {
     const item = catalog.find(preset => preset.id === catalogId)
     if (!create && !item) return
     const returnTo = editor?.returnTo || 'settings'
-    if (!useNavStore.getState().confirmLeaveCurrentPage()) return
+    if (!(await useNavStore.getState().confirmLeaveCurrentPage())) return
     setNotice('')
     if (create || item && 'graph' in item) {
       if (create) setCatalogId('')
@@ -97,7 +98,7 @@ export default function WorkflowPresets() {
   const selected = catalog.find(preset => preset.id === catalogId)
   async function deletePreset(preset: PresetItem | GraphPresetItem) {
     if (busy || mutationRef.current) return
-    if (!window.confirm(presetDeleteConfirmation(preset))) return
+    if (!await confirmAction(presetDeleteConfirmation(preset))) return
     mutationRef.current = true; setDeletingId(preset.id); setNotice(''); setRestoreNotice('')
     setRestoreErrors(current => ({ ...current, [preset.id]: '' }))
     try {

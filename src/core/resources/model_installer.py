@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from src.config import PROJECT_ROOT
+from src.workspace_paths import freeze_directories
 
 from .model_catalog import ModelEntry
 from .model_status import ModelState, ModelStatusResolver
@@ -57,6 +58,7 @@ class ModelInstaller:
         if install_dir.exists():
             shutil.rmtree(install_dir)
 
+    @freeze_directories
     def install_local_model(self, entry: ModelEntry, mirror: Optional[str] = None, force: bool = False) -> bool:
         if entry.kind != "local":
             raise ValueError(f"cloud models cannot be installed: {entry.id}")
@@ -170,6 +172,7 @@ class ModelInstaller:
 
     # ── Async install with progress ──────────────────────────────────
 
+    @freeze_directories
     def install_with_progress(
         self,
         entry: ModelEntry,

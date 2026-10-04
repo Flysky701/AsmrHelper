@@ -455,7 +455,10 @@ class SpeechProvider:
             raise ProviderError("invalid_precision", "不支持的模型精度")
         if self.provider_id == "voxcpm2" and precision != "auto":
             raise ProviderError("unsupported_precision", "VoxCPM2 当前使用模型默认精度，请选择 auto")
-        with tempfile.TemporaryDirectory(prefix="speech-worker-") as directory:
+        from src.workspace_paths import temporary_directory
+        temp_root = temporary_directory()
+        temp_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="speech-worker-", dir=temp_root) as directory:
             input_path = Path(directory) / "request.json"
             response_path = Path(directory) / "response.json"
             input_path.write_text(json.dumps({"request": request, "references": references, "model_path": model_path,

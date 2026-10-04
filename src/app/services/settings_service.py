@@ -93,10 +93,14 @@ class SettingsService:
         # Preflight and persistence must use the same scope. Profile migration can
         # add connection_profiles internally even when only a local path changed.
         local_only = bool(requested_updates) and set(requested_updates) <= {"paths", "processing"}
+        from src.workspace_paths import path_setting_errors
+        path_errors = path_setting_errors((requested_updates or {}).get("paths", {}))
         if local_only:
-            return self.config.validate(candidate, require_api_key=False)
+            valid, errors = self.config.validate(candidate, require_api_key=False)
+            errors = list(errors) + path_errors
+            return valid and not errors, errors
         valid, errors = self.config.validate(candidate)
-        errors = list(errors) + self._profile_validation_errors(candidate)
+        errors = list(errors) + self._profile_validation_errors(candidate) + path_errors
         return valid and not errors, errors
 
     @staticmethod

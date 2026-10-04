@@ -28,6 +28,7 @@ class TaskService:
         self._state_store = state_store
         self._restored_task_ids: set[str] = set()
         self._connection_snapshots: dict[str, dict] = {}
+        self._directory_snapshots: dict[str, dict] = {}
         self._graph_connection_snapshots: dict[str, dict] = {}
         self._connection_records: dict[str, dict] = {}
         self.recovery_store = None
@@ -60,6 +61,7 @@ class TaskService:
             self._restored_task_ids.difference_update(task_ids)
             for task_id in task_ids:
                 self._connection_snapshots.pop(task_id, None)
+                self._directory_snapshots.pop(task_id, None)
                 self._graph_connection_snapshots.pop(task_id, None)
                 self._connection_records.pop(task_id, None)
 
@@ -127,6 +129,11 @@ class TaskService:
                         f"failed to persist task creation: {result[0].task_id}"
                     ) from exc
             # A deduplicated submission must keep the first task's connections.
+            from src.workspace_paths import model_directory, temporary_directory
+            self._directory_snapshots.setdefault(result[0].task_id, {
+                "model_root": str(model_directory()),
+                "temp_root": str(temporary_directory() / result[0].task_id),
+            })
             self._connection_snapshots.setdefault(result[0].task_id, connections)
             if is_graph:
                 self._graph_connection_snapshots.setdefault(result[0].task_id, graph_connections)
@@ -310,6 +317,13 @@ class TaskService:
                 raise AppValidationError("图节点原连接快照不可用，请重新提交任务")
             snapshot = deepcopy(snapshots[node_id])
         return connection_context(snapshot)
+
+    def directory_context(self, task_id: str):
+        """Bind non-secret directory defaults captured when the task was submitted."""
+        from src.workspace_paths import directory_context
+        with self._lock:
+            snapshot = deepcopy(self._directory_snapshots.get(task_id, {}))
+        return directory_context(**snapshot)
 
     def connection_context(self, task_id: str):
         """Bind private connections for this task without exposing its secrets."""

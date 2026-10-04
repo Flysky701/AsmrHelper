@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from src.config import PROJECT_ROOT
+from src.config import PROJECT_ROOT, config
+from src.workspace_paths import model_directory, resolve_directory
 
 from .models import ResourceStatus, RuntimeWorkspace
 
@@ -16,39 +16,30 @@ class RuntimeWorkspaceManager:
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = (project_root or PROJECT_ROOT).resolve()
 
-    def ensure_workspace(self) -> RuntimeWorkspace:
-        project_root = self.project_root
-        output_dir = project_root / "output"
-        models_dir = self._get_models_dir()
-
-        project_root.mkdir(parents=True, exist_ok=True)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        models_dir.mkdir(parents=True, exist_ok=True)
-
+    def resolve_workspace(self) -> RuntimeWorkspace:
         return RuntimeWorkspace(
-            project_root=str(project_root),
-            output_dir=str(output_dir),
-            models_dir=str(models_dir),
+            project_root=str(self.project_root),
+            output_dir=str(resolve_directory(config.get("paths.output_dir", ""), "output", project_root=self.project_root)),
+            models_dir=str(model_directory(project_root=self.project_root)),
         )
 
-    def check_required_resources(self) -> list[ResourceStatus]:
-        workspace = self.ensure_workspace()
-        return [
-            ResourceStatus(
-                name=name,
-                available=Path(path).exists(),
-                detail="ready" if Path(path).exists() else "missing",
-                metadata={"path": path},
-            )
-            for name, path in (
-                ("project_root", workspace.project_root),
-                ("output_dir", workspace.output_dir),
-                ("models_dir", workspace.models_dir),
-            )
-        ]
+    def ensure_workspace(self) -> RuntimeWorkspace:
+        workspace = self.resolve_workspace()
+        for value in (workspace.project_root, workspace.output_dir, workspace.models_dir):
+            Path(value).mkdir(parents=True, exist_ok=True)
+        return workspace
 
-    def _get_models_dir(self) -> Path:
-        configured_root = os.getenv("ASMR_HELPER_MODEL_ROOT")
-        if configured_root:
-            return Path(configured_root).expanduser().resolve()
-        return self.project_root / "models"
+    def check_required_resources(self) -> list[ResourceStatus]:
+        # Status reads must neither create missing directories nor report them ready.
+        workspace = self.resolve_workspace()
+        statuses = []
+        for name, value in (("project_root", workspace.project_root),
+                            ("output_dir", workspace.output_dir), ("models_dir", workspace.models_dir)):
+            path = Path(value)
+            try:
+                available = path.is_dir()
+                detail = "ready" if available else "not a directory" if path.exists() else "missing"
+            except OSError:
+                available, detail = False, "inaccessible"
+            statuses.append(ResourceStatus(name=name, available=available, detail=detail, metadata={"path": value}))
+        return statuses

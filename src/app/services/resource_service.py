@@ -57,7 +57,7 @@ class ResourceService:
         }
 
     def get_runtime_resources(self) -> dict[str, str]:
-        workspace = self._manager.ensure_workspace()
+        workspace = self._manager.resolve_workspace()
         return {
             "project_root": workspace.project_root,
             "output_dir": workspace.output_dir,
@@ -92,6 +92,12 @@ class ResourceService:
     ) -> dict[str, object]:
         profile = dict(execution_profile or {})
         issues: list[dict[str, object]] = []
+
+        try:
+            self.ensure_workspace()
+        except OSError:
+            issues.append(self._issue(stage="prepare", category="runtime", provider="workspace", model=None,
+                code="RESOURCE_UNWRITABLE", requirement="workspace", message="无法创建工作目录，请检查已保存路径、磁盘和写入权限"))
 
         for status in self.check_required_resources():
             if not status.available:

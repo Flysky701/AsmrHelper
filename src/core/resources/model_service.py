@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from src.core.runtime import RuntimeProfileResolver, get_runtime_profile_resolver
+from src.workspace_paths import freeze_directories
 
 from .model_catalog import DEFAULT_CATALOG_PATH, ModelCatalog, ModelEntry
 from .model_installer import ModelInstaller
@@ -66,6 +67,7 @@ class ModelService:
             self.runtime_resolver.clear_probe_cache(profile or "main")
         return {entry.id: self.installer.verify_local_model(entry) for entry in entries if entry.kind == "local"}
 
+    @freeze_directories
     def install(
         self,
         model_id: str,

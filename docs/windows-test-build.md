@@ -1,6 +1,6 @@
 # Windows x64 test installer
 
-Version: **0.2.1-beta.2** (Python metadata: `0.2.1b2`). Product: **ASMR Helper Test**. This is a separate per-user NSIS test product, not a signed public release.
+Version: **0.2.1-beta.3** (Python metadata: `0.2.1b3`). Product: **ASMR Helper Test**. This is a separate per-user NSIS test product, not a signed public release.
 
 The installed desktop executable starts its own loopback backend on an ephemeral port and passes a fresh session token to the WebView. It refuses packaged startup if resources are missing. A Windows Job Object owns the backend and model-worker process tree; application exit requests graceful shutdown and then terminates remaining children.
 

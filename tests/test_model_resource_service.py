@@ -206,7 +206,7 @@ def test_runtime_dependency_install_reports_subprocess_failure(
 
 
 def test_uv_runtime_dependency_install_targets_running_interpreter(monkeypatch):
-    monkeypatch.setattr("shutil.which", lambda name: "uv.exe" if name == "uv" else None)
+    monkeypatch.setattr("shutil.which", lambda name, **kwargs: "uv.exe" if name == "uv" else None)
 
     installer = ModelService._resolve_installer()
 

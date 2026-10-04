@@ -309,7 +309,7 @@ function LocalResources() {
                   }} />
                   <span style={{ fontSize: 'var(--text-control)', fontWeight: 600 }}>{RESOURCE_LABELS[res.name] ?? res.name}</span>
                   <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                    {res.available ? '可用' : '不可用'}
+                    {res.available ? '可用' : (({ missing: '尚未创建', 'not a directory': '路径不是目录', inaccessible: '无法访问' } as Record<string, string>)[res.detail] || '不可用')}
                   </span>
                 </div>
                 <div
@@ -473,7 +473,7 @@ function LocalResources() {
                             fontSize: 'var(--text-control)', gap: '12px',
                           }}>
                             <div className="engines-model-info">
-                              <div style={{ fontWeight: 500 }}>{model.display_name}</div>
+                              <div style={{ fontWeight: 500 }}>{model.display_name}{model.install_strategy === 'package' && <small style={{ display: 'block', fontWeight: 400, marginTop: 6 }}>仅检查运行依赖；权重使用 PyTorch 独立缓存，首次执行可能下载，不随模型目录设置迁移。</small>}</div>
                               <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
                                 {model.backend || model.family_id || model.kind}
                                 {model.estimated_size_mb ? ` · ${formatEstimatedSize(model.estimated_size_mb)}` : ''}

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from src.config import PROJECT_ROOT
+from src.workspace_paths import temporary_directory, freeze_directories
 
 from .profiles import RuntimeProfileResolver, get_runtime_profile_resolver
 
@@ -50,6 +51,7 @@ class RuntimeRouter:
     def align_file(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._run_worker("alignment.align_file", payload, "qwen_asr")
 
+    @freeze_directories
     def _run_worker(
         self,
         operation: str,
@@ -64,7 +66,7 @@ class RuntimeRouter:
                 f"runtime environment is not installed: {profile.id}; install the selected model dependencies first"
             )
 
-        exchange_dir = self.project_root / ".tmp" / "runtime-workers"
+        exchange_dir = temporary_directory(project_root=self.project_root) / "runtime-workers"
         exchange_dir.mkdir(parents=True, exist_ok=True)
         token = uuid.uuid4().hex
         request_path = exchange_dir / f"{token}.request.json"

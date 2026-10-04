@@ -13,10 +13,10 @@ function useWindowCloseGuard() {
     let unlisten: (() => void) | undefined
 
     void currentWindow
-      .onCloseRequested((event) => {
+      .onCloseRequested(async (event) => {
         event.preventDefault()
         try {
-          if (!useNavStore.getState().confirmLeaveCurrentPage()) return
+          if (!(await useNavStore.getState().confirmLeaveCurrentPage())) return
           void currentWindow.destroy().catch((error) => {
             console.error('关闭窗口失败', error)
           })

@@ -1,3 +1,4 @@
+import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 import { speechApi } from '@/api/speech'
@@ -78,7 +79,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
     try { await action() } catch (cause) { setError(message(cause)) }
     finally { setBusy(''); onBusy(false) }
   }
-  function mayReplace() { return !dirty || window.confirm('当前录音还没有保存。放弃修改并打开另一段录音？') }
+  async function mayReplace() { return !dirty || await confirmAction('当前录音还没有保存。放弃修改并打开另一段录音？') }
   function change(patch: Partial<Draft>) {
     audio.current?.pause(); selection.current = null; wholePlayback.current = false
     setPlaybackMode('selection')
@@ -98,14 +99,14 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
     setStored(null); setSource(value); setPreview(null); setSegments([]); setCandidates([]); setAnalyzed(false); setAnalysisError(''); setAnalysisTask(null); setAnalysisWarnings([]); setAnalysisSource(''); setLoadedSubtitle(null); setTrackingFailed(false)
     setDraft({ ...initialDraft(), name: name.replace(/\.[^.]+$/, ''), end: value.duration }); setView('editor'); setDirty(true)
   }
-  function upload(file: File) {
-    if (busy || !mayReplace()) return
+  async function upload(file: File) {
+    if (busy || !(await mayReplace())) return
     void run('正在读取录音', async () => load(await speechApi.uploadReference(file), file.name))
   }
   async function chooseFile() {
     if (busy) return
     if ('__TAURI_INTERNALS__' in window) {
-      if (!mayReplace()) return
+      if (!(await mayReplace())) return
       await run('正在读取录音', async () => {
         const { open } = await import('@tauri-apps/plugin-dialog')
         const path = await open({ multiple: false, filters: [FILE_FILTERS.audio] })
@@ -171,8 +172,8 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
       try { await refresh() } catch { setNotice('录音已保存，列表刷新失败；稍后可重试刷新。') }
     })
   }
-  function openStored(item: ReferenceAsset) {
-    if (!mayReplace()) return
+  async function openStored(item: ReferenceAsset) {
+    if (!(await mayReplace())) return
     audio.current?.pause(); setAnalysisTask(null); setStored(item); setSource(null); setDirty(false); setView('saved'); setNotice(''); setError('')
   }
 

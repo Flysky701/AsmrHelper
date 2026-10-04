@@ -483,6 +483,9 @@ class RuntimeProfileResolver:
 
     def subprocess_env(self) -> dict[str, str]:
         env = os.environ.copy()
+        from src.workspace_paths import model_directory, temporary_directory
+        env["ASMR_HELPER_MODEL_ROOT"] = str(model_directory(project_root=self.project_root))
+        env["ASMR_HELPER_TEMP_ROOT"] = str(temporary_directory(project_root=self.project_root))
         env.setdefault("UV_CACHE_DIR", str(self.project_root / ".uv-cache"))
         env.setdefault("UV_PYTHON_INSTALL_DIR", str(self.project_root / ".runtimes" / "python"))
         python_paths = [str(APP_ROOT), env.get("PYTHONPATH", "")]

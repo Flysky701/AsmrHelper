@@ -71,22 +71,12 @@ class ModelEntry:
     healthcheck_timeout_seconds: Optional[int] = None
 
     def resolved_install_root(self) -> Path:
-        override_root = None
+        from src.workspace_paths import model_directory, resolve_directory
+
+        default = self.install_root or PROJECT_ROOT
         if self.kind == "local":
-            override = __import__("os").environ.get("ASMR_HELPER_MODEL_ROOT")
-            if override:
-                override_root = Path(override)
-
-        if override_root is not None:
-            return override_root
-
-        if not self.install_root:
-            return PROJECT_ROOT
-
-        root = Path(self.install_root)
-        if root.is_absolute():
-            return root
-        return PROJECT_ROOT / root
+            return model_directory(default, project_root=PROJECT_ROOT)
+        return resolve_directory(None, default, project_root=PROJECT_ROOT)
 
     def resolved_install_dir(self) -> Path:
         root = self.resolved_install_root()

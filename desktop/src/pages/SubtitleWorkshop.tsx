@@ -1,3 +1,4 @@
+import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { subtitlesApi } from '@/api/subtitles'
 import { toolsApi } from '@/api/tools'
@@ -628,7 +629,7 @@ export default function SubtitleWorkshop() {
 
   useLayoutEffect(() => {
     const guard = isDirty
-      ? () => window.confirm('当前字幕有尚未导出的修改，确定要离开吗？')
+      ? async () => await confirmAction('当前字幕有尚未导出的修改，确定要离开吗？')
       : null
     setNavigationGuard(guard)
     return () => setNavigationGuard(null)
@@ -670,7 +671,7 @@ export default function SubtitleWorkshop() {
       return
     }
     const path = files[0]!
-    if (isDirty && !window.confirm('加载新文件会替换当前未导出的修改，确定继续吗？')) {
+    if (isDirty && !await confirmAction('加载新文件会替换当前未导出的修改，确定继续吗？')) {
       setLoading('')
       return
     }

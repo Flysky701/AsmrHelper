@@ -99,8 +99,8 @@ class ASRRecognizer:
 
         # 加载模型，优先使用本地 models 目录
         t0 = time.time()
-        # 统一使用 PROJECT_ROOT
-        models_dir = PROJECT_ROOT / "models" / "whisper"
+        from src.workspace_paths import model_directory
+        models_dir = model_directory(project_root=PROJECT_ROOT) / "whisper"
         local_model_dir = models_dir / model_size
         # The model installer stores catalog weights in models/whisper/<size>.
         # Pass that concrete directory to Faster-Whisper when present; treating

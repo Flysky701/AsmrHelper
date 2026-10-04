@@ -1,3 +1,4 @@
+import { confirmAction } from '@/utils/confirmAction'
 import SpeechOptionsFields from '@/components/SpeechOptionsFields'
 import QwenReferenceMode from '@/components/QwenReferenceMode'
 import SpeechConnectionManager from '@/components/SpeechConnectionManager'
@@ -228,7 +229,7 @@ export default function VoiceLab() {
   async function adoptRecipe(take: SpeechTake) {
     const saved = take.recipe_snapshot || library.recipes.find(item => item.id === take.recipe_id)
     if (!saved) throw new Error('此候选的生成配置不可用，不能用当前表单替代历史配置')
-    if (recipeDirty && !window.confirm('当前生成设置尚未保存，使用该候选的冻结配置替换草稿？')) return
+    if (recipeDirty && !await confirmAction('当前生成设置尚未保存，使用该候选的冻结配置替换草稿？')) return
     setRecipe({ ...structuredClone(saved), id: '', revision: 0, voice_id: '', archived: false })
     setRetainedReferenceId(saved.variant.kind === 'reference' ? saved.variant.value : '')
     setProbeResult(null); setLocalResolution(null)
@@ -271,12 +272,12 @@ export default function VoiceLab() {
     </>
   }
 
-  function newRecipe() {
-    if (recipeDirty && !window.confirm('当前音色尚未保存，创建新音色将替换草稿。继续？')) return
+  async function newRecipe() {
+    if (recipeDirty && !await confirmAction('当前音色尚未保存，创建新音色将替换草稿。继续？')) return
     setRecipe(blankRecipe()); setRetainedReferenceId(''); setRecipeDirty(false); setCompiled(null); setProbeResult(null); setLocalResolution(null); setShowConnection(false); setAdvancedConnection(false); setNotice(''); setVoiceListOpen(false)
   }
-  function useReference(item: ReferenceAsset) {
-    if (recipeDirty && !window.confirm('当前音色尚未保存，使用此录音创建新音色将替换草稿。继续？')) return
+  async function useReference(item: ReferenceAsset) {
+    if (recipeDirty && !await confirmAction('当前音色尚未保存，使用此录音创建新音色将替换草稿。继续？')) return
     const draft = recipeFromReference(recipe, item, providers)
     setRecipe(draft); setRetainedReferenceId(item.id)
     setProbeResult(null); setLocalResolution(null)
@@ -308,7 +309,7 @@ export default function VoiceLab() {
           <label className="voice-archive"><input type="checkbox" checked={showArchivedRules} onChange={event => setShowArchivedRules(event.target.checked)} /> 显示已归档</label>
           {!visibleRules.length && <p className="empty">{voiceQuery ? '没有匹配的音色。' : '尚无音色。可选择参考录音，或描述希望生成的声音。'}</p>}
           <VoiceRecipeList recipes={visibleRules} providers={providers} selectedId={recipe.id}
-            onSelect={item => { if (!recipeDirty || window.confirm('当前音色尚未保存，放弃草稿并打开此音色？')) useRecipe(item) }} />
+            onSelect={async item => { if (!recipeDirty || await confirmAction('当前音色尚未保存，放弃草稿并打开此音色？')) useRecipe(item) }} />
         </aside>
         <section className="panel voice-detail">
           <div className="row spread voice-detail-heading"><div><h2>{recipe.name || '新建音色'}</h2><p className="muted">{recipe.archived ? '已归档' : recipeDirty ? '有未保存修改' : recipe.id ? '已保存 · 修订 ' + recipe.revision : '新草稿'} · 音色生成规则</p></div>
@@ -342,7 +343,7 @@ export default function VoiceLab() {
               <p className="muted" role="status">{localProvider ? currentLocalResolution?.detail || '保存音色只保存配置，不代表模型已可运行。可在高级连接设置中检查模型与运行环境。' : selectedConnection ? '已选择连接；保存不代表服务已就绪，可展开设置检查。' : provider?.connection_required ? '请选择明确的服务连接；多个连接不会自动代选。' : '此引擎无需独立连接，实际可用性在执行时检查。'}</p>
               {localProvider && selectedConnection?.model_path && <p className="muted">当前连接使用固定模型路径。切换模型或生成方式后，请核对连接中的模型是否兼容；应用不会自动改写此路径。</p>}
               {showConnectionChoice && <div className="connection-controls"><Field title="连接"><select value={recipe.connection_ref} onChange={event => { setProbeResult(null); setLocalResolution(null); editRecipe({ connection_ref: event.target.value }) }}><option value="" disabled>选择明确的运行连接</option>{missingConnection && <option value={recipe.connection_ref}>原连接已缺失：{recipe.connection_ref}</option>}{provider && !provider.connection_required && <option value={`engine-default-${provider.provider_id}`}>明确使用引擎默认环境</option>}{library.connections.filter(item => item.provider_id === recipe.provider_id).map(item => <option key={item.id} value={item.id}>{item.name} · {deploymentNames[item.deployment]}</option>)}</select></Field><div className="row">
-                {provider?.connection_required ? <button onClick={() => { if (!recipeDirty || window.confirm('当前音色修改尚未保存，离开并管理外部服务？')) useNavStore.getState().openEngines('external') }}>管理外部语音服务</button> : <><button onClick={() => { setConnection({ name: '', provider_id: recipe.provider_id, deployment: 'local', api_key: '', base_url: '', timeout: 60 }); setShowConnection(!showConnection) }}>新建连接</button><button disabled={!selectedConnection || !!busy} onClick={editConnection}>编辑连接</button></>}
+                {provider?.connection_required ? <button onClick={async () => { if (!recipeDirty || await confirmAction('当前音色修改尚未保存，离开并管理外部服务？')) useNavStore.getState().openEngines('external') }}>管理外部语音服务</button> : <><button onClick={() => { setConnection({ name: '', provider_id: recipe.provider_id, deployment: 'local', api_key: '', base_url: '', timeout: 60 }); setShowConnection(!showConnection) }}>新建连接</button><button disabled={!selectedConnection || !!busy} onClick={editConnection}>编辑连接</button></>}
                 <button disabled={!selectedConnection && !engineDefaultConnection || !!busy} onClick={() => void run('检查连接', async () => setProbeResult({ key: probeKey, value: await speechApi.probe(recipe.connection_ref, recipe.model, recipe.mode) }))}>检查连接</button>
               </div></div>}
               {showConnectionChoice && <SpeechConnectionManager connections={library.connections} defaults={connectionDefaults} providers={providers} providerId={recipe.provider_id} disabled={!!busy} onChanged={async () => { setProbeResult(null); setLocalResolution(null); await refresh() }} />}
@@ -360,7 +361,7 @@ export default function VoiceLab() {
       </div>}
 
       {tab === 2 && <section className="panel audition-editor"><h2>新试音</h2>
-        <Field title="载入已保存音色或TTS高级预设"><select value={recipe.id} onChange={event => { const item = ruleList.find(value => value.id === event.target.value); if (item && (!recipeDirty || window.confirm('当前试听设置尚未保存，载入其他预设？'))) useRecipe(item) }}><option value="">当前未保存草稿</option>{recipe.id && !ruleList.some(item => item.id === recipe.id) && <option value={recipe.id}>{recipe.name}（历史修订）</option>}{ruleList.filter(item => !item.archived).map(item => <option key={item.id} value={item.id}>{item.name} · r{item.revision}</option>)}</select></Field>
+        <Field title="载入已保存音色或TTS高级预设"><select value={recipe.id} onChange={async event => { const item = ruleList.find(value => value.id === event.target.value); if (item && (!recipeDirty || await confirmAction('当前试听设置尚未保存，载入其他预设？'))) useRecipe(item) }}><option value="">当前未保存草稿</option>{recipe.id && !ruleList.some(item => item.id === recipe.id) && <option value={recipe.id}>{recipe.name}（历史修订）</option>}{ruleList.filter(item => !item.archived).map(item => <option key={item.id} value={item.id}>{item.name} · r{item.revision}</option>)}</select></Field>
         <p className="muted">{recipe.name || '未命名草稿'} · {provider?.name || '未选引擎'} · {modeNames[recipe.mode] || '未选方式'}{recipeDirty || !recipe.id ? ' · 本次使用草稿快照' : ' · 已保存修订'} <button type="button" onClick={() => setTab(1)}>编辑声音来源</button></p>
         {targetLanguageField()}
         {recipe.provider_id !== 'fish_audio' && <p className="muted">合成目标语言用于下面的试听台词，保存后也用于此音色预设。{referenceAsset && <>参考录音语言：{referenceAsset.language === 'auto' ? '未明确' : languageNames[referenceAsset.language] || referenceAsset.language}；参考原文保持不变。</>}</p>}
