@@ -32,7 +32,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="ASMR Helper API",
         description="HTTP API for ASMR Helper audio processing pipeline",
-        version="0.2.1-beta.1",
+        version="0.2.1-beta.2",
         docs_url="/docs",
         redoc_url="/redoc",
     )
@@ -78,6 +78,6 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": "0.2.1-beta.1"}
+        return {"status": "ok", "version": "0.2.1-beta.2"}
 
     return app

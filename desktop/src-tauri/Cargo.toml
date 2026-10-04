@@ -1,6 +1,6 @@
 [package]
 name = "asmr-helper"
-version = "0.2.1-beta.1"
+version = "0.2.1-beta.2"
 edition = "2021"
 
 [lib]

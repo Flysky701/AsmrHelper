@@ -30,7 +30,7 @@ def collect(root: Path, output: Path):
                 target=output/'npm'/name.removeprefix('node_modules/')/source.name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
     output.mkdir(parents=True,exist_ok=True)
     (output/'desktop-dependencies.json').write_text(json.dumps(records,indent=2),encoding='utf-8')
-    (output/'THIRD-PARTY-NOTICES.txt').write_text('ASMR Helper Test 0.2.1-beta.1\nApplication metadata declares MIT.\nThis distribution contains separately licensed third-party software.\nFFmpeg 8.1.2 from Gyan is GPL v3; see ../ffmpeg/LICENSE and ../ffmpeg/README.txt for its build and source information.\nPython, uv, Python packages, native components, Rust crates and npm production dependencies retain notices in this directory and their original package directories.\nModel weights are not bundled and have separate download/license terms.\nThis inventory is not a legal certification.\n',encoding='utf-8')
+    (output/'THIRD-PARTY-NOTICES.txt').write_text('ASMR Helper Test 0.2.1-beta.2\nApplication metadata declares MIT.\nThis distribution contains separately licensed third-party software.\nFFmpeg 8.1.2 from Gyan is GPL v3; see ../ffmpeg/LICENSE and ../ffmpeg/README.txt for its build and source information.\nPython, uv, Python packages, native components, Rust crates and npm production dependencies retain notices in this directory and their original package directories.\nModel weights are not bundled and have separate download/license terms.\nThis inventory is not a legal certification.\n',encoding='utf-8')
     return len(records)
 
 if __name__=='__main__':

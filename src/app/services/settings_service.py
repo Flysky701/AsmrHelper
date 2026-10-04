@@ -66,11 +66,7 @@ class SettingsService:
     def _update_settings_locked(self, updates: dict[str, Any]) -> dict[str, Any]:
         internal_updates = self._to_internal_updates(updates)
         candidate = self.config.build_effective_config(config_override=internal_updates)
-        # Saving local paths/processing must not require a paid-provider credential.
-        local_only = bool(internal_updates) and set(internal_updates) <= {"paths", "processing"}
-        valid, errors = self.config.validate(candidate, require_api_key=False) if local_only else self.config.validate(candidate)
-        errors = list(errors) + self._profile_validation_errors(candidate)
-        valid = valid and not errors
+        valid, errors = self._validate_candidate(candidate, updates)
         if not valid:
             raise AppValidationError("; ".join(errors))
 
@@ -90,10 +86,18 @@ class SettingsService:
             if updates
             else self.config.to_dict()
         )
+        valid, errors = self._validate_candidate(candidate, updates)
+        return valid, errors, self._to_public_settings(candidate)
+
+    def _validate_candidate(self, candidate, requested_updates):
+        # Preflight and persistence must use the same scope. Profile migration can
+        # add connection_profiles internally even when only a local path changed.
+        local_only = bool(requested_updates) and set(requested_updates) <= {"paths", "processing"}
+        if local_only:
+            return self.config.validate(candidate, require_api_key=False)
         valid, errors = self.config.validate(candidate)
         errors = list(errors) + self._profile_validation_errors(candidate)
-        valid = valid and not errors
-        return valid, errors, self._to_public_settings(candidate)
+        return valid and not errors, errors
 
     @staticmethod
     def _profile_validation_errors(candidate):

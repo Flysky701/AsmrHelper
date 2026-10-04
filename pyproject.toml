@@ -1,6 +1,6 @@
 [project]
 name = "asmr-helper"
-version = "0.2.1b1"
+version = "0.2.1b2"
 description = "ASMR 音频汉化工具，支持人声分离、ASR、翻译、TTS 和智能混音"
 authors = [
     {name = "ASMR Helper Team"}

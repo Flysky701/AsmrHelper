@@ -112,7 +112,7 @@ def _emit_pipeline_result(result: Any, task_result: dict[str, Any]) -> None:
 
 
 @click.group()
-@click.version_option(version="0.2.1-beta.1")
+@click.version_option(version="0.2.1-beta.2")
 def cli():
     """ASMR Helper CLI."""
     pass
