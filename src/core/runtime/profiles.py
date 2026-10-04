@@ -391,7 +391,7 @@ class RuntimeProfileResolver:
                 "import numpy as np\n"
                 f"model=WhisperModel({str(model_path)!r}, device=result['device'], "
                 "compute_type='float16' if result['device']=='cuda' else 'int8', local_files_only=True)\n"
-                "segments,_=model.transcribe(np.zeros(16000,dtype=np.float32),language='en',vad_filter=False,beam_size=1)\n"
+                "segments,_=model.transcribe(np.zeros(16000,dtype=np.float32),language='en',vad_filter=False,beam_size=1,no_speech_threshold=None,log_prob_threshold=None)\n"
                 "list(segments)\n"
             )
         script += "print('__ASMR_CT2__'+json.dumps(result))\n"

@@ -112,3 +112,9 @@ Torch 引擎仍固定原版本和计算后端，`uv --torch-backend` 只给 PyTo
 [uv PyTorch 来源隔离](https://docs.astral.sh/uv/guides/integration/pytorch/)。
 
 可通过 `ASMR_HELPER_CUDA_LIBRARY_DIR` 明确指定已有的可信 CUDA 12/cuDNN 9 DLL 目录以避免重复大包；会检查必要 DLL 并真实执行 CTranslate2 推理验证，无需导入 Torch。目录不完整或库不兼容会报错。
+
+
+本轮 Windows RTX 5070 Laptop GPU 对照复现中，旧锁定 CTranslate2 4.7.1 在成功转写后销毁模型对象时返回 0xC0000409。
+同一 CUDA/cuDNN DLL、Tiny 权重与音频，官方 CTranslate2 4.8.1 能正常转写、卸载、销毁和退出，因此锁文件明确更新为 4.8.1 及官方 PyPI 哈希。
+这属于经实测的局部兼容修复，并非网络 fallback 时替换版本；所有来源仍使用完全相同的锁定 requirements。
+安装探测会强制运行 GPU 解码路径并检查子进程返回码，不能用仅成功导入/编码或已产出文字代替正常退出。
