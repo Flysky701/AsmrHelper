@@ -70,17 +70,15 @@ class ASRRecognizer:
         """
         self.model_size = model_size
         # 自动检测 CUDA 支持
+        from src.core.runtime.ctranslate2_runtime import configure_cuda_libraries, selected_device
+        configure_cuda_libraries()
         if device == "auto":
-            try:
-                import onnxruntime as ort
-                if "CUDAExecutionProvider" in ort.get_available_providers():
-                    self.device = "cuda"
-                else:
-                    self.device = "cpu"
-            except ImportError:
-                self.device = "cpu"
+            from src.core.runtime.profiles import get_runtime_profile_resolver
+            self.device = selected_device(get_runtime_profile_resolver().compute_mode())
+        elif device in {"cuda", "cpu"}:
+            self.device = selected_device(device)
         else:
-            self.device = device if device == "cuda" else "cpu"
+            raise ValueError("device must be auto, cuda, or cpu")
 
         self.language = self.LANG_CODES.get(language, language)
         if beam_size < 1:

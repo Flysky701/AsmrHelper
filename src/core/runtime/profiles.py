@@ -181,8 +181,11 @@ class RuntimeProfileResolver:
             "install",
             "--python",
             str(profile.python_executable),
-            "--index",
-            f"https://download.pytorch.org/whl/{target}",
+            "--no-config",
+            "--default-index",
+            "https://pypi.org/simple",
+            "--torch-backend",
+            target,
             f"torch==2.10.0+{target}",
             f"torchaudio==2.10.0+{target}",
         ]]
@@ -375,6 +378,45 @@ class RuntimeProfileResolver:
                 except (ValueError, TypeError):
                     pass
         return events
+
+    def verify_ctranslate2(self, profile: RuntimeProfile, model_path: Path | None = None) -> dict:
+        script = (
+            "import json\n"
+            "from src.core.runtime.ctranslate2_runtime import verify_runtime\n"
+            f"result=verify_runtime({self.compute_mode()!r})\n"
+        )
+        if model_path is not None:
+            script += (
+                "from faster_whisper import WhisperModel\n"
+                "import numpy as np\n"
+                f"model=WhisperModel({str(model_path)!r}, device=result['device'], "
+                "compute_type='float16' if result['device']=='cuda' else 'int8', local_files_only=True)\n"
+                "segments,_=model.transcribe(np.zeros(16000,dtype=np.float32),language='en',vad_filter=False,beam_size=1)\n"
+                "list(segments)\n"
+            )
+        script += "print('__ASMR_CT2__'+json.dumps(result))\n"
+        result = subprocess.run([str(profile.python_executable), "-c", script],
+            cwd=str(self.project_root), env=self.subprocess_env(), capture_output=True,
+            text=True, encoding="utf-8", errors="replace", timeout=120, check=False)
+        if result.returncode:
+            raise RuntimeProbeError(f"CTranslate2 verification failed: {(result.stderr or result.stdout)[-1500:]}")
+        try:
+            line = next(line for line in reversed(result.stdout.splitlines()) if line.startswith("__ASMR_CT2__"))
+            verified = json.loads(line.removeprefix("__ASMR_CT2__"))
+            logger.info("FasterWhisper compute verified model=%s result=%s", model_path, verified)
+            return verified
+        except (StopIteration, ValueError) as exc:
+            raise RuntimeProbeError("invalid CTranslate2 verification result") from exc
+
+    def has_ctranslate2_cuda(self, profile_id: str | None) -> bool:
+        profile = self.resolve(profile_id)
+        if not profile.python_executable.is_file():
+            return False
+        result = subprocess.run([str(profile.python_executable), "-c",
+            "from src.core.runtime.ctranslate2_runtime import cuda_available; "
+            "raise SystemExit(0 if cuda_available() else 1)"],
+            cwd=str(self.project_root), env=self.subprocess_env(), capture_output=True, timeout=30, check=False)
+        return result.returncode == 0
 
     def has_cuda(self, profile_id: str | None) -> bool:
         with self._flight_lock(profile_id):

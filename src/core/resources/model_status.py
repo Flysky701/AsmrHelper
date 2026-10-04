@@ -47,7 +47,7 @@ class ModelStatusResolver:
     """Resolve installation and runtime readiness as separate facts."""
 
     _RUNTIME_IMPORTS = {
-        "faster_whisper": ("faster_whisper",),
+        "faster_whisper": ("faster_whisper", "ctranslate2"),
         "fun_asr": ("funasr", "torch", "torchaudio"),
         "qwen3_asr": ("qwen_asr",),
         "qwen3": ("qwen_tts",),
@@ -302,6 +302,8 @@ class ModelStatusResolver:
 
         if entry.requires_gpu and not runtime_missing:
             has_gpu = (
+                self._runtime_resolver.has_ctranslate2_cuda(runtime.id)
+                if runtime_key == "faster_whisper" else
                 self._runtime_resolver.has_cuda(runtime.id)
                 if (runtime.isolated or self._cached_gpu) and runtime.python_executable.is_file()
                 else self._gpu_checker()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 import sys
@@ -84,36 +83,7 @@ class ModelInstaller:
         raise ValueError(f"unknown install strategy: {strategy}")
 
     def _download_whisper(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
-        env = self._build_download_env(mirror)
-
-        repo = WHISPER_REPOS[entry.id]
-        target_dir = entry.resolved_install_dir()
-
-        # Clean stale cache that may block re-download
-        cache_dir = target_dir / ".cache"
-        if cache_dir.exists():
-            shutil.rmtree(cache_dir, ignore_errors=True)
-
-        cmd = [
-            sys.executable,
-            "-c",
-            "import os\n"
-            "os.environ['PYTHONUTF8'] = '1'\n"
-            "os.environ['PYTHONIOENCODING'] = 'utf-8'\n"
-            f"from faster_whisper import download_model\n"
-            f"download_model({repo!r}, output_dir={str(target_dir)!r})\n",
-        ]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=str(self.project_root),
-            env=env,
-            timeout=600,
-        )
-        if result.returncode != 0:
-            logger.error("%s download failed (rc=%d): %s", entry.id, result.returncode, (result.stderr or "")[-500:])
-        return result.returncode == 0 and self.verify_local_model(entry)
+        return self.install_with_progress(entry, mirror=mirror, force=True)
 
     def _download_qwen3(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
         env = self._build_download_env(mirror)
@@ -218,7 +188,7 @@ class ModelInstaller:
             on_progress(0.0, "starting download")
 
         success = False
-        max_attempts = 3
+        max_attempts = 1 if strategy == "whisper" else 3
         for attempt in range(1, max_attempts + 1):
             try:
                 success = self._run_with_progress(
@@ -252,15 +222,20 @@ class ModelInstaller:
         env = self._build_download_env(mirror)
 
         if strategy == "whisper":
+            from .download_sources import model_sources
+            # Validate before starting any process, including inherited HF_ENDPOINT.
+            model_sources(mirror)
+            env["HF_HUB_ETAG_TIMEOUT"] = "15"
+            env["HF_HUB_DOWNLOAD_TIMEOUT"] = "30"
+            env["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+            env["HF_HUB_DISABLE_XET"] = "1"
             repo = WHISPER_REPOS[entry.id]
             target_dir = entry.resolved_install_dir()
             cmd = [
                 sys.executable, "-c",
-                "import os\n"
-                "os.environ['PYTHONUTF8'] = '1'\n"
-                "os.environ['PYTHONIOENCODING'] = 'utf-8'\n"
-                f"from faster_whisper import download_model\n"
-                f"download_model({repo!r}, output_dir={str(target_dir)!r})\n",
+                "import logging; logging.basicConfig(level=logging.INFO)\n"
+                "from src.core.resources.whisper_download import download\n"
+                f"download({repo!r}, {str(target_dir)!r}, {mirror!r})\n",
             ]
             return cmd, env
 
@@ -340,6 +315,8 @@ class ModelInstaller:
                 f"model download failed (exit code {proc.returncode}): {summary}",
                 detail=detail,
             )
+        if "whisper_download" in cmd[-1]:
+            logger.info("FasterWhisper download log: %s", (stderr or stdout or "")[-3000:])
         return proc.returncode == 0
 
     @staticmethod

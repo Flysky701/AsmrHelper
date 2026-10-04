@@ -87,3 +87,28 @@ Qwen、Fun-ASR、VoxCPM 等引擎的依赖使用各自的 `.runtimes/` 隔离环
 | `.cache/`、`desktop/node_modules/`、`desktop/dist/`、Rust `target/` | 可重建缓存或构建输出；正在运行的 exe 和唯一有效构建仍须保护 |
 
 Git 只保护已提交文件，不能代替上述用户数据的备份。做一致备份时先保存草稿、停止任务并正常退出应用，再复制数据库、配置、音频及 WebView 数据；运行中的 SQLite 应使用 SQLite backup API，不只复制主文件而遗漏 WAL。回退代码不自动回退数据格式，当前流程目录的备份与冲突规则见 [兼容边界](../contracts/compatibility.md)。
+
+
+## FasterWhisper 下载来源与计算依赖
+
+FasterWhisper 单模型安装只安装 CTranslate2 推理依赖，不再安装整个 `audio` 组中的 Torch、Torchaudio、Demucs。
+依赖采用随应用分发的 `uv.lock` 中的确切版本及 SHA256 wheel 哈希，所有来源使用同一份 requirements，禁止回退时替换版本或源码构建。
+Windows 的 auto/cuda 模式检测到 NVIDIA GPU 时，优先复用本 Python 环境已有的 CUDA 12/cuDNN 9 库，缺失时安装锁文件中的 NVIDIA wheel；CUDA 安装或推理验证失败会报错，不会自动改成 CPU。
+`cpu` 模式保持明确选择。auto 设备检测改用 CTranslate2，不依赖 ONNX Runtime 的 CUDA provider 或 Torch。
+
+Python 依赖先使用 [官方 PyPI](https://pypi.org/simple)，仅暂时网络失败时切换到
+[清华 TUNA PyPI 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)，最多两次安装尝试。
+`ASMR_HELPER_PYPI_FALLBACK=none` 可禁用清华备用源，改为重试官方源一次。
+Torch 引擎仍固定原版本和计算后端，`uv --torch-backend` 只给 PyTorch 包选择专属源，普通依赖使用 PyPI。
+
+权重默认使用 [Hugging Face](https://huggingface.co)，最多重试官方源一次，再尝试
+[HF-Mirror](https://hf-mirror.com/) 一次。HF-Mirror 是第三方公益镜像，并非 Hugging Face 官方；只下载数据文件，不执行仓库代码或发送 HF token。
+所有来源固定为官方元数据确认的同一 revision，下载后检查文件大小以及官方 Git blob SHA1 / LFS SHA256。
+官方元数据暂时不可达时，只允许复用本工作区之前保存的官方 manifest；没有可信 manifest 会明确失败。
+`ASMR_HELPER_HF_FALLBACK=none` 可禁用权重备用源。`mirror` / `HF_ENDPOINT` 在 FasterWhisper 中仅接受上述两个 HTTPS 端点，其他主机须单独核实，不能直接安装。
+
+每次尝试记录来源、原因、次数和固定 revision，保留缓存与未完成下载。设置只作用于子进程，不修改全局 pip、代理或 TLS 校验。
+依据：[FasterWhisper 官方依赖说明](https://github.com/SYSTRAN/faster-whisper#requirements)、
+[uv PyTorch 来源隔离](https://docs.astral.sh/uv/guides/integration/pytorch/)。
+
+可通过 `ASMR_HELPER_CUDA_LIBRARY_DIR` 明确指定已有的可信 CUDA 12/cuDNN 9 DLL 目录以避免重复大包；会检查必要 DLL 并真实执行 CTranslate2 推理验证，无需导入 Torch。目录不完整或库不兼容会报错。

@@ -26,7 +26,8 @@ class ModelService:
         self.catalog = ModelCatalog(catalog_path or DEFAULT_CATALOG_PATH)
         self.runtime_resolver = runtime_resolver or get_runtime_profile_resolver()
         self.status_resolver = ModelStatusResolver(runtime_resolver=self.runtime_resolver)
-        self.installer = ModelInstaller()
+        self.installer = ModelInstaller(project_root=self.runtime_resolver.project_root)
+        self.installer._status = self.status_resolver
         self._install_lock = threading.Lock()
 
     def list_models(self, kind: str | None = None, category: str | None = None) -> List[ModelEntry]:
@@ -126,6 +127,9 @@ class ModelService:
 
         if not success:
             return False
+        if entry.provider == "faster_whisper" or entry.engine == "faster_whisper":
+            runtime = self.runtime_resolver.resolve(entry.runtime_profile or "main")
+            self.runtime_resolver.verify_ctranslate2(runtime, model_path=entry.resolved_install_dir())
 
         # Install additional models/assets based on install_mode
         plan = self._resolve_install_plan(
@@ -203,6 +207,33 @@ class ModelService:
 
         extras = list(entry.required_python_extras)
         packages = list(entry.required_runtime_packages)
+
+        if entry.provider == "faster_whisper" or entry.engine == "faster_whisper":
+            # CTranslate2 inference does not use Torch, Torchaudio, or Demucs.
+            from .download_sources import install_locked_packages, locked_requirements
+            runtime = self.runtime_resolver.ensure_environment(entry.runtime_profile or "main")
+            roots = ["faster-whisper"]
+            mode = self.runtime_resolver.compute_mode()
+            capability = self.runtime_resolver._detect_nvidia_compute_capability() if mode != "cpu" else None
+            if mode == "cuda" and capability is None:
+                raise RuntimeError("unable to detect NVIDIA GPU; CUDA was explicitly requested")
+            if sys.platform == "win32" and capability is not None:
+                from src.core.runtime.ctranslate2_runtime import existing_cuda_directory
+                existing = existing_cuda_directory()
+                if existing:
+                    logger.info("FasterWhisper reusing CUDA 12/cuDNN 9 libraries: %s", existing)
+                else:
+                    # Official NVIDIA wheels already pinned and hashed in uv.lock.
+                    roots.extend(["nvidia-cublas-cu12", "nvidia-cudnn-cu12"])
+            requirements = locked_requirements(
+                APP_ROOT / "uv.lock", roots,
+                self.runtime_resolver.project_root / ".runtimes" / "faster-whisper-locked.txt",
+            )
+            install_locked_packages(self._resolve_installer(str(runtime.python_executable)), requirements,
+                                    env=self.runtime_resolver.subprocess_env(), cwd=self.runtime_resolver.project_root)
+            self.runtime_resolver.verify_ctranslate2(runtime)
+            self.runtime_resolver.clear_probe_cache(runtime.id)
+            return
 
         if not extras and not packages:
             return
