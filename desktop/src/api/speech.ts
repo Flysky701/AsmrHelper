@@ -91,10 +91,8 @@ async function patchSpeech<T>(path: string, body: unknown): Promise<T> {
 
 export const speechApi = {
   rules: (includeArchived = false) => api.get<{ recipes: SpeechRecipe[] }>(`/speech/rules?include_archived=${includeArchived}`),
-  archiveRule: (id: string) => api.delete(`/speech/rules/${encodeURIComponent(id)}`),
-  restoreRule: (id: string) => patchSpeech(`/speech/rules/${encodeURIComponent(id)}`, { archived: false }),
   references: (includeArchived = false) => api.get<{ assets: ReferenceAsset[] }>(`/speech/references?include_archived=${includeArchived}`),
-  updateReference: (id: string, patch: { name?: string; notes?: string; archived?: boolean }) => patchSpeech<ReferenceAsset>(`/speech/references/${encodeURIComponent(id)}`, patch),
+  updateReference: (id: string, patch: { name?: string; notes?: string }) => patchSpeech<ReferenceAsset>(`/speech/references/${encodeURIComponent(id)}`, patch),
   rule: (recipe: SpeechRecipe) => {
     return api.post<SpeechRecipe>('/speech/rules', {
       ...(recipe.id ? { id: recipe.id } : {}), name: recipe.name, description: recipe.description || '', provider_id: recipe.provider_id,
@@ -129,7 +127,6 @@ export const speechApi = {
   reference: (reference: ReferenceDraft) => api.post<ReferenceAsset>('/speech/references', reference),
   previewReference: (reference: ReferenceDraft) => api.post<ReferenceInspection>('/speech/references/preview', reference),
   subtitles: (text: string, format: 'srt' | 'vtt') => api.post<{ segments: { start: number; end: number; text: string }[] }>('/speech/references/subtitles', { text, format }),
-  archiveReference: (id: string) => api.delete(`/speech/references/${encodeURIComponent(id)}`),
   uploadReference: async (file: File): Promise<ReferenceInspection> => {
     if (file.size > 100 * 1024 * 1024) throw new Error('音频不能超过 100 MiB')
     const response = await fetch(apiUrl(`/speech/references/upload?filename=${encodeURIComponent(file.name)}`), { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file })

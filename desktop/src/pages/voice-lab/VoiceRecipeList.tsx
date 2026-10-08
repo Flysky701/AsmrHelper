@@ -34,7 +34,7 @@ export default function VoiceRecipeList({ recipes, providers, selectedId, onSele
         <button type="button" className="voice-recipe-row" disabled={disabled}
           aria-current={recipe.id === selectedId ? 'true' : undefined} onClick={() => onSelect(recipe)}>
           <span className="voice-recipe-heading"><strong title={recipe.name}>{recipe.name}</strong>
-            {recipe.archived && <span className="voice-recipe-archived">已归档</span>}
+            {recipe.archived && <span className="voice-recipe-archived">旧版保留项</span>}
           </span>
           <span className="voice-recipe-source">{recipe.variant.kind === 'hosted' ? '云端 ID' : provider?.remote === false ? '本地引擎' : provider?.remote ? '远程引擎' : '声音预设'} · {modeName}</span>
           <span className="voice-recipe-description" title={description}>
@@ -44,7 +44,7 @@ export default function VoiceRecipeList({ recipes, providers, selectedId, onSele
         {(onAudition || onRemove) && <div className="voice-recipe-actions">
           <button type="button" disabled={disabled} onClick={() => onSelect(recipe)}>编辑</button>
           {onAudition && <button type="button" disabled={disabled || recipe.archived} onClick={() => onAudition(recipe)}>试听</button>}
-          {onRemove && !recipe.archived && <button type="button" disabled={disabled} onClick={() => onRemove(recipe)}>移出音色库</button>}
+          {onRemove && <button type="button" disabled={disabled} onClick={() => onRemove(recipe)}>删除</button>}
         </div>}
       </div>
     })}

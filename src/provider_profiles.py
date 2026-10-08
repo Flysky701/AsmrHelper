@@ -100,7 +100,7 @@ def update_profiles(base, request, legacy_updates):
         kind = draft["kind"]
         existing = next((p for p in profiles[kind] if p["id"] == draft.get("id")), None)
         if existing and existing.get("removed"):
-            raise ValueError("此连接已移除，请先恢复")
+            raise ValueError("此连接是旧版保留记录，请删除后新建连接")
         if draft.get("id") and existing is None:
             raise ValueError("连接配置不存在")
         name = draft.get("name", existing.get("name") if existing else "")

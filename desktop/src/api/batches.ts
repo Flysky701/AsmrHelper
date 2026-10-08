@@ -23,9 +23,9 @@ export const batchesApi = {
   get: (batchId: string) =>
     api.get<RemovableBatchRunResponse>(`/batch-runs/${encodeURIComponent(batchId)}`),
 
-  setItemRemoved: (batchId: string, itemId: string, expectedUpdatedAt: string, removed: boolean) =>
-    api.post<RemovableBatchRunResponse>(`/batch-runs/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/removal`,
-      { expected_updated_at: expectedUpdatedAt, removed }),
+  deleteItem: (batchId: string, itemId: string, expectedUpdatedAt: string) =>
+    api.post<{ batch_id: string; deleted_item_id: string; batch: RemovableBatchRunResponse | null }>(`/batch-runs/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/removal`,
+      { expected_updated_at: expectedUpdatedAt, confirmed: true }),
 
   cancel: (batchId: string) =>
     api.post<BatchRunResponse>(`/batch-runs/${encodeURIComponent(batchId)}/cancel`),

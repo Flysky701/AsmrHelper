@@ -6,6 +6,7 @@ from uuid import UUID
 
 from src.core.speech import fish_cloning
 from src.core.speech.providers import ProviderError
+from src.core.speech.store import _reference_file_operation
 
 
 class FishCloneService:
@@ -44,23 +45,32 @@ class FishCloneService:
             return {**record, "state": "unknown", "message": "提交中或结果未知，请刷新记录并到 Fish 核查；不要重复上传"}
         return record
 
-    def list(self, include_deleted=False):
-        return [self._public(item) for item in self.store.list("fish_clones")
-                if include_deleted or not item.get("deleted", False)]
+    def list(self):
+        # Old hidden receipts remain visible for explicit deletion, without a
+        # migration, automatic purge, or new restore action.
+        return [{**self._public(item), "legacy_deleted": bool(item.get("deleted"))}
+                for item in self.store.list("fish_clones")]
 
-    def set_deleted(self, clone_id, deleted):
+    @_reference_file_operation
+    def delete(self, clone_id, *, confirmed=False):
+        if confirmed is not True:
+            raise ValueError("请确认删除本地克隆记录；不删除云端音色、录音或已保存音色")
         # This lock also covers dispatch: an in-flight creation must settle first.
-        # Keep the receipt and review token even when hidden, for deduplication.
+        # Retain only a request identity after deletion, not a recoverable receipt.
         with self.store._locked(".fish-clones.lock"):
             record = self.store.get("fish_clones", clone_id)
-            if deleted and record["state"] in {"created", "training"}:
+            if record["state"] in {"created", "training"}:
                 raise ValueError("音色仍在远程处理中，请查询状态后再删除本地记录")
-            patch = {"deleted": deleted}
-            if record["state"] == "submitting":
-                # With the dispatch lock acquired, this is an interrupted receipt.
-                patch.update(state="unknown", message="提交曾中断，结果未知；请到 Fish 核查，勿重复上传")
-            return self.store.update("fish_clones", clone_id, patch)
+            with self.store._locked():
+                state = self.store._read()
+                del state["collections"]["fish_clones"][clone_id]
+                state.setdefault("fish_clone_requests", {})[clone_id] = {
+                    "review_token": record["review_token"],
+                    "result_unknown": record["state"] in {"submitting", "unknown"}}
+                self.store._write(state)
+            return {"deleted": clone_id, "remote_deleted": False}
 
+    @_reference_file_operation
     def create(self, body):
         if set(body) != {"connection_ref", "asset_id", "title", "token", "request_id"}:
             raise ValueError("克隆提交字段不正确")
@@ -68,6 +78,10 @@ class FishCloneService:
             raise ValueError("提交编号须为 UUID")
         request_id = str(UUID(body["request_id"]))
         with self.store._locked(".fish-clones.lock"):
+            with self.store._locked():
+                consumed = self.store._read().get("fish_clone_requests", {}).get(request_id)
+            if consumed:
+                raise ValueError("此请求已处理且本地记录已删除；不会重复上传。结果未知时请先到 Fish 核查")
             existing = next((item for item in self.store.list("fish_clones") if item["id"] == request_id), None)
             if existing:
                 if existing["review_token"] != body["token"]:
@@ -102,8 +116,6 @@ class FishCloneService:
     def refresh(self, clone_id):
         with self.store._locked(".fish-clones.lock"):
             record = self.store.get("fish_clones", clone_id)
-            if record.get("deleted"):
-                raise ValueError("请先撤销本地记录删除，再查询远程状态")
             if not record.get("remote_voice_id"):
                 return self._public(record)
             connection = self._connection(record)
@@ -113,8 +125,6 @@ class FishCloneService:
     def save_rule(self, clone_id):
         with self.store._locked(".fish-clones.lock"):
             record = self.store.get("fish_clones", clone_id)
-            if record.get("deleted"):
-                raise ValueError("请先撤销本地记录删除，再打开或保存音色")
             if record.get("recipe_id"):
                 return self.store.get("recipes", record["recipe_id"])
             if record["state"] != "trained" or not record.get("remote_voice_id"):

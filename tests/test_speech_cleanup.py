@@ -50,20 +50,17 @@ def staged(cleanup):
     return path, id
 
 
-def test_experiment_cleanup_and_restore_survive_new_service(cleanup):
+def test_experiment_deletion_survives_restart_without_recovery_copies(cleanup):
     path = experiment(cleanup)
     preview = cleanup.preview("experiments", "experiment")
     assert preview["blockers"] == []
-    assert preview["records"] == {"experiments": 1, "takes": 1, "plans": 1, "selections": 1}
-    receipt = cleanup.execute("experiments", "experiment", preview["token"], True)
+    result = cleanup.execute("experiments", "experiment", preview["token"], True)
+    assert result["recoverable"] is False
     assert not path.exists()
-    assert cleanup.store.list("experiments") == []
-    reopened = SpeechCleanupService(cleanup.speech, cleanup.catalog)
-    assert reopened.receipts()[0]["id"] == receipt["id"]
-    reopened.restore(receipt["id"])
-    assert path.read_bytes() == b"fixture audio"
-    assert cleanup.store.get("takes", "take")["experiment_id"] == "experiment"
-    assert reopened.receipts() == []
+    reopened = SpeechStore(cleanup.store.root)
+    for collection in ("experiments", "takes", "plans", "selections"):
+        assert reopened.list(collection) == []
+    assert not (cleanup.store.root / "_trash").exists()
 
 
 def test_confirmation_and_stale_preview(cleanup):
@@ -135,23 +132,23 @@ def test_staging_retains_referenced_and_unknown_entries(cleanup):
     assert preview["paths"] == [str(free.parent)]
     receipt = cleanup.execute("staging", "all", preview["token"], True)
     assert not free.exists() and used.exists() and unknown.exists()
-    cleanup.restore(receipt["id"])
-    assert free.exists()
+    assert not free.parent.exists()
+    assert not (cleanup.store.root / "_trash").exists()
 
 
-def test_archived_assets_preserve_original_and_restore(cleanup, tmp_path):
+def test_assets_delete_owned_files_and_preserve_original(cleanup, tmp_path):
     original = tmp_path / "user.wav"
     original.write_bytes(b"user")
     directory = cleanup.store.assets_root / str(uuid4())
     directory.mkdir(parents=True)
     path = directory / "reference.wav"
     path.write_bytes(b"owned")
-    seed(cleanup, assets=[{"id": "asset", "archived": True, "path": str(path), "source_path": str(path), "original_path": str(original)}])
+    seed(cleanup, assets=[{"id": "asset", "path": str(path), "source_path": str(path), "original_path": str(original)}])
     preview = cleanup.preview("assets", "asset")
     receipt = cleanup.execute("assets", "asset", preview["token"], True)
     assert not path.exists() and original.read_bytes() == b"user"
-    cleanup.restore(receipt["id"])
-    assert path.read_bytes() == b"owned"
+    assert cleanup.store.list("assets") == []
+    assert not (cleanup.store.root / "_trash").exists()
 
 
 def test_archived_rule_chain_retains_history_references(cleanup):
@@ -160,28 +157,29 @@ def test_archived_rule_chain_retains_history_references(cleanup):
     assert cleanup.preview("recipes", "r2")["blockers"]
 
 
-def test_write_failure_rolls_back_files(cleanup, monkeypatch):
+def test_write_failure_leaves_record_for_explicit_retry(cleanup, monkeypatch):
     path = experiment(cleanup)
     preview = cleanup.preview("experiments", "experiment")
+    write = cleanup.store._write
     monkeypatch.setattr(cleanup.store, "_write", lambda _: (_ for _ in ()).throw(OSError("fixture failure")))
-    with pytest.raises(OSError):
+    with pytest.raises(ValueError, match="记录保存失败"):
         cleanup.execute("experiments", "experiment", preview["token"], True)
-    assert path.exists()
+    assert not path.exists()
     assert cleanup.store.get("experiments", "experiment")
-
-
-def test_restore_does_not_overwrite_or_accept_changed_trash(cleanup):
-    path = experiment(cleanup)
+    monkeypatch.setattr(cleanup.store, "_write", write)
     preview = cleanup.preview("experiments", "experiment")
-    receipt = cleanup.execute("experiments", "experiment", preview["token"], True)
-    path.write_bytes(b"new user file")
-    with pytest.raises(ValueError, match="已有"):
-        cleanup.restore(receipt["id"])
-    assert path.read_bytes() == b"new user file"
-    path.unlink()
-    (cleanup.store.root / "_trash" / receipt["id"] / "0").write_bytes(b"tampered")
+    cleanup.execute("experiments", "experiment", preview["token"], True)
+    assert cleanup.store.list("experiments") == []
+
+
+def test_unreviewed_files_are_not_deleted(cleanup):
+    path, _ = staged(cleanup)
+    preview = cleanup.preview("staging")
+    extra = path.parent / "new.wav"
+    extra.write_bytes(b"new")
     with pytest.raises(ValueError, match="改变"):
-        cleanup.restore(receipt["id"])
+        cleanup.execute("staging", "all", preview["token"], True)
+    assert extra.exists() and path.exists()
 
 
 def test_paths_reject_traversal_and_links(cleanup, tmp_path):
@@ -198,56 +196,102 @@ def test_paths_reject_traversal_and_links(cleanup, tmp_path):
         owned_path(cleanup.store.root, link / "anything")
 
 
-def test_explicit_purge_releases_only_quarantined_files(cleanup):
-    path = experiment(cleanup)
-    first = cleanup.preview("experiments", "experiment")
-    receipt = cleanup.execute("experiments", "experiment", first["token"], True)
-    preview = cleanup.preview("trash", receipt["id"])
-    assert not preview["recoverable"] and preview["bytes"] > 0
-    with pytest.raises(ValueError, match="确认"):
-        cleanup.execute("trash", receipt["id"], preview["token"])
-    cleanup.execute("trash", receipt["id"], preview["token"], True)
-    assert not path.exists() and cleanup.receipts() == []
-    assert not (cleanup.store.root / "_trash" / receipt["id"]).exists()
-
-
-def test_purge_rechecks_new_references(cleanup):
-    experiment(cleanup)
-    first = cleanup.preview("experiments", "experiment")
-    receipt = cleanup.execute("experiments", "experiment", first["token"], True)
-    preview = cleanup.preview("trash", receipt["id"])
-    seed(cleanup, voices=[{"id": "saved", "historic_take": "take"}])
-    with pytest.raises(ValueError, match="改变"):
-        cleanup.execute("trash", receipt["id"], preview["token"], True)
-    assert cleanup.preview("trash", receipt["id"])["blockers"]
-
-
-def test_recoverable_records_keep_dependencies_protected(cleanup):
-    experiment(cleanup)
-    seed(cleanup, recipes=[{"id": "recipe"}], rule_states=[{"id": "recipe", "archived": True}])
-    state = cleanup.store._read()
-    state["collections"]["takes"]["take"]["recipe_id"] = "recipe"
-    cleanup.store._write(state)
-    preview = cleanup.preview("experiments", "experiment")
-    receipt = cleanup.execute("experiments", "experiment", preview["token"], True)
-    assert cleanup.preview("recipes", "recipe")["blockers"]
-    purge = cleanup.preview("trash", receipt["id"])
-    cleanup.execute("trash", receipt["id"], purge["token"], True)
-    assert not cleanup.preview("recipes", "recipe")["blockers"]
-
-
-def test_interrupted_move_before_commit_is_recovered(cleanup):
+def legacy_fixture(cleanup, prepared=False):
     path = experiment(cleanup)
     _, payload = cleanup._preview("experiments", "experiment")
-    receipt_id = uuid4().hex
-    trash = cleanup.store.root / "_trash" / receipt_id
+    id = uuid4().hex
+    trash = cleanup.store.root / "_trash" / id
     trash.mkdir(parents=True)
-    manifest = {**payload, "id": receipt_id, "state": "prepared"}
-    (trash / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    path.rename(trash / "0")  # Simulate process exit before store commit.
-    assert cleanup.receipts() == []
-    assert path.read_bytes() == b"fixture audio"
-    assert cleanup.store.get("takes", "take")
+    (trash / "manifest.json").write_text(json.dumps({**payload, "id": id, "state": "prepared" if prepared else "committed"}), encoding="utf-8")
+    path.rename(trash / "0")
+    if not prepared:
+        state = cleanup.store._read()
+        for key, rows in payload["records"].items():
+            for row in rows:
+                state["collections"][key].pop(row)
+        state["cleanup_receipts"] = [id]
+        cleanup.store._write(state)
+    return id, path, trash
+
+
+def test_legacy_data_is_read_only_until_explicit_confirmed_delete(cleanup):
+    id, path, trash = legacy_fixture(cleanup)
+    before = (trash / "manifest.json").read_bytes()
+    assert cleanup.legacy_records()[0]["id"] == id
+    assert (trash / "manifest.json").read_bytes() == before and not path.exists()
+    preview = cleanup.preview("legacy-trash", id)
+    with pytest.raises(ValueError, match="确认"):
+        cleanup.execute("legacy-trash", id, preview["token"])
+    cleanup.execute("legacy-trash", id, preview["token"], True)
+    assert not trash.exists() and cleanup.legacy_records() == []
+
+
+def test_legacy_delete_rechecks_references(cleanup):
+    id, path, trash = legacy_fixture(cleanup)
+    preview = cleanup.preview("legacy-trash", id)
+    seed(cleanup, voices=[{"id": "saved", "historic_take": "take"}])
+    with pytest.raises(ValueError, match="改变"):
+        cleanup.execute("legacy-trash", id, preview["token"], True)
+    assert cleanup.preview("legacy-trash", id)["blockers"] and trash.exists()
+
+
+def test_legacy_prepared_data_is_not_automatically_moved_or_purged(cleanup):
+    id, path, trash = legacy_fixture(cleanup, prepared=True)
+    assert cleanup.legacy_records()[0]["id"] == id
+    assert not path.exists() and (trash / "0").exists()
+    assert cleanup.preview("legacy-trash", id)["blockers"]
+
+
+def test_recipe_delete_freezes_history_and_does_not_reseed_default(cleanup):
+    recipe = {"id": "recipe", "voice_id": "voice", "provider_id": "edge", "model": "edge-tts", "mode": "hosted", "variant": {"value": "speaker"}}
+    seed(cleanup, recipes=[recipe], voices=[{"id": "voice"}], takes=[{"id": "take", "recipe_id": "recipe"}])
+    state = cleanup.store._read()
+    state["builtin_recipes"] = {"starter": {"recipe_id": "recipe"}}
+    cleanup.store._write(state)
+    preview = cleanup.preview("recipes", "recipe")
+    assert not preview["blockers"]
+    cleanup.execute("recipes", "recipe", preview["token"], True)
+    reopened = SpeechStore(cleanup.store.root)
+    assert reopened.get("takes", "take")["recipe_snapshot"] == recipe
+    assert reopened.list("recipes") == [] and reopened.list("voices") == []
+    assert reopened._read()["builtin_recipes"]["starter"]["recipe_id"] == "recipe"
+
+
+@pytest.mark.parametrize("with_snapshot", [False, True])
+def test_compiler_provenance_does_not_block_independent_take(cleanup, with_snapshot):
+    recipe = {"id": "recipe", "voice_id": "voice", "provider_id": "edge", "model": "edge-tts",
+              "mode": "builtin", "variant": {"kind": "builtin", "value": "zh-CN-XiaoxiaoNeural"}}
+    request = {"recipe_id": "recipe", "provider_id": "edge", "model": "edge-tts", "mode": "builtin"}
+    take = {"id": "take", "recipe_id": "recipe", "compiled_request": request}
+    if with_snapshot:
+        take["recipe_snapshot"] = recipe
+    seed(cleanup, recipes=[recipe], takes=[take], voices=[{"id": "voice"}])
+    before = cleanup.store.path.read_bytes()
+    preview = cleanup.preview("recipes", "recipe")
+    assert not preview["blockers"]
+    assert cleanup.store.path.read_bytes() == before  # Preview never migrates data.
+    with pytest.raises(ValueError, match="确认"):
+        cleanup.execute("recipes", "recipe", preview["token"], False)
+    assert cleanup.store.path.read_bytes() == before
+    cleanup.execute("recipes", "recipe", preview["token"], True)
+    saved = SpeechStore(cleanup.store.root).get("takes", "take")
+    assert saved["recipe_snapshot"] == recipe
+    assert saved["compiled_request"] == request  # Preserve provenance in storage.
+
+
+@pytest.mark.parametrize("problem", ["mismatched_request", "mismatched_snapshot", "unknown_reference"])
+def test_frozen_take_still_protects_unresolved_dependencies(cleanup, problem):
+    recipe = {"id": "recipe", "provider_id": "edge", "model": "edge-tts", "mode": "builtin", "variant": {}}
+    take = {"id": "take", "recipe_id": "recipe", "recipe_snapshot": recipe,
+            "compiled_request": {"recipe_id": "recipe", "provider_id": "edge", "model": "edge-tts", "mode": "builtin"}}
+    if problem == "mismatched_request":
+        take["compiled_request"]["model"] = "unknown"
+    elif problem == "mismatched_snapshot":
+        take["recipe_snapshot"] = {**recipe, "id": "different"}
+    else:
+        take["future_dependency"] = {"recipe_id": "recipe"}
+    seed(cleanup, recipes=[recipe], takes=[take])
+    assert cleanup.preview("recipes", "recipe")["blockers"]
 
 
 def test_junction_component_is_rejected_even_when_target_is_inside_root(cleanup, monkeypatch):

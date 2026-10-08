@@ -1,0 +1,75 @@
+/* Local model cards keep actions and the deletion preview below the summary. */
+.engines-model-toolbar {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px 20px;
+  min-width: 0;
+}
+.engines-model-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.engines-model-actions button,
+.model-removal-trigger,
+.model-removal-footer button { min-height: 32px; }
+.engines-model-status { flex-wrap: wrap; justify-content: flex-end; max-width: 240px; }
+.engines-model-location { display: flex; align-items: baseline; gap: 10px; margin-top: 4px; color: var(--muted); }
+.engines-model-location .model-path { flex: 1; min-width: 0; }
+.engines-model-ownership { flex-shrink: 0; }
+.model-path summary { display: block; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.model-path summary::before { content: '▸ '; }
+.model-path[open] summary::before { content: '▾ '; }
+.model-path p { margin: 6px 0 0; overflow-wrap: anywhere; user-select: text; }
+.model-path[open] p { padding: 8px 10px; background: var(--bg); border-radius: 6px; }
+.model-removal-trigger,
+.model-removal-footer button {
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+}
+.model-removal-trigger { color: var(--danger, var(--error)); border-color: transparent; }
+.model-removal-trigger:hover:not(:disabled) { background: var(--error-soft); border-color: var(--border); }
+.model-removal-trigger:disabled,
+.model-removal-footer button:disabled { opacity: .5; cursor: not-allowed; }
+.model-removal-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: var(--text-help);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.model-removal-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; }
+.model-removal-heading strong { font-size: var(--text-control); color: var(--fg); }
+.model-removal-blocked { color: var(--danger, var(--error)); font-weight: 500; }
+.model-removal-count { color: var(--muted-strong); }
+.model-removal-target { margin: 2px 0 10px; color: var(--muted); }
+.model-removal-impact { margin: 10px 0; color: var(--muted-strong); }
+.model-removal-empty { margin: 10px 0 6px; color: var(--muted-strong); }
+.model-removal-reasons { padding: 10px 12px; border-left: 3px solid var(--warning); background: var(--warning-soft); border-radius: 4px; }
+.model-removal-reasons p { margin: 0; }
+.model-removal-reasons details { margin-top: 6px; }
+.model-removal-panel summary { cursor: pointer; }
+.model-removal-panel ul { margin: 8px 0 0; padding-left: 20px; }
+.model-removal-reasons li + li, .model-removal-files li + li { margin-top: 6px; }
+.model-removal-files { margin-top: 12px; }
+.model-removal-files ul { max-height: 180px; overflow: auto; user-select: text; }
+.model-removal-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 14px; }
+.model-removal-footer .model-removal-confirm { color: white; background: var(--danger, var(--error)); border-color: transparent; }
+.model-removal-error { grid-column: 1 / -1; margin: 0; color: var(--danger, var(--error)); overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .engines-model-status { justify-content: flex-start; max-width: none; }
+  .engines-model-location { flex-direction: column; gap: 2px; }
+  .engines-model-location .model-path { width: 100%; }
+}
+@media (max-width: 520px) {
+  .engines-model-toolbar { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .model-removal-trigger { justify-self: start; padding-left: 0; }
+  .model-removal-panel { padding: 12px; }
+}

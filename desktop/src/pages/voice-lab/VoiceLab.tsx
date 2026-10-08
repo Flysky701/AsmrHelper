@@ -5,7 +5,7 @@ import SpeechConnectionManager from '@/components/SpeechConnectionManager'
 import { defaultSpeechConnection } from '@/domain/speechConnections'
 import FishVoicePicker from '@/components/FishVoicePicker'
 import FishClonePanel from './FishClonePanel'
-import { SpeechCleanupButton, SpeechCleanupRestore } from './SpeechCleanup'
+import { SpeechCleanupButton, LegacySpeechData, deleteSpeechData } from './SpeechCleanup'
 import { speechOptionsIssue } from '@/domain/speechAdvancedOptions'
 import { blankSpeechRecipe, recipeFromReference, referenceModes, selectSpeechProvider, selectSpeechMode, selectSpeechModel, speechRecipeCapabilityIssue } from '@/domain/speechRecipeTransitions'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -23,6 +23,7 @@ import { speechRecipeFromNode } from '@/domain/speechPresetMigration'
 import type { GraphNode } from '@/domain/workflowGraph'
 import CandidateAudio from './CandidateAudio'
 import VoiceRecipeList from './VoiceRecipeList'
+import DefaultVoicePreset from './DefaultVoicePreset'
 import './VoiceLab.css'
 
 const emptyLibrary: SpeechLibrary = { voices: [], recipes: [], assets: [], experiments: [], takes: [], plans: [], selections: [], assemblies: [], connections: [] }
@@ -52,7 +53,6 @@ export default function VoiceLab() {
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
-  const [showArchivedRules, setShowArchivedRules] = useState(false)
   const [voiceListOpen, setVoiceListOpen] = useState(true)
   const [voiceQuery, setVoiceQuery] = useState('')
   const [referenceBusy, setReferenceBusy] = useState(false)
@@ -96,7 +96,7 @@ export default function VoiceLab() {
   const showConnectionChoice = advancedConnection || (!!provider?.connection_required && !recipe.connection_ref) || (!!recipe.connection_ref && !selectedConnection && !engineDefaultConnection) || (localProvider && !!selectedConnection && selectedConnection.deployment !== 'local')
   const referenceAsset = recipe.variant.kind === 'reference' ? library.assets.find(item => item.id === recipe.variant.value) : undefined
   const retainedReference = library.assets.find(item => item.id === retainedReferenceId)
-  const visibleRules = ruleList.filter(item => (showArchivedRules || !item.archived) && (item.name + ' ' + (item.description || '')).toLocaleLowerCase().includes(voiceQuery.toLocaleLowerCase()))
+  const visibleRules = ruleList.filter(item => (item.name + ' ' + (item.description || '')).toLocaleLowerCase().includes(voiceQuery.toLocaleLowerCase()))
   const sourceRequired = selectedMode?.voice_sources?.required ?? recipe.variant.kind !== 'default'
   const savedLegacyDevice = !!recipe.id && !recipeDirty && (recipe.provider_id === 'qwen3' ? ['cpu', 'cuda:0'] : recipe.provider_id === 'voxcpm2' ? ['auto', 'cpu', 'cuda:0'] : []).includes(String(recipe.provider_options.device))
   const checkedOptions = savedLegacyDevice ? Object.fromEntries(Object.entries(recipe.provider_options).filter(([key]) => key !== 'device')) : recipe.provider_options
@@ -115,11 +115,11 @@ export default function VoiceLab() {
   const defaultEmotion = recipe.default_emotion || 'neutral'
   const performanceIssue = !directDeliveries.includes(defaultDelivery) && recipe.variant.style !== defaultDelivery ? '当前生成方式不支持此发声方式，请改回普通或选择兼容引擎。'
     : !supportsEmotion && defaultEmotion !== 'neutral' ? '当前生成方式不支持独立情绪参数，请改回中性。' : ''
-  const auditionReason = recipe.archived ? '已归档音色需先恢复。' : configurationReason || performanceIssue
+  const auditionReason = recipe.archived ? '这是旧版保留项，可删除或复制设置为新音色。' : configurationReason || performanceIssue
   const presetTake = library.takes.find(item => item.id === presetTakeId)
   const recipeInput = () => recipe.id && !recipeDirty ? { recipe_id: recipe.id } : { recipe_draft: { ...speechRecipeDraft(recipe), name: recipe.name.trim() || '未保存试听' } }
 
-  const useReason = recipe.archived ? '已移出音色库，可恢复。' : !recipe.id || recipeDirty ? '保存后可在工作台选择，无需先试听。' : '已保存，可在工作台选择并做本次微调。'
+  const useReason = recipe.archived ? '旧版保留音色，可删除或复制为新音色。' : !recipe.id || recipeDirty ? '保存后可在工作台选择，无需先试听。' : '已保存，可在工作台选择并做本次微调。'
 
   const refresh = useCallback(async () => {
     const generation = ++catalogGeneration.current
@@ -281,11 +281,11 @@ export default function VoiceLab() {
     useRecipe(item); setTab(audition ? 2 : 1)
   }
   async function removePreset(item: SpeechRecipe) {
-    if (recipe.id === item.id && recipeDirty && !await confirmAction('当前预设还有未保存修改，放弃修改并移出音色库？')) return
-    await run('移出音色库', async () => {
-      await speechApi.archiveRule(item.id)
-      if (recipe.id === item.id) { setRecipe({ ...item, archived: true }); setRecipeDirty(false) }
-      await refresh(); setNotice('已从本地音色库移出。勾选“显示已移出”可恢复；云端音色和录音保持不变。')
+    await run('删除音色', async () => {
+      const extra = recipe.id === item.id && recipeDirty ? '当前未保存修改也会放弃。' : ''
+      if (!await deleteSpeechData('recipes', item.id, item.name, extra)) return
+      if (recipe.id === item.id) { setRecipe(blankRecipe()); setRecipeDirty(false) }
+      await refresh(); setNotice('已删除本地音色。云端音色、参考录音和历史音频保持不变。')
     })
   }
   async function adoptRecipe(take: SpeechTake) {
@@ -347,14 +347,7 @@ export default function VoiceLab() {
     setRecipeDirty(true); setShowConnection(false); setAdvancedConnection(false); setVoiceListOpen(false); setCompiled(null)
     setTab(1); setNotice('已用此录音创建新音色草稿，原音色不会被覆盖。合成目标语言默认按合成文本识别，可手动选择中文等语言。' + (draft.provider_id ? '' : '参考录音和原文已保留，请选择支持参考克隆的引擎。'))
   }
-  async function toggleArchive() {
-    const { id, archived } = recipe
-    if (archived) await speechApi.restoreRule(id)
-    else await speechApi.archiveRule(id)
-    setRecipe(previous => previous.id === id ? { ...previous, archived: !archived } : previous)
-    await refresh()
-    setNotice(archived ? '音色已恢复。' : '已从本地音色库移出，可在“显示已移出”中恢复。云端音色保持不变。')
-  }
+
 
   return <div className="speech-lab">
     <header><div className="page-heading"><div className="page-heading__copy"><h1 className="page-title">音色库</h1><p className="page-description">制作并保存声音，工作台选择预设即可使用。</p></div><div className="page-heading__actions"><button disabled={!!busy || referenceBusy} onClick={() => void run('刷新', refresh)}>刷新</button></div></div>
@@ -368,7 +361,7 @@ export default function VoiceLab() {
       </section>}
       {retainedNode && <details><summary>保留的旧节点配置</summary>{migrationIssues.map(message => <p key={message} role="alert">{message}</p>)}<pre>{json(retainedNode)}</pre></details>}
       <div hidden={tab !== 0}><ReferenceLibrary active={tab === 0} assets={library.assets} refresh={refresh} onUse={useReference} onBusy={setReferenceBusy} /></div>
-      <SpeechCleanupRestore onChanged={refresh} />
+      <LegacySpeechData onChanged={refresh} />
       <fieldset className="lab-fieldset" disabled={!!busy}>
       <div hidden={tab !== 3}><FishClonePanel active={tab === 3} assets={library.assets} connections={library.connections} onSaved={async saved => {
         await refresh()
@@ -381,14 +374,15 @@ export default function VoiceLab() {
         <aside id="voice-rules" className={'panel voice-sidebar' + (voiceListOpen ? ' is-open' : '')}>
           <div className="row spread"><h2>已保存预设 <span className="reference-count">{visibleRules.length}</span></h2><button onClick={newRecipe}>制作新音色</button></div>
           <input aria-label="搜索音色" placeholder="搜索名称或备注" value={voiceQuery} onChange={event => setVoiceQuery(event.target.value)} />
-          <label className="voice-archive"><input type="checkbox" checked={showArchivedRules} onChange={event => setShowArchivedRules(event.target.checked)} /> 显示已移出</label>
+          {ruleList.some(item => item.archived) && <p className="muted">旧版移出的音色仍在列表中，标为“旧版保留项”；可按项删除，升级不会自动清除。</p>}
           {!visibleRules.length && <p className="empty">{voiceQuery ? '没有匹配的音色。' : '还没有保存的预设。选择引擎和声音来源，命名后即可保存。'}</p>}
           <VoiceRecipeList recipes={visibleRules} providers={providers} selectedId={recipe.id}
             onSelect={item => void openPreset(item)} onAudition={item => void openPreset(item, true)} onRemove={item => void removePreset(item)} disabled={!!busy} />
+          <DefaultVoicePreset onChanged={refresh} disabled={!!busy} />
         </aside>
         <section className="panel voice-detail">
-          <div className="row spread voice-detail-heading"><div><h2>{recipe.name || '新建音色'}</h2><p className="muted">{recipe.archived ? '已归档' : recipeDirty ? '有未保存修改' : recipe.id ? '已保存 · 修订 ' + recipe.revision : '新草稿'} · 命名预设</p></div>
-            {recipe.id && <details className="voice-more"><summary>更多</summary><button onClick={() => recipe.archived ? void run('恢复音色', toggleArchive) : void removePreset(recipe)}>{recipe.archived ? '恢复到音色库' : '移出本地音色库'}</button>{recipe.archived && <SpeechCleanupButton kind="recipes" itemId={recipe.id} label="清理已归档音色" onChanged={async () => { setRecipe(blankRecipe()); await refresh() }} />}</details>}
+          <div className="row spread voice-detail-heading"><div><h2>{recipe.name || '新建音色'}</h2><p className="muted">{recipe.archived ? '旧版保留项' : recipeDirty ? '有未保存修改' : recipe.id ? '已保存 · 修订 ' + recipe.revision : '新草稿'} · 命名预设</p></div>
+            {recipe.id && <details className="voice-more"><summary>更多</summary><button onClick={() => void removePreset(recipe)}>删除本地音色</button></details>}
           </div>
           {legacyRule && <div className="notice">这是历史音色，原配置保持只读，仍可试听或送入工作台。{['reference', 'design'].includes(recipe.mode) && <button onClick={() => { setRecipe({ ...blankRecipe(), name: recipe.name + '（副本）', provider_id: recipe.provider_id, model: recipe.model, mode: recipe.mode, connection_ref: recipe.connection_ref, variant: { ...recipe.variant, style: 'normal' }, language: recipe.language, provider_options: { ...recipe.provider_options } }); setRecipeDirty(true); setNotice('已创建独立草稿，不继承旧的发声、情绪或停顿默认值。') }}>复制为新规则</button>}</div>}
           <fieldset className="lab-fieldset" disabled={legacyRule}>
@@ -410,6 +404,7 @@ export default function VoiceLab() {
             {retainedReference && recipe.variant.kind !== 'reference' && <p className="notice">参考录音“{retainedReference.name || '未命名录音'}”及原文已保留，当前生成方式不使用这段录音。{availableReferenceMode && <button type="button" onClick={() => changeMode(availableReferenceMode.id)}>返回参考声音克隆</button>}</p>}
             {provider?.provider_id === 'fish_audio' && recipe.mode === 'hosted' && <FishVoicePicker connectionId={recipe.connection_ref} value={recipe.variant.value} onSelect={(value, name) => editRecipe({ variant: { ...recipe.variant, value }, ...(!recipe.name.trim() && name ? { name } : {}) })} />}
             {recipe.provider_id === 'fish_audio' && recipe.mode === 'reference' && <p className="muted">每次合成提交参考音频，不创建持久云端音色。需要固定 Voice ID 时，使用“Fish 远程克隆”。</p>}
+            {recipe.provider_id === 'edge' && <p className="muted">Edge 使用在线语音服务，需联网及 edge-tts 依赖。保存预设不会发起合成。</p>}
             {recipe.variant.kind === 'reference' && <div className="recipe-reference">
               {referenceAsset ? <><div className="row spread"><span>{referenceAsset.name || '参考录音'} · 参考录音语言：{referenceAsset.language === 'auto' ? '未明确' : languageNames[referenceAsset.language] || referenceAsset.language} · {(referenceAsset.duration || 0).toFixed(1)} 秒</span><button onClick={() => setTab(0)}>管理录音</button></div><audio key={referenceAsset.id} controls preload="none" src={speechApi.referenceAudio(referenceAsset.id)} /><p className="muted">参考录音原文（保持录音中的语言）</p><p className="reference-inline-transcript">{referenceAsset.transcript || '未填写原文；所选引擎可能要求参考原文。'}</p></> : <div className="row"><span className="muted">{library.assets.length ? '选择已保存的录音，可在这里试听。' : '声音库为空，请先导入并保存录音。'}</span><button onClick={() => setTab(0)}>导入或管理录音</button></div>}
             </div>}
@@ -434,6 +429,10 @@ export default function VoiceLab() {
           </section>
           <div className="recipe-actions"><div className="row">
             {!legacyRule && <button className="primary" disabled={!!busy || !!saveReason || !!performanceIssue} onClick={() => void run('保存音色', saveRecipe)}>保存到音色库</button>}
+            {!legacyRule && recipe.id && <button disabled={!!busy} onClick={() => {
+              editRecipe({ ...recipe, id: '', revision: 0, voice_id: '', archived: false, name: recipe.name + '（副本）' })
+              setNotice('已创建副本草稿，可改名后保存；原预设保留。')
+            }}>另存副本</button>}
             <button disabled={!!auditionReason} onClick={() => setTab(2)}>试听与记录</button>
             <button disabled={!adoptable || !!busy || referenceBusy} onClick={() => void useNavStore.getState().setPage(returnTo ?? 'workbench')}>前往工作台选择</button>
           </div>{saveReason && !legacyRule && <p className="muted">{saveReason}</p>}{auditionReason && <p className="muted">{auditionReason}</p>}<p className="muted">{useReason}</p></div>
@@ -454,7 +453,7 @@ export default function VoiceLab() {
         <details><summary>检查请求（不合成）</summary><button disabled={!!auditionReason || !script.trim()} onClick={() => void run('检查合成请求', async () => { const current = plan?.text === script ? plan : await speechApi.plan({ text: script }); setPlan(current); setCompiled((await speechApi.compileDraft(recipeInput(), current.id)).requests) })}>检查引擎请求（不合成）</button>{compiled && <pre>{json(compiled)}</pre>}</details>
       </section>}
 
-      {tab === 2 && <><section className="panel"><div className="row spread"><h2>试音与对比</h2><SpeechCleanupButton kind="experiments" itemId={experimentId} label="删除实验" disabled={!!busy || !!pendingIds} onChanged={async () => { setExperimentId(''); setComparison([]); setPlan(null); await refresh() }} /><label><input type="checkbox" checked={equalLoudness} onChange={event => setEqualLoudness(event.target.checked)} /> 校准试听音量</label></div><Field title="试音实验"><select value={experimentId} onChange={event => { setExperimentId(event.target.value); setComparison([]); const exp = library.experiments.find(item => item.id === event.target.value); const saved = library.plans.find(item => item.id === exp?.plan_id); if (saved) { setPlan(saved); setScript(saved.text); setCompiled(null) } }}><option value="">选择实验</option>{library.experiments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><div className="row"><span className="muted">音色：{recipe.name || '未选择'}{recipeDirty ? '（未保存）' : ''}</span><button disabled={!!busy || !!auditionReason || !plan || script !== plan.text} onClick={() => void run('生成新候选', () => generate())}>再生成一组</button></div>
+      {tab === 2 && <><section className="panel"><div className="row spread"><h2>试音与对比</h2><SpeechCleanupButton kind="experiments" itemId={experimentId} name={experiment?.name} label="删除实验" disabled={!!busy || !!pendingIds} onChanged={async () => { setExperimentId(''); setComparison([]); setPlan(null); await refresh() }} /><label><input type="checkbox" checked={equalLoudness} onChange={event => setEqualLoudness(event.target.checked)} /> 校准试听音量</label></div><Field title="试音实验"><select value={experimentId} onChange={event => { setExperimentId(event.target.value); setComparison([]); const exp = library.experiments.find(item => item.id === event.target.value); const saved = library.plans.find(item => item.id === exp?.plan_id); if (saved) { setPlan(saved); setScript(saved.text); setCompiled(null) } }}><option value="">选择实验</option>{library.experiments.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><div className="row"><span className="muted">音色：{recipe.name || '未选择'}{recipeDirty ? '（未保存）' : ''}</span><button disabled={!!busy || !!auditionReason || !plan || script !== plan.text} onClick={() => void run('生成新候选', () => generate())}>再生成一组</button></div>
           {tasks.map(task => <div className="item" key={task.task_id}><div className="row spread"><span>{task.task_id} · {task.state} · {Math.round(task.progress * 100)}%</span>{['pending', 'running'].includes(task.state) && <button onClick={() => void run('取消任务', async () => { const result = await tasksApi.cancel(task.task_id); setTasks(previous => previous.map(item => item.task_id === result.task_id ? result : item)) })}>取消后续生成</button>}</div>{task.message && <p className="muted">{task.message}</p>}{task.error && <p className="error">{json(task.error)}</p>}</div>)}
         </section>
         {!takes.length && <div className="panel empty">尚无已完成的候选。选择音色并输入台词后即可生成试音；失败或未完成的音频不能采用。</div>}

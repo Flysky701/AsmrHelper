@@ -23,11 +23,6 @@ def execute(kind: str, item_id: str, body: dict, svc=Depends(get_speech_service)
     return invoke(svc, "execute", kind, item_id, body.get("token"), body.get("confirmed", False))
 
 
-@router.get("/cleanup/receipts")
-def receipts(svc=Depends(get_speech_service)):
-    return invoke(svc, "receipts")
-
-
-@router.post("/cleanup/restore/{receipt_id}")
-def restore(receipt_id: str, svc=Depends(get_speech_service)):
-    return invoke(svc, "restore", receipt_id)
+@router.get("/cleanup/legacy-records")
+def legacy_records(svc=Depends(get_speech_service)):
+    return invoke(svc, "legacy_records")

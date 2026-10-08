@@ -1,4 +1,4 @@
-"""Reversible removal of local LLM profiles; no provider or credential deletion."""
+"""Reference checks for local LLM profile deletion; never call provider accounts."""
 from contextlib import ExitStack, contextmanager
 
 

@@ -21,7 +21,6 @@ const message = (cause: unknown) => cause instanceof Error ? cause.message : Str
 
 export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, active }: Props) {
   const [allAssets, setAllAssets] = useState(assets)
-  const [showArchived, setShowArchived] = useReferenceField('showArchived')
   const [query, setQuery] = useReferenceField('query')
   const [stored, setStored] = useReferenceField('stored')
   const [source, setSource] = useReferenceField('source')
@@ -63,10 +62,10 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   const subtitleInput = useRef<HTMLInputElement>(null)
   useEffect(() => {
     let mounted = true
-    void speechApi.references(showArchived).then(result => { if (mounted) { setAllAssets(result.assets); setListError('') } })
+    void speechApi.references(true).then(result => { if (mounted) { setAllAssets(result.assets); setListError('') } })
       .catch(cause => { if (mounted) setListError(message(cause)) })
     return () => { mounted = false }
-  }, [assets, showArchived])
+  }, [assets])
   useEffect(() => { if (!active) audio.current?.pause() }, [active])
   useEffect(() => {
     const player = audio.current
@@ -206,11 +205,11 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
       <aside id="reference-recordings" className={'panel reference-sidebar' + (libraryOpen ? ' is-open' : '')}>
         <div className="row spread"><h2>我的录音 <span className="reference-count">{found.length}</span></h2><button onClick={() => void chooseFile()}>＋ 导入</button></div>
         <input aria-label="搜索录音" placeholder="搜索名称、备注或原文" value={query} onChange={event => setQuery(event.target.value)} />
-        <label className="reference-archive"><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)} /> 显示已归档</label>
+        {allAssets.some(item => item.archived) && <p className="muted">旧版保留录音仍显示，可按项确认删除。</p>}
         {listError && <p className="error" role="alert">录音列表加载失败，可点击页面右上角刷新。</p>}
         {!found.length && !listError && <div className="empty">{query ? <>没有匹配的录音。<button onClick={() => setQuery('')}>清空搜索</button></> : source ? '还没有保存的录音。当前片段保存后会出现在这里。' : '还没有参考录音。导入一份音频，保存你想留下的声音。'}</div>}
         <div className="reference-assets">{found.map(item => <button key={item.id} className={'reference-asset ' + (stored?.id === item.id ? 'is-selected' : '')} aria-current={stored?.id === item.id ? 'true' : undefined} onClick={() => { openStored(item); setLibraryOpen(false) }}>
-          <strong>{item.name || '未命名录音'}</strong><span>{languages[item.language] || item.language} · {(item.duration ?? 0).toFixed(1)} 秒{item.archived ? ' · 已归档' : ''}</span>
+          <strong>{item.name || '未命名录音'}</strong><span>{languages[item.language] || item.language} · {(item.duration ?? 0).toFixed(1)} 秒{item.archived ? ' · 旧版保留项' : ''}</span>
           <span className={'reference-status ' + (item.confirmed ? 'is-confirmed' : '')}>{!item.transcript ? '原文待补充' : item.confirmed ? '原文已核对' : '原文待核对'}</span>
         </button>)}</div>
       </aside>
@@ -297,7 +296,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
 <div className="row spread"><span>保存为独立录音，保留来源音频。</span><button className="primary" disabled={!valid || !processingValid || !draft.name.trim()} onClick={() => void save()}>保存到声音库</button></div></div>
         </div>}
         {view === 'saved' && stored && <section className="panel reference-saved">
-          <span className="reference-eyebrow">已保存的参考录音</span><div className="row spread"><h2>{stored.name || '未命名录音'}</h2><span className="pill">{stored.archived ? '已归档' : '已入库'}</span></div>
+          <span className="reference-eyebrow">已保存的参考录音</span><div className="row spread"><h2>{stored.name || '未命名录音'}</h2><span className="pill">{stored.archived ? '旧版保留项' : '已入库'}</span></div>
           <p className="muted">{languages[stored.language] || stored.language} · {(stored.duration ?? 0).toFixed(1)} 秒 · {stored.confirmed ? '原文已核对' : '原文待补充或核对'}</p>
           <audio controls preload="none" src={speechApi.referenceAudio(stored.id)} />
           <div className="reference-saved-transcript"><h3>录音原文</h3><p>{stored.transcript || '尚未填写原文。'}</p>{stored.notes && <p className="muted">备注：{stored.notes}</p>}</div>
@@ -308,7 +307,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
           }}><label className="field">名称<input name="name" required defaultValue={stored.name || ''} /></label><label className="field">备注<input name="notes" defaultValue={stored.notes || ''} /></label><button type="submit">更新名称与备注</button><p className="muted">修改原文或音频时，可通过“截取／处理为新录音”另存新条目。</p></form><div className="row"><a href={speechApi.referenceAudio(stored.id, false, true)} download>导出录音</a><button onClick={() => void run('载入录音', async () => {
             const item = stored; load(await speechApi.inspect(item.path), (item.name || '参考录音') + ' · 副本')
             setDraft(value => ({ ...value, transcript: item.transcript, language: item.language, confirmed: item.confirmed || false, notes: item.notes || '' }))
-          })}>截取／处理为新录音</button><button onClick={() => void run(stored.archived ? '恢复录音' : '归档录音', async () => { const updated = await speechApi.updateReference(stored.id, { archived: !stored.archived }); setStored(updated); await refresh() })}>{stored.archived ? '恢复录音' : '归档录音'}</button>{stored.archived && <SpeechCleanupButton kind="assets" itemId={stored.id} label="清理已归档录音" disabled={!!busy} onChanged={async () => { setStored(null); await refresh() }} />}</div></details>
+          })}>截取／处理为新录音</button><SpeechCleanupButton kind="assets" itemId={stored.id} name={stored.name || stored.id} label="删除录音及自有副本" disabled={!!busy} onChanged={async () => { setStored(null); await refresh() }} /></div></details>
         </section>}
       </section>
     </div></fieldset>

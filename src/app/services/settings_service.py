@@ -80,26 +80,29 @@ class SettingsService:
                 "active": active, "references": references, "token": token,
                 "can_remove": not active and not references}
 
-    def set_connection_removed(self, connection_id: str, *, token: str, removed: bool) -> dict:
+    def delete_connection(self, connection_id: str, *, token: str, confirmed: bool) -> dict:
         from .llm_connection_removal import reference_guard
-        if type(removed) is not bool:
-            raise AppValidationError("请明确选择移除或恢复")
+        if confirmed is not True:
+            raise AppValidationError("请确认删除这条本地连接配置")
         with reference_guard(), getattr(self.config, "_state_lock", nullcontext()):
             preview = self._connection_removal_preview(connection_id)
             if token != preview["token"]:
                 raise AppValidationError("连接或引用已改变，请重新查看删除影响")
-            if removed and not preview["can_remove"]:
+            if not preview["can_remove"]:
                 raise AppValidationError("请先切换当前默认连接，并处理保存的工作流或等待活动任务结束")
             profiles = profiles_for(self.config.build_effective_config(include_env=False), include_removed=True)
             profile = next(item for item in profiles["llm"] if item["id"] == connection_id)
-            if removed:
-                profile["removed"] = True
-            else:
-                profile.pop("removed", None)
-            # Retain all credentials and original IDs for undo/history. No cloud
-            # calls, reference migration, file deletion or automatic activation.
+            profiles["llm"] = [item for item in profiles["llm"] if item["id"] != connection_id]
+            updates = {"connection_profiles": profiles}
+            # Remove an unused legacy projection belonging to this profile; retain
+            # other connections, shared credentials and immutable task snapshots.
+            provider = profile["provider"]
+            if not any(item["provider"] == provider for item in profiles["llm"]):
+                base_api = self.config.build_effective_config(include_env=False).get("api", {})
+                updates["api"] = {f"{provider}_{field}": "" for field in ("api_key", "base_url", "model")
+                                  if base_api.get(f"{provider}_{field}") == profile.get(field)}
             try:
-                self.config.persist_updates({"connection_profiles": profiles})
+                self.config.persist_updates(updates)
             except Exception as exc:
                 raise AppExecutionError("连接列表保存失败；请刷新后核对") from exc
             return self.get_settings(masked=True)

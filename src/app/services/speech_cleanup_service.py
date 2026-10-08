@@ -1,4 +1,8 @@
-"""Explicit, conservative and reversible cleanup of VoiceLab-owned data."""
+"""Confirmed deletion of VoiceLab-owned data, retaining active/reference guards.
+
+Legacy quarantine data is read-only unless the user selects that exact item and
+confirms deletion. New deletions never create archives or recoverable copies.
+"""
 from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
@@ -9,9 +13,8 @@ import json
 from pathlib import Path
 import re
 import shutil
-from uuid import uuid4
 
-from src.core.speech.store import reference_file_guard, _now, _hash_file
+from src.core.speech.store import reference_file_guard, _hash_file
 
 
 def values(value):
@@ -40,6 +43,30 @@ def references(value, ids, paths):
             except (ValueError, OSError):
                 return True  # Unknown paths are never evidence of no reference.
     return False
+
+
+def without_frozen_recipes(value):
+    """Read dependencies without treating a complete value snapshot as an ID link."""
+    if is_dataclass(value):
+        value = asdict(value)
+    if isinstance(value, (list, tuple)):
+        return [without_frozen_recipes(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    snapshot = next((value[key] for key in ("recipe_snapshot", "recipe")
+                     if isinstance(value.get(key), dict) and all(field in value[key]
+                     for field in ("id", "provider_id", "model", "mode", "variant"))
+                     and value.get("recipe_id", value[key]["id"]) == value[key]["id"]), None)
+    omitted = {"recipe_snapshot", "recipe", "recipe_id", "voice_id"} if snapshot else set()
+    result = {key: without_frozen_recipes(item) for key, item in value.items() if key not in omitted}
+    request = value.get("compiled_request")
+    # Completed takes can be read, assembled and saved as a new recipe from the
+    # frozen value. Only this matching compiler provenance is not a live link;
+    # unknown/nested references and mismatched requests remain blockers.
+    if (snapshot and isinstance(request, dict) and request.get("recipe_id") == snapshot["id"]
+            and all(request.get(key) == snapshot[key] for key in ("provider_id", "model", "mode"))):
+        result["compiled_request"].pop("recipe_id", None)
+    return result
 
 
 def owned_path(root, path):
@@ -87,28 +114,9 @@ class SpeechCleanupService:
         from .preset_catalog_service import _write_lock
         with reference_file_guard(), (self.batches.history_deletion_guard() if self.batches else nullcontext()), self.speech.dispatcher.history_deletion_guard(), self.speech.tasks.history_deletion_guard(), self.speech.artifacts.history_deletion_guard():
             with _write_lock, self.store._locked():
-                self._recover_interrupted_moves()
+                # Old files never move, restore or purge merely because a route
+                # is read. Legacy entries require their own explicit confirmation.
                 yield
-
-    def _recover_interrupted_moves(self):
-        committed = set(self.store._read().get("cleanup_receipts", []))
-        for record in (self.store.root / "_trash").glob("*/manifest.json"):
-            owned_path(self.store.root, record)
-            if record.parent.name in committed:
-                continue
-            manifest = json.loads(record.read_text(encoding="utf-8"))
-            # Restore an interrupted move before metadata committed (or after undo
-            # committed). Never replace a newly occupied original path.
-            for index, original in enumerate(manifest.get("paths", [])):
-                source = owned_path(self.store.root, record.parent / str(index))
-                if not source.exists():
-                    continue
-                target = owned_path(self.store.root, original)
-                if target.exists():
-                    raise ValueError("中断清理的原路径已占用，文件已保留，请人工检查回收区")
-                file_manifest(self.store.root, [source])
-                target.parent.mkdir(parents=True, exist_ok=True)
-                source.rename(target)
 
     def external(self):
         result = {"tasks": self.speech.tasks.history_snapshot(),
@@ -120,9 +128,8 @@ class SpeechCleanupService:
         if self.batches is not None:
             result["batches"] = self.batches.history_snapshot()
             result["batch_snapshots"] = getattr(self.batches, "_graph_snapshots", {})
-        result["recoverable_data"] = [json.loads(
-            (owned_path(self.store.root, self.store.root / "_trash" / id) / "manifest.json").read_text(encoding="utf-8"))
-            for id in self.store._read().get("cleanup_receipts", [])]
+        result["legacy_data"] = [json.loads(owned_path(self.store.root, path).read_text(encoding="utf-8"))
+            for path in (self.store.root / "_trash").glob("*/manifest.json")]
         return result
 
     def preview(self, kind, item_id="all"):
@@ -130,17 +137,20 @@ class SpeechCleanupService:
             return self._preview(kind, item_id)[0]
 
     def _preview(self, kind, item_id):
-        if kind == "trash":
-            return self._purge_preview(item_id)
+        if kind == "legacy-trash":
+            return self._legacy_deletion_preview(item_id)
         state = self.store._read()
         records = state["collections"]
         selected = {key: {} for key in records}
+        history_updates = {}
         paths, blockers = [], []
         external = self.external()
         if any(batch.state not in {"completed", "completed_with_errors", "cancelled", "interrupted", "history_deleted"}
                for batch in external.get("batches", [])):
             blockers.append("存在未结束批任务，请先结束批任务")
-        external["store_metadata"] = {key: value for key, value in state.items() if key != "collections"}
+        # Built-in initialization markers prevent deleted defaults from reappearing;
+        # they do not own the user's recipe and must remain after a true deletion.
+        external["store_metadata"] = {key: value for key, value in state.items() if key not in {"collections", "builtin_recipes"}}
         if kind != "staging":
             external["staged_references"] = [json.loads(path.read_text(encoding="utf-8"))
                 for path in (self.store.root / "_staging").glob("*/inspection.json")]
@@ -173,17 +183,21 @@ class SpeechCleanupService:
                                 paths.append(path)
         elif kind == "recipes":
             root = self.store._recipe_root(records[kind], item_id)
-            if not records["rule_states"].get(root, {}).get("archived"):
-                blockers.append("请先归档音色")
+            # Current product policy permits deleting active or legacy-archived
+            # rules after the same reference/active-task checks and confirmation.
             selected[kind] = {id: row for id, row in records[kind].items()
                               if self.store._recipe_root(records[kind], id) == root}
             if root in records["rule_states"]:
                 selected["rule_states"][root] = records["rule_states"][root]
+            for voice_id in {row.get("voice_id") for row in selected[kind].values()} - {None}:
+                others = {key: {id: row for id, row in rows.items() if id not in selected[key]}
+                          for key, rows in records.items() if key != "voices"}
+                if voice_id in records["voices"] and not references([others, external], {voice_id}, []):
+                    selected["voices"][voice_id] = records["voices"][voice_id]
         elif kind == "assets":
             asset = records[kind][item_id]
             selected[kind][item_id] = asset
-            if not asset.get("archived"):
-                blockers.append("请先归档录音")
+            # Archival is not a prerequisite for an explicitly confirmed delete.
             directory = owned_path(self.store.assets_root, Path(asset["path"]).parent)
             if directory.parent != self.store.assets_root or not re.fullmatch(r"[0-9a-f-]{36}", directory.name):
                 blockers.append("无法确认录音目录所有权")
@@ -210,22 +224,39 @@ class SpeechCleanupService:
             raise ValueError("不支持的清理类型")
         ids = {id for rows in selected.values() for id in rows}
         remaining = {key: {id: row for id, row in rows.items() if id not in selected[key]} for key, rows in records.items()}
+        if kind == "recipes":
+            for id, take in remaining["takes"].items():
+                recipe = selected["recipes"].get(take.get("recipe_id"))
+                if recipe and not take.get("recipe_snapshot") and all(field in recipe for field in ("provider_id", "model", "mode", "variant")):
+                    # Freeze the exact immutable source used by old ID-only takes;
+                    # their execution data/audio and original IDs remain unchanged.
+                    history_updates[id] = {**deepcopy(take), "recipe_snapshot": deepcopy(recipe)}
+            remaining["takes"] = {**remaining["takes"], **history_updates}
+            remaining = without_frozen_recipes(remaining)
+            external = without_frozen_recipes(external)
+            for voice_id in {row.get("voice_id") for row in selected["recipes"].values()} - {None}:
+                others = {key: value for key, value in remaining.items() if key != "voices"}
+                if voice_id in records["voices"] and not references([others, external], {voice_id}, []):
+                    selected["voices"][voice_id] = records["voices"][voice_id]
+                    remaining["voices"].pop(voice_id, None)
+                    ids.add(voice_id)
         for key, value in {**remaining, **external}.items():
             if references(value, ids, paths):
                 label = {"voices": "保存声音", "recipes": "音色规则", "experiments": "试音实验", "takes": "候选音频",
                          "selections": "采用记录", "assemblies": "组装记录", "assets": "参考录音", "plans": "台词",
                          "tasks": "任务历史", "artifacts": "任务产物", "workflows": "工作流", "batches": "批任务",
-                         "recoverable_data": "回收区数据", "staged_references": "录音暂存",
+                         "legacy_data": "旧版遗留数据", "staged_references": "录音暂存",
                          "persistent_history": "持久任务和恢复记录"}.get(key, "其他保存数据")
-                blockers.append(f"仍被{label}引用；请先解除引用或处理对应历史")
+                matches = [str(id) for id, row in value.items() if references(row, ids, paths)] if isinstance(value, dict) else []
+                blockers.append(f"仍被{label}{'（' + '、'.join(matches[:4]) + '）' if matches else ''}引用；请先处理这些引用")
         files = file_manifest(self.store.root, paths)
-        payload = {"kind": kind, "item_id": item_id, "records": selected,
+        payload = {"kind": kind, "item_id": item_id, "records": selected, "history_updates": history_updates,
                    "paths": [str(p) for p in paths], "files": files, "blockers": sorted(set(blockers))}
         token = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         return {"kind": kind, "item_id": item_id, "token": token, "blockers": payload["blockers"],
                 "records": {k: len(v) for k, v in selected.items() if v}, "files": files,
                 "bytes": sum(f["bytes"] for f in files), "paths": payload["paths"],
-                "recoverable": True}, payload
+                "recoverable": False}, payload
 
     def execute(self, kind, item_id, token, confirmed=False):
         if confirmed is not True:
@@ -236,54 +267,60 @@ class SpeechCleanupService:
                 raise ValueError("内容或引用已改变，请重新预览")
             if preview["blockers"]:
                 raise ValueError("；".join(preview["blockers"]))
-            if kind == "trash":
-                return self._purge(item_id, payload)
+            if kind == "legacy-trash":
+                return self._delete_legacy(item_id, payload)
             if not preview["paths"] and not preview["records"]:
                 raise ValueError("没有可清理的无引用内容")
-            receipt_id = uuid4().hex
-            trash = owned_path(self.store.root, self.store.root / "_trash" / receipt_id)
-            trash.mkdir(parents=True)
-            manifest = {**payload, "id": receipt_id, "created_at": _now(), "state": "prepared"}
-            self.store._atomic_json(trash / "manifest.json", manifest)
-            moved = []
+            # All existing task, worker, reference, path and stale-preview guards
+            # above remain mandatory. Delete only the reviewed owned file manifest.
+            # Keep records until filesystem deletion succeeds, so a partial failure
+            # stays visible and can be explicitly retried; never make recovery copies.
+            self._delete_reviewed_files(payload["paths"], payload["files"])
+            state = self.store._read()
+            state["collections"]["takes"].update(payload.get("history_updates", {}))
+            for key, rows in payload["records"].items():
+                for id in rows:
+                    del state["collections"][key][id]
             try:
-                for index, path in enumerate(payload["paths"]):
-                    source = owned_path(self.store.root, path)
-                    if source.exists():
-                        destination = trash / str(index)
-                        source.rename(destination)
-                        moved.append((source, destination))
-                state = self.store._read()
-                for key, rows in payload["records"].items():
-                    for id in rows:
-                        del state["collections"][key][id]
-                # Durable commit marker makes crash recovery unambiguous.
-                state.setdefault("cleanup_receipts", []).append(receipt_id)
                 self.store._write(state)
-            except BaseException:
-                for source, destination in reversed(moved):
-                    destination.rename(source)
-                raise
-            return {"id": receipt_id, "recoverable": True}
+            except OSError as exc:
+                raise ValueError("自有文件已删除，但记录保存失败；请刷新后重试删除记录") from exc
+            return {"deleted": item_id, "kind": kind, "recoverable": False,
+                    "files_deleted": len(payload["files"]), "bytes_deleted": preview["bytes"]}
 
-    def receipts(self):
+    def _delete_reviewed_files(self, paths, files):
+        if file_manifest(self.store.root, [Path(path) for path in paths]) != files:
+            raise ValueError("文件已改变，请重新确认删除")
+        for file in files:
+            path = owned_path(self.store.root, file["path"])
+            if _hash_file(path) != file["sha256"]:
+                raise ValueError("文件已改变，请重新确认删除")
+            path.unlink()
+        # Never recursively remove new/unreviewed files added to a directory.
+        for raw in paths:
+            path = owned_path(self.store.root, raw)
+            if path.is_dir():
+                for folder in sorted((p for p in path.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+                    owned_path(self.store.root, folder).rmdir()
+                path.rmdir()
+
+    def legacy_records(self):
         with self.guard():
-            return [{"id": id, **{key: value for key, value in json.loads(
-                (owned_path(self.store.root, self.store.root / "_trash" / id) / "manifest.json").read_text(encoding="utf-8")).items()
-                if key in {"kind", "item_id", "created_at"}}} for id in self.store._read().get("cleanup_receipts", [])]
+            return [{"id": path.parent.name, "directory": str(path.parent),
+                     **{key: value for key, value in json.loads(owned_path(self.store.root, path).read_text(encoding="utf-8")).items()
+                        if key in {"kind", "item_id", "created_at"}}}
+                    for path in (self.store.root / "_trash").glob("*/manifest.json")]
 
-    def _purge_preview(self, receipt_id):
+    def _legacy_deletion_preview(self, receipt_id):
         if not re.fullmatch(r"[0-9a-f]{32}", receipt_id):
             raise ValueError("无效回收记录")
         state = self.store._read()
-        if receipt_id not in state.get("cleanup_receipts", []):
-            raise ValueError("回收记录不存在")
         trash = owned_path(self.store.root, self.store.root / "_trash" / receipt_id)
         manifest = json.loads((trash / "manifest.json").read_text(encoding="utf-8"))
         ids = {id for rows in manifest["records"].values() for id in rows}
         paths = [owned_path(self.store.root, value) for value in manifest["paths"]]
         evidence = self.external()
-        evidence["recoverable_data"] = [item for item in evidence["recoverable_data"] if item["id"] != receipt_id]
+        evidence["legacy_data"] = [item for item in evidence["legacy_data"] if item["id"] != receipt_id]
         evidence["speech"] = state["collections"]
         blockers = [f"{key}仍有引用，保留回收内容" for key, value in evidence.items() if references(value, ids, paths)]
         if any(status.state not in {"completed", "failed", "cancelled", "skipped"}
@@ -293,12 +330,12 @@ class SpeechCleanupService:
                for batch in evidence.get("batches", [])):
             blockers.append("存在未结束批任务")
         files = file_manifest(self.store.root, [trash])
-        payload = {"kind": "trash", "item_id": receipt_id, "blockers": blockers, "files": files,
+        payload = {"kind": "legacy-trash", "item_id": receipt_id, "blockers": blockers, "files": files,
                    "records": {}, "paths": [str(trash)], "bytes": sum(file["bytes"] for file in files), "recoverable": False}
         payload["token"] = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         return payload, manifest
 
-    def _purge(self, receipt_id, manifest):
+    def _delete_legacy(self, receipt_id, manifest):
         trash = owned_path(self.store.root, self.store.root / "_trash" / receipt_id)
         # Keep the manifest/receipt until every payload is gone, so partial filesystem
         # failures can be reviewed and retried without losing the deletion journal.
@@ -310,53 +347,8 @@ class SpeechCleanupService:
             elif path.exists():
                 path.unlink()
         state = self.store._read()
-        state["cleanup_receipts"].remove(receipt_id)
+        state["cleanup_receipts"] = [id for id in state.get("cleanup_receipts", []) if id != receipt_id]
         self.store._write(state)
         (trash / "manifest.json").unlink()
         trash.rmdir()
         return {"purged": receipt_id, "recoverable": False}
-
-    def restore(self, receipt_id):
-        if not re.fullmatch(r"[0-9a-f]{32}", receipt_id):
-            raise ValueError("无效恢复记录")
-        with self.guard():
-            state = self.store._read()
-            if receipt_id not in state.get("cleanup_receipts", []):
-                raise ValueError("恢复记录不存在或已恢复")
-            trash = owned_path(self.store.root, self.store.root / "_trash" / receipt_id)
-            manifest = json.loads((trash / "manifest.json").read_text(encoding="utf-8"))
-            for key, rows in manifest["records"].items():
-                if set(rows) & set(state["collections"][key]):
-                    raise ValueError("记录 ID 已被使用，不能覆盖")
-            moves = []
-            for index, value in enumerate(manifest["paths"]):
-                path = owned_path(self.store.root, value)
-                source = owned_path(self.store.root, trash / str(index))
-                if path.exists():
-                    raise ValueError("原路径已有文件，不能覆盖")
-                if source.exists():
-                    file_manifest(self.store.root, [source])
-                    for file in manifest["files"]:
-                        original = Path(file["path"])
-                        if original == path or original.is_relative_to(path):
-                            saved = source if original == path else source / original.relative_to(path)
-                            if not saved.is_file() or _hash_file(saved) != file["sha256"]:
-                                raise ValueError("回收区文件已改变，不能恢复")
-                    moves.append((source, path))
-                elif any(Path(f["path"]) == path or Path(f["path"]).is_relative_to(path) for f in manifest["files"]):
-                    raise ValueError("回收区文件缺失，不能恢复")
-            moved = []
-            try:
-                for source, path in moves:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    source.rename(path)
-                    moved.append((source, path))
-                for key, rows in manifest["records"].items():
-                    state["collections"][key].update(deepcopy(rows))
-                state["cleanup_receipts"].remove(receipt_id)
-                self.store._write(state)
-            except BaseException:
-                for source, path in reversed(moved):
-                    path.rename(source)
-                raise
-            return {"restored": receipt_id}

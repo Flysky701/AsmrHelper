@@ -40,29 +40,24 @@ def profiles(tmp_path, monkeypatch):
     return SettingsService(config_manager=config), references
 
 
-def change(service, id="unused", removed=True):
+def change(service, id="unused"):
     preview = service.connection_removal_preview(id)
-    return service.set_connection_removed(id, token=preview["token"], removed=removed)
+    return service.delete_connection(id, token=preview["token"], confirmed=True)
 
 
-def test_profile_removal_restart_restore_and_shared_credentials(profiles):
+def test_profile_deletion_restart_and_shared_credentials(profiles):
     service, _ = profiles
-    before = service.config.get_file_config()
     public = change(service)
     assert [p["id"] for p in public["connection_profiles"]["llm"]] == ["active"]
-    assert [p["id"] for p in public["connection_profiles"]["removed_llm"]] == ["unused"]
+    assert public["connection_profiles"]["removed_llm"] == []
     assert "same-private-key" not in json.dumps(public)
-    assert "api_key" not in json.dumps(service.connection_removal_preview("unused"))
     stored = service.config.get_file_config()["connection_profiles"]["llm"]
-    assert [p["api_key"] for p in stored] == [p["api_key"] for p in before["connection_profiles"]["llm"]]
+    assert len(stored) == 1 and stored[0]["api_key"] == "same-private-key"
     service.config.reload()
-    assert [p["id"] for p in profiles_for(service.config.to_dict())["llm"]] == ["active"]
     service.update_settings({"paths": {"output_dir": "output-test"}})
-    assert service.get_settings()["connection_profiles"]["removed_llm"][0]["id"] == "unused"
-    public = change(service, removed=False)
-    assert public["connection_profiles"]["active_llm"] == "active"
-    assert not public["connection_profiles"]["removed_llm"]
-    assert service.config.get_file_config()["connection_profiles"] == before["connection_profiles"]
+    assert [p["id"] for p in profiles_for(service.config.to_dict())["llm"]] == ["active"]
+    with pytest.raises(AppValidationError):
+        service.connection_removal_preview("unused")
 
 
 def test_removed_profile_cannot_be_selected_edited_or_resolved_for_new_tasks(profiles):
@@ -88,7 +83,7 @@ def test_default_and_new_references_block_removal_without_writes(profiles):
     stale = service.connection_removal_preview("unused")
     references.append({"kind": "workflow", "id": "flow", "name": "saved flow"})
     with pytest.raises(AppValidationError, match="已改变"):
-        service.set_connection_removed("unused", token=stale["token"], removed=True)
+        service.delete_connection("unused", token=stale["token"], confirmed=True)
     assert not service.connection_removal_preview("unused")["can_remove"]
     with pytest.raises(AppValidationError):
         change(service)
@@ -100,7 +95,7 @@ def test_changed_profile_and_failed_save_do_not_remove(profiles, monkeypatch):
     stale = service.connection_removal_preview("unused")
     service.update_settings({"connection_profile": {"kind": "llm", "id": "active", "name": "renamed active"}})
     with pytest.raises(AppValidationError, match="已改变"):
-        service.set_connection_removed("unused", token=stale["token"], removed=True)
+        service.delete_connection("unused", token=stale["token"], confirmed=True)
     before = service.config.get_file_config()
     monkeypatch.setattr(service.config, "persist_updates", Mock(side_effect=OSError("disk failed")))
     with pytest.raises(Exception, match="保存失败"):
@@ -142,25 +137,20 @@ def batch(tmp_path):
     return service, store, source
 
 
-def set_item(service, removed=True, expected=None):
+def set_item(service, expected=None):
     record = service.get_batch("batch-unit")
-    return service.set_unsubmitted_item_removed("batch-unit", "never-submitted",
-        expected_updated_at=expected or record.updated_at, removed=removed)
+    return service.delete_unsubmitted_item("batch-unit", "never-submitted",
+        expected_updated_at=expected or record.updated_at, confirmed=True)
 
 
-def test_batch_item_removal_persists_can_restore_and_never_touches_inputs(batch):
+def test_last_batch_item_deletion_persists_and_never_touches_inputs(batch):
     service, store, source = batch
-    changed = set_item(service)
-    assert changed.items[0].removed
-    assert changed.items[0].state == "cancelled"
+    assert set_item(service) is None
     assert source.read_bytes() == b"untouched input"
-    restored_service = BatchRunService(pipeline_orchestrator=Mock(), state_store=store)
-    assert restored_service.get_batch("batch-unit").items[0].removed
-    with pytest.raises(AppValidationError):
-        restored_service.retry_failed("batch-unit")
-    assert not set_item(restored_service, removed=False).items[0].removed
-    assert not store.load_batch_runs()[0].items[0].removed
-    assert source.read_bytes() == b"untouched input"
+    assert store.load_batch_runs() == []
+    restarted = BatchRunService(pipeline_orchestrator=Mock(), state_store=store)
+    assert restarted.list_batches() == []
+    assert "batch-unit" in restarted._deleted_batches
 
 
 @pytest.mark.parametrize("field,value", [("state", "pending"), ("current_task_id", "task"), ("task_ids", ["task"])])
@@ -181,13 +171,13 @@ def test_batch_active_monitor_stale_confirmation_and_save_failure(batch, monkeyp
         set_item(service)
     service._threads.clear()
     stale = service.get_batch("batch-unit").updated_at
-    set_item(service)
+    service._batches["batch-unit"].updated_at = "changed"
     with pytest.raises(AppValidationError, match="已改变"):
-        set_item(service, removed=False, expected=stale)
+        set_item(service, expected=stale)
     before = deepcopy(service._batches["batch-unit"])
-    monkeypatch.setattr(store, "save_batch_run", Mock(side_effect=OSError("disk failed")))
+    monkeypatch.setattr(store, "delete_empty_batch", Mock(side_effect=OSError("disk failed")))
     with pytest.raises(OSError):
-        set_item(service, removed=False)
+        set_item(service)
     assert service._batches["batch-unit"] == before
 
 
@@ -203,14 +193,14 @@ def test_http_removal_contracts_and_strict_confirmation(profiles, batch):
     app.dependency_overrides[dependencies.batch_run_service] = lambda: batches
     client = TestClient(app)
     preview = client.get("/settings/connections/unused/removal-preview").json()
-    response = client.post("/settings/connections/unused/removal", json={"token": preview["token"], "removed": True})
+    response = client.post("/settings/connections/unused/removal", json={"token": preview["token"], "confirmed": True})
     assert response.status_code == 200
     assert "same-private-key" not in response.text
-    assert client.post("/settings/connections/unused/removal", json={"token": preview["token"], "removed": "true"}).status_code == 422
+    assert client.post("/settings/connections/unused/removal", json={"token": preview["token"], "confirmed": "true"}).status_code == 422
     current = batches.get_batch("batch-unit")
     response = client.post("/batch-runs/batch-unit/items/never-submitted/removal",
-        json={"expected_updated_at": current.updated_at, "removed": True})
+        json={"expected_updated_at": current.updated_at, "confirmed": True})
     assert response.status_code == 200
-    assert response.json()["items"][0]["removed"] is True
+    assert response.json()["batch"] is None
     assert client.post("/batch-runs/batch-unit/items/never-submitted/removal",
-        json={"expected_updated_at": current.updated_at, "removed": 1}).status_code == 422
+        json={"expected_updated_at": current.updated_at, "confirmed": 1}).status_code == 422

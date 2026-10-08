@@ -429,11 +429,11 @@ class BatchRunService:
             self._start_monitor_locked(batch_id)
             return deepcopy(record)
 
-    def set_unsubmitted_item_removed(self, batch_id: str, item_id: str, *,
-                                     expected_updated_at: str, removed: bool) -> BatchRunRecord:
-        """Hide/restore only terminal items without child tasks; preserve all files."""
-        if type(removed) is not bool:
-            raise AppValidationError("请明确选择移除或恢复")
+    def delete_unsubmitted_item(self, batch_id: str, item_id: str, *,
+                                expected_updated_at: str, confirmed: bool) -> BatchRunRecord | None:
+        """Delete a terminal item with no child tasks; preserve every input file."""
+        if confirmed is not True:
+            raise AppValidationError("请确认删除本地批次条目")
         with self._lock:
             original = self._require_locked(batch_id)
             thread = self._threads.get(batch_id)
@@ -448,14 +448,27 @@ class BatchRunService:
                 raise AppValidationError("批次条目不存在")
             if item.current_task_id or item.task_ids or item.state not in {"completed", "failed", "cancelled", "skipped"}:
                 raise AppValidationError("只能移除没有子任务 ID 的终态条目；已有任务请在任务中心删除历史")
-            item.removed = removed
+            record.items = [entry for entry in record.items if entry.item_id != item_id]
             record.updated_at = _now()
             self._annotate_retry_locked(record)
             # Persist a copy before publishing it; a failed save leaves live state intact.
             if self._state_store is not None:
-                self._state_store.save_batch_run(record)
-            self._batches[batch_id] = record
-            return deepcopy(record)
+                if record.items:
+                    self._state_store.save_batch_run(record)
+                else:
+                    self._state_store.delete_empty_batch(record)
+            for mapping in (self._graph_snapshots, self._input_identities, self._legacy_retry_tasks, self._retry_validation_errors):
+                mapping.get(batch_id, {}).pop(item_id, None)
+            if record.items:
+                self._batches[batch_id] = record
+                return deepcopy(record)
+            self._batches.pop(batch_id)
+            self._deleted_batches[batch_id] = {"batch_id": batch_id,
+                "client_request_id": record.client_request_id, "request_fingerprint": record.request_fingerprint}
+            for mapping in (self._graph_snapshots, self._input_identities, self._legacy_retry_tasks,
+                            self._llm_snapshots, self._retry_validation_errors, self._cancel_events, self._threads):
+                mapping.pop(batch_id, None)
+            return None
 
     def retry_failed(self, batch_id: str) -> BatchRunRecord:
         with self._lock:
@@ -634,7 +647,7 @@ class BatchRunService:
         for item in record.items:
             reason = None
             if item.removed:
-                reason = "此条目已移除，请先恢复"
+                reason = "旧版遗留的已移除条目，可明确删除；不会自动重试"
             elif item.state not in {"failed", "cancelled"}:
                 reason = "only failed or cancelled groups can be retried"
             elif active:

@@ -26,6 +26,7 @@ function render({ selected = false, items = [] } = {}) {
     '@/api/speech': { speechApi: { referenceAudio: () => '/test.wav' } },
     '@/domain/fishCloneSubmission': { FishCloneSubmission },
     './FishClonePanel.css': {},
+    '@/utils/confirmAction': { confirmAction: async () => true },
   }).default
   return renderToStaticMarkup(React.createElement(Panel, { active: false,
     assets: [{ id: draft.asset_id, name: 'Synthetic sample', confirmed: true, transcript: 'Synthetic transcript', duration: 3 }],
@@ -47,15 +48,15 @@ test('summary is always visible with a single upload action and no checkboxes or
   }
 })
 
-test('results have simple local deletion and a single undo action, with no cloud management', () => {
+test('results expose direct local deletion including legacy retained rows, without undo', () => {
   const html = render({ items: [{ ...result, state: 'unknown', remote_voice_id: null, title: 'Unknown' },
     { ...result, id: 'ready', state: 'trained', title: 'Ready' },
-    { ...result, id: 'deleted', deleted: true, title: 'Hidden' }] })
+    { ...result, id: 'deleted', state: 'unknown', legacy_deleted: true, title: 'Legacy' }] })
   assert.match(html, /结果未知/)
   assert.match(html, /保存到音色库（Free 合成）/)
-  assert.equal((html.match(/>删除本地记录</g) || []).length, 2)
-  assert.equal((html.match(/>撤销上次删除</g) || []).length, 1)
-  assert.doesNotMatch(html, /Hidden|云端删除|恢复中心|查看历史|更新状态/)
+  assert.equal((html.match(/>删除本地记录</g) || []).length, 3)
+  assert.equal((html.match(/>撤销上次删除</g) || []).length, 0)
+  assert.doesNotMatch(html, /撤销上次删除|云端删除|恢复中心|查看历史|更新状态/)
 })
 
 test('in-progress results keep a status action and disable local deletion', () => {

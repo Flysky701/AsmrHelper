@@ -91,8 +91,6 @@ export default function TaskCenter() {
   const addTask = useTaskStore(state => state.addTask)
   const updateTask = useTaskStore(state => state.updateTask)
   const removeDeletedTasks = useTaskStore(state => state.removeDeletedTasks)
-  const removedLocalTasks = useTaskStore(state => state.removedLocalTasks)
-  const undoLocalRemoval = useTaskStore(state => state.undoLocalRemoval)
   const selectedJobType = tasks.find(task => task.id === selectedTaskId)?.jobType
   const [category, setCategory] = useState<TaskCategory>(() => selectedJobType ? taskCategory(selectedJobType) : 'processing')
   const [categoryFilters, setCategoryFilters] = useState<Record<TaskCategory, StatusFilter>>({
@@ -159,7 +157,7 @@ export default function TaskCenter() {
     setPollGeneration(value => value + 1)
   }
   const removeLocalFailure = async (task: Task) => {
-    if (!await confirmAction(`移除本地提交失败记录“${task.sourceName}”？\n仅移除本次会话中的记录，可撤销；不会取消或删除可能已经在服务端创建的任务，也不删除文件。`)) return
+    if (!await confirmAction(`删除本地提交失败记录“${task.sourceName}”？\n删除本次会话中的记录，无法撤销；不会取消或删除可能已经在服务端创建的任务，也不删除文件。`)) return
     useTaskStore.getState().removeLocalFailure(task.id)
   }
   const toggleChecked = (id: string) => setCheckedTaskIds(current => current.includes(id)
@@ -412,8 +410,6 @@ export default function TaskCenter() {
         {taskCenterView === 'tasks' && <button type="button" className="tc-icon-button" aria-label="刷新任务状态" onClick={() => setPollGeneration(value => value + 1)}><TaskSymbol name="refresh" /></button>}</div>
     </header>
     {taskCenterView === 'batches' ? <BatchRunsPanel /> : <>
-      {!!removedLocalTasks.length && <p className="tc-delete-note" role="status">已移除 {removedLocalTasks.length} 条本地失败记录。服务端任务与文件未处理。
-        <button type="button" className="tc-action" onClick={undoLocalRemoval}>撤销最近移除</button></p>}
       <div className="tc-category-toolbar"><label>任务分类 <select aria-label="任务分类" value={category} onChange={event => { selectTask(null); setCategory(event.target.value as TaskCategory); setMobileDetail(false) }}>
         {TASK_CATEGORIES.map(item => <option key={item.id} value={item.id}>{item.label} · {tasks.filter(task => taskCategory(task.jobType) === item.id).length}</option>)}</select></label>
         <details className="tc-bulk-actions"><summary>批量操作</summary><div><button type="button" disabled={!retryableFailedTasks.length} onClick={() => void handleRetryFailedTasks()}>重试本类失败任务 ({retryableFailedTasks.length})</button><button type="button" disabled={!runningTasks.length} onClick={() => void handleCancelRunningTasks()}>取消本类运行任务 ({runningTasks.length})</button></div></details>
@@ -460,7 +456,7 @@ export default function TaskCenter() {
             <button type="button" className="tc-action" disabled={!canSelectForDeletion(selectedTask)}
               title={canSelectForDeletion(selectedTask) ? '预览此任务的删除范围' : '运行中或待处理任务不可删除'}
               onClick={() => selectedTask.serverTaskId && openDeletion([selectedTask.serverTaskId])}>删除历史…</button>
-            {!selectedTask.serverTaskId && selectedTask.status === 'failed' && <button type="button" className="tc-action" onClick={() => void removeLocalFailure(selectedTask)}>移除本地记录…</button>}</>}
+            {!selectedTask.serverTaskId && selectedTask.status === 'failed' && <button type="button" className="tc-action" onClick={() => void removeLocalFailure(selectedTask)}>删除本地记录…</button>}</>}
           recovery={selectedTask.serverTaskId && (selectedTask.status === 'failed' || selectedTask.status === 'cancelled')
             ? <div className="tc-recovery"><TaskRecoveryAction key={selectedTask.serverTaskId} taskId={selectedTask.serverTaskId} onResumed={response => handleResumed(selectedTask, response)} /></div> : null}
         /> : <div className="tc-empty">请选择一项任务</div>}

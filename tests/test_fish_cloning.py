@@ -130,7 +130,9 @@ def test_review_invalidated_before_upload(setup, change):
         with Path(env.asset['path']).open('ab') as f:
             f.write(b'changed')
     elif change == 'archived':
-        env.store.reference_metadata(env.asset['id'], {'archived': True})
+        state = env.store._read()
+        state["collections"]["assets"][env.asset["id"]]["archived"] = True
+        env.store._write(state)
     with pytest.raises(ValueError):
         env.svc.create(body)
     assert env.requests == []
@@ -200,7 +202,7 @@ def test_changed_connection_blocks_refresh_and_save(setup):
 
 
 @pytest.mark.parametrize('state', ['trained', 'failed', 'unknown'])
-def test_local_delete_restore_preserves_remote_recipe_source_and_dedup(setup, state):
+def test_local_delete_preserves_remote_recipe_source_and_dedup(setup, state):
     env = setup
     env.state['body']['state'] = 'trained'
     body = submission(env)
@@ -211,24 +213,19 @@ def test_local_delete_restore_preserves_remote_recipe_source_and_dedup(setup, st
     asset_bytes = Path(env.asset['path']).read_bytes()
     source_bytes = (env.root / 'generated.wav').read_bytes()
     before = {key: env.store.list(key) for key in ('assets', 'recipes', 'voices', 'connections')}
-    response = env.client.delete('/api/v1/speech/fish-clones/' + clone['id'])
-    assert response.status_code == 200 and response.json()['deleted'] is True
+    response = env.client.delete('/api/v1/speech/fish-clones/' + clone['id'] + '?confirmed=true')
+    assert response.status_code == 200 and response.json()['deleted'] == clone['id']
     assert env.client.get('/api/v1/speech/fish-clones').json()['items'] == []
-    removed = env.client.get('/api/v1/speech/fish-clones?include_deleted=true').json()['items']
-    assert len(removed) == 1 and removed[0]['remote_voice_id'] == clone['remote_voice_id']
-    assert env.svc.create(body)['deleted'] is True  # tombstone still deduplicates
+    assert env.store.list('fish_clones') == []
+    with pytest.raises(ValueError):
+        env.svc.create(body)
     assert len(env.requests) == 1
     assert {key: env.store.list(key) for key in before} == before
     assert env.store.get('recipes', rule['id'])['model'] == 's2.1-pro-free'
     assert Path(env.asset['path']).read_bytes() == asset_bytes
     assert (env.root / 'generated.wav').read_bytes() == source_bytes
-    for action in (env.svc.refresh, env.svc.save_rule):
-        with pytest.raises(ValueError, match='撤销'):
-            action(clone['id'])
-    response = env.client.post('/api/v1/speech/fish-clones/' + clone['id'] + '/restore')
-    assert response.status_code == 200 and response.json()['deleted'] is False
-    assert len(env.svc.list()) == 1
-    assert env.svc.save_rule(clone['id'])['id'] == rule['id']
+    assert env.client.post('/api/v1/speech/fish-clones/' + clone['id'] + '/restore').status_code == 404
+    assert len(env.svc.list()) == 0
     assert len(env.requests) == 1
 
 
@@ -236,22 +233,24 @@ def test_local_delete_restore_preserves_remote_recipe_source_and_dedup(setup, st
 def test_remote_processing_cannot_be_hidden(setup, state):
     setup.state['body']['state'] = state
     clone = setup.svc.create(submission(setup))
-    response = setup.client.delete('/api/v1/speech/fish-clones/' + clone['id'])
+    response = setup.client.delete('/api/v1/speech/fish-clones/' + clone['id'] + '?confirmed=true')
     assert response.status_code == 422
     assert len(setup.svc.list()) == 1
     assert len(setup.requests) == 1
 
 
-def test_unknown_without_id_can_be_deleted_and_undone_after_restart(setup):
+def test_unknown_without_id_delete_keeps_only_request_dedup_after_restart(setup):
     setup.state['timeout'] = True
     body = submission(setup)
     clone = setup.svc.create(body)
     assert clone['remote_voice_id'] is None
-    setup.svc.set_deleted(clone['id'], True)
+    setup.svc.delete(clone['id'], confirmed=True)
     restarted = FishCloneService(setup.speech)
     assert restarted.list() == []
-    assert restarted.create(body)['deleted'] is True
-    assert restarted.set_deleted(clone['id'], False)['state'] == 'unknown'
+    with pytest.raises(ValueError):
+        restarted.create(body)
+    marker = setup.store._read()['fish_clone_requests'][clone['id']]
+    assert set(marker) == {'review_token', 'result_unknown'} and marker['result_unknown']
     assert len(setup.requests) == 1
 
 
@@ -266,7 +265,7 @@ def test_delete_waits_for_dispatch_and_never_discards_its_result(setup, monkeypa
     body = submission(setup)
     def remove():
         deleting.set()
-        return setup.svc.set_deleted(body['request_id'], True)
+        return setup.svc.delete(body['request_id'], confirmed=True)
     with ThreadPoolExecutor(max_workers=2) as pool:
         creating = pool.submit(setup.svc.create, body)
         assert entered.wait(5)
@@ -277,15 +276,16 @@ def test_delete_waits_for_dispatch_and_never_discards_its_result(setup, monkeypa
         finally:
             release.set()
         assert creating.result()['remote_voice_id'] == 'completed-id'
-        assert removal.result()['remote_voice_id'] == 'completed-id'
-    assert setup.svc.set_deleted(body['request_id'], False)['remote_voice_id'] == 'completed-id'
+        assert removal.result()['deleted'] == body['request_id']
+    assert setup.store.list('fish_clones') == []
 
 
-def test_interrupted_receipt_is_recoverable_without_dispatch(setup):
+def test_interrupted_receipt_delete_cannot_dispatch_again(setup):
     body = submission(setup)
     setup.store.create('fish_clones', {'id': body['request_id'], 'review_token': body['token'], 'state': 'submitting'})
-    assert setup.svc.set_deleted(body['request_id'], True)['state'] == 'unknown'
-    assert setup.svc.create(body)['deleted'] is True
+    assert setup.svc.delete(body['request_id'], confirmed=True)['deleted'] == body['request_id']
+    with pytest.raises(ValueError):
+        setup.svc.create(body)
     assert setup.requests == []
 
 

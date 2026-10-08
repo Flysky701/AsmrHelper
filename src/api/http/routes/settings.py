@@ -28,9 +28,9 @@ def connection_removal_preview(connection_id: str, svc: SettingsService = Depend
 
 
 @router.post("/connections/{connection_id}/removal", response_model=SettingsResponse)
-def set_connection_removed(connection_id: str, body: ConnectionRemovalRequest,
+def delete_connection(connection_id: str, body: ConnectionRemovalRequest,
                            svc: SettingsService = Depends(settings_service)):
-    return SettingsResponse(settings=svc.set_connection_removed(connection_id, **body.model_dump()))
+    return SettingsResponse(settings=svc.delete_connection(connection_id, **body.model_dump()))
 
 
 @router.post("/models", response_model=ProviderModelsResponse)

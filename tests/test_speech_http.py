@@ -18,7 +18,9 @@ from src.core.speech.store import SpeechStore
 
 
 @pytest.fixture
-def speech_http(tmp_path):
+def speech_http(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr("src.app.services.preset_catalog_service.get_preset_catalog_service", lambda: SimpleNamespace(list_presets=lambda: [], list_archived_presets=lambda: []))
     service = SpeechService(store=SpeechStore(tmp_path / "speech"), tasks=TaskService(), artifacts=ArtifactService())
     app = create_app()
     app.dependency_overrides[get_speech_service] = lambda: service
@@ -420,7 +422,7 @@ def test_reference_metadata_patch_is_allowed_from_desktop_origin(speech_http):
     assert "PATCH" in response.headers["access-control-allow-methods"]
 
 
-def test_reference_library_preview_search_archive_and_subtitles(speech_http):
+def test_reference_library_preview_search_delete_and_subtitles(speech_http):
     client, service = speech_http
     uploaded = client.post("/api/v1/speech/references/upload?filename=sample.wav", content=wav()).json()
     body = {"path": uploaded["path"], "start": 0, "end": .08, "name": "雨声", "notes": "素材备注", "gain_db": -3, "fade_in": .01, "fade_out": .01}
@@ -432,27 +434,26 @@ def test_reference_library_preview_search_archive_and_subtitles(speech_http):
     assert client.get("/api/v1/speech/references?query=备注").json()["assets"][0]["id"] == saved["id"]
     changed = client.patch(f'/api/v1/speech/references/{saved["id"]}', json={"name": "新名"})
     assert changed.status_code == 200 and changed.json()["sha256"] == saved["sha256"]
-    assert client.delete(f'/api/v1/speech/references/{saved["id"]}').status_code == 200
+    preview = client.post(f'/api/v1/speech/cleanup/assets/{saved["id"]}/preview').json()
+    assert client.delete(f'/api/v1/speech/references/{saved["id"]}', params={"token": preview["token"], "confirmed": True}).status_code == 200
     assert client.get("/api/v1/speech/references").json()["assets"] == []
-    assert client.get(f'/api/v1/speech/references/{saved["id"]}/audio').status_code == 200
+    assert client.get(f'/api/v1/speech/references/{saved["id"]}/audio').status_code == 422
     cues = post(client, "/references/subtitles", {"format": "vtt", "text": "WEBVTT\n\n00:00.100 --> 00:00.800\n测试\n"})
     assert cues["segments"] == [{"start": .1, "end": .8, "text": "测试"}]
 
 
-def test_rule_archive_restore_http_preserves_original_records(speech_http):
+def test_rule_delete_http_requires_confirmation_and_removes_revisions(speech_http):
     client, service = speech_http
     _, _, first, _, _ = setup_fish(client)
     second = service.store.update("recipes", first["id"], {"name": "最新版本"})
     base = "/api/v1/speech/rules"
-    assert client.delete(f'{base}/{second["id"]}').status_code == 200
-    assert client.get(base).json()["recipes"] == []
-    assert client.get(base + "?include_archived=true").json()["recipes"] == [{**second, "archived": True}]
-    assert client.patch(f'{base}/{first["id"]}', json={"archived": "false"}).status_code == 422
-    response = client.patch(f'{base}/{first["id"]}', json={"archived": False})
-    assert response.status_code == 200 and response.json()["archived"] is False
-    assert client.get(base).json()["recipes"] == [second]
-    assert service.store.get("recipes", first["id"]) == first
-    assert service.store.get("recipes", second["id"]) == second
+    assert client.delete(f'{base}/{second["id"]}').status_code == 409
+    preview = client.post(f'/api/v1/speech/cleanup/recipes/{second["id"]}/preview').json()
+    assert client.delete(f'{base}/{second["id"]}', params={"token": preview["token"], "confirmed": True}).status_code == 200
+    assert all(item["provider_id"] == "edge" for item in client.get(base).json()["recipes"])
+    assert not {first["id"], second["id"]} & {row["id"] for row in service.store.list("recipes")}
+    assert client.patch(f'{base}/{first["id"]}', json={"archived": False}).status_code == 405
+    assert not (service.store.root / "_trash").exists()
 
 
 def fake_remote(monkeypatch, handler):

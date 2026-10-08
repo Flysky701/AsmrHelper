@@ -30,10 +30,7 @@ window.fetch = async (input, init) => {
     records[0]!.recipe_id = 'saved-rule'; data = { id: 'saved-rule', model: 's2.1-pro-free', mode: 'hosted', variant: { kind: 'hosted', value: 'mock-voice-id' } }
   } else if (method === 'DELETE') {
     const item = records.find(record => url.endsWith('/' + record.id))!
-    item.deleted = true; item.updated_at = new Date().toISOString(); data = item
-  } else if (url.endsWith('/restore')) {
-    const item = records.find(record => url.endsWith('/' + record.id + '/restore'))!
-    item.deleted = false; data = item
+    records.splice(records.indexOf(item), 1); data = { deleted: item.id }
   } else if (url.endsWith('/fish-clones') && method === 'GET') data = { items: records }
   else throw new Error('Unexpected offline request: ' + url)
   return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } })

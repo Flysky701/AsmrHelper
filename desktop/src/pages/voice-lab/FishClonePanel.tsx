@@ -3,6 +3,7 @@ import { fishClonesApi } from '@/api/fishClones'
 import type { FishClone, FishCloneDraft } from '@/api/fishClones'
 import { FishCloneSubmission } from '@/domain/fishCloneSubmission'
 import { speechApi } from '@/api/speech'
+import { confirmAction } from '@/utils/confirmAction'
 import type { ReferenceAsset, SpeechConnection, SpeechRecipe } from '@/api/speech'
 import './FishClonePanel.css'
 
@@ -44,7 +45,6 @@ export default function FishClonePanel({ active, assets, connections, onSaved }:
   const asset = assets.find(item => item.id === draft.asset_id && !item.archived)
   const connection = connections.find(item => item.id === draft.connection_ref && item.provider_id === 'fish_audio')
   const submitted = submission.current.dispatched(draft)
-  const lastDeleted = items.filter(item => item.deleted).sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))[0]
   return <section className="panel fish-clone-panel">
     <h2>Fish 远程克隆</h2>
     <p className="muted">将片段与原文上传至 Fish，创建私有音色。创建可能收费，Free 仅指合成档位。</p>
@@ -73,8 +73,9 @@ export default function FishClonePanel({ active, assets, connections, onSaved }:
         update(result); setNotice('已提交，状态：' + (stateNames[result.state] || result.state) + '。')
       })}>{busy ? '处理中…' : submitted ? '本次已提交' : '上传片段并创建音色'}</button><span className="muted">只创建音色，不自动试音。</span></div>
       <div className="row spread"><h3>创建结果</h3><button onClick={() => void run(load)}>刷新记录</button></div>
-      <p className="muted">结果未知请先到 Fish 核查，勿重复创建。删除仅隐藏本地记录。</p>
-      {items.filter(item => !item.deleted).map(item => <div className="item" key={item.id}>
+      <p className="muted">结果未知请先到 Fish 核查，勿重复创建。删除本地记录不删除云端音色或录音。</p>
+      {items.some(item => item.legacy_deleted) && <p className="muted">旧版隐藏记录仍保留，可在下方确认删除；升级不会自动清除。</p>}
+      {items.map(item => <div className="item" key={item.id}>
         <strong>{item.title} · {stateNames[item.state] || item.state}</strong>
         <p className="fish-clone-result-id">Voice ID：{item.remote_voice_id || '尚未取得'}{item.message && ' · ' + item.message}</p>
         <div className="row">
@@ -83,13 +84,11 @@ export default function FishClonePanel({ active, assets, connections, onSaved }:
             const recipe = await fishClonesApi.save(item.id); await load(); await onSaved(recipe)
           })}>{item.recipe_id ? '打开已保存预设' : '保存到音色库（Free 合成）'}</button>}
           <button disabled={['created', 'training', 'submitting'].includes(item.state)} title={['created', 'training', 'submitting'].includes(item.state) ? '仍在处理中，请更新状态后再删除' : undefined} onClick={() => void run(async () => {
-            update(await fishClonesApi.remove(item.id)); setNotice('已删除本地记录，可撤销。')
+            if (!await confirmAction(`删除本地克隆记录“${item.title}”？不删除任何录音文件、已保存音色或云端音色。无法撤销。`)) return
+            await fishClonesApi.remove(item.id); setItems(previous => previous.filter(row => row.id !== item.id)); setNotice('已删除本地克隆记录。')
           })}>删除本地记录</button>
         </div>
       </div>)}
-      {lastDeleted && <button onClick={() => void run(async () => {
-        update(await fishClonesApi.restore(lastDeleted.id)); setNotice('已恢复本地记录。')
-      })}>撤销上次删除</button>}
     </fieldset>
   </section>
 }

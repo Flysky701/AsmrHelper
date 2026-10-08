@@ -13,9 +13,9 @@ from src.api.http.schemas.speech import (
     ConnectionDefaultRequest, ConnectionDeletionPreviewRequest, ConnectionDeletionRequest,
 )
 from src.core.speech.store import ConnectionConflictError
+from .speech_cleanup import router as cleanup_router
 
 router = APIRouter(prefix="/speech", tags=["speech"])
-from .speech_cleanup import router as cleanup_router
 router.include_router(cleanup_router)
 MAX_REFERENCE_UPLOAD = 100 * 1024 * 1024
 REFERENCE_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma"}
@@ -47,6 +47,11 @@ def library(svc=Depends(get_speech_service)):
 @router.get("/connections")
 def connections(svc=Depends(get_speech_service)):
     return {"connections": call(svc.list_connections), "defaults": call(svc.connection_defaults)}
+
+
+@router.post("/default-preset/add")
+def add_default_preset(svc=Depends(get_speech_service)):
+    return call(svc.ensure_default_preset, add=True)
 
 
 def connection_change(fn, *args, **kwargs):
@@ -127,18 +132,13 @@ def fish_clones(svc):
 
 
 @router.get("/fish-clones")
-def list_fish_clones(include_deleted: bool = False, svc=Depends(get_speech_service)):
-    return {"items": call(fish_clones(svc).list, include_deleted=include_deleted)}
+def list_fish_clones(svc=Depends(get_speech_service)):
+    return {"items": call(fish_clones(svc).list)}
 
 
 @router.delete("/fish-clones/{clone_id}")
-def delete_fish_clone_record(clone_id: str, svc=Depends(get_speech_service)):
-    return call(fish_clones(svc).set_deleted, clone_id, True)
-
-
-@router.post("/fish-clones/{clone_id}/restore")
-def restore_fish_clone_record(clone_id: str, svc=Depends(get_speech_service)):
-    return call(fish_clones(svc).set_deleted, clone_id, False)
+def delete_fish_clone_record(clone_id: str, confirmed: bool = Query(False), svc=Depends(get_speech_service)):
+    return call(fish_clones(svc).delete, clone_id, confirmed=confirmed)
 
 
 @router.post("/fish-clones/preview")
@@ -177,15 +177,9 @@ def rules(include_archived: bool = False, svc=Depends(get_speech_service)):
 
 
 @router.delete("/rules/{id}")
-def archive_rule(id: str, svc=Depends(get_speech_service)):
-    return call(svc.archive_rule, id)
-
-
-@router.patch("/rules/{id}")
-def rule_archive_status(id: str, body: dict, svc=Depends(get_speech_service)):
-    if set(body) != {"archived"} or type(body["archived"]) is not bool:
-        raise HTTPException(422, "请提供 archived 布尔值")
-    return call(svc.archive_rule, id, archived=body["archived"])
+def delete_rule(id: str, token: str = Query(""), confirmed: bool = Query(False), svc=Depends(get_speech_service)):
+    from .speech_cleanup import invoke
+    return invoke(svc, "execute", "recipes", id, token, confirmed)
 
 
 @router.post("/plans")
@@ -294,9 +288,9 @@ def reference_metadata(id: str, body: dict, svc=Depends(get_speech_service)):
 
 
 @router.delete("/references/{id}")
-def archive_reference(id: str, svc=Depends(get_speech_service)):
-    # Archive only: recipes, frozen task snapshots and audio paths remain valid.
-    return call(svc.store.reference_metadata, id, {"archived": True})
+def delete_reference(id: str, token: str = Query(""), confirmed: bool = Query(False), svc=Depends(get_speech_service)):
+    from .speech_cleanup import invoke
+    return invoke(svc, "execute", "assets", id, token, confirmed)
 
 
 @router.post("/references/subtitles")

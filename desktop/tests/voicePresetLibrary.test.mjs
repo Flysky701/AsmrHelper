@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import test from 'node:test'
+import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import ts from 'typescript'
 
@@ -36,7 +37,7 @@ test('local, owned and public sources use identical saved recipe cards and actio
   assert.match(html, /本地引擎/)
   assert.equal((html.match(/云端 ID/g) || []).length, 2)
   assert.doesNotMatch(html, /internal-only|owned-remote-id|public-remote-id/)
-  for (const [label, output] of [['编辑', selected], ['试听', auditioned], ['移出音色库', removed]]) {
+  for (const [label, output] of [['编辑', selected], ['试听', auditioned], ['删除', removed]]) {
     const buttons = all.filter(node => node.type === 'button' && node.props.children === label)
     assert.equal(buttons.length, 3)
     buttons.forEach(button => button.props.onClick())
@@ -51,7 +52,7 @@ test('legacy saved recipes need no audition history; archived entries remain edi
   const tree = VoiceRecipeList({ recipes: [archived], providers: [], selectedId: archived.id, onSelect() {}, onAudition() {}, onRemove() {} })
   const all = nodes(tree)
   assert.equal(all.find(node => node.type === 'button' && node.props.children === '试听').props.disabled, true)
-  assert.equal(all.filter(node => node.type === 'button' && node.props.children === '移出音色库').length, 0)
+  assert.equal(all.filter(node => node.type === 'button' && node.props.children === '删除').length, 1)
   assert.equal(all.find(node => node.type === 'button' && node.props.children === '编辑').props.disabled, undefined)
   assert.match(renderToStaticMarkup(tree), /aria-current="true"/)
 })
@@ -59,4 +60,21 @@ test('legacy saved recipes need no audition history; archived entries remain edi
 test('busy state blocks every preset action', () => {
   const tree = VoiceRecipeList({ recipes, providers, selectedId: '', disabled: true, onSelect() {}, onAudition() {}, onRemove() {} })
   assert.ok(nodes(tree).filter(node => node.type === 'button').every(node => node.props.disabled))
+})
+
+test('Edge default can be explicitly added without automatic requests or restoring deleted data', async () => {
+  const calls = []
+  const { default: DefaultVoicePreset } = load('../src/pages/voice-lab/DefaultVoicePreset.tsx', {
+    react: { ...React, useState: initial => [initial, () => {}] },
+    '@/api/client': { api: { post: async path => calls.push(path) } },
+  })
+  const tree = DefaultVoicePreset({ onChanged: async () => calls.push('refresh') })
+  assert.deepEqual(calls, [])
+  const html = renderToStaticMarkup(tree)
+  assert.match(html, /需联网及 edge-tts/)
+  assert.doesNotMatch(html, /恢复/)
+  await nodes(tree).find(node => node.type === 'button').props.onClick()
+  assert.deepEqual(calls, ['/speech/default-preset/add', 'refresh'])
+  const disabled = DefaultVoicePreset({ disabled: true, onChanged: async () => {} })
+  assert.equal(nodes(disabled).find(node => node.type === 'button').props.disabled, true)
 })

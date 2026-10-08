@@ -8,17 +8,16 @@ export interface FishClonePreview extends FishCloneDraft {
 export interface FishClone {
   id: string; title: string; asset_id: string; connection_ref: string; state: string
   remote_voice_id: string | null; message: string; recipe_id: string | null
-  deleted?: boolean
+  legacy_deleted?: boolean
   updated_at?: string
 }
 export const fishClonesApi = {
-  list: () => api.get<{ items: FishClone[] }>('/speech/fish-clones?include_deleted=true'),
+  list: () => api.get<{ items: FishClone[] }>('/speech/fish-clones'),
   preview: (draft: FishCloneDraft) => api.post<FishClonePreview>('/speech/fish-clones/preview', draft),
   create: (draft: FishCloneDraft, token: string, requestId: string) => api.post<FishClone>('/speech/fish-clones', {
     ...draft, token, request_id: requestId,
   }),
   refresh: (id: string) => api.post<FishClone>(`/speech/fish-clones/${encodeURIComponent(id)}/refresh`),
   save: (id: string) => api.post<SpeechRecipe>(`/speech/fish-clones/${encodeURIComponent(id)}/rule`),
-  remove: (id: string) => api.delete<FishClone>(`/speech/fish-clones/${encodeURIComponent(id)}`),
-  restore: (id: string) => api.post<FishClone>(`/speech/fish-clones/${encodeURIComponent(id)}/restore`),
+  remove: (id: string) => api.delete<{ deleted: string }>(`/speech/fish-clones/${encodeURIComponent(id)}?confirmed=true`),
 }

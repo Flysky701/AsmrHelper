@@ -14,7 +14,7 @@ class SettingsResponse(BaseModel):
 class ConnectionRemovalRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     token: str = Field(min_length=64, max_length=64)
-    removed: StrictBool
+    confirmed: StrictBool
 
 
 class SettingsUpdateRequest(BaseModel):

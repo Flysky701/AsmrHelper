@@ -101,8 +101,8 @@ export const settingsApi = {
   connectionRemovalPreview: (id: string) =>
     api.get<ConnectionRemovalPreview>(`/settings/connections/${encodeURIComponent(id)}/removal-preview`),
 
-  setConnectionRemoved: (id: string, token: string, removed: boolean) =>
-    api.post<SettingsResponse>(`/settings/connections/${encodeURIComponent(id)}/removal`, { token, removed }),
+  deleteConnection: (id: string, token: string) =>
+    api.post<SettingsResponse>(`/settings/connections/${encodeURIComponent(id)}/removal`, { token, confirmed: true }),
 
   listModels: (provider: string, settings?: SettingsUpdate) =>
     api.post<ProviderModelsResponse>('/settings/models', {

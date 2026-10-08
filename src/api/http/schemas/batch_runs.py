@@ -146,7 +146,7 @@ class BatchRunItemResponse(BaseModel):
 class BatchItemRemovalRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_updated_at: str = Field(min_length=1)
-    removed: StrictBool
+    confirmed: StrictBool
 
 
 class BatchRunResponse(BaseModel):

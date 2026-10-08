@@ -1,3 +1,4 @@
+import './EnginesResources.css'
 import { displayPath } from '@/utils/displayPath'
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { modelsApi } from '@/api/models'
@@ -504,8 +505,8 @@ function LocalResources() {
                         const isInstalling = !!installState?.active || status?.status === 'installing'
                         return (
                           <div className="engines-model-row" key={model.model_id} style={{
-                            display: 'grid', gridTemplateColumns: '1fr auto auto',
-                            padding: '10px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center',
+                            display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto',
+                            padding: '14px 16px', borderBottom: '1px solid var(--border)', alignItems: 'start',
                             fontSize: 'var(--text-control)', gap: '12px',
                           }}>
                             <div className="engines-model-info">
@@ -516,7 +517,13 @@ function LocalResources() {
                               </div>
                               {status && <div style={{ fontSize: 11, marginTop: 6, overflowWrap: 'anywhere' }}>
                                 <div>权重：{status.status === 'unknown' ? '待确认' : status.weights_ready ? '文件完整' : '缺失或不完整'} · 环境：{status.status === 'unknown' ? '待确认' : status.runtime_ready ? '依赖检查通过' : '未就绪'} · 推理：尚未验证</div>
-                                <div>位置：{status.path || '未找到'}{status.shared_readonly ? '（外部引用，只读）' : '（本项目管理）'}</div>
+                                <div className="engines-model-location">
+                                  {status.path ? <details className="model-path">
+                                    <summary title={status.path}>位置：{status.path}</summary>
+                                    <p>{status.path}</p>
+                                  </details> : <span>位置：未找到</span>}
+                                  <span className="engines-model-ownership">{status.shared_readonly ? '外部引用 · 只读' : '本项目管理'}</span>
+                                </div>
                               </div>}
                               {status?.issues?.length ? (
                                 <div style={{ fontSize: '11px', color: 'oklch(48% 0.12 65)', marginTop: '4px' }}>
@@ -548,24 +555,27 @@ function LocalResources() {
                                 </span>
                               )}
                             </div>
-                            <div className="engines-model-actions" style={{ display: 'flex', gap: '4px' }}>
-                              {isInstalling || statusLoading || !status ? (
-                                <button disabled style={{
-                                  fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '4px 10px',
-                                  borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                                  color: 'var(--muted)', cursor: 'not-allowed',
-                                }}>
-                                  {isInstalling ? '安装中...' : statusLoading ? '检测中...' : '状态不可用'}
-                                </button>
-                              ) : (
-                                <>
-                                  <button title={`目标环境：${model.runtime_profile || 'main'}。安装依赖并对齐项目版本，可能替换已有包；不下载模型权重。`} onClick={() => void handleInstall(model, 'runtime')} style={actionStyle}>安装/修复环境</button>
-                                  {model.supports_install && (!status.weights_ready || missingDependencies) &&
-                                    <button onClick={() => void handleInstall(model, 'download')} style={actionStyle}>下载模型权重</button>}
-                                  <button onClick={() => void handleVerify(model.model_id)} style={actionStyle}>检查状态</button>
-                                  {model.supports_remove && status.weights_ready && !status.shared_readonly && <ModelWeightRemoval modelId={model.model_id} onChanged={() => loadData(true)} />}
-                                </>
-                              )}
+                            <div className="engines-model-toolbar">
+                              <div className="engines-model-actions">
+                                {isInstalling || statusLoading || !status ? (
+                                  <button disabled style={{
+                                    fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '4px 10px',
+                                    borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
+                                    color: 'var(--muted)', cursor: 'not-allowed',
+                                  }}>
+                                    {isInstalling ? '安装中...' : statusLoading ? '检测中...' : '状态不可用'}
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button title={`目标环境：${model.runtime_profile || 'main'}。安装依赖并对齐项目版本，可能替换已有包；不下载模型权重。`} onClick={() => void handleInstall(model, 'runtime')} style={actionStyle}>安装/修复环境</button>
+                                    {model.supports_install && (!status.weights_ready || missingDependencies) &&
+                                      <button onClick={() => void handleInstall(model, 'download')} style={actionStyle}>下载模型权重</button>}
+                                    <button onClick={() => void handleVerify(model.model_id)} style={actionStyle}>检查状态</button>
+                                  </>
+                                )}
+                              </div>
+                              {!isInstalling && !statusLoading && status && model.supports_remove && status.weights_ready && !status.shared_readonly &&
+                                <ModelWeightRemoval modelId={model.model_id} onChanged={() => loadData(true)} />}
                             </div>
                             {isInstalling && (
                               <div style={{ gridColumn: '1 / -1', marginTop: '6px' }}>
@@ -653,10 +663,6 @@ function LocalResources() {
 
           .engines-model-status {
             flex-wrap: wrap;
-          }
-
-          .engines-model-actions {
-            justify-content: flex-end;
           }
 
           .engines-group-header {

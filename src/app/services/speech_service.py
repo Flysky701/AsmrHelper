@@ -30,6 +30,7 @@ class SpeechService:
         self.dispatcher.register_executor("speech.reference_analyze", self._execute_reference_analysis)
 
     def library(self):
+        self.ensure_default_preset()
         data = {name: self.store.list(name) for name in ("voices", "recipes", "assets", "experiments", "takes", "plans", "selections", "assemblies", "connections")}
         data["connections"], data["connection_defaults"] = self.store.connection_catalog()
         for connection in data["connections"]:
@@ -251,10 +252,14 @@ class SpeechService:
         return self.store.create_rule(voice_data, prepared)
 
     def active_recipes(self, include_archived=False):
+        self.ensure_default_preset()
         return self.store.active_recipes(include_archived=include_archived)
 
-    def archive_rule(self, recipe_id, archived=True):
-        return self.store.archive_recipe(recipe_id, archived=archived)
+    def ensure_default_preset(self, *, add=False):
+        from src.core.speech.defaults import EDGE_STARTER_KEY, edge_starter_recipe
+        recipe = edge_starter_recipe()
+        compile_recipe({**recipe, "id": "builtin-check", "revision": 1}, build_plan("配置校验。"), {})
+        return self.store.ensure_builtin_recipe(EDGE_STARTER_KEY, recipe, add=add)
 
     def assets(self):
         return {a["id"]: a for a in self.store.list("assets")}

@@ -33,15 +33,15 @@
 
 点击提交时的本地校验绑定连接版本、素材版本、文件摘要、原文和名称；校验与上传之间发生变化会拒绝提交。原连接之后发生变化时，状态查询/保存会阻止沿用新连接访问旧记录，并提示手动核查。凭据只由现有后端连接解析，界面和持久克隆记录不保存密钥或上游错误正文。
 
-“删除本地记录”是可恢复的软删除，不向 Fish 发送删除请求，不修改云端音色、已保存的本地音色或原始素材。界面只提供一个“撤销上次删除”按钮，重复撤销可恢复更早删除的记录，重开页面后仍可使用；不另设复杂历史管理页面。远程 `created`/`training` 状态暂不允许删除；正在上传的请求先完成回执写入再处理删除。结果未知及中断回执可以删除，但内部仍保留提交编号用于去重。
+“删除本地记录”经一次确认后直接删除本地回执，无法撤销。不向 Fish 发送删除请求，不修改云端音色、已保存音色或素材。远程 `created`/`training` 状态暂不允许删除；正在上传的请求先完成回执写入再处理删除。结果未知及中断回执可以删除，只保留最小提交编号和校验摘要防止重复上传。旧版隐藏记录会重新列出供显式删除，不自动迁移或清理。
 
 请求显式关闭 `enhance_audio_quality` 与 `generate_sample`，并发送已确认 `texts`，避免省略原文带来的隐式转写。未推定创建接口免费；Free TTS 的定价不能推出创建音色的费用。
 
 ## 验证与真实测试前置条件
 
-`tests/test_fish_cloning.py` 使用生成音频、假凭据和 HTTP MockTransport，覆盖 multipart 参数、校验失效、重复/并发提交、超时、错误脱敏、远程状态、保存与现有合成/工作台路径，以及本地删除/撤销、去重保留、运行中删除排序和既有音色/素材不受影响。
+`tests/test_fish_cloning.py` 使用生成音频、假凭据和 HTTP MockTransport，覆盖 multipart 参数、校验失效、重复/并发提交、超时、错误脱敏、远程状态、保存与现有合成/工作台路径，以及本地直接删除、去重保留、运行中删除排序和既有音色/素材不受影响。
 
-运行相关 Python 套件：fish_cloning、speech_voice_catalog、speech_providers、speech_rules、speech_store、speech_http。前端聚焦测试为 `desktop/tests/fishClonePanel.test.mjs`，覆盖常驻摘要、无勾选的单次提交、重复点击、失败/未知响应、简单删除与撤销控件。`desktop/tests/fixtures/fish-clone.html` 是全模拟浏览器夹具，不连接后端/Fish。
+运行相关 Python 套件：fish_cloning、speech_voice_catalog、speech_providers、speech_rules、speech_store、speech_http。前端聚焦测试为 `desktop/tests/fishClonePanel.test.mjs`，覆盖常驻摘要、无勾选的单次提交、重复点击、失败/未知响应、直接删除及运行状态保护。`desktop/tests/fixtures/fish-clone.html` 是全模拟浏览器夹具，不连接后端/Fish。
 
 真实测试尚未进行。需用户选定有权使用的素材、确认上传目的和本次费用/额度，且在安全配置入口自行填写有效凭据。真实音色质量、账户 Free 权限及服务端实际状态转换仍需授权后验证。
 

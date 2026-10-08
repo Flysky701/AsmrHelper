@@ -64,7 +64,7 @@ def test_connection_edit_never_changes_snapshot_or_exposes_key(lab):
     service.save_connection({"id": conn["id"], "api_key": "secret-B"})
     assert service.connection_context(old)["connection"]["api_key"] == "secret-A"
     assert "secret-A" not in json.dumps(service.library())
-    assert "secret-B" not in service.store.path.read_text()
+    assert "secret-B" not in service.store.path.read_text(encoding="utf-8")
 
 
 def test_cancel_between_sentences_preserves_only_completed_take(lab):
