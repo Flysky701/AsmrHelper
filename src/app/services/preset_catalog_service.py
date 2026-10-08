@@ -182,7 +182,7 @@ def _file_lock(path: Path):
 
 
 class PresetCatalogService:
-    """Portable definitions plus a revisioned, recoverable active preset index."""
+    """Portable templates plus revisioned user presets and durable deletion markers."""
 
     def __init__(
         self, presets_path: Path | str | None = None, user_presets_path: Path | str | None = None,
@@ -285,7 +285,32 @@ class PresetCatalogService:
         return self._load_catalog().items(active=True)
 
     def list_archived_presets(self) -> list[dict[str, Any]]:
+        """Read old retained records for reference protection, never restore them."""
         return self._load_catalog().items(active=False)
+
+    def list_builtin_templates(self) -> list[dict[str, Any]]:
+        return self._read_builtins()
+
+    def add_builtin_template(self, template_id: str, revision: int, label: str | None = None) -> dict[str, Any]:
+        """Create a new editable preset from shipped data, never reuse a deleted ID."""
+        if type(revision) is not int or revision < 1:
+            raise ValueError("Template revision must be a positive integer")
+        with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
+            source = next((item for item in self._read_builtins() if item["id"] == template_id), None)
+            if source is None:
+                raise KeyError("Built-in template does not exist")
+            if source["revision"] != revision:
+                raise PresetConflictError("Template changed; reload before adding")
+            catalog = self._load_catalog()
+            name = _text(label if label is not None else source["label"], "label", 100)
+            if any(item["label"].casefold() == name.casefold() for item in catalog.items(active=True)):
+                raise PresetConflictError("An active preset already uses this name; choose another name")
+            value = _draft({**{key: source[key] for key in _DRAFT_FIELDS if key in source}, "label": name})
+            item = {"id": f"custom_{uuid4().hex}", **value, "revision": 1, "builtin": False}
+            catalog.definitions.append(item)
+            catalog.index[item["id"]] = {"active": True, "revision": 1}
+            self._write(catalog)
+            return item
 
     def graph_draft(self, preset_id: str) -> dict[str, Any]:
         """Read-only, explicit conversion; stage order never implies wiring."""
@@ -319,12 +344,12 @@ class PresetCatalogService:
         if saved != original or hashlib.sha256(saved).hexdigest() != digest:
             raise OSError("Preset backup verification failed; original catalog was not replaced")
 
-    def _write(self, catalog: _Catalog) -> None:
+    def _write(self, catalog: _Catalog, *, backup: bool = True) -> None:
         path = self._user_presets_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        if catalog.storage_version in (1, 2) and catalog.original is not None:
+        if backup and catalog.storage_version in (1, 2) and catalog.original is not None:
             self._backup_original(catalog.original, "pre-v3")
-        elif catalog.original is not None and (catalog.promoted_ids or catalog.retired_index):
+        elif backup and catalog.original is not None and (catalog.promoted_ids or catalog.retired_index):
             self._backup_original(catalog.original, "pre-builtin-catalog")
         remaining = {item["id"]: item for item in catalog.definitions if not item["builtin"]}
         customs = []
@@ -480,7 +505,7 @@ class PresetCatalogService:
             if current["revision"] != revision:
                 raise PresetConflictError("Preset changed since it was loaded; reload before saving")
             if not catalog.index[preset_id]["active"]:
-                raise PresetConflictError("Preset is archived; restore it before editing")
+                raise PresetConflictError("Legacy removed preset is read-only")
             item = {"id": preset_id, **value, "revision": revision + 1, "builtin": False}
             catalog.definitions = [
                 item if preset["id"] == preset_id else preset
@@ -491,22 +516,11 @@ class PresetCatalogService:
             return item
 
     def delete_preset(self, preset_id: str, revision: int) -> None:
-        """Remove only index visibility; keep both custom and builtin definitions."""
-        if type(revision) is not int or revision < 1:
-            raise ValueError("Preset revision must be a positive integer")
-        with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
-            catalog = self._load_catalog()
-            current = catalog.item(preset_id)
-            if current["revision"] != revision:
-                raise PresetConflictError("Preset changed since it was loaded; reload before deleting")
-            entry = catalog.index[preset_id]
-            if not entry["active"]:
-                raise PresetConflictError("Preset is already archived; reload the archived list")
-            entry.update(active=False, revision=revision + 1)
-            self._write(catalog)
+        """Compatibility DELETE uses the same direct deletion as the current UI."""
+        self.permanently_delete_preset(preset_id, revision)
 
     def permanently_delete_preset(self, preset_id: str, revision: int) -> dict[str, str]:
-        """Delete one custom definition and index entry; submitted snapshots are independent."""
+        """Delete user data; a shipped template retains only a no-reseed marker."""
         if type(revision) is not int or revision < 1:
             raise ValueError("Preset revision must be a positive integer")
         with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
@@ -515,36 +529,17 @@ class PresetCatalogService:
                 current = catalog.item(preset_id)
             except KeyError:
                 return {"id": preset_id, "status": "already_missing"}
-            if current["builtin"]:
-                raise BuiltinPresetError("Built-in presets cannot be permanently deleted; remove from the active catalog instead")
             if current["revision"] != revision:
                 raise PresetConflictError("Preset changed since it was loaded; reload before permanently deleting")
-            catalog.definitions = [item for item in catalog.definitions if item["id"] != preset_id]
-            del catalog.index[preset_id]
-            self._write(catalog)
+            if current["builtin"]:
+                catalog.index[preset_id] = {"active": False, "revision": revision + 1}
+                catalog.promoted_ids.discard(preset_id)
+            else:
+                catalog.definitions = [item for item in catalog.definitions if item["id"] != preset_id]
+                del catalog.index[preset_id]
+            # A deletion must not produce a recoverable copy, even for v1/v2 data.
+            self._write(catalog, backup=False)
             return {"id": preset_id, "status": "deleted"}
-
-    def restore_preset(self, preset_id: str, revision: int, label: str | None = None) -> dict[str, Any]:
-        """Explicitly restore one ID; a name conflict never replaces another entry."""
-        if type(revision) is not int or revision < 1:
-            raise ValueError("Preset revision must be a positive integer")
-        if label is not None:
-            label = _text(label, "label", 100)
-        with _write_lock, _file_lock(self._user_presets_path.with_suffix(".json.lock")):
-            catalog = self._load_catalog()
-            current = catalog.item(preset_id)
-            if current["revision"] != revision:
-                raise PresetConflictError("Preset changed since it was loaded; reload before restoring")
-            entry = catalog.index[preset_id]
-            if entry["active"]:
-                raise PresetConflictError("Preset is already active; reload the preset list")
-            restored_label = current["label"] if label is None else label
-            if any(item["label"].strip().casefold() == restored_label.strip().casefold()
-                   for item in catalog.items(active=True)):
-                raise PresetConflictError("An active preset already uses this name; choose another name before restoring")
-            entry.update(active=True, revision=revision + 1, label=restored_label)
-            self._write(catalog)
-            return catalog.item(preset_id)
 
 
 _service: PresetCatalogService | None = None

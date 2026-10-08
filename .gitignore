@@ -142,7 +142,6 @@ translation_cache/
 /desktop/tests/fixtures/voice-local-connection.tsx
 /desktop/tests/speechConnections.browser.cjs
 /desktop/tests/taskSelection.browser.cjs
-/desktop/tests/translationReuse.test.mjs
 /desktop/tests/voiceLocalConnection.browser.cjs
 /desktop/tests/workbenchFlow.test.mjs
 /tests/test_direct_subtitle_tts.py
@@ -158,7 +157,6 @@ translation_cache/
 
 /tests/test_speech_advanced_presets.py
 
-/tests/test_custom_flow_presets.py
 
 /desktop/tests/voiceLayout.browser.cjs
 

@@ -14,15 +14,15 @@ const presetKind = (preset: PresetItem | GraphPresetItem) => `${'graph' in prese
 
 export default function WorkflowPresets() {
   const workflow = useWorkflowStore()
-  const { catalog, catalogLoading, catalogError, catalogNotice, archivedCatalog, archivedLoading, archivedError, editor, saving, error } = workflow
+  const { catalog, catalogLoading, catalogError, catalogNotice, builtinTemplates, templatesLoading, templatesError, editor, saving, error } = workflow
   const [catalogId, setCatalogId] = useState(editor?.preset?.id || '')
   const [opening, setOpening] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [archiveOpen, setArchiveOpen] = useState(false)
-  const [restoringId, setRestoringId] = useState<string | null>(null)
-  const [restoreNames, setRestoreNames] = useState<Record<string, string>>({})
-  const [restoreErrors, setRestoreErrors] = useState<Record<string, string>>({})
-  const [restoreNotice, setRestoreNotice] = useState('')
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [addingTemplateId, setAddingTemplateId] = useState<string | null>(null)
+  const [templateNames, setTemplateNames] = useState<Record<string, string>>({})
+  const [templateErrors, setTemplateErrors] = useState<Record<string, string>>({})
+  const [templateNotice, setTemplateNotice] = useState('')
   const [notice, setNotice] = useState('')
   const openingRef = useRef(false)
   const mutationRef = useRef(false)
@@ -30,14 +30,14 @@ export default function WorkflowPresets() {
   current.current = { editor, saving }
   const issues = editor ? validateGraph(editor.graph) : []
   const dirty = !!editor && editorDirty(editor)
-  const busy = saving || opening || deletingId !== null || restoringId !== null || catalogLoading
+  const busy = saving || opening || deletingId !== null || addingTemplateId !== null || catalogLoading
   const saveReason = !editor ? '' : !editor.label.trim() ? '请填写流水线名称后保存。'
     : issues.length ? `请先处理 ${issues.length} 项结构问题：${issues[0]!.message}` : ''
 
   useEffect(() => {
     const store = useWorkflowStore.getState()
     void store.loadCatalog()
-    void store.loadArchivedCatalog()
+    void store.loadBuiltinTemplates()
   }, [])
   useEffect(() => {
     const guard = async () => {
@@ -101,41 +101,40 @@ export default function WorkflowPresets() {
   async function deletePreset(preset: PresetItem | GraphPresetItem) {
     if (busy || mutationRef.current) return
     if (!await confirmAction(presetDeleteConfirmation(preset))) return
-    mutationRef.current = true; setDeletingId(preset.id); setNotice(''); setRestoreNotice('')
-    setRestoreErrors(current => ({ ...current, [preset.id]: '' }))
+    mutationRef.current = true; setDeletingId(preset.id); setNotice(''); setTemplateNotice('')
+    setTemplateErrors(current => ({ ...current, [preset.id]: '' }))
     try {
       const result = await workflow.deleteCatalogPreset(preset)
       if (result) {
         setCatalogId(current => current === preset.id ? '' : current)
-        const message = result === 'archived' ? `内置预设“${preset.label}”已从目录删除，可恢复；当前草稿与已提交任务保留。`
-          : result === 'already_missing' ? `“${preset.label}”已不存在，目录引用已清除。当前草稿与已提交任务保留。`
-          : `自定义预设“${preset.label}”已永久删除，不能恢复。当前草稿、运行参数和素材绑定保留，已提交任务不受影响。`
-        setNotice(message); setRestoreNotice(message)
+        const message = result === 'already_missing' ? `“${preset.label}”已不存在，目录引用已清除。当前草稿与已提交任务保留。`
+          : `预设“${preset.label}”已删除，重启不会重新出现。当前草稿、运行参数和素材绑定保留，已提交任务不受影响。`
+        setNotice(message); setTemplateNotice(message)
       } else {
         const reason = useWorkflowStore.getState().error || '请刷新目录后重试'
-        setRestoreErrors(current => ({ ...current, [preset.id]: `删除未完成：${reason}` }))
+        setTemplateErrors(current => ({ ...current, [preset.id]: `删除未完成：${reason}` }))
       }
     } finally { mutationRef.current = false; setDeletingId(null) }
   }
-  async function restoreArchived(preset: PresetItem | GraphPresetItem) {
+  async function addTemplate(preset: PresetItem | GraphPresetItem) {
     if (busy || mutationRef.current) return
-    const label = (restoreNames[preset.id] ?? preset.label).trim()
-    if (!label) { setRestoreErrors(current => ({ ...current, [preset.id]: '请填写恢复后的名称。' })); return }
-    mutationRef.current = true; setRestoringId(preset.id); setNotice(''); setRestoreNotice('')
-    setRestoreErrors(current => ({ ...current, [preset.id]: '' }))
+    const label = (templateNames[preset.id] ?? preset.label).trim()
+    if (!label) { setTemplateErrors(current => ({ ...current, [preset.id]: '请填写新预设名称。' })); return }
+    mutationRef.current = true; setAddingTemplateId(preset.id); setNotice(''); setTemplateNotice('')
+    setTemplateErrors(current => ({ ...current, [preset.id]: '' }))
     try {
-      const restored = await workflow.restorePreset(preset.id, preset.revision, label === preset.label ? undefined : label)
+      const restored = await workflow.addBuiltinTemplate(preset.id, preset.revision, label === preset.label ? undefined : label)
       if (restored) {
-        const message = `“${restored.label}”已恢复到活动目录，尚未打开。当前编辑草稿未改变；请自行选择后打开。`
-        setNotice(message); setRestoreNotice(message)
-        setRestoreErrors(current => { const next = { ...current }; delete next[preset.id]; return next })
+        const message = `“${restored.label}”已作为新预设加入目录，尚未打开。当前编辑草稿未改变；请自行选择后打开。`
+        setNotice(message); setTemplateNotice(message)
+        setTemplateErrors(current => { const next = { ...current }; delete next[preset.id]; return next })
       } else {
         const reason = useWorkflowStore.getState().error || '请检查目录状态后重试'
-        setRestoreErrors(current => ({ ...current, [preset.id]: `恢复未完成：${reason}。若目录已有同名预设，请修改恢复名称后重试，不会覆盖现有预设。` }))
+        setTemplateErrors(current => ({ ...current, [preset.id]: `添加未完成：${reason}。若目录已有同名预设，请修改新预设名称后重试，不会覆盖现有预设。` }))
       }
     } catch (reason) {
-      setRestoreErrors(current => ({ ...current, [preset.id]: `恢复未完成：${reason instanceof Error ? reason.message : String(reason)}。若名称冲突，请修改名称后重试，不会覆盖现有预设。` }))
-    } finally { mutationRef.current = false; setRestoringId(null) }
+      setTemplateErrors(current => ({ ...current, [preset.id]: `添加未完成：${reason instanceof Error ? reason.message : String(reason)}。若名称冲突，请修改名称后重试，不会覆盖现有预设。` }))
+    } finally { mutationRef.current = false; setAddingTemplateId(null) }
   }
 
   return <div className="workflow-presets">
@@ -144,32 +143,31 @@ export default function WorkflowPresets() {
         <p className="wfp-description page-description">在这里定义可复用的结构。工作台负责选择流水线、绑定素材与调整本次运行参数。</p></div>
       <div className="wfp-actions page-heading__actions">
         {editor?.preset && !editor.preset.builtin && <button type="button" className="wfp-button" disabled={busy || !!saveReason} title={saveReason || undefined} onClick={() => void save('copy')}>另存为新预设</button>}
-        {editor && <button type="button" className="wfp-button is-primary" disabled={busy || !!saveReason} title={saveReason || undefined} aria-describedby={saveReason ? 'wfp-save-reason' : undefined} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving && !deletingId && !restoringId ? '正在保存…' : editor.preset?.builtin ? '保存副本并返回' : '保存并返回'}</button>}
+        {editor && <button type="button" className="wfp-button is-primary" disabled={busy || !!saveReason} title={saveReason || undefined} aria-describedby={saveReason ? 'wfp-save-reason' : undefined} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving && !deletingId && !addingTemplateId ? '正在保存…' : editor.preset?.builtin ? '保存副本并返回' : '保存并返回'}</button>}
         <button type="button" className="wfp-button" disabled={busy} onClick={goBack}>返回{editor?.returnTo === 'workbench' ? '工作台' : '设置'}</button>
       </div>
     </header>
     <section className="wfp-catalog" aria-label="选择要编辑的流水线">
       <label><span>已保存流水线</span><select aria-label="已保存流水线" value={catalogId} disabled={busy || catalogLoading} onChange={event => setCatalogId(event.target.value)}>
-        <option value="">{catalogLoading ? '正在读取目录…' : catalog.length ? '选择流水线' : '活动目录为空，可新建或恢复'}</option>
+        <option value="">{catalogLoading ? '正在读取目录…' : catalog.length ? '选择流水线' : '活动目录为空，可新建或添加模板'}</option>
         {catalog.map(preset => <option key={preset.id} value={preset.id}>{preset.label} · {presetKind(preset)}</option>)}
       </select></label>
       <button type="button" className="wfp-button" disabled={busy || !selected} onClick={() => void openPreset()}>{opening ? '正在转换…' : selected && !('graph' in selected) ? '转换为节点草稿' : '打开编辑'}</button>
       <button type="button" className="wfp-button" disabled={busy} onClick={() => void openPreset(true)}>新建流水线</button>
-      {selected && <button type="button" className="wfp-button is-danger" disabled={busy} title={selected.builtin ? '删除目录项，内置定义可恢复。' : '永久删除此自定义预设；当前草稿与已提交任务保留。'} onClick={() => void deletePreset(selected)}>{deletingId === selected.id ? '正在删除…' : '删除'}</button>}
+      {selected && <button type="button" className="wfp-button is-danger" disabled={busy} title={'删除此预设；当前草稿与已提交任务保留，重启不会重新出现。'} onClick={() => void deletePreset(selected)}>{deletingId === selected.id ? '正在删除…' : '删除'}</button>}
       <div className="wfp-archive-anchor">
-        <button type="button" className="wfp-button" aria-expanded={archiveOpen} aria-controls="wfp-archive-panel" onClick={() => setArchiveOpen(value => !value)}>已移除的预设{archivedLoading ? ' …' : ` · ${archivedCatalog.length}`}</button>
-        {archiveOpen && <section id="wfp-archive-panel" className="wfp-archive-panel" aria-label="已移除的预设" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setArchiveOpen(false) } }}>
-          <header><div><strong>已移除的预设</strong><p>内置及以前移出的自定义预设可恢复；永久删除的自定义预设无法恢复。</p></div><div className="wfp-archive-header-actions"><button type="button" className="wfp-button" disabled={busy || archivedLoading} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadArchivedCatalog()]) }}>刷新目录</button><button type="button" className="wfp-archive-close" aria-label="收起已移除的预设" onClick={() => setArchiveOpen(false)}>×</button></div></header>
-          {restoreNotice && <p className="wfp-archive-feedback" role="status">{restoreNotice}</p>}
-          <div className="wfp-archive-scroll" role="region" aria-label="可恢复预设列表" tabIndex={0}>
-            {archivedLoading && <p className="wfp-archive-message" role="status">正在读取已移除的预设…</p>}
-            {archivedError && <div className="wfp-archive-message" role="alert">读取失败：{archivedError}<button type="button" className="wfp-button" disabled={archivedLoading || busy} onClick={() => void workflow.loadArchivedCatalog()}>重试</button></div>}
-            {!archivedLoading && !archivedError && !archivedCatalog.length && <p className="wfp-archive-message">没有已移除的预设。可从活动目录打开，或新建流水线。</p>}
-            {archivedCatalog.map(preset => <article className="wfp-archive-item" key={preset.id}>
+        <button type="button" className="wfp-button" aria-expanded={templatesOpen} aria-controls="wfp-archive-panel" onClick={() => setTemplatesOpen(value => !value)}>添加内置模板{templatesLoading ? ' …' : ` · ${builtinTemplates.length}`}</button>
+        {templatesOpen && <section id="wfp-archive-panel" className="wfp-archive-panel" aria-label="添加内置模板" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setTemplatesOpen(false) } }}>
+          <header><div><strong>添加内置模板</strong><p>选择出厂模板新建独立预设，不恢复以前删除的记录。</p></div><div className="wfp-archive-header-actions"><button type="button" className="wfp-button" disabled={busy || templatesLoading} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadBuiltinTemplates()]) }}>刷新目录</button><button type="button" className="wfp-archive-close" aria-label="收起添加内置模板" onClick={() => setTemplatesOpen(false)}>×</button></div></header>
+          {templateNotice && <p className="wfp-archive-feedback" role="status">{templateNotice}</p>}
+          <div className="wfp-archive-scroll" role="region" aria-label="内置模板列表" tabIndex={0}>
+            {templatesLoading && <p className="wfp-archive-message" role="status">正在读取内置模板…</p>}
+            {templatesError && <div className="wfp-archive-message" role="alert">读取失败：{templatesError}<button type="button" className="wfp-button" disabled={templatesLoading || busy} onClick={() => void workflow.loadBuiltinTemplates()}>重试</button></div>}
+            {!templatesLoading && !templatesError && !builtinTemplates.length && <p className="wfp-archive-message">没有可添加的内置模板。可从当前目录打开，或新建流水线。</p>}
+            {builtinTemplates.map(preset => <article className="wfp-archive-item" key={preset.id}>
               <div className="wfp-archive-item-title"><strong>{preset.label}</strong><span>{presetKind(preset)}</span></div>
-              <div className="wfp-archive-restore"><label><span>恢复名称</span><input aria-label={`${preset.label} 恢复名称`} value={restoreNames[preset.id] ?? preset.label} maxLength={100} disabled={busy} onChange={event => setRestoreNames(current => ({ ...current, [preset.id]: event.target.value }))} /></label><button type="button" className="wfp-button" disabled={busy || !(restoreNames[preset.id] ?? preset.label).trim()} aria-label={`恢复 ${preset.label} 到目录`} onClick={() => void restoreArchived(preset)}>{restoringId === preset.id ? '正在恢复…' : '恢复到目录'}</button></div>
-              {!preset.builtin && <button type="button" className="wfp-button is-danger" disabled={busy} aria-label={`删除 ${preset.label}`} onClick={() => void deletePreset(preset)}>{deletingId === preset.id ? '正在删除…' : '删除'}</button>}
-              {restoreErrors[preset.id] && <p className="wfp-restore-error" role="alert">{restoreErrors[preset.id]}</p>}
+              <div className="wfp-archive-restore"><label><span>新预设名称</span><input aria-label={`${preset.label} 新预设名称`} value={templateNames[preset.id] ?? preset.label} maxLength={100} disabled={busy} onChange={event => setTemplateNames(current => ({ ...current, [preset.id]: event.target.value }))} /></label><button type="button" className="wfp-button" disabled={busy || !(templateNames[preset.id] ?? preset.label).trim()} aria-label={`添加 ${preset.label} 到目录`} onClick={() => void addTemplate(preset)}>{addingTemplateId === preset.id ? '正在添加…' : '添加到目录'}</button></div>
+              {templateErrors[preset.id] && <p className="wfp-restore-error" role="alert">{templateErrors[preset.id]}</p>}
             </article>)}
           </div>
         </section>}
@@ -183,7 +181,7 @@ export default function WorkflowPresets() {
       {error && <p className="wfp-alert" role="alert">{error} 当前草稿已保留；可调整后重试，或另存为新预设。</p>}
       {saveReason && <p id="wfp-save-reason" className="wfp-alert" role="status">{saveReason}</p>}
     </div>}
-    {!editor ? <section className="wfp-empty"><h2>{catalog.length ? '选择预设继续编辑' : '活动目录为空'}</h2><p>{catalog.length ? '选择一个已保存流水线，或从空白开始添加模块。' : '可以新建流水线，或从“已移除的预设”恢复原定义。恢复后请自行选择打开。'}旧版流程需显式转换，原定义会保留。</p><div className="wfp-empty-actions"><button type="button" className="wfp-button is-primary" disabled={busy} onClick={() => void openPreset(true)}>新建节点流水线</button><button type="button" className="wfp-button" onClick={() => setArchiveOpen(true)}>查看可恢复预设</button></div></section> : <>
+    {!editor ? <section className="wfp-empty"><h2>{catalog.length ? '选择预设继续编辑' : '活动目录为空'}</h2><p>{catalog.length ? '选择一个已保存流水线，或从空白开始添加模块。' : '可以新建流水线，或添加内置模板创建新预设，之后自行选择打开。'}旧版流程需显式转换，原定义会保留。</p><div className="wfp-empty-actions"><button type="button" className="wfp-button is-primary" disabled={busy} onClick={() => void openPreset(true)}>新建节点流水线</button><button type="button" className="wfp-button" onClick={() => setTemplatesOpen(true)}>添加内置模板</button></div></section> : <>
       <fieldset className="wfp-editable" disabled={busy}>
         <div className="wfp-metadata">
           <label><span>名称</span><input aria-label="流水线名称" maxLength={100} value={editor.label} onChange={event => workflow.updateEditor({ label: event.target.value })} placeholder="例如：字幕翻译后配音" /></label>

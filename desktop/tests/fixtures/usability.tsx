@@ -12,7 +12,7 @@ const model = { model_id: 'mock-asr', display_name: '本地识别模型（模拟
 window.fetch = async (input, init) => {
   const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).pathname.replace(/^\/api\/v1/, '')
   const data: Record<string, unknown> = { '/settings': { settings }, '/models': [model], '/models/statuses': [{ model_id: 'mock-asr', installed: false, runtime_ready: false, loaded: false, status: 'not_installed', detail: '尚未安装', issues: [] }],
-    '/models/sources': { roots: ['D:/fixture/shared-models'] }, '/resources/status': { resources: [] }, '/pipeline/presets': { presets: [] }, '/pipeline/presets/archived': { presets: [] },
+    '/models/sources': { roots: ['D:/fixture/shared-models'] }, '/resources/status': { resources: [] }, '/pipeline/presets': { presets: [] }, '/pipeline/templates': { presets: [] },
     '/tasks': { tasks: [] }, '/batch-runs': { batches: [] }, '/speech/connections': { connections: [], defaults: [] }, '/speech/providers': { providers: [] } }
   if ((init?.method || 'GET') !== 'GET' || !(path in data)) throw new Error(`Blocked offline request: ${init?.method || 'GET'} ${path}`)
   return new Response(JSON.stringify(data[path]), { headers: { 'Content-Type': 'application/json' } })

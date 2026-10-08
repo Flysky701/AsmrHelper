@@ -11,7 +11,7 @@ from src.api.http.schemas.pipeline import (
     PresetCreateRequest,
     PresetItem,
     PresetUpdateRequest,
-    PresetRestoreRequest,
+    BuiltinTemplateAddRequest,
     PresetPermanentDeleteResponse,
     GraphPresetItem,
     GraphPresetCreateRequest,
@@ -48,10 +48,9 @@ def list_presets(include_graph: bool = False, svc: PresetCatalogService = Depend
     return PipelinePresetsResponse(presets=[p for p in presets if include_graph or p.get("version") != 2])
 
 
-@router.get("/presets/archived", response_model=PipelinePresetsResponse)
-def list_archived_presets(include_graph: bool = False, svc: PresetCatalogService = Depends(preset_catalog_service)):
-    presets = _call(svc.list_archived_presets)
-    return PipelinePresetsResponse(presets=[p for p in presets if include_graph or p.get("version") != 2])
+@router.get("/templates", response_model=PipelinePresetsResponse)
+def list_builtin_templates(svc: PresetCatalogService = Depends(preset_catalog_service)):
+    return PipelinePresetsResponse(presets=_call(svc.list_builtin_templates))
 
 
 @router.get("/graph-capabilities")
@@ -106,9 +105,9 @@ def permanently_delete_preset(
     return _call(svc.permanently_delete_preset, preset_id, revision)
 
 
-@router.post("/presets/{preset_id}/restore", response_model=GraphPresetItem | PresetItem)
-def restore_preset(
-    preset_id: str, body: PresetRestoreRequest,
+@router.post("/templates/{template_id}/add", response_model=GraphPresetItem | PresetItem, status_code=201)
+def add_builtin_template(
+    template_id: str, body: BuiltinTemplateAddRequest,
     svc: PresetCatalogService = Depends(preset_catalog_service),
 ):
-    return _call(svc.restore_preset, preset_id, body.revision, body.label)
+    return _call(svc.add_builtin_template, template_id, body.revision, body.label)

@@ -139,18 +139,25 @@ def test_missing_dependency_does_not_hide_preset_or_claim_ready(tmp_path, monkey
                                "options": {"speech_recipe_id": recipe["id"]}})
 
 
-def test_http_list_delete_restart_readd_share_ordinary_recipe(tmp_path, monkeypatch):
+@pytest.mark.parametrize("first_entry", ["/speech/rules", "/speech/library"])
+def test_http_list_delete_restart_readd_share_ordinary_recipe(tmp_path, monkeypatch, first_entry):
     monkeypatch.setattr("src.app.services.preset_catalog_service.get_preset_catalog_service", lambda: SimpleNamespace(list_presets=lambda: [], list_archived_presets=lambda: []))
     svc = service(tmp_path)
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_speech_service] = lambda: svc
     with TestClient(app) as client:
-        recipe = client.get("/speech/rules").json()["recipes"][0]
+        first = client.get(first_entry).json()["recipes"]
+        assert len(first) == 1
+        recipe = first[0]
+        assert recipe["variant"]["value"] == "zh-CN-XiaoxiaoNeural"
+        assert client.get("/speech/rules").json()["recipes"][0]["id"] == recipe["id"]
+        assert client.get("/speech/library").json()["recipes"][0]["id"] == recipe["id"]
         preview = client.post("/speech/cleanup/recipes/" + recipe["id"] + "/preview").json()
         assert client.delete("/speech/rules/" + recipe["id"], params={"token": preview["token"], "confirmed": True}).status_code == 200
         svc = service(tmp_path)
         assert client.get("/speech/rules").json()["recipes"] == []
+        assert client.get("/speech/library").json()["recipes"] == []
         response = client.post("/speech/default-preset/add")
         assert response.status_code == 200
         assert response.json()["id"] != recipe["id"]
