@@ -505,9 +505,9 @@ function LocalResources() {
                         const isInstalling = !!installState?.active || status?.status === 'installing'
                         return (
                           <div className="engines-model-row" key={model.model_id} style={{
-                            display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto',
-                            padding: '14px 16px', borderBottom: '1px solid var(--border)', alignItems: 'start',
-                            fontSize: 'var(--text-control)', gap: '12px',
+                            display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)',
+                            padding: '10px 14px', borderBottom: '1px solid var(--border)', alignItems: 'start',
+                            fontSize: 'var(--text-control)', gap: '8px',
                           }}>
                             <div className="engines-model-info">
                               <div style={{ fontWeight: 500 }}>{model.display_name}{model.install_strategy === 'package' && <small style={{ display: 'block', fontWeight: 400, marginTop: 6 }}>可引用本地 HF / PyTorch 权重</small>}</div>
@@ -522,7 +522,6 @@ function LocalResources() {
                                     <summary title={status.path}>位置：{status.path}</summary>
                                     <p>{status.path}</p>
                                   </details> : <span>位置：未找到</span>}
-                                  <span className="engines-model-ownership">{status.shared_readonly ? '外部引用 · 只读' : '本项目管理'}</span>
                                 </div>
                               </div>}
                               {status?.issues?.length ? (
@@ -536,23 +535,6 @@ function LocalResources() {
                                     `${name}（${asset ? (STATUS_STYLES[asset.status]?.label || '状态未知') : statusLoading ? '检测中' : '状态未知'}）`,
                                   ).join('；')}。随主模型权重下载。
                                 </div>
-                              )}
-                            </div>
-                            <div className="engines-model-status" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: 'var(--text-help)' }}>
-                                <span style={{
-                                  width: '6px', height: '6px', borderRadius: '50%', background: resolvedStatusInfo.dot,
-                                  animation: isInstalling || statusLoading ? 'pulse 1.5s infinite' : 'none',
-                                }} />
-                                {resolvedStatusInfo.label}
-                              </span>
-                              {model.is_primary_variant && (
-                                <span style={{
-                                  fontSize: '10px', padding: '1px 6px', borderRadius: '3px', fontWeight: 500,
-                                  background: 'oklch(95% 0.02 255)', color: 'var(--accent)',
-                                }}>
-                                  推荐
-                                </span>
                               )}
                             </div>
                             <div className="engines-model-toolbar">
@@ -573,6 +555,15 @@ function LocalResources() {
                                     <button onClick={() => void handleVerify(model.model_id)} style={actionStyle}>检查状态</button>
                                   </>
                                 )}
+                              </div>
+                              <div className="engines-model-status">
+                                <span className="engines-model-status-label">
+                                  <span style={{ width: 6, height: 6, flexShrink: 0, borderRadius: '50%', background: resolvedStatusInfo.dot,
+                                    animation: isInstalling || statusLoading ? 'pulse 1.5s infinite' : 'none' }} />
+                                  {resolvedStatusInfo.label}
+                                </span>
+                                {status && <span className="engines-model-ownership">{status.shared_readonly ? '外部引用 · 只读' : '本项目管理'}</span>}
+                                {model.is_primary_variant && <span className="engines-model-recommended">推荐</span>}
                               </div>
                               {!isInstalling && !statusLoading && status && model.supports_remove && status.weights_ready && !status.shared_readonly &&
                                 <ModelWeightRemoval modelId={model.model_id} onChanged={() => loadData(true)} />}

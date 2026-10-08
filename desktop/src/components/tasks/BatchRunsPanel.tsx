@@ -463,7 +463,6 @@ export default function BatchRunsPanel() {
 
               <div style={{ padding: '14px 18px 10px', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>批次条目</div>
-                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>每个文件保留独立任务、错误、伴随文件和输出事实。</div>
               </div>
 
               <div className="batch-runs-item-list">

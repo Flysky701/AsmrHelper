@@ -234,7 +234,7 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
             catalog: state.catalog.filter(item => item.id !== id),
             selectedPreset: state.selectedPreset?.id === id ? null : state.selectedPreset,
             editor: editor?.preset?.id === id ? { ...editor, preset: null, initialFingerprint: '' } : editor,
-            catalogNotice: `${result.status === 'already_missing' ? '预设已不存在，目录引用已清除' : '预设已删除，不能恢复原记录'}；当前草稿、运行参数及素材绑定已保留，可另存为新预设。已提交任务不受影响。`,
+            catalogNotice: result.status === 'already_missing' ? '预设已不存在，目录已更新。' : '预设已删除，当前草稿可另存。',
           })
           return result.status
         } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return null }

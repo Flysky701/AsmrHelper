@@ -107,9 +107,6 @@ export default function WorkflowPresets() {
       const result = await workflow.deleteCatalogPreset(preset)
       if (result) {
         setCatalogId(current => current === preset.id ? '' : current)
-        const message = result === 'already_missing' ? `“${preset.label}”已不存在，目录已更新。`
-          : `已删除“${preset.label}”。`
-        setNotice(message); setTemplateNotice(message)
       } else {
         const reason = useWorkflowStore.getState().error || '请刷新目录后重试'
         setTemplateErrors(current => ({ ...current, [preset.id]: `删除未完成：${reason}` }))
