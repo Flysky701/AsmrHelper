@@ -1,0 +1,10 @@
+.fish-clone-panel .fish-clone-summary { margin: 16px 0; padding: 16px; border: 1px solid var(--border-color, #d9dce3); border-radius: 10px; }
+.fish-clone-summary dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0; }
+.fish-clone-summary dt { font-size: 12px; opacity: .65; margin-bottom: 6px; }
+.fish-clone-summary dd { margin: 0; overflow-wrap: anywhere; }
+.fish-clone-summary small { display: block; margin-top: 4px; opacity: .7; }
+.fish-clone-summary audio { margin-top: 14px; width: min(100%, 480px); }
+.fish-clone-transcript { margin: 12px 0 0; max-height: 7em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.fish-clone-submit { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+.fish-clone-result-id { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .fish-clone-summary dl { grid-template-columns: 1fr; gap: 12px; } }

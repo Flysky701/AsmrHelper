@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
-import type { ConnectionProfile, SettingsUpdate, SettingsView } from '@/api/settings'
+import type { ConnectionProfile, ConnectionRemovalPreview, SettingsUpdate, SettingsView } from '@/api/settings'
 import { useWorkbenchStore } from '@/stores/workbenchStore'
 import SpeechConnections from './SpeechConnections'
 import { useConnectionDraftGuard } from '@/hooks/useConnectionDraftGuard'
@@ -29,6 +29,8 @@ export default function ExternalServices() {
   const [testing, setTesting] = useState(false)
   const [discovery, setDiscovery] = useState<Discovery | null>(null)
   const [verified, setVerified] = useState<Record<string, string>>({})
+  const [removal, setRemoval] = useState<ConnectionRemovalPreview | null>(null)
+  const mutationRef = useRef(false)
   const loadGeneration = useRef(0)
   const discoveryGeneration = useRef(0)
   const editorBaseline = useRef('')
@@ -124,6 +126,33 @@ export default function ExternalServices() {
     finally { setSaving(false) }
   }
 
+  async function inspectRemoval(profile: ConnectionProfile) {
+    if (mutationRef.current || !(await canDiscard())) return
+    mutationRef.current = true
+    setSaving(true); setMessage(''); setRemoval(null)
+    try {
+      const preview = await settingsApi.connectionRemovalPreview(profile.id)
+      if (preview.id !== profile.id) throw new Error('连接预览归属不匹配')
+      setEditor(null); resetDiscovery(); setRemoval(preview)
+    } catch { setMessage('无法读取连接删除影响，请刷新后重试。') }
+    finally { mutationRef.current = false; setSaving(false) }
+  }
+
+  async function changeRemoval() {
+    if (!removal || mutationRef.current || (!removal.removed && !removal.can_remove)) return
+    mutationRef.current = true
+    setSaving(true); setMessage('')
+    const reviewed = removal
+    try {
+      const result = await settingsApi.setConnectionRemoved(reviewed.id, reviewed.token, !reviewed.removed)
+      loadGeneration.current += 1
+      setSettings(result.settings); setRemoval(null)
+      setMessage(reviewed.removed ? '连接已恢复，未自动启用。' : '连接已从正常列表移除，可在“已移除的翻译服务”中恢复。凭据、云端账号和历史任务保留；历史任务重试前可能需要先恢复连接。')
+    } catch (cause) {
+      setRemoval(null); setMessage(`操作未确认完成，请刷新并重新检查：${String(cause)}`)
+    } finally { mutationRef.current = false; setSaving(false) }
+  }
+
   async function discover() {
     if (!editor || editor.kind !== 'llm') return
     const generation = ++discoveryGeneration.current
@@ -196,6 +225,15 @@ export default function ExternalServices() {
 
   return <div className="external-services">
     {message && <div className="external-service-notice" role="status">{message}</div>}
+    {removal && <section className="external-service-notice" aria-label="翻译连接删除影响">
+      <h3>{removal.removed ? '恢复' : '删除'}「{removal.name}」</h3>
+      <p>仅改变本地列表，可恢复；凭据、云端账号及历史快照保留，不会取消任务或自动替换引用。</p>
+      {!removal.removed && removal.active && <p role="alert">此连接当前已启用，请先在列表中启用另一条连接。</p>}
+      {!!removal.references.length && <><p>以下引用需要先处理；保存的工作流需重新选择连接，活动任务或批次需等待结束。</p><ul>{removal.references.map(item =>
+        <li key={`${item.kind}:${item.id}`}>{({ workflow: '工作流', task: '活动任务', batch: '活动批次' })[item.kind]}：{item.name}</li>)}</ul></>}
+      <button className="external-service-button" disabled={saving || !removal.removed && !removal.can_remove} onClick={() => void changeRemoval()}>{removal.removed ? '确认恢复' : '确认删除（可恢复）'}</button>
+      <button className="external-service-button" disabled={saving} onClick={() => setRemoval(null)}>取消</button>
+    </section>}
     {(['llm'] as const).map(kind => <section className="external-service-section" key={kind}>
       <div className="external-service-heading">
         <span className="external-service-tag">{kind.toUpperCase()}</span>
@@ -213,6 +251,7 @@ export default function ExternalServices() {
               <div className="external-service-actions">
                 {!active && <button className="external-service-button" disabled={saving} onClick={() => void activate(kind, profile.id)}>启用</button>}
                 <button className="external-service-button" aria-expanded={editor?.kind === kind && editor.id === profile.id} disabled={saving} onClick={() => edit(kind, profile)}>编辑</button>
+                <button className="external-service-button" disabled={saving} onClick={() => void inspectRemoval(profile)}>删除…</button>
               </div>
             </div>
             <p className="external-service-muted">{`${profile.provider === 'deepseek' ? 'DeepSeek' : 'OpenAI / 兼容接口'} · ${profile.model || '未选择模型'}`}</p>
@@ -223,6 +262,10 @@ export default function ExternalServices() {
         {editor?.kind === kind && !editor.id && editorForm(kind)}
       </div>
     </section>)}
+    {!!settings.connection_profiles.removed_llm?.length && <details className="external-service-notice"><summary>已移除的翻译服务（可恢复）</summary>
+      {settings.connection_profiles.removed_llm.map(profile => <div key={profile.id} className="external-service-card-heading"><span>{profile.name}</span>
+        <button className="external-service-button" disabled={saving} onClick={() => void inspectRemoval(profile)}>恢复…</button></div>)}
+    </details>}
     <SpeechConnections />
     <style>{`
       .external-services { max-width: 1040px; min-width: 0; }

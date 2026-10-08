@@ -3,6 +3,14 @@ name = "asmr-helper"
 version = "0.2.1-beta.5"
 edition = "2021"
 
+[[bin]]
+name = "asmr-helper-local"
+path = "src/bin/local.rs"
+
+[[bin]]
+name = "asmr-helper-local-next"
+path = "src/bin/local_next.rs"
+
 [lib]
 name = "asmr_helper_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

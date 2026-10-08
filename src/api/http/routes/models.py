@@ -8,6 +8,7 @@ from src.api.http.dependencies import model_service
 from src.api.http.schemas.tasks import TaskStatusResponse
 from src.api.http.schemas.models import (
     ModelInstallRequest,
+    ModelDownloadRequest,
     ModelOperationResponse,
     ModelStatusIssueResponse,
     ModelStatusResponse,
@@ -70,6 +71,7 @@ def list_model_statuses(
             status=s.status,
             detail=s.detail,
             executable=s.executable,
+            path=s.path, weights_ready=s.weights_ready, runtime_ready=s.runtime_ready, shared_readonly=s.shared_readonly,
             issues=[
                 {
                     "code": issue.code,
@@ -83,6 +85,55 @@ def list_model_statuses(
     ]
 
 
+@router.get("/sources")
+def list_model_sources():
+    from src.core.resources.model_assets import sources
+    return {"roots": sources(), "readonly": True}
+
+
+@router.post("/sources/remove")
+def unlink_model_source(body: dict):
+    from src.core.resources.model_assets import remove_source, sources
+    from src.app.errors import AppValidationError
+    value = body.get("path")
+    if not isinstance(value, str) or not value.strip():
+        raise AppValidationError("请选择要解除引用的模型目录")
+    try:
+        remove_source(value)
+    except (ValueError, OSError) as exc:
+        raise AppValidationError(str(exc)) from exc
+    return {"roots": sources(), "readonly": True}
+
+
+@router.post("/sources")
+def add_model_source(body: dict, svc: ModelService = Depends(model_service)):
+    from src.core.resources.model_assets import add_source, sources
+    from src.app.errors import AppValidationError
+    try:
+        add_source(str(body.get("path", "")))
+    except (ValueError, OSError) as exc:
+        raise AppValidationError(str(exc)) from exc
+    return {"roots": sources(), "readonly": True}
+
+
+@router.post("/scan")
+def scan_model_sources(svc: ModelService = Depends(model_service)):
+    from src.core.resources.model_assets import scan_roots, candidates, complete, add_source
+    from src.config import PROJECT_ROOT
+    from pathlib import Path
+    roots = scan_roots()
+    found = []
+    for entry in svc.core_service.list_models(kind="local"):
+        for root in roots:
+            for path in candidates(entry, [root]):
+                if complete(entry, path):
+                    if Path(root).resolve() != (PROJECT_ROOT / 'models').resolve():
+                        add_source(root)
+                    found.append({"model_id": entry.id, "path": str(path), "complete": True, "readonly": True})
+                    break
+    return {"found": found, "roots": roots}
+
+
 @router.get("/{model_id}/status", response_model=ModelStatusResponse)
 def get_model_status(
     model_id: str,
@@ -94,6 +145,7 @@ def get_model_status(
         status=status.status,
         detail=status.detail,
         executable=status.executable,
+        path=status.path, weights_ready=status.weights_ready, runtime_ready=status.runtime_ready, shared_readonly=status.shared_readonly,
         issues=[
             {
                 "code": issue.code,
@@ -182,9 +234,16 @@ def verify_model(
 @router.delete("/{model_id}", response_model=ModelOperationResponse)
 def remove_model(
     model_id: str,
+    token: str = Query(""),
+    confirmed: bool = Query(False),
     svc: ModelService = Depends(model_service),
 ):
-    result = svc.remove_model(model_id)
+    from src.app.services.model_removal_service import ModelRemovalService
+    from src.app.errors import AppValidationError
+    try:
+        result = ModelRemovalService(svc).execute(model_id, token, confirmed)
+    except (ValueError, OSError) as exc:
+        raise AppValidationError(str(exc)) from exc
     return ModelOperationResponse(
         action=result.action,
         model_id=result.model_id,
@@ -192,6 +251,16 @@ def remove_model(
         status=result.status,
         detail=result.detail,
     )
+
+
+@router.post("/{model_id}/deletion-preview")
+def model_deletion_preview(model_id: str, svc: ModelService = Depends(model_service)):
+    from src.app.services.model_removal_service import ModelRemovalService
+    from src.app.errors import AppValidationError
+    try:
+        return ModelRemovalService(svc).preview(model_id)
+    except (ValueError, OSError) as exc:
+        raise AppValidationError(str(exc)) from exc
 
 
 @router.post("/{model_id}/unload", response_model=ModelOperationResponse)
@@ -214,3 +283,18 @@ def unload_all_models(
     svc: ModelService = Depends(model_service),
 ):
     svc.unload_all_models()
+
+
+@router.post("/{model_id}/runtime", response_model=TaskStatusResponse, status_code=201)
+def prepare_model_runtime(model_id: str, svc: ModelService = Depends(model_service)):
+    return TaskStatusResponse.from_task_status(svc.install_model_async(model_id, operation="runtime"))
+
+
+@router.post("/{model_id}/download", response_model=TaskStatusResponse, status_code=201)
+def download_model_weights(model_id: str, body: ModelDownloadRequest | None = None,
+                           svc: ModelService = Depends(model_service)):
+    options = body or ModelDownloadRequest()
+    return TaskStatusResponse.from_task_status(svc.install_model_async(
+        model_id, mirror=options.mirror, force=options.force, install_mode=options.install_mode,
+        install_dependencies=False, install_recommended_assets=options.install_recommended_assets,
+        allow_fallback_variant=False, operation="download"))

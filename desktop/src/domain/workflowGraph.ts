@@ -62,7 +62,7 @@ export const GRAPH_CATALOG: Record<GraphNodeKind, GraphCapability> = {
 }
 export const GRAPH_OPTION_KEYS: Record<GraphNodeKind, readonly string[] | null> = {
   separate: ['mode'], asr: null, align: [], translate: null,
-  tts: ['speech_recipe_id', 'speech_source', 'voice', 'speed'],
+  tts: ['speech_recipe_id', 'speech_overrides', 'speech_source', 'voice', 'speed'],
   mix: ['original_volume', 'tts_volume_ratio', 'tts_delay_ms', 'output_length'], export: ['subtitle_format'], audio_export: [],
 }
 const languages = new Set(['ja', 'zh', 'en'])

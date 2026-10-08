@@ -88,6 +88,9 @@ class ModelService:
             status=status.status,
             detail=status.detail,
             executable=status.executable,
+            path=str(status.path) if status.path else None,
+            weights_ready=status.weights_ready, runtime_ready=status.runtime_ready,
+            shared_readonly=status.shared_readonly,
             issues=[
                 ModelStatusIssueView(
                     code=issue.code,
@@ -115,6 +118,9 @@ class ModelService:
                 status=status.status,
                 detail=status.detail,
                 executable=status.executable,
+                path=str(status.path) if status.path else None,
+                weights_ready=status.weights_ready, runtime_ready=status.runtime_ready,
+                shared_readonly=status.shared_readonly,
                 issues=[
                     ModelStatusIssueView(
                         code=issue.code,
@@ -160,6 +166,7 @@ class ModelService:
         install_dependencies: bool = True,
         install_recommended_assets: bool = False,
         allow_fallback_variant: bool = False,
+        operation: str = "install",
     ):
         """Submit model installation and return the authoritative task snapshot."""
         self._get_model_entry(model_id)
@@ -169,7 +176,7 @@ class ModelService:
             task_source="api",
             session_id="",
             execution_profile={
-                "operation": "install",
+                "operation": operation,
                 "model_id": model_id,
                 "mirror": mirror,
                 "force": force,
@@ -206,6 +213,10 @@ class ModelService:
             stage="install",
         )
         self._get_model_entry(model_id)
+        if profile.get("operation") == "runtime":
+            context.update_progress(0.1, "正在准备运行环境", stage="runtime")
+            self.core_service.prepare_runtime(model_id)
+            return {"detail": "运行环境准备完成；未下载模型权重"}
         installed = self.core_service.install(
             model_id,
             mirror=profile.get("mirror"),
@@ -294,12 +305,12 @@ class ModelService:
             issues=list(status.issues),
         )
 
-    def remove_model(self, model_id: str) -> ModelOperationResult:
-        return self._run_model_operation(
-            action="remove",
-            model_id=model_id,
-            runner=lambda: self.core_service.remove(model_id),
-        )
+    def remove_model(self, model_id: str, *, token: str = "", confirmed: bool = False) -> ModelOperationResult:
+        from .model_removal_service import ModelRemovalService
+        try:
+            return ModelRemovalService(self).execute(model_id, token, confirmed)
+        except (ValueError, OSError) as exc:
+            raise AppValidationError(str(exc)) from exc
 
     def unload_model(self, model_id: str) -> ModelOperationResult:
         """Unload a runtime model instance, releasing GPU memory."""

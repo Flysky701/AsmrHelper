@@ -71,12 +71,15 @@ interface TaskStore {
   filter: FilterType
   selectedTaskId: string | null
   deletedServerTaskIds: string[]
+  removedLocalTasks: Task[]
 
   addTask: (task: Omit<Task, 'id' | 'status' | 'progress' | 'createdAt' | 'message' | 'detail'>) => string
   updateTask: (id: string, patch: Partial<Task>) => void
   setFilter: (filter: FilterType) => void
   selectTask: (id: string | null) => void
   removeDeletedTasks: (serverTaskIds: string[]) => void
+  removeLocalFailure: (id: string) => boolean
+  undoLocalRemoval: () => void
   syncFromServer: (serverTasks: Array<{
     task_id: string
     task_type?: string
@@ -133,6 +136,7 @@ export const useTaskStore = create<TaskStore>((set) => ({
   filter: 'all',
   selectedTaskId: null,
   deletedServerTaskIds: [],
+  removedLocalTasks: [],
 
   addTask: (task) => {
     const id = `task-${nextId++}`
@@ -190,6 +194,26 @@ export const useTaskStore = create<TaskStore>((set) => ({
   setFilter: (filter) => set({ filter }),
 
   selectTask: (id) => set({ selectedTaskId: id }),
+
+  removeLocalFailure: (id) => {
+    let removed = false
+    set(state => {
+      const task = state.tasks.find(item => item.id === id)
+      // Recheck at mutation time: an older UI may now refer to a bound task.
+      if (!task || task.serverTaskId || task.status !== 'failed') return {}
+      removed = true
+      return { tasks: state.tasks.filter(item => item.id !== id),
+        selectedTaskId: state.selectedTaskId === id ? null : state.selectedTaskId,
+        removedLocalTasks: [...state.removedLocalTasks, task] }
+    })
+    return removed
+  },
+  undoLocalRemoval: () => set(state => {
+    const task = state.removedLocalTasks[state.removedLocalTasks.length - 1]
+    if (!task) return {}
+    return { tasks: state.tasks.some(item => item.id === task.id) ? state.tasks : [...state.tasks, task],
+      selectedTaskId: task.id, removedLocalTasks: state.removedLocalTasks.slice(0, -1) }
+  }),
 
   // A pre-deletion list response may arrive after the delete request succeeds.
   // Keep session tombstones so it cannot recreate a historical record.

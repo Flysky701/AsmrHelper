@@ -178,6 +178,10 @@ class ModelStatusView:
     detail: str
     executable: bool = False
     issues: list[ModelStatusIssueView] = field(default_factory=list)
+    path: str | None = None
+    weights_ready: bool = False
+    runtime_ready: bool = False
+    shared_readonly: bool = False
 
 
 @dataclass(slots=True)

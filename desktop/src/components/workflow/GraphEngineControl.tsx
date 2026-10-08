@@ -38,7 +38,11 @@ export default function GraphEngineControl({ provider, model, category, choices,
     if (!drawer && element.open) element.close()
   }, [drawer])
   const observed = observation?.key === key ? observation : null
-  const status = connectionIssue ? '连接待修复' : unavailable ? '引擎信息不可用' : checking ? '正在检查' : observed?.label || '尚未检查'
+  const unknownProvider = !loading && !choices.some(item => item.id === provider)
+  const status = loading ? '正在读取引擎列表' : unknownProvider && choices.length ? '需要重新选择引擎' : connectionIssue ? '当前节点配置需处理' : unavailable ? '引擎列表未能读取' : checking ? '正在检查' : observed?.label || '尚未检查'
+  const statusDetail = unknownProvider && choices.length
+    ? `“${name}”不可用。请选择引擎，再点击“确认更换”。`
+    : connectionIssue || (unavailable ? '请在“配置与检查”中刷新目录与连接信息。' : observed?.detail || '可在“配置与检查”中检查，不会安装或下载。')
   async function check() {
     if (checking || connectionIssue || unavailable || (!checkConfiguration && (!local || !installModel))) return
     const sequence = ++request.current, snapshotKey = key
@@ -59,16 +63,16 @@ export default function GraphEngineControl({ provider, model, category, choices,
   const refresh = () => { request.current++; setChecking(false); setObservation(null); setCatalog([]); setCatalogError(''); setCatalogRevision(value => value + 1); onRefresh() }
   return <section className="graph-engine-control" aria-label="引擎与运行配置">
     <div className="graph-engine-heading">{choices.length === 1 && choices[0]?.id === provider ? <div><small>引擎</small><strong>{name}</strong></div> : <label htmlFor={id}>引擎<select id={id} value={provider} disabled={loading} onChange={event => onSelect(event.target.value)}>
-      {!choices.some(item => item.id === provider) && <option value={provider}>{name}（待确认）</option>}
+      {!choices.some(item => item.id === provider) && <option value={provider}>{name}（{loading ? '读取中' : choices.length ? '原引擎不在列表，请重选' : '列表尚未读取'}）</option>}
       {choices.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
     </select></label>}
-      <button type="button" onClick={() => setDrawer(true)}>安装与配置</button></div>
-    <div className={`graph-engine-status${observed?.positive && !connectionIssue ? ' is-positive' : ''}`} role="status"><strong>{status}</strong><p>{connectionIssue || observed?.detail || (local ? '模型和运行环境尚未检查；选择引擎不会安装或执行。' : '连接配置与服务可用性不同，尚未验证实际运行。')}</p>{observed && <small>本次检查 {observed.time} · 不代表任务已经运行</small>}</div>
+      <button type="button" onClick={() => setDrawer(true)}>{connectionIssue ? '配置当前节点' : '配置与检查'}</button></div>
+    <div className={`graph-engine-status${observed?.positive && !connectionIssue ? ' is-positive' : ''}`} role="status"><strong>{status}</strong><p>{statusDetail}</p>{observed && <small>本次检查 {observed.time} · 不代表任务已经运行</small>}</div>
     {connectionSummary && <p className="graph-engine-connection">{connectionSummary}</p>}
     <dialog ref={dialog} className="graph-engine-drawer" aria-labelledby={id + '-title'} onCancel={() => setDrawer(false)} onClose={() => setDrawer(false)} onClick={event => { if (event.target === dialog.current) { const rect = dialog.current.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right) setDrawer(false) } }}>
-      <header><h2 id={id + '-title'}>安装与配置 · {name}</h2><button type="button" autoFocus onClick={() => setDrawer(false)}>关闭</button></header>
+      <header><h2 id={id + '-title'}>配置与检查 · {name}</h2><button type="button" autoFocus onClick={() => setDrawer(false)}>关闭</button></header>
       <div className="graph-engine-drawer-body"><p>当前模型：{model || '未指定'}</p><p>这里只管理当前引擎的环境与连接，不会改动输入素材、目标语言或已保存音色。</p>
-        <section><h3>运行状态</h3><strong>{status}</strong><p>{connectionIssue || observed?.detail || '尚未执行环境或连接检查。'}</p>
+        <section><h3>运行状态</h3><strong>{status}</strong><p>{statusDetail}</p>
           {local && <><p>{installModel ? `资源：${installModel.display_name}` : '尚未唯一匹配模型目录条目，请到模型管理页确认。'}</p>{catalogError && <p role="alert">{catalogError}</p>}</>}
           {installModel && <dl className="graph-engine-install-facts">
             {installModel.runtime_profile && <><dt>托管运行环境</dt><dd>{installModel.runtime_profile}</dd></>}

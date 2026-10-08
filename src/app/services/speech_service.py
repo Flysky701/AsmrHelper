@@ -10,7 +10,7 @@ import threading
 import time
 from uuid import uuid4
 
-from src.core.speech.store import SpeechStore, build_plan, validate_plan, companion_subtitle_paths
+from src.core.speech.store import SpeechStore, build_plan, validate_plan, companion_subtitle_paths, _reference_file_operation
 from src.core.speech.compiler import compile_recipe
 from src.core.speech.providers import get_provider
 from src.core.tasks import TaskDispatcher
@@ -134,6 +134,7 @@ class SpeechService:
             value.update(json.loads(path.read_text(encoding="utf-8")))
         return {"connection": value, **{k: value[k] for k in ("model_path", "device", "precision", "runtime") if k in value}}
 
+    @_reference_file_operation
     def save_recipe(self, body):
         data = self._prepare_recipe(body)
         voice = self.store.get("voices", data["voice_id"])
@@ -229,6 +230,7 @@ class SpeechService:
         prepared["id"] = "preview-" + prepared["id"]
         return prepared, self._recipe_connection(prepared)
 
+    @_reference_file_operation
     def save_rule(self, body):
         """Save any validated single-engine recipe as an immutable named rule."""
         data = deepcopy(body)
@@ -257,6 +259,7 @@ class SpeechService:
     def assets(self):
         return {a["id"]: a for a in self.store.list("assets")}
 
+    @_reference_file_operation
     def start_reference_analysis(self, body):
         path = Path(str(body.get("path", "")))
         if not path.is_file():
@@ -286,6 +289,7 @@ class SpeechService:
         result = json.loads(path.read_text(encoding="utf-8")) if status.state == "completed" and path.exists() else None
         return status, result
 
+    @_reference_file_operation
     def start_reference_transcription(self, body):
         """Explicit selection ASR never consults companion subtitles."""
         path = Path(str(body.get("path", "")))
@@ -374,6 +378,7 @@ class SpeechService:
         temporary.replace(path)
         return result
 
+    @_reference_file_operation
     def analyze_reference(self, body, progress_callback=None):
         from src.core.tts.audio_preprocessor import AudioPreprocessor
         if progress_callback:
@@ -490,7 +495,7 @@ class SpeechService:
         Existing task snapshots remain on the recovery path, never re-resolved.
         """
         options = stage.get("options", {})
-        if not isinstance(options, dict) or set(options) - {"speech_recipe_id", "speech_source", "voice", "speed", "language"}:
+        if not isinstance(options, dict) or set(options) - {"speech_recipe_id", "speech_overrides", "speech_source", "voice", "speed", "language"}:
             raise ValueError("语音配置包含未支持的选项，请选择明确的 Speech 规则或声音来源")
         legacy_parameters = stage.get("provider_options", {})
         if not isinstance(legacy_parameters, dict) or set(legacy_parameters) - {"speech_snapshot"}:
@@ -498,7 +503,7 @@ class SpeechService:
         provider_id, model = stage.get("provider"), stage.get("model")
         recipe_id = options.get("speech_recipe_id")
         if recipe_id:
-            if set(options) - {"speech_recipe_id"}:
+            if set(options) - {"speech_recipe_id", "speech_overrides"}:
                 raise ValueError("保存的规则不能同时附带声音、语速、语言或直接来源覆盖")
             recipe = self.store.get("recipes", recipe_id)
             if provider_id not in (None, "", "speech", recipe["provider_id"]):
@@ -507,7 +512,17 @@ class SpeechService:
                 raise ValueError("自定义规则与当前 TTS 模型不兼容")
             if options.get("speech_source"):
                 raise ValueError("自定义规则和直接声音来源不能同时指定")
-            return self.snapshot(recipe_id)
+            if "speech_overrides" not in options:
+                return self.snapshot(recipe_id)
+            from src.core.speech.overrides import apply_speech_overrides
+            base_recipe = deepcopy(recipe)
+            recipe, connection = self._resolve_recipe_input(recipe_id)
+            effective = apply_speech_overrides(recipe, options["speech_overrides"], get_provider(recipe["provider_id"]))
+            snapshot = self._snapshot_recipe(effective, connection)
+            snapshot.update(base_recipe=base_recipe, speech_overrides=deepcopy(options["speech_overrides"]))
+            return snapshot
+        if "speech_overrides" in options:
+            raise ValueError("本次微调需要先选择已保存音色")
         provider = get_provider(provider_id)
         source = options.get("speech_source", {})
         if not isinstance(source, dict) or set(source) - {"mode", "variant", "connection_ref", "provider_options",
@@ -585,6 +600,7 @@ class SpeechService:
         return {"recipe": recipe, "connection": connection, "assets": selected_assets,
                 "compiler_version": requests[0]["compiler_version"], "provider_version": requests[0]["provider_version"]}
 
+    @_reference_file_operation
     def generate(self, experiment_id, body):
         if not isinstance(body, dict) or set(body) - {"recipe_id", "recipe_draft", "plan_id", "segment_id"}:
             raise ValueError("试听请求包含未知字段")
@@ -622,6 +638,7 @@ class SpeechService:
             return Path(experiment["media_root"])
         return Path(self.store.root)
 
+    @_reference_file_operation
     def synthesize_text(self, snapshot, text, output_path):
         """Synchronous standalone entry using the same compiler and take runner."""
         import soundfile as sf
@@ -660,6 +677,7 @@ class SpeechService:
             temporary.unlink(missing_ok=True)
         return str(target)
 
+    @_reference_file_operation
     def synthesize_timeline(self, snapshot, segments, output_path, task_id, cancel_check=lambda: False, reference_duration=0):
         """Formal dubbing uses the identical compiler/runner as laboratory takes."""
         text = "".join(s["text"] for s in segments)
@@ -755,6 +773,7 @@ class SpeechService:
                 progress((index + 1) / len(requests), f"已生成 {index + 1}/{len(requests)} 句", stage="tts")
         return outputs
 
+    @_reference_file_operation
     def save_rule_from_take(self, take_id, body):
         if not isinstance(body, dict) or set(body) - {"name", "description"}:
             raise ValueError("仅提供名称和说明；设置来自所选试听快照")
@@ -787,6 +806,7 @@ class SpeechService:
         experiment["selections"] = [s for s in self.store.list("selections") if s["experiment_id"] == experiment_id]
         return experiment
 
+    @_reference_file_operation
     def select(self, body):
         take = self.store.get("takes", body["take_id"])
         if take["experiment_id"] != body["experiment_id"] or take["segment_id"] != body["segment_id"]:
@@ -836,6 +856,7 @@ class SpeechService:
                 temporary.unlink(missing_ok=True)
         return str(target), ratio
 
+    @_reference_file_operation
     def assemble(self, experiment_id, *, output_path=None, timeline=None, reference_duration=0):
         import numpy as np
         import soundfile as sf

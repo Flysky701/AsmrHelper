@@ -1,5 +1,6 @@
 """The VoiceLab v2 API; no legacy voice-profile projection."""
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -14,6 +15,8 @@ from src.api.http.schemas.speech import (
 from src.core.speech.store import ConnectionConflictError
 
 router = APIRouter(prefix="/speech", tags=["speech"])
+from .speech_cleanup import router as cleanup_router
+router.include_router(cleanup_router)
 MAX_REFERENCE_UPLOAD = 100 * 1024 * 1024
 REFERENCE_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma"}
 
@@ -96,13 +99,15 @@ def probe(connection_id: str, body: dict | None = None, svc=Depends(get_speech_s
 @router.get("/connections/{connection_id}/voices")
 def connection_voices(connection_id: str, title: str = Query("", max_length=200),
                       page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
-                      workspace_only: bool = True, svc=Depends(get_speech_service)):
+                      workspace_only: bool = True,
+                      scope: Literal["workspace", "mine_public", "public"] | None = None,
+                      svc=Depends(get_speech_service)):
     item = call(svc.store.get, "connections", connection_id)
     if item.get("provider_id") != "fish_audio":
         raise HTTPException(422, "此连接不支持获取声音列表，请手填 Voice ID")
     context = call(svc.connection_context, item)
     return call(get_provider("fish_audio").list_hosted_voices, context,
-                title=title, page=page, page_size=page_size, workspace_only=workspace_only)
+                title=title, page=page, page_size=page_size, workspace_only=workspace_only, scope=scope)
 
 
 @router.post("/voices")
@@ -114,6 +119,46 @@ def voice(body: dict, svc=Depends(get_speech_service)):
     if body.get("id"):
         return call(svc.store.update, "voices", body["id"], body, expected_revision=body.get("revision"))
     return call(svc.store.create, "voices", body)
+
+
+def fish_clones(svc):
+    from src.app.services.fish_clone_service import FishCloneService
+    return FishCloneService(svc)
+
+
+@router.get("/fish-clones")
+def list_fish_clones(include_deleted: bool = False, svc=Depends(get_speech_service)):
+    return {"items": call(fish_clones(svc).list, include_deleted=include_deleted)}
+
+
+@router.delete("/fish-clones/{clone_id}")
+def delete_fish_clone_record(clone_id: str, svc=Depends(get_speech_service)):
+    return call(fish_clones(svc).set_deleted, clone_id, True)
+
+
+@router.post("/fish-clones/{clone_id}/restore")
+def restore_fish_clone_record(clone_id: str, svc=Depends(get_speech_service)):
+    return call(fish_clones(svc).set_deleted, clone_id, False)
+
+
+@router.post("/fish-clones/preview")
+def preview_fish_clone(body: dict, svc=Depends(get_speech_service)):
+    return call(fish_clones(svc).preview, body)
+
+
+@router.post("/fish-clones")
+def create_fish_clone(body: dict, svc=Depends(get_speech_service)):
+    return call(fish_clones(svc).create, body)
+
+
+@router.post("/fish-clones/{clone_id}/refresh")
+def refresh_fish_clone(clone_id: str, svc=Depends(get_speech_service)):
+    return call(fish_clones(svc).refresh, clone_id)
+
+
+@router.post("/fish-clones/{clone_id}/rule")
+def fish_clone_rule(clone_id: str, svc=Depends(get_speech_service)):
+    return call(fish_clones(svc).save_rule, clone_id)
 
 
 @router.post("/recipes")

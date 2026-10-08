@@ -14,11 +14,23 @@ from src.api.http.schemas.settings import (
     SettingsUpdateRequest,
     SettingsValidateRequest,
     SettingsValidateResponse,
+    ConnectionRemovalRequest,
 )
 from src.app.services import SettingsService
 from src.app.services.settings_service import ProviderModelsError
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+@router.get("/connections/{connection_id}/removal-preview")
+def connection_removal_preview(connection_id: str, svc: SettingsService = Depends(settings_service)):
+    return svc.connection_removal_preview(connection_id)
+
+
+@router.post("/connections/{connection_id}/removal", response_model=SettingsResponse)
+def set_connection_removed(connection_id: str, body: ConnectionRemovalRequest,
+                           svc: SettingsService = Depends(settings_service)):
+    return SettingsResponse(settings=svc.set_connection_removed(connection_id, **body.model_dump()))
 
 
 @router.post("/models", response_model=ProviderModelsResponse)

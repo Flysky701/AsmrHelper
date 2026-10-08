@@ -11,11 +11,18 @@ from src.api.http.schemas.batch_runs import (
     BatchRunCreateRequest,
     BatchRunListResponse,
     BatchRunResponse,
+    BatchItemRemovalRequest,
 )
 from src.app.services import BatchRunService
 
 
 router = APIRouter(prefix="/batch-runs", tags=["batch-runs"])
+
+
+@router.post("/{batch_id}/items/{item_id}/removal", response_model=BatchRunResponse)
+def set_unsubmitted_item_removed(batch_id: str, item_id: str, body: BatchItemRemovalRequest,
+                                svc: BatchRunService = Depends(batch_run_service)):
+    return BatchRunResponse.from_record(svc.set_unsubmitted_item_removed(batch_id, item_id, **body.model_dump()))
 
 
 @router.post("/discover", response_model=BatchDiscoverResponse)

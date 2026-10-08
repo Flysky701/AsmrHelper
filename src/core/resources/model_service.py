@@ -28,13 +28,24 @@ class ModelService:
         self.status_resolver = ModelStatusResolver(runtime_resolver=self.runtime_resolver)
         self.installer = ModelInstaller(project_root=self.runtime_resolver.project_root)
         self.installer._status = self.status_resolver
-        self._install_lock = threading.Lock()
+        self._install_lock = threading.RLock()
 
     def list_models(self, kind: str | None = None, category: str | None = None) -> List[ModelEntry]:
         return self.catalog.list(kind=kind, category=category)
 
     def get_model(self, model_id: str) -> ModelEntry:
         return self.catalog.get(model_id)
+
+    def prepare_runtime(self, model_id: str) -> bool:
+        entry = self.get_model(model_id)
+        if entry.kind != "local":
+            raise ValueError("只有本地模型需要运行环境")
+        with self._install_lock:
+            self._install_runtime_packages(entry)
+            issues = self.status_resolver._runtime_issues(entry)
+            if issues:
+                raise RuntimeError("; ".join(issue.message for issue in issues))
+        return True
 
     def get_status(self, model_id: str) -> ModelStatus:
         return self.status_resolver.resolve(self.get_model(model_id))
@@ -127,7 +138,7 @@ class ModelService:
 
         if not success:
             return False
-        if entry.provider == "faster_whisper" or entry.engine == "faster_whisper":
+        if install_dependencies and (entry.provider == "faster_whisper" or entry.engine == "faster_whisper"):
             runtime = self.runtime_resolver.resolve(entry.runtime_profile or "main")
             self.runtime_resolver.verify_ctranslate2(runtime, model_path=entry.resolved_install_dir())
 
@@ -151,7 +162,8 @@ class ModelService:
         entry = self.get_model(model_id)
         if entry.kind == "cloud":
             raise ValueError(f"{model_id} is a cloud model and cannot be removed")
-        self.installer.remove_local_model(entry)
+        with self._install_lock:
+            self.installer.remove_local_model(entry)
 
     def resolve_install_dir(self, model_id: str) -> Path:
         return self.get_model(model_id).resolved_install_dir()

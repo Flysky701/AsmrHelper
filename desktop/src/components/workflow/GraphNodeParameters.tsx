@@ -1,9 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import QwenReferenceMode from '@/components/QwenReferenceMode'
+import FishVoicePicker from '@/components/FishVoicePicker'
 import GraphEngineControl from './GraphEngineControl'
+import SpeechPresetParameters from './SpeechPresetParameters'
 import SpeechConnectionManager from '@/components/SpeechConnectionManager'
-import { restoreEngineDraft, restoreSpeechModeDraft } from '@/domain/nodeEngineDrafts'
+import { restoreEngineDraft } from '@/domain/nodeEngineDrafts'
 import { defaultSpeechConnection } from '@/domain/speechConnections'
 import { capabilitiesApi } from '@/api/capabilities'
 import { settingsApi } from '@/api/settings'
@@ -66,12 +68,17 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all' }: P
   const requestChange = (next: GraphNode, description: string) => setPending({ node: next, description, base: node })
   const requestEngineChange = (next: GraphNode) => {
     const restored = engineDrafts.current.has(next.provider)
-    requestChange(restoreEngineDraft(node, next, engineDrafts.current), `${restored ? '恢复' : '切换到'}所选引擎的节点草稿。当前引擎参数在本次编辑期间保留，切回可恢复；已保存音色不受影响。`)
+    const candidate = restoreEngineDraft(node, next, engineDrafts.current)
+    requestChange(candidate, `${restored ? '恢复' : '切换到'} ${candidate.provider} / ${candidate.model || '未指定模型'}？确认前仍使用 ${node.provider}。切回可恢复本次草稿。`)
   }
-  const requestSpeechChange = (next: GraphNode, description: string) => requestChange(restoreSpeechModeDraft(node, next, speechDrafts.current), description + ' 原模式的声音配置在本次编辑期间保留，切回可恢复。')
   const scopedChange = (next: GraphNode) => { setPending(null); applyNode(next) }
   return <div className="graph-node-parameters" data-node-id={node.id}>
     <fieldset disabled={disabled}>
+      {pending && <section className="graph-param-confirm" aria-label="确认节点参数变更">
+        <p>{pending.description} 仅修改此节点。</p>
+        <div className="graph-param-actions"><button type="button" onClick={() => { if (pending.base !== node) { setPending(null); setSwitchNotice('节点参数已变化，请重新选择引擎或模式。'); return }; applyNode(pending.node); setPending(null); setSwitchNotice('已更新此节点。') }}>确认更换</button>
+          <button type="button" onClick={() => setPending(null)}>取消</button></div>
+      </section>}
       {common && node.kind === 'align' && <>
         <GraphEngineControl provider={node.provider} model={node.model && node.model !== 'default' ? node.model : 'qwen3-forced-aligner-0.6b'} category="asr"
           choices={[{ id: 'qwen3_forced_aligner', name: 'Qwen3 Forced Aligner 0.6B' }]} local
@@ -81,7 +88,7 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all' }: P
       </>}
       {['asr', 'translate', 'separate'].includes(node.kind)
         && <CapabilityParameters node={node} onChange={scopedChange} requestChange={requestChange} requestEngineChange={requestEngineChange} section={section} />}
-      {node.kind === 'tts' && <SpeechParameters node={node} onChange={scopedChange} requestChange={requestChange} requestEngineChange={requestEngineChange} requestSpeechChange={requestSpeechChange} section={section} />}
+      {node.kind === 'tts' && <SpeechPresetParameters node={node} onChange={scopedChange} requestChange={requestChange} section={section} />}
       {common && node.kind === 'align' && <p className="graph-param-note">Qwen3 Forced Aligner 0.6B · 需要匹配的音频与字幕。</p>}
       {node.kind === 'mix' && <>
         {common && <div className="graph-param-grid">{([['original_volume', '音频轨音量', 0.85], ['tts_volume_ratio', '配音轨音量', 0.5]] as const).map(([key, label, fallback]) =>
@@ -103,11 +110,6 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all' }: P
       </select></Field><p className="graph-param-note">将 SRT / VTT 素材或上游字幕转换为 SRT、VTT、LRC。保留文本；LRC 仅保留开始时间，精度为百分之一秒，多行合并为一行。</p></>}
       {common && node.kind === 'audio_export' && <p className="graph-param-note">旧流程兼容：按原格式复制音频，不转码。新的音频产物可直接勾选交付。</p>}
       {switchNotice && <p role="status" className="graph-param-note">{switchNotice}</p>}
-      {pending && <section className="graph-param-confirm" aria-label="确认节点参数变更">
-        <p>{pending.description} 只修改当前节点；不修改其他节点、连线、素材或已保存的 TTS 预设。</p>
-        <div className="graph-param-actions"><button type="button" onClick={() => { if (pending.base !== node) { setPending(null); setSwitchNotice('节点参数已变化，请重新选择引擎或模式。'); return }; applyNode(pending.node); setPending(null); setSwitchNotice('已更新当前节点；其他节点、语言、素材和已保存音色保持不变。') }}>确认更换</button>
-          <button type="button" onClick={() => setPending(null)}>取消</button></div>
-      </section>}
     </fieldset>
   </div>
 }
@@ -249,7 +251,8 @@ function HotwordsOption({ id, value, onChange }: { id: string; value: unknown; o
   </div>
 }
 
-function SpeechParameters({ node, onChange, requestChange, requestEngineChange, requestSpeechChange = requestChange, section = 'all' }: EditorProps) {
+/** Retained during the preset migration; new nodes use SpeechPresetParameters. */
+export function LegacySpeechParameters({ node, onChange, requestChange, requestEngineChange, requestSpeechChange = requestChange, section = 'all' }: EditorProps) {
   const common = section !== 'advanced'
   const [providers, setProviders] = useState<SpeechProvider[]>([])
   const [recipes, setRecipes] = useState<SpeechRecipe[]>([])
@@ -280,7 +283,12 @@ function SpeechParameters({ node, onChange, requestChange, requestEngineChange, 
   }, [revision])
   const provider = providers.find(item => item.provider_id === node.provider)
   const source = readGraphSpeechSource(node)
+  // Presentation state belongs to this exact engine/model/source, not just the node ID.
+  useEffect(() => {
+    setPreviewId(''); setChoosingPreset(false); setCopyError(''); setConnectionChoice(false)
+  }, [node.provider, node.model, source?.mode, node.options.speech_recipe_id])
   const selected = recipes.find(item => item.id === node.options.speech_recipe_id)
+  const recipeMismatch = !!selected && (selected.provider_id !== node.provider || selected.model !== node.model)
   const recipeConnection = selected && connections.find(item => item.id === selected.connection_ref && item.provider_id === selected.provider_id)
   const recipeProvider = selected && providers.find(item => item.provider_id === selected.provider_id)
   const recipeConnectionMissing = selected && !recipeConnection && (recipeProvider?.connection_required || !!selected.connection_ref && selected.connection_ref !== `engine-default-${selected.provider_id}`)
@@ -289,7 +297,8 @@ function SpeechParameters({ node, onChange, requestChange, requestEngineChange, 
   const models = [...new Set(provider?.modes.flatMap(item => item.models) ?? [])]
   const modes = provider?.modes.filter(item => !item.models.length || item.models.includes(node.model ?? '')) ?? []
   const mode = modes.find(item => item.id === source?.mode)
-  const catalog = mode?.voice_sources
+  const compatibleSource = !!source && !!mode && mode.variant_kinds.includes(source.variant.kind)
+  const catalog = compatibleSource ? mode?.voice_sources : undefined
   const matchingConnections = connections.filter(item => item.provider_id === node.provider)
   const selectedConnection = matchingConnections.find(item => item.id === source?.connection_ref)
   const defaultConnection = defaultSpeechConnection(node.provider, connections, defaults)
@@ -300,14 +309,14 @@ function SpeechParameters({ node, onChange, requestChange, requestEngineChange, 
       || current.options.speech_recipe_id || !currentSource || currentSource.connection_ref) return
     onChange(withGraphSpeechSource(current, { ...currentSource, connection_ref: defaultConnection.id }))
   }, [loading, error, defaultConnection?.id, node.provider, node.options.speech_recipe_id, source?.connection_ref, onChange])
-  const reference = source?.variant.kind === 'reference' ? assets.find(item => item.id === source.variant.value) : undefined
+  const reference = compatibleSource && source?.variant.kind === 'reference' ? assets.find(item => item.id === source.variant.value) : undefined
   const issue = loading || error ? '' : graphSpeechIssue(node, provider, recipes, assets, connections)
   const updateSource = (patch: Partial<GraphSpeechSource>) => { if (source) onChange(withGraphSpeechSource(node, { ...source, ...patch })) }
   const changeValue = (value: string) => { if (source) updateSource({ variant: { ...source.variant, value } }) }
-  const capabilities = mode?.capabilities ?? provider?.capabilities
+  const capabilities = compatibleSource ? mode?.capabilities ?? provider?.capabilities : undefined
   const deliveryCaps = capabilities?.delivery as Record<string, { support?: string }> | undefined
   const emotionCaps = capabilities?.emotion as { support?: string } | undefined
-  const fields = availableSpeechOptions(provider, source?.mode ?? '', node.model ?? '')
+  const fields = compatibleSource ? availableSpeechOptions(provider, source?.mode ?? '', node.model ?? '') : []
   const commonKeys = new Set(['speed', 'x_vector_only_mode'])
   const deliveryChoices = Object.entries(deliveryNames).filter(([value]) => value === 'normal' || deliveryCaps?.[value]?.support === 'direct' || value === source?.variant.style || value === source?.default_delivery)
   const connectionMissing = source && (!selectedConnection && !!source.connection_ref && source.connection_ref !== `engine-default-${node.provider}` || provider?.connection_required && !selectedConnection)
@@ -331,9 +340,9 @@ function SpeechParameters({ node, onChange, requestChange, requestEngineChange, 
       <GraphEngineControl provider={node.provider} model={node.model} category="tts" choices={providers.map(item => ({ id: item.provider_id, name: item.name }))}
         local={provider?.remote === false} connectionRequired={provider?.connection_required} loading={loading} unavailable={!provider || !!error}
         connectionSummary={node.options.speech_recipe_id ? `音色预设：${selected?.name || String(node.options.speech_recipe_id)} · ${recipeConnectionName}` : selectedConnection ? `节点指定：${selectedConnection.name}${selectedConnection.id === defaultConnection?.id ? ' · 此引擎默认' : ''}` : '使用引擎默认环境或待选择连接'}
-        connectionIssue={node.options.speech_recipe_id ? !selected ? '原音色预设不可用，请重新选择。' : recipeConnectionMissing ? '预设连接缺失，请编辑或复制音色后重选连接。' : undefined : connectionMissing ? '原连接不匹配或已缺失，请明确重选。' : undefined}
+        connectionIssue={recipeMismatch ? '音色预设的引擎或模型与此节点不一致。请重新应用声音预设，或点击“复制为本节点参数并编辑”；确认一致前不检查连接。' : source && !compatibleSource ? '声音来源与当前引擎模型不兼容。请在参数面板点击“重新配置声音来源”，确认后再检查连接。' : node.options.speech_recipe_id ? !selected ? '原音色预设不可用，请在“更换声音预设”中重新选择。' : recipeConnectionMissing ? '此音色预设的连接已缺失。请点击“复制为本节点参数并编辑”，再为此节点选择连接；原音色预设保持不变。' : undefined : connectionMissing ? '此节点没有匹配当前引擎的连接。请打开“配置当前节点”，在“声音运行连接”中重选；选择后立即更新当前节点，无需安装模型或环境。' : undefined}
         configurationKey={JSON.stringify([node.options.speech_recipe_id, source, selected, selectedConnection, recipeConnection])}
-        checkConfiguration={recipeConnection || selectedConnection ? () => speechApi.probe((recipeConnection || selectedConnection)!.id, node.model || '', selected?.mode || source?.mode || '') : undefined}
+        checkConfiguration={!recipeMismatch && (!source || compatibleSource) && (recipeConnection || selectedConnection) ? () => speechApi.probe((recipeConnection || selectedConnection)!.id, node.model || '', selected?.mode || source?.mode || '') : undefined}
         configuration={<><p className="graph-param-note">默认变更不覆盖已绑定节点或已保存音色。缺失的旧引用需要明确重选。</p>{source && !node.options.speech_recipe_id && connectionControl}<SpeechConnectionManager connections={connections} defaults={defaults} providers={providers} providerId={node.provider} onChanged={async () => { const [next, rules] = await Promise.all([speechApi.connections(), speechApi.rules()]); setConnections(next.connections); setDefaults(next.defaults || []); setRecipes(rules.recipes.filter(item => !item.archived)) }} /></>}
         onSelect={value => { const next = providers.find(item => item.provider_id === value); if (next && value !== node.provider) requestEngineChange(freshGraphSpeechNode(node, next)) }} onRefresh={() => setRevision(value => value + 1)} />
       <Language node={node} field="target_lang" onChange={onChange} />
@@ -351,7 +360,7 @@ function SpeechParameters({ node, onChange, requestChange, requestEngineChange, 
         <p className="graph-param-summary">{selected ? `${selected.name} · r${selected.revision}` : String(node.options.speech_recipe_id)}</p>
         {selected && <>
           <p className="graph-param-note">{recipeProvider?.name || selected.provider_id} · {selected.model} · {modeNames[selected.mode] || selected.mode}</p>
-          <p className="graph-param-note" title={selected.variant.value}>{selected.variant.kind === 'reference' ? assets.find(item => item.id === selected.variant.value)?.name || '参考录音' : selected.variant.value || '引擎默认声音'} · {recipeConnectionName} · 未检查</p>
+          <p className="graph-param-note" title={selected.variant.value}>{selected.variant.kind === 'reference' ? assets.find(item => item.id === selected.variant.value)?.name || '参考录音' : selected.variant.value || '引擎默认声音'}</p>
           <button type="button" onClick={() => { try { onChange(copyRecipeToGraphNode(node, selected)); setCopyError('') } catch (cause) { setCopyError(String(cause instanceof Error ? cause.message : cause)) } }}>复制为本节点参数并编辑</button>
         </>}
         {copyError && <p role="alert">{copyError}</p>}
@@ -367,7 +376,7 @@ function SpeechParameters({ node, onChange, requestChange, requestEngineChange, 
         }}>{!mode && <option value={source.mode}>{source.mode}（待确认）</option>}{modes.map(item => <option key={item.id} value={item.id}>{modeNames[item.id] || item.id}</option>)}</select></Field>}
       </>}
       {!node.options.speech_recipe_id && <Advanced section={section}>
-      {source && <>
+      {source && compatibleSource && <>
         <div className="graph-param-grid">{speechFields(false)}</div>
         <div className="graph-param-grid">
           {deliveryChoices.length > 1 && <Field label="默认演绎"><select value={source.default_delivery ?? 'normal'} onChange={event => updateSource({ default_delivery: event.target.value as Delivery })}>
@@ -383,10 +392,12 @@ function SpeechParameters({ node, onChange, requestChange, requestEngineChange, 
       <button type="button" disabled={loading} onClick={() => setRevision(value => value + 1)}>刷新声音与连接</button>
       </Advanced>}
       {common && !node.options.speech_recipe_id && !source && provider && <button type="button" onClick={() => requestChange(freshGraphSpeechNode(node, provider, node.model && node.model !== 'default' ? node.model : undefined), '配置该引擎的明确声音来源将替换此节点已有简写声音参数。')}>配置声音来源</button>}
+      {common && !node.options.speech_recipe_id && source && !compatibleSource && provider && <button type="button" onClick={() => requestSpeechChange(freshGraphSpeechNode(node, provider, node.model && models.includes(node.model) ? node.model : undefined), '重新配置与当前引擎模型兼容的声音来源；确认后替换不兼容参数。')}>重新配置声音来源</button>}
       {common && !node.options.speech_recipe_id && source && <>
-        <div className="graph-param-actions"><span>{selectedConnection ? `运行配置：${selectedConnection.name}${selectedConnection.id === defaultConnection?.id ? '（此引擎默认）' : ''}` : source.connection_ref && source.connection_ref !== `engine-default-${node.provider}` ? '原连接已缺失，需重选' : provider?.connection_required ? '尚未选择运行配置' : '引擎默认环境'} · 未检查</span>{matchingConnections.length > 1 && <button type="button" aria-expanded={connectionChoice} onClick={() => setConnectionChoice(value => !value)}>更换运行配置</button>}</div>
+        {matchingConnections.length > 1 && <div className="graph-param-actions"><button type="button" aria-expanded={connectionChoice} onClick={() => setConnectionChoice(value => !value)}>更换运行配置</button></div>}
         {(connectionMissing || connectionChoice || !source.connection_ref && provider?.connection_required) && connectionControl}
-        {catalog && source.mode !== 'default' && <Field label={modeNames[source.mode] || '声音来源'}>
+        {compatibleSource && provider?.provider_id === 'fish_audio' && source.mode === 'hosted' && <FishVoicePicker connectionId={selectedConnection?.id || ''} value={source.variant.value} onSelect={changeValue} />}
+        {catalog && provider?.provider_id !== 'fish_audio' && source.mode !== 'default' && <Field label={modeNames[source.mode] || '声音来源'}>
           {source.variant.kind === 'reference' ? <select value={source.variant.value} onChange={event => changeValue(event.target.value)}>
             <option value="">选择已保存参考录音</option>
             {source.variant.value && !reference && <option value={source.variant.value}>原参考录音（不可用）</option>}
@@ -398,14 +409,14 @@ function SpeechParameters({ node, onChange, requestChange, requestEngineChange, 
             : <><input list={voiceList} value={source.variant.value} onChange={event => changeValue(event.target.value)} placeholder={catalog.description} />
               <datalist id={voiceList}>{catalog.presets.map(item => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</datalist></>}
         </Field>}
-        {catalog?.description && <p className="graph-param-note">{catalog.description}</p>}
+        {catalog?.description && provider?.provider_id !== 'fish_audio' && <details><summary>声音来源说明</summary><p className="graph-param-note">{catalog.description}</p></details>}
         {reference && <div className="graph-param-reference"><p>{reference.name || reference.id} · 参考录音语言：{reference.language === 'auto' || !reference.language ? '未明确' : languageNames[reference.language as GraphLanguage] || reference.language} · {reference.confirmed ? '原文已核对' : '原文未确认'}</p>
           <audio controls preload="none" src={speechApi.referenceAudio(reference.id)} aria-label="试听所选参考录音" />
           <p>参考原文（不翻译）：{reference.transcript || '未提供'}</p></div>}
         {fields.some(([key]) => commonKeys.has(key)) && <div className="graph-param-grid">{speechFields(true)}</div>}
       </>}
     </fieldset>
-    {issue && <p role="alert">{issue}</p>}
+    {issue && !(common && (connectionMissing || recipeMismatch || source && !compatibleSource)) && <p role="alert">{issue}</p>}
     {error && <button type="button" onClick={() => setRevision(value => value + 1)}>重试</button>}
   </div>
 }

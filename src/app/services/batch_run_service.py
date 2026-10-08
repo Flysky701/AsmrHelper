@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from src.core.batches import BatchRunItem, BatchRunRecord
+from src.core.speech.store import _reference_file_operation
 from src.utils.constants import AUDIO_EXTENSIONS
 
 from ..dto import PipelineRequest
@@ -168,6 +169,7 @@ class BatchRunService:
             for path in paths
         ]
 
+    @_reference_file_operation
     def create_batch(
         self,
         *,
@@ -427,6 +429,34 @@ class BatchRunService:
             self._start_monitor_locked(batch_id)
             return deepcopy(record)
 
+    def set_unsubmitted_item_removed(self, batch_id: str, item_id: str, *,
+                                     expected_updated_at: str, removed: bool) -> BatchRunRecord:
+        """Hide/restore only terminal items without child tasks; preserve all files."""
+        if type(removed) is not bool:
+            raise AppValidationError("请明确选择移除或恢复")
+        with self._lock:
+            original = self._require_locked(batch_id)
+            thread = self._threads.get(batch_id)
+            if (original.state not in BATCH_TERMINAL_STATES or thread is not None and thread.is_alive()
+                    or any(entry.state not in ITEM_TERMINAL_STATES for entry in original.items)):
+                raise AppValidationError("批次仍在运行或结束处理中，请稍后刷新")
+            if original.updated_at != expected_updated_at:
+                raise AppValidationError("批次记录已改变，请刷新后重新确认")
+            record = deepcopy(original)
+            item = next((entry for entry in record.items if entry.item_id == item_id), None)
+            if item is None:
+                raise AppValidationError("批次条目不存在")
+            if item.current_task_id or item.task_ids or item.state not in {"completed", "failed", "cancelled", "skipped"}:
+                raise AppValidationError("只能移除没有子任务 ID 的终态条目；已有任务请在任务中心删除历史")
+            item.removed = removed
+            record.updated_at = _now()
+            self._annotate_retry_locked(record)
+            # Persist a copy before publishing it; a failed save leaves live state intact.
+            if self._state_store is not None:
+                self._state_store.save_batch_run(record)
+            self._batches[batch_id] = record
+            return deepcopy(record)
+
     def retry_failed(self, batch_id: str) -> BatchRunRecord:
         with self._lock:
             record = self._require_locked(batch_id)
@@ -438,6 +468,7 @@ class BatchRunService:
                 item
                 for item in record.items
                 if item.state in {"failed", "cancelled"}
+                and not item.removed
             ]
             if not retry_items:
                 raise AppValidationError("batch run has no failed items to retry")
@@ -598,11 +629,13 @@ class BatchRunService:
             raise AppValidationError("input materials changed since submission; submit a new batch")
 
     def _annotate_retry_locked(self, record: BatchRunRecord) -> None:
-        candidates = [item for item in record.items if item.state in {"failed", "cancelled"}]
+        candidates = [item for item in record.items if item.state in {"failed", "cancelled"} and not item.removed]
         active = record.state not in BATCH_TERMINAL_STATES
         for item in record.items:
             reason = None
-            if item.state not in {"failed", "cancelled"}:
+            if item.removed:
+                reason = "此条目已移除，请先恢复"
+            elif item.state not in {"failed", "cancelled"}:
                 reason = "only failed or cancelled groups can be retried"
             elif active:
                 reason = "batch run is still active"

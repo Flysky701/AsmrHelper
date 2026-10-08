@@ -8,6 +8,7 @@ import { FILE_FILTERS } from '@/hooks/useFileSelector'
 import { useReferenceField, useReferenceSessionStore, startReferenceAnalysis } from '@/stores/referenceSessionStore'
 import './ReferenceLibrary.css'
 import ClipTranscription from './ClipTranscription'
+import { SpeechCleanupButton } from './SpeechCleanup'
 import { playbackBoundary } from './referencePlayback'
 import { confidenceLabel, hasTimestamp, selectionFromSegment } from './referenceAnalysis'
 
@@ -178,6 +179,16 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   }
 
   return <div className="reference-library">
+    <SpeechCleanupButton kind="staging" itemId="all" label="清理无引用暂存" disabled={!!busy || !!source || !!preview} onChanged={refresh} />
+    {(source || preview) && <button type="button" disabled={!!busy} onClick={async () => {
+      const session = useReferenceSessionStore.getState()
+      if (session.clipSubmitting || [session.analysisTask, session.clipTask].some(task => task && !['completed', 'failed', 'cancelled', 'skipped'].includes(task.state))) {
+        setError('请先等待或取消当前识别任务，再结束编辑。'); return
+      }
+      if (!await confirmAction('结束当前录音编辑并放弃尚未保存的草稿？已保存录音和原文件保持不变。')) return
+      audio.current?.pause()
+      useReferenceSessionStore.setState(useReferenceSessionStore.getInitialState())
+    }}>结束编辑并重置草稿</button>}
     <input ref={fileInput} hidden type="file" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,.wma" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) upload(file) }} />
     <input ref={subtitleInput} hidden type="file" accept=".srt,.vtt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run('读取字幕', async () => {
       if (file.size > 5 * 1024 * 1024) throw new Error('字幕文件不能超过 5 MiB')
@@ -297,7 +308,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
           }}><label className="field">名称<input name="name" required defaultValue={stored.name || ''} /></label><label className="field">备注<input name="notes" defaultValue={stored.notes || ''} /></label><button type="submit">更新名称与备注</button><p className="muted">修改原文或音频时，可通过“截取／处理为新录音”另存新条目。</p></form><div className="row"><a href={speechApi.referenceAudio(stored.id, false, true)} download>导出录音</a><button onClick={() => void run('载入录音', async () => {
             const item = stored; load(await speechApi.inspect(item.path), (item.name || '参考录音') + ' · 副本')
             setDraft(value => ({ ...value, transcript: item.transcript, language: item.language, confirmed: item.confirmed || false, notes: item.notes || '' }))
-          })}>截取／处理为新录音</button><button onClick={() => void run(stored.archived ? '恢复录音' : '归档录音', async () => { const updated = await speechApi.updateReference(stored.id, { archived: !stored.archived }); setStored(updated); await refresh() })}>{stored.archived ? '恢复录音' : '归档录音'}</button></div></details>
+          })}>截取／处理为新录音</button><button onClick={() => void run(stored.archived ? '恢复录音' : '归档录音', async () => { const updated = await speechApi.updateReference(stored.id, { archived: !stored.archived }); setStored(updated); await refresh() })}>{stored.archived ? '恢复录音' : '归档录音'}</button>{stored.archived && <SpeechCleanupButton kind="assets" itemId={stored.id} label="清理已归档录音" disabled={!!busy} onChanged={async () => { setStored(null); await refresh() }} />}</div></details>
         </section>}
       </section>
     </div></fieldset>

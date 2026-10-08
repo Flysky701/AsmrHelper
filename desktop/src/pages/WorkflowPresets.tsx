@@ -1,5 +1,6 @@
 import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useRef, useState } from 'react'
+import { useSpeechPresetHandoffStore } from '@/stores/speechPresetHandoffStore'
 import type { GraphPresetItem, PresetItem } from '@/api/types'
 import WorkflowEditor from '@/components/workflow/WorkflowEditor'
 import GraphNodeParameters from '@/components/workflow/GraphNodeParameters'
@@ -44,6 +45,7 @@ export default function WorkflowPresets() {
         setNotice('正在处理预设，请稍候再离开。')
         return false
       }
+      if (useSpeechPresetHandoffStore.getState().navigating) return true
       if (current.current.editor && editorDirty(current.current.editor)
           && !await confirmAction('流水线有未保存的修改。离开后将放弃这些修改，工作台素材草稿会保留。继续离开？')) return false
       useWorkflowStore.getState().closeEditor()

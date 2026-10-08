@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+import sys
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -79,5 +83,13 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health():
         return {"status": "ok", "version": "0.2.1-beta.5"}
+
+    if os.environ.get("ASMR_HELPER_DEV_SESSION"):
+        @app.get("/__dev/identity", include_in_schema=False)
+        def development_identity():
+            from src.config import PROJECT_ROOT
+            return {"session": os.environ["ASMR_HELPER_DEV_SESSION"],
+                    "source_root": str(Path(__file__).resolve().parents[3]),
+                    "workspace": str(PROJECT_ROOT), "python": sys.executable, "pid": os.getpid()}
 
     return app

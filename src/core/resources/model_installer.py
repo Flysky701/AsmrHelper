@@ -13,7 +13,8 @@ from src.config import PROJECT_ROOT
 from src.workspace_paths import freeze_directories
 
 from .model_catalog import ModelEntry
-from .model_status import ModelState, ModelStatusResolver
+from .model_status import ModelStatusResolver
+from .model_removal import removal_evidence, track_owned_install
 
 logger = logging.getLogger(__name__)
 
@@ -40,32 +41,56 @@ class ModelDownloadError(RuntimeError):
 
 
 class ModelInstaller:
+    @staticmethod
+    def _guard_shared(entry):
+        from .model_assets import shared
+        if shared(entry):
+            raise ValueError('共享模型为只读，不能覆盖或删除；请解除引用或使用本项目管理的模型目录')
+
+    @staticmethod
+    def _reuse_shared(entry, force):
+        from .model_assets import shared, complete
+        if not shared(entry):
+            return False
+        if not force and complete(entry, entry.resolved_install_dir()):
+            return True
+        ModelInstaller._guard_shared(entry)
+        return False
+
+    @staticmethod
+    def _weights_present(entry):
+        from .model_assets import complete
+        return complete(entry, entry.resolved_install_dir())
+
     def __init__(self, project_root: Path | None = None):
         self.project_root = project_root or PROJECT_ROOT
         self._status = ModelStatusResolver()
 
     def verify_local_model(self, entry: ModelEntry) -> bool:
-        return self._status.resolve(entry).status == ModelState.INSTALLED
+        from .model_assets import complete
+        return complete(entry, entry.resolved_install_dir())
 
     def remove_local_model(self, entry: ModelEntry) -> None:
+        self._guard_shared(entry)
         if entry.kind != "local":
             raise ValueError(f"cloud models cannot be removed: {entry.id}")
         if not entry.supports_remove:
             raise ValueError(f"model cannot be removed: {entry.id}")
 
-        install_dir = entry.resolved_install_dir()
-        if install_dir.exists():
-            shutil.rmtree(install_dir)
+        install_dir, _ = removal_evidence(entry)
+        shutil.rmtree(install_dir)
 
     @freeze_directories
+    @track_owned_install
     def install_local_model(self, entry: ModelEntry, mirror: Optional[str] = None, force: bool = False) -> bool:
         if entry.kind != "local":
             raise ValueError(f"cloud models cannot be installed: {entry.id}")
         if not entry.supports_install:
             raise ValueError(f"model cannot be installed: {entry.id}")
 
-        status = self._status.resolve(entry)
-        if status.status == ModelState.INSTALLED and not force:
+        if self._reuse_shared(entry, force):
+            return True
+        if self._weights_present(entry) and not force:
             return True
 
         install_dir = entry.resolved_install_dir()
@@ -79,11 +104,36 @@ class ModelInstaller:
         if strategy == "huggingface_snapshot":
             return self._download_huggingface_snapshot(entry, mirror)
         if strategy == "package":
-            return self.verify_local_model(entry)
+            return self._download_demucs(entry) if entry.provider == "demucs" else self.verify_local_model(entry)
         raise ValueError(f"unknown install strategy: {strategy}")
 
     def _download_whisper(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
         return self.install_with_progress(entry, mirror=mirror, force=True)
+
+    def _download_demucs(self, entry, on_progress=None):
+        from .model_assets import DEMUCS_FILES
+        from urllib.request import urlopen
+        import hashlib
+        self._guard_shared(entry)
+        target = entry.resolved_install_dir()
+        target.mkdir(parents=True, exist_ok=True)
+        files = DEMUCS_FILES[entry.upstream_name or 'htdemucs']
+        for index, name in enumerate(files):
+            path = target / name
+            if path.is_file() and path.stat().st_size:
+                continue
+            if on_progress:
+                on_progress(index / len(files), f'下载缺失权重 {name}')
+            pending = path.with_suffix('.partial')
+            digest = hashlib.sha256()
+            with urlopen('https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/' + name, timeout=60) as response, pending.open('wb') as output:
+                while chunk := response.read(1024 * 1024):
+                    output.write(chunk)
+                    digest.update(chunk)
+            if not digest.hexdigest().startswith(name.split('-')[1].split('.')[0]):
+                raise ModelDownloadError(f'权重校验失败：{name}')
+            pending.replace(path)
+        return True
 
     def _download_qwen3(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
         env = self._build_download_env(mirror)
@@ -143,6 +193,7 @@ class ModelInstaller:
     # ── Async install with progress ──────────────────────────────────
 
     @freeze_directories
+    @track_owned_install
     def install_with_progress(
         self,
         entry: ModelEntry,
@@ -164,16 +215,22 @@ class ModelInstaller:
 
         strategy = entry.install_strategy
         if strategy == "package":
+            if self._reuse_shared(entry, force):
+                return True
             installed = self.verify_local_model(entry)
+            if entry.provider == "demucs" and (force or not installed):
+                installed = self._download_demucs(entry, on_progress)
             if on_progress:
                 on_progress(
                     1.0 if installed else 0.0,
-                    "runtime packages installed" if installed else "runtime packages unavailable",
+                    ("weights available" if installed else "weights unavailable") if entry.provider == "demucs"
+                    else ("runtime packages installed" if installed else "runtime packages unavailable"),
                 )
             return installed
 
-        status = self._status.resolve(entry)
-        if status.status == ModelState.INSTALLED and not force:
+        if self._reuse_shared(entry, force):
+            return True
+        if self._weights_present(entry) and not force:
             if on_progress:
                 on_progress(1.0, "already installed")
             return True

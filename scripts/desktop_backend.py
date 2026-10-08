@@ -62,8 +62,17 @@ def configure_environment(bundle: Path, data: Path) -> None:
     sys.path.insert(0, str(bundle / "app"))
     os.chdir(data)
 
-def serve(bundle: Path, data: Path, port: int, token: str) -> None:
-    configure_environment(bundle, data)
+def serve(bundle: Path, data: Path, port: int, token: str, *, source_root: Path | None = None) -> None:
+    if source_root is None:
+        configure_environment(bundle, data)
+    else:
+        # Local desktop mode reuses the project's interpreter, models and config.
+        # It must never prepare/copy an installation runtime or relocate caches.
+        os.environ["ASMR_HELPER_DATA_DIR"] = str(source_root)
+        os.environ["ASMR_HELPER_STATE_DB"] = str(source_root / "state.sqlite3")
+        os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+        sys.path.insert(0, str(source_root))
+        os.chdir(source_root)
     from src.api.http.logging_config import configure_backend_logging
     configure_backend_logging(data / "logs")
     import uvicorn
@@ -72,6 +81,9 @@ def serve(bundle: Path, data: Path, port: int, token: str) -> None:
     from src.api.http.app import create_app
     app = create_app()
     app.version = VERSION
+    # Captured at process startup; never pretend an old process loaded later edits.
+    build_identity = {key: os.environ.get("ASMR_HELPER_BUILD_" + suffix) for key, suffix in
+                      (("sha256", "SHA256"), ("source_fingerprint", "SOURCE"), ("built_at_utc", "TIME"), ("executable", "EXE"))}
     @app.middleware("http")
     async def authorize(request: Request, call_next):
         # OPTIONS carries no user operation; CORS still validates the origin.
@@ -85,7 +97,9 @@ def serve(bundle: Path, data: Path, port: int, token: str) -> None:
     server = uvicorn.Server(config)
     @app.get("/__desktop/health")
     def desktop_health():
-        return {"status": "ok", "version": VERSION}
+        return {"status": "ok", "version": VERSION,
+                "source_root": str(source_root) if source_root else None,
+                "workspace": str(data), "python": sys.executable, "pid": os.getpid(), "build": build_identity}
     @app.get("/__desktop/workspace-switch-ready")
     def workspace_switch_ready():
         from src.app.services.task_service import get_task_service
@@ -105,7 +119,19 @@ def main() -> int:
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--serve", action="store_true")
+    parser.add_argument("--source-root", type=Path)
     args = parser.parse_args()
+    if args.source_root is not None:
+        root = args.source_root.resolve(strict=True)
+        if root != Path(__file__).resolve().parents[1] or not (root / "src/api/http/app.py").is_file():
+            raise RuntimeError("Local desktop must use this script's project source")
+        token = os.environ.get("ASMR_HELPER_DESKTOP_TOKEN", "")
+        if len(token) < 32:
+            raise RuntimeError("A per-launch desktop token is required")
+        if os.environ.get("ASMR_HELPER_START_GATE") == "1" and sys.stdin.readline().strip() != "start":
+            raise RuntimeError("Desktop process did not authorize startup")
+        serve(root, root, args.port, token, source_root=root)
+        return 0
     bundle = extended_path(Path(__file__).resolve().parent.parent)
     data = extended_path(args.data_dir.resolve())
     if data == bundle or bundle in data.parents:

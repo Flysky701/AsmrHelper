@@ -174,3 +174,10 @@ translation_cache/
 
 # Generated portable Windows installer resources
 desktop/src-tauri/bundle-resources/
+
+# Local recovery checkpoints and machine-specific maintenance evidence
+/audit/local-maintenance/
+/config/dev-runtime-sources.json
+/config/model_sources.json
+/*.sqlite3
+/*.sqlite3-*

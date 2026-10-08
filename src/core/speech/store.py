@@ -24,7 +24,7 @@ from typing import Any
 from uuid import uuid4
 
 
-COLLECTIONS = frozenset({"voices", "recipes", "experiments", "takes", "selections", "assemblies", "assets", "plans", "connections", "imports", "rule_states"})
+COLLECTIONS = frozenset({"voices", "recipes", "experiments", "takes", "selections", "assemblies", "assets", "plans", "connections", "imports", "rule_states", "fish_clones"})
 IMMUTABLE = frozenset({"recipes", "takes", "plans", "assets", "assemblies"})
 _LOCKS: dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -46,6 +46,17 @@ def reference_file_guard():
 def _reference_file_operation(method):
     @wraps(method)
     def guarded(*args, **kwargs):
+        with reference_file_guard():
+            return method(*args, **kwargs)
+    return guarded
+
+
+def reference_submission_operation(method):
+    """Batch admission already holds its own reference lease; avoid lock inversion."""
+    @wraps(method)
+    def guarded(*args, **kwargs):
+        if str(kwargs.get("task_source", "")).startswith("batch-run:"):
+            return method(*args, **kwargs)
         with reference_file_guard():
             return method(*args, **kwargs)
     return guarded

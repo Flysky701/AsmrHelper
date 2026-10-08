@@ -19,7 +19,7 @@ const EMPTY_PATHS: Paths = { output_dir: '', vtt_dir: '', model_cache_dir: '', t
 const PATH_FIELDS: { key: keyof Paths; label: string; placeholder: string; hint: string; compatibility?: boolean }[] = [
   { key: 'output_dir', label: '输出目录', placeholder: '留空使用工作区 / output', hint: '默认结果位置；任务指定的输出位置优先。' },
   { key: 'vtt_dir', label: 'VTT 字幕目录', placeholder: '留空保留默认配置', hint: '兼容字段；节点流水线仍在工作台指定字幕输入。', compatibility: true },
-  { key: 'model_cache_dir', label: '模型缓存目录', placeholder: '留空使用工作区 / models', hint: '修改目录不会搬移已安装的模型文件。' },
+  { key: 'model_cache_dir', label: '默认模型目录', placeholder: '留空使用工作区 / models', hint: '外部目录只读；缺失权重下载到本项目 models。' },
   { key: 'temp_dir', label: '临时文件目录', placeholder: '留空使用工作区 / debug / runtime', hint: '供工作区会话存放处理中间文件。' },
 ]
 const reason = (error: unknown) => error instanceof Error ? error.message : String(error)
@@ -213,7 +213,7 @@ export default function Settings() {
       <nav className="settings-categories" aria-label="设置分类">
         <button type="button" aria-current={category === 'presets' ? 'page' : undefined} onClick={() => setCategory('presets')}><Icon kind="graph" /><span>预设管理<small>复用流水线</small></span></button>
         <button type="button" aria-current={category === 'paths' ? 'page' : undefined} onClick={() => setCategory('paths')}><Icon kind="folder" /><span>文件与缓存<small>输出与存储位置</small></span></button>
-      </nav><p className="settings-sidebar-foot">● 与工作台共用</p>
+      </nav>
     </aside>
     <main className="settings-main" aria-label="设置内容">
       <header className="settings-header page-heading"><div className="page-heading__copy"><h2 className="panel-title">{category === 'presets' ? '预设管理' : '文件与缓存'}</h2><p className="settings-description page-description">{category === 'presets' ? '工作台共用的流水线，集中查看与维护。' : '留空沿用工作区默认位置。'}</p></div>

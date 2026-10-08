@@ -17,7 +17,12 @@ mod single_instance {
 
     impl InstanceMutex {
         pub fn acquire() -> Result<Self, u32> {
-            let name: Vec<u16> = "Local\\ASMRHelper.Test.Desktop.SingleInstance"
+            let mutex_name = if std::env::var_os("ASMR_HELPER_SOURCE_ROOT").is_some() {
+                "Local\\ASMRHelper.MainSource.Desktop.SingleInstance"
+            } else {
+                "Local\\ASMRHelper.Test.Desktop.SingleInstance"
+            };
+            let name: Vec<u16> = mutex_name
                 .encode_utf16()
                 .chain(iter::once(0))
                 .collect();
@@ -125,7 +130,9 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("ASMR Helper Test 0.2.1-beta.5")
+            .title(if std::env::var_os("ASMR_HELPER_SOURCE_ROOT").is_some() {
+                "ASMR Helper · 主项目"
+            } else { "ASMR Helper Test 0.2.1-beta.5" })
             .inner_size(1200.0, 800.0)
             .min_inner_size(900.0, 600.0)
             .center();

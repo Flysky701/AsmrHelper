@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 
 import { batchesApi } from '@/api/batches'
-import type { BatchRunResponse, BatchRunState } from '@/api/types'
+import type { RemovableBatchRunResponse as BatchRunResponse } from '@/api/batches'
+import type { BatchRunState } from '@/api/types'
+import { confirmAction } from '@/utils/confirmAction'
 
 const ACTIVE_BATCH_STATES = new Set<BatchRunState>(['pending', 'running', 'cancelling'])
 const CANCELLABLE_BATCH_STATES = new Set<BatchRunState>(['pending', 'running'])
@@ -169,7 +171,7 @@ function sortBatches(batches: BatchRunResponse[]) {
 
 function isRetryable(batch: BatchRunResponse | null) {
   return Boolean(batch && batch.retry_available !== false && !ACTIVE_BATCH_STATES.has(batch.state)
-    && batch.items.some(item => item.state === 'failed' || item.state === 'cancelled') && (
+    && batch.items.some(item => !item.removed && (item.state === 'failed' || item.state === 'cancelled')) && (
     batch.failed_count > 0 ||
     batch.cancelled_count > 0
   ))
@@ -183,12 +185,21 @@ export default function BatchRunsPanel() {
   const [pollError, setPollError] = useState('')
   const [actionError, setActionError] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
+  const [showRemoved, setShowRemoved] = useState(false)
+  const [notice, setNotice] = useState('')
+  const removalPending = useRef(false)
   const historyRequestRef = useRef(0)
+  const visibleBatches = useMemo(() => batches.filter(batch => showRemoved || batch.items.some(item =>
+    !item.removed && (item.state !== 'history_deleted' || item.task_ids.length > 0))), [batches, showRemoved])
 
   const selectedBatch = useMemo(
-    () => batches.find((batch) => batch.batch_id === selectedBatchId) ?? null,
-    [batches, selectedBatchId],
+    () => visibleBatches.find((batch) => batch.batch_id === selectedBatchId) ?? null,
+    [visibleBatches, selectedBatchId],
   )
+  useEffect(() => {
+    setSelectedBatchId(current => visibleBatches.some(batch => batch.batch_id === current)
+      ? current : visibleBatches[0]?.batch_id ?? null)
+  }, [visibleBatches])
 
   const upsertBatch = useCallback((updated: BatchRunResponse) => {
     setBatches((current) => {
@@ -280,6 +291,23 @@ export default function BatchRunsPanel() {
 
   const retryable = isRetryable(selectedBatch)
 
+  const changeItemRemoval = async (batch: BatchRunResponse, item: BatchRunResponse['items'][number]) => {
+    if (removalPending.current || actionBusy) return
+    removalPending.current = true
+    setActionBusy(true); setActionError(''); setNotice('')
+    try {
+      if (!await confirmAction(`${item.removed ? '恢复' : '删除'}批次条目“${item.label || fileName(item.input_path)}”？\n仅改变本地记录显示，可恢复；不会提交、取消服务端任务，也不删除输入素材或产物。`)) return
+      historyRequestRef.current += 1
+      const updated = await batchesApi.setItemRemoved(batch.batch_id, item.item_id, batch.updated_at, !item.removed)
+      if (updated.batch_id !== batch.batch_id || updated.items.find(entry => entry.item_id === item.item_id)?.removed !== !item.removed)
+        throw new Error('批次删除响应归属不匹配，请刷新核对')
+      historyRequestRef.current += 1
+      setLoadingHistory(false); upsertBatch(updated)
+      setNotice(item.removed ? '条目已恢复，未重新提交任务。' : '条目已移除，原文件保留。勾选“显示已移除条目”可恢复；全部条目移除的批次也会从正常列表隐藏。')
+    } catch (error) { setActionError(`操作未确认完成，请刷新后核对：${String(error)}`) }
+    finally { removalPending.current = false; setActionBusy(false); setLoadingHistory(false) }
+  }
+
   return (
     <div className="batch-runs-panel">
       <style>{BATCH_RUNS_PANEL_STYLES}</style>
@@ -288,11 +316,14 @@ export default function BatchRunsPanel() {
         <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
             <div style={{ fontSize: 14, fontWeight: 700 }}>批次历史</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{batches.length} 个批次</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{visibleBatches.length} 个批次</div>
           </div>
+          <label style={{ display: 'block', marginTop: 10, fontSize: 12 }}><input type="checkbox" checked={showRemoved} disabled={actionBusy} onChange={event => setShowRemoved(event.target.checked)} />显示已移除条目（可恢复）</label>
+          <button type="button" style={{ ...BUTTON_STYLE, marginTop: 8 }} disabled={actionBusy || loadingHistory} onClick={() => void loadHistory()}>刷新历史</button>
           <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-            进入此视图时加载一次；活动批次仅在选中后持续刷新。
+          选中批次可查看最新进度。
           </div>
+          {(notice || actionError) && <p role="status" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{actionError || notice}</p>}
         </div>
 
         {historyError ? (
@@ -305,15 +336,15 @@ export default function BatchRunsPanel() {
         ) : null}
 
         <div className="batch-runs-history-list">
-          {loadingHistory && batches.length === 0 ? (
+          {loadingHistory && visibleBatches.length === 0 ? (
             <div style={{ minHeight: 180, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 13 }}>
               正在读取批次历史…
             </div>
-          ) : batches.length === 0 ? (
+          ) : visibleBatches.length === 0 ? (
             <div style={{ minHeight: 180, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>
-              还没有批次。多文件任务会在这里形成可恢复查看的批次事实。
+              没有可显示的批次。已移除条目可勾选上方选项后恢复。
             </div>
-          ) : batches.map((batch) => {
+          ) : visibleBatches.map((batch) => {
             const selected = batch.batch_id === selectedBatchId
             return (
               <button
@@ -362,7 +393,7 @@ export default function BatchRunsPanel() {
       <section className="batch-runs-detail" style={SURFACE_STYLE}>
         {!selectedBatch ? (
           <div style={{ minHeight: 340, display: 'grid', placeItems: 'center', padding: 28, color: 'var(--muted)', textAlign: 'center' }}>
-            选择一个批次查看聚合进度、子任务事实与可用操作。
+          选择一个批次查看进度。
           </div>
         ) : (
           <>
@@ -435,7 +466,7 @@ export default function BatchRunsPanel() {
               </div>
 
               <div className="batch-runs-item-list">
-                {selectedBatch.items.map((item) => {
+                {selectedBatch.items.filter(item => showRemoved || !item.removed).map((item) => {
                   const historyDeleted = item.state === 'history_deleted'
                   const errorMessage = historyDeleted ? '' : itemErrorMessage(item.error, item.message)
                   return (
@@ -458,12 +489,15 @@ export default function BatchRunsPanel() {
                       </div>
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10 }}>
-                          <span style={{ color: stateColor(item.state), fontWeight: 700 }}>{STATE_LABELS[item.state] || item.state}</span>
+                          <span style={{ color: stateColor(item.state), fontWeight: 700 }}>{item.removed ? '已移除' : STATE_LABELS[item.state] || item.state}</span>
                           {!historyDeleted && <span>{progressPercent(item.progress)}%</span>}
                         </div>
                         {!historyDeleted && <div style={{ marginTop: 6, height: 5, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
                           <div style={{ height: '100%', width: `${progressPercent(item.progress)}%`, background: stateColor(item.state) }} />
                         </div>}
+                        {!item.current_task_id && !item.task_ids.length && ['completed', 'failed', 'cancelled', 'skipped'].includes(item.state) &&
+                          <button type="button" style={{ ...BUTTON_STYLE, marginTop: 8 }} disabled={actionBusy || ACTIVE_BATCH_STATES.has(selectedBatch.state)}
+                            onClick={() => void changeItemRemoval(selectedBatch, item)}>{item.removed ? '恢复条目' : '删除条目…'}</button>}
                       </div>
                     </div>
                   )

@@ -2,7 +2,8 @@ import { api, apiUrl } from './client'
 import type { TaskStatusResponse } from './types'
 
 export type Delivery = 'normal' | 'soft' | 'whisper'
-export interface HostedVoicePage { items: { id: string; name: string }[]; page: number; page_size: number; has_more: boolean; notice: string }
+export type FishVoiceScope = 'workspace' | 'mine_public' | 'public'
+export interface HostedVoicePage { items: { id: string; name: string }[]; page: number; page_size: number; has_more: boolean; notice: string; scope?: FishVoiceScope }
 export type VariantKind = 'hosted' | 'builtin' | 'reference' | 'design' | 'default'
 export interface VoiceVariant { kind: VariantKind; value: string; style: Delivery }
 export interface WorkbenchSpeechSource {
@@ -18,6 +19,12 @@ export interface SpeechVoice { id: string; name: string; description: string; bi
 export interface SpeechRecipe { id: string; revision: number; name: string; description?: string; voice_id: string; provider_id: string; model: string; mode: string; connection_ref: string; variant: VoiceVariant; language: string; provider_options: Record<string, unknown>; archived?: boolean; default_delivery?: Delivery; default_emotion?: string; default_pause_ms?: number }
 export type SpeechRecipeDraft = Pick<SpeechRecipe, 'name' | 'description' | 'provider_id' | 'model' | 'mode' | 'connection_ref' | 'variant' | 'language' | 'provider_options' | 'default_delivery' | 'default_emotion' | 'default_pause_ms'>
 export type SpeechRecipeInput = { recipe_id: string; recipe_draft?: never } | { recipe_draft: SpeechRecipeDraft; recipe_id?: never }
+export interface SpeechOverrides {
+  provider_options?: Record<string, unknown>
+  default_delivery?: Delivery
+  default_emotion?: string
+  default_pause_ms?: number
+}
 export function speechRecipeDraft(recipe: SpeechRecipe): SpeechRecipeDraft {
   return { name: recipe.name, description: recipe.description, provider_id: recipe.provider_id, model: recipe.model, mode: recipe.mode,
     connection_ref: recipe.connection_ref, variant: { ...recipe.variant }, language: recipe.language, provider_options: structuredClone(recipe.provider_options),
@@ -58,6 +65,7 @@ export interface SpeechAssembly { id: string; experiment_id: string; revision?: 
 export interface OptionSchema { type?: string; title?: string; description?: string; enum?: (string | number)[]; default?: unknown; minimum?: number; maximum?: number; maxLength?: number; const?: unknown; applies_to_modes?: string[] }
 export interface SpeechMode {
   id: string
+  runtime_options?: string[]
   variant_kinds: VariantKind[]
   models: string[]
   capabilities?: Record<string, unknown>
@@ -102,8 +110,8 @@ export const speechApi = {
   previewConnectionDeletion: (id: string) => api.post<SpeechConnectionDeletionPreview>(`/speech/connections/${encodeURIComponent(id)}/deletion-preview`, {}),
   executeConnectionDeletion: (id: string, token: string, action: 'replace' | 'detach', replacement_ref?: string) => api.post<SpeechConnectionDeletionResult>(`/speech/connections/${encodeURIComponent(id)}/deletion-execute`, { token, action, ...(replacement_ref ? { replacement_ref } : {}) }),
   localConnection: (provider_id: string, model: string, mode: string) => api.post<LocalSpeechConnection>('/speech/connections/local-default', { provider_id, model, mode }),
-  hostedVoices: (connectionId: string, title: string, page: number, workspaceOnly: boolean) => {
-    const query = new URLSearchParams({ title, page: String(page), page_size: '20', workspace_only: String(workspaceOnly) })
+  hostedVoices: (connectionId: string, title: string, page: number, scope: FishVoiceScope | boolean) => {
+    const query = new URLSearchParams({ title, page: String(page), page_size: '20', scope: typeof scope === 'boolean' ? scope ? 'workspace' : 'public' : scope })
     return api.get<HostedVoicePage>(`/speech/connections/${encodeURIComponent(connectionId)}/voices?${query}`)
   },
   voice: ({ id, ...voice }: Omit<SpeechVoice, 'id'> & { id?: string }) => api.post<SpeechVoice>('/speech/voices', { ...voice, ...(id ? { id } : {}) }),
