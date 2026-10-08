@@ -1,5 +1,6 @@
 """All fixtures live under tmp_path; never inspect/delete user voice data."""
 from contextlib import nullcontext
+from copy import deepcopy
 from types import SimpleNamespace
 from uuid import uuid4
 import json
@@ -314,3 +315,118 @@ def test_completed_batch_frozen_reference_stays_protected(cleanup):
     cleanup.batches = SimpleNamespace(history_deletion_guard=nullcontext,
         history_snapshot=lambda: [SimpleNamespace(state="completed")], _graph_snapshots={"batch": {"take": "take"}})
     assert cleanup.preview("experiments", "experiment")["blockers"]
+
+
+def completed_connection_replacement(cleanup):
+    """Produce an actual store receipt entirely inside the temporary fixture."""
+    audio = experiment(cleanup)
+    recipe = {"id": "recipe", "name": "Fixture", "revision": 1, "voice_id": "voice",
+              "provider_id": "qwen3", "model": "qwen3-base", "mode": "reference",
+              "connection_ref": "old", "variant": {"kind": "reference", "value": "asset"},
+              "provider_options": {"schema_version": 1}}
+    request = {key: recipe[key] for key in ("provider_id", "model", "mode")}
+    request["recipe_id"] = recipe["id"]
+    seed(cleanup, recipes=[recipe], voices=[{"id": "voice"}],
+         connections=[{"id": "old", "provider_id": "qwen3"}, {"id": "replacement", "provider_id": "qwen3"}],
+         rule_states=[{"id": "recipe", "archived": True}],
+         takes=[{**cleanup.store.get("takes", "take"), "recipe_id": "recipe", "compiled_request": request}])
+    token = cleanup.store._connection_signature(cleanup.store._read())
+    receipt = cleanup.store.prepare_connection_deletion("old", token, "replace", "replacement",
+        request_token="review-token", catalog_token="catalog-token", recipe_ids=["recipe"])
+    cleanup.store.finalize_connection_deletion(receipt)
+    return audio, recipe, cleanup.store.connection_deletion_receipt("review-token")
+
+
+def test_completed_connection_receipt_survives_rule_deletion_and_replays_without_lookup(cleanup, monkeypatch):
+    from src.app.services.speech_connection_service import SpeechConnectionService
+    audio, recipe, receipt = completed_connection_replacement(cleanup)
+    before = cleanup.store.path.read_bytes()
+    preview = cleanup.preview("recipes", "recipe")
+    assert preview["blockers"] == [] and preview["files"] == []
+    assert preview["records"] == {"voices": 1, "recipes": 2, "rule_states": 1}
+    assert cleanup.store.path.read_bytes() == before
+    cleanup.execute("recipes", "recipe", preview["token"], True)
+    reopened = SpeechStore(cleanup.store.root)
+    assert reopened.list("recipes") == [] and reopened.list("voices") == []
+    assert reopened.get("takes", "take")["recipe_snapshot"] == recipe
+    assert reopened.connection_deletion_receipt("review-token") == receipt
+    assert audio.read_bytes() == b"fixture audio"
+    assert reopened.get("connections", "replacement")["id"] == "replacement"
+    def forbidden(*args, **kwargs):
+        pytest.fail("Completed replay must not look up rules, migrate workflows or write")
+    monkeypatch.setattr(reopened, "get", forbidden)
+    monkeypatch.setattr(reopened, "_write", forbidden)
+    monkeypatch.setattr(reopened, "connection_deletion_preview", forbidden)
+    service = SpeechConnectionService(SimpleNamespace(store=reopened), SimpleNamespace(speech_connection_references=forbidden))
+    assert service.execute("old", token="review-token", action="replace", replacement_ref="replacement") == {
+        **receipt["result"], "updated_presets": []}
+    assert reopened.finalize_connection_deletion(receipt) == receipt["result"]
+
+
+@pytest.mark.parametrize("problem", ["prepared", "missing_result", "mismatched_result", "mismatched_mapping",
+    "boolean_revision", "unknown_receipt", "unknown_result", "unknown_revision", "catalog_reference",
+    "default_reference", "wrong_token", "malformed_ids", "malformed_row", "malformed_defaults"])
+def test_unproven_connection_receipt_references_remain_blockers(cleanup, problem):
+    completed_connection_replacement(cleanup)
+    state = cleanup.store._read()
+    receipt = state["connection_deletions"]["review-token"]
+    if problem == "prepared":
+        receipt["state"] = "prepared"
+    elif problem == "missing_result":
+        del receipt["result"]
+    elif problem == "mismatched_result":
+        receipt["result"]["recipe_revisions"] = []
+    elif problem == "mismatched_mapping":
+        receipt["recipe_id_map"] = {"recipe": "wrong"}
+    elif problem == "boolean_revision":
+        receipt["recipe_revisions"][0]["revision"] = True
+        receipt["result"]["recipe_revisions"] = deepcopy(receipt["recipe_revisions"])
+    elif problem == "unknown_receipt":
+        receipt["future_dependency"] = {"recipe_id": "recipe"}
+    elif problem == "unknown_result":
+        receipt["result"]["future_dependency"] = "recipe"
+    elif problem == "unknown_revision":
+        receipt["recipe_revisions"][0]["future_dependency"] = "recipe"
+        receipt["result"]["recipe_revisions"] = deepcopy(receipt["recipe_revisions"])
+    elif problem == "catalog_reference":
+        receipt["catalog_references"] = [{"recipe_id": "recipe"}]
+    elif problem == "default_reference":
+        receipt["result"]["defaults"] = [{"future_dependency": "recipe"}]
+    elif problem == "wrong_token":
+        receipt["request_token"] = "another"
+    elif problem == "malformed_ids":
+        receipt["recipe_ids"] = [{"recipe": "recipe"}]
+    elif problem == "malformed_defaults":
+        receipt["result"]["defaults"] = [None]
+    else:
+        receipt["recipe_revisions"] = [None]
+        receipt["result"]["recipe_revisions"] = [None]
+    cleanup.store._write(state)
+    before = cleanup.store.path.read_bytes()
+    preview = cleanup.preview("recipes", "recipe")
+    assert any("connection_deletions" in blocker for blocker in preview["blockers"])
+    with pytest.raises(ValueError):
+        cleanup.execute("recipes", "recipe", preview["token"], True)
+    assert cleanup.store.path.read_bytes() == before
+
+
+def test_rule_delete_and_legacy_snapshot_publish_in_one_atomic_write(cleanup, monkeypatch):
+    audio, recipe, receipt = completed_connection_replacement(cleanup)
+    preview = cleanup.preview("recipes", "recipe")
+    before = cleanup.store.path.read_bytes()
+    def fail_replace(*args):
+        raise OSError("fixture atomic publication failure")
+    with monkeypatch.context() as patch:
+        patch.setattr("src.core.speech.store.os.replace", fail_replace)
+        with pytest.raises(ValueError, match="记录保存失败"):
+            cleanup.execute("recipes", "recipe", preview["token"], True)
+    assert cleanup.store.path.read_bytes() == before
+    assert "recipe_snapshot" not in cleanup.store.get("takes", "take")
+    assert len(cleanup.store.list("recipes")) == 2
+    assert audio.read_bytes() == b"fixture audio"
+    cleanup.execute("recipes", "recipe", preview["token"], True)
+    saved = SpeechStore(cleanup.store.root)
+    assert saved.list("recipes") == [] and saved.list("voices") == []
+    assert saved.get("takes", "take")["recipe_snapshot"] == recipe
+    assert saved.connection_deletion_receipt("review-token") == receipt
+    assert audio.read_bytes() == b"fixture audio"

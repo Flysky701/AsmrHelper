@@ -69,6 +69,61 @@ def without_frozen_recipes(value):
     return result
 
 
+def connection_receipt_dependencies(receipts):
+    """Project only proven completed mappings as provenance; never change storage.
+
+    Completed connection deletion replays its saved result without dereferencing
+    recipes. Prepared, malformed and future receipt formats remain dependencies.
+    All fields outside the four known mapping locations still undergo scanning.
+    """
+    if not isinstance(receipts, dict):
+        return receipts
+    projected = dict(receipts)
+    fields = {"request_token", "connection_id", "provider_id", "action", "replacement_ref",
+              "catalog_token", "catalog_references", "recipe_ids", "recipe_revisions",
+              "recipe_id_map", "guard_token", "state", "result"}
+    for token, receipt in receipts.items():
+        if not isinstance(receipt, dict) or set(receipt) != fields:
+            continue
+        if (receipt["state"] != "completed" or receipt["action"] != "replace"
+                or receipt["request_token"] != token
+                or any(not isinstance(receipt[key], str) or not receipt[key] for key in
+                       ("request_token", "connection_id", "provider_id", "replacement_ref", "catalog_token", "guard_token"))
+                or receipt["connection_id"] == receipt["replacement_ref"]):
+            continue
+        ids, revisions, result = receipt["recipe_ids"], receipt["recipe_revisions"], receipt["result"]
+        if (not isinstance(ids, list) or any(not isinstance(id, str) or not id for id in ids)
+                or len(set(ids)) != len(ids) or not isinstance(revisions, list)
+                or not isinstance(receipt["recipe_id_map"], dict)
+                or not isinstance(receipt["catalog_references"], list)
+                or not isinstance(result, dict)
+                or set(result) != {"deleted_connection_id", "action", "recipe_revisions", "defaults"}
+                or result["deleted_connection_id"] != receipt["connection_id"]
+                or result["action"] != receipt["action"]
+                or result["recipe_revisions"] != revisions or not isinstance(result["defaults"], list)):
+            continue
+        if (any(not isinstance(row, dict) for row in receipt["catalog_references"])
+                or any(not isinstance(row, dict) or set(row) != {"provider_id", "connection_ref", "revision"}
+                       or not isinstance(row["provider_id"], str) or not row["provider_id"]
+                       or not (row["connection_ref"] is None or isinstance(row["connection_ref"], str) and row["connection_ref"])
+                       or type(row["revision"]) is not int or row["revision"] < 1
+                       for row in result["defaults"])):
+            continue
+        if any(not isinstance(row, dict) or set(row) != {"previous_id", "id", "revision"}
+               or row["previous_id"] not in ids or not isinstance(row["id"], str) or not row["id"]
+               or row["id"] in ids or type(row["revision"]) is not int or row["revision"] < 2
+               for row in revisions):
+            continue
+        mapping = {row["previous_id"]: row["id"] for row in revisions}
+        if (mapping != receipt["recipe_id_map"] or len(mapping) != len(revisions)
+                or len(set(mapping.values())) != len(revisions)):
+            continue
+        projected[token] = {key: value for key, value in receipt.items()
+                            if key not in {"recipe_ids", "recipe_revisions", "recipe_id_map"}}
+        projected[token]["result"] = {key: value for key, value in result.items() if key != "recipe_revisions"}
+    return projected
+
+
 def owned_path(root, path):
     """Reject links/junctions in every component, including the managed root."""
     root, path = Path(root).absolute(), Path(path).absolute()
@@ -151,6 +206,8 @@ class SpeechCleanupService:
         # Built-in initialization markers prevent deleted defaults from reappearing;
         # they do not own the user's recipe and must remain after a true deletion.
         external["store_metadata"] = {key: value for key, value in state.items() if key not in {"collections", "builtin_recipes"}}
+        if kind == "recipes" and "connection_deletions" in external["store_metadata"]:
+            external["store_metadata"]["connection_deletions"] = connection_receipt_dependencies(state["connection_deletions"])
         if kind != "staging":
             external["staged_references"] = [json.loads(path.read_text(encoding="utf-8"))
                 for path in (self.store.root / "_staging").glob("*/inspection.json")]
