@@ -24,7 +24,7 @@
 .queue-panel-heading>div{min-width:0}.queue-panel-footer{flex-wrap:wrap}.queue-panel-footer button{flex:1 1 auto}
 .queue-detail-actions label{min-width:0;max-width:100%}.queue-tail{flex-wrap:wrap}
 .queue-workbench.panel-open .queue-tail>span:only-child,.queue-tail>span:only-child{display:block}
-@media(max-width:760px){
+@container queue-workbench (max-width:1000px){
   .queue-body{flex-direction:column;overflow-y:auto;overflow-x:hidden}
   .queue-pane,.queue-workbench.panel-open .queue-pane{flex:none;min-width:0;overflow:visible;padding-inline:14px}
   .queue-parameter-panel{width:100%;min-width:0;flex:none;border-left:0;border-top:1px solid var(--queue-border)}
@@ -32,7 +32,7 @@
   .queue-workbench .queue-grid{grid-template-columns:18px minmax(0,1fr) minmax(0,1.3fr) minmax(0,1fr) 68px;gap:8px}
   .queue-workbench .queue-output-cell{display:none}.queue-run-actions{min-width:0;flex-wrap:wrap}
 }
-@media(max-width:580px){
+@container queue-workbench (max-width:580px){
   .queue-workbench .queue-table-head{display:none}
   .queue-workbench .queue-row{grid-template-columns:18px minmax(0,1fr) auto;padding:12px;gap:6px 9px}
   .queue-row>input{grid-column:1;grid-row:1}.queue-row>.queue-group-cell{grid-column:2;grid-row:1}

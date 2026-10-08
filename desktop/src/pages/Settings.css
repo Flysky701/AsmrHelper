@@ -116,7 +116,7 @@
 .settings-save-bar { padding:16px 24px; display:flex; align-items:center; justify-content:space-between; gap:14px; border-top:1px solid var(--settings-line); background:var(--bg); flex:none; }
 .settings-save-bar>span { font-size:var(--text-help); color:var(--settings-muted); }
 .settings-save-bar>span.changed { color:var(--accent); }
-.settings-save-bar>div { display:flex; gap:9px; }
+.settings-save-bar>div { display:flex; flex-wrap:wrap; gap:9px; max-width:100%; }
 .settings-dialog { margin:auto; padding:0; border:1px solid var(--settings-line); border-radius:11px; background:var(--surface,#fff); color:var(--fg); box-shadow:0 15px 70px #142c4530; width:min(490px,calc(100vw - 36px)); max-height:calc(100dvh - 32px); overflow:auto; }
 .settings-dialog::backdrop { background:#203a4654; backdrop-filter:blur(2px); }
 .settings-dialog header { padding:23px 24px 18px; border-bottom:1px solid var(--settings-line); }

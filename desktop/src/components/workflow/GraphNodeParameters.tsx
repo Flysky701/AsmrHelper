@@ -217,7 +217,7 @@ function CapabilityField({ node, field, value, onChange }: { node: GraphNode; fi
         onChange={event => onChange(event.target.value === '' ? undefined : ['number', 'integer'].includes(field.type) ? Number(event.target.value) : event.target.value)} />}
     {disabledReason ? <small>{disabledReason}</small> : value === undefined && !['object', 'array'].includes(field.type) && <small>{fallback} · 未显式设置</small>}
     {value !== undefined && !disabledReason && <button type="button" className="graph-param-reset" onClick={() => onChange(undefined)}>恢复默认</button>}
-    {field.description && <small>{field.description}</small>}
+    {field.description && <details className="graph-param-help"><summary>参数说明</summary><small>{field.description}</small></details>}
   </div>
 }
 
@@ -436,6 +436,7 @@ function SpeechOption({ name, field, value, disabledReason, onChange }: {
           : <input id={id} type={numeric ? 'number' : 'text'} value={String(current ?? '')} disabled={!!disabledReason}
             min={field.minimum} max={field.maximum} step={field.type === 'integer' ? 1 : 'any'} maxLength={field.maxLength}
             onChange={event => onChange(event.target.value === '' ? undefined : numeric ? Number(event.target.value) : event.target.value)} />}
-    {(disabledReason || field.description) && <small>{disabledReason || field.description}</small>}
+    {disabledReason && <small>{disabledReason}</small>}
+    {!disabledReason && field.description && <details className="graph-param-help"><summary>参数说明</summary><small>{field.description}</small></details>}
   </div>
 }

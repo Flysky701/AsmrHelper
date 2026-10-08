@@ -18,6 +18,9 @@
 .graph-node-parameters details { display: grid; gap: 12px; }
 .graph-node-parameters details > :not(summary) { margin-top: 12px; }
 .graph-node-parameters summary { cursor: pointer; font-weight: 500; }
+.graph-node-parameters .graph-param-help { display: block; color: var(--muted); font-size: var(--text-help); }
+.graph-node-parameters .graph-param-help > summary { font-weight: 400; }
+.graph-node-parameters .graph-param-help > small { display: block; margin-top: 6px; }
 .graph-node-parameters [role=alert] { color: var(--warning, #f1bf76); }
 .graph-param-reference { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border, #334155); }
 .graph-param-reference audio { width: 100%; max-width: 360px; min-width: 0; }

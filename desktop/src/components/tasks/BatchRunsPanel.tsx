@@ -88,6 +88,11 @@ const BATCH_RUNS_PANEL_STYLES = `
     max-height: 46vh;
   }
 
+  .batch-runs-panel button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .batch-runs-detail-header { flex-wrap: wrap; }
+  .batch-runs-detail-actions { max-width: 100%; margin-left: auto; }
+  .batch-runs-item > div { min-width: 0; }
+
   @media (max-width: 1100px) {
     .batch-runs-panel {
       flex: none;
