@@ -109,7 +109,7 @@ export default function ExternalServices() {
       setVerified(previous => ({ ...previous, [id]: editor.kind === 'llm' && discovery?.success ? '已获取模型' : '' }))
       resetDiscovery()
       setEditor(null)
-      setMessage('配置已保存并启用，用于新任务')
+      setMessage('已保存并用于新任务')
     } catch (cause) { setMessage(`保存失败：${String(cause)}`) }
     finally { setSaving(false) }
   }
@@ -121,7 +121,7 @@ export default function ExternalServices() {
       const result = await settingsApi.update({ active_connections: { [kind]: id } })
       setSettings(result.settings)
       syncWorkbench(result.settings)
-      setMessage('配置已启用，用于新任务')
+      setMessage('新任务将使用此配置')
     } catch (cause) { setMessage(`启用失败：${String(cause)}`) }
     finally { setSaving(false) }
   }
@@ -147,7 +147,7 @@ export default function ExternalServices() {
       const result = await settingsApi.deleteConnection(reviewed.id, reviewed.token)
       loadGeneration.current += 1
       setSettings(result.settings); setRemoval(null)
-      setMessage('连接及其独有本地凭据已删除，无法撤销。云端账号和历史快照保留。')
+      setMessage('本地连接及其独有凭据已删除')
     } catch (cause) {
       setRemoval(null); setMessage(`操作未确认完成，请刷新并重新检查：${String(cause)}`)
     } finally { mutationRef.current = false; setSaving(false) }
@@ -163,7 +163,7 @@ export default function ExternalServices() {
       if (generation !== discoveryGeneration.current) return
       const models = [...new Set(result.models)]
       setDiscovery({ success: models.length > 0, models, message: models.length
-        ? `已获取 ${models.length} 个模型，请选择用于翻译的模型。`
+        ? `找到 ${models.length} 个模型`
         : '服务未返回可选模型。可重试，或根据服务商文档手动填写。' })
     } catch (cause) {
       if (generation === discoveryGeneration.current) setDiscovery({ success: false, models: [], message: `获取模型失败：${String(cause)}` })
@@ -204,7 +204,7 @@ export default function ExternalServices() {
       </label>
       <>
         <button className="external-service-button" disabled={testing} onClick={() => void discover()}>{testing ? '检测中...' : '检测连接并获取模型'}</button>
-        {discovery && <p role="status" className="external-service-muted" style={{ color: discovery.success ? 'var(--accent)' : 'var(--danger)' }}>{discovery.message}</p>}
+        {discovery && <p role="status" className="external-service-muted" style={{ color: discovery.success ? 'var(--muted)' : 'var(--danger)' }}>{discovery.message}</p>}
         <label className="external-service-field" style={{ marginTop: 16 }}>翻译模型
           <select value={editor.model || ''} onChange={event => setEditor({ ...editor, model: event.target.value })}>
             <option value="">{discovery?.models.length ? '选择模型' : '获取模型后选择'}</option>
@@ -216,7 +216,7 @@ export default function ExternalServices() {
           <input value={editor.model || ''} onChange={event => setEditor({ ...editor, model: event.target.value })} placeholder="填写文档中支持翻译的模型 ID" />
         </label></details>
       </>
-      <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+      <div className="external-service-editor-actions">
         <button className="external-service-button external-service-primary" disabled={testing} onClick={() => void save()}>{saving ? '保存中...' : '保存并启用'}</button>
         <button className="external-service-button" onClick={async () => { if (await canDiscard()) { resetDiscovery(); setEditor(null) } }}>取消</button>
       </div>
@@ -229,7 +229,7 @@ export default function ExternalServices() {
       <h3>删除「{removal.name}」</h3>
       <p>删除本地连接记录及独有凭据，不删除文件或云端账号；历史快照保留。无法撤销。</p>
       {removal.active && <p role="alert">此连接当前已启用，请先在列表中启用另一条连接。</p>}
-      {!!removal.references.length && <><p>以下引用需要先处理；保存的工作流需重新选择连接，活动任务或批次需等待结束。</p><ul>{removal.references.map(item =>
+      {!!removal.references.length && <><p>请为以下工作流更换连接，并等待活动任务或批次结束。</p><ul>{removal.references.map(item =>
         <li key={`${item.kind}:${item.id}`}>{({ workflow: '工作流', task: '活动任务', batch: '活动批次' })[item.kind]}：{item.name}</li>)}</ul></>}
       <button className="external-service-button" disabled={saving || !removal.can_remove} onClick={() => void changeRemoval()}>确认删除</button>
       <button className="external-service-button" disabled={saving} onClick={() => setRemoval(null)}>取消</button>
@@ -269,22 +269,24 @@ export default function ExternalServices() {
     <SpeechConnections />
     <style>{`
       .external-services { max-width: 1040px; min-width: 0; }
+      .external-services * { box-sizing: border-box; }
       .external-service-section { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 20px; overflow: hidden; }
-      .external-service-heading { display: flex; align-items: center; gap: 12px; padding: 18px 20px; background: var(--panel-muted); border-bottom: 1px solid var(--border); }
+      .external-service-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 18px 20px; background: var(--panel-muted); border-bottom: 1px solid var(--border); }
       .external-service-heading h2 { flex: 1; font-size: var(--text-section); margin: 0; font-weight: 600; line-height: 1.4; }
       .external-service-tag, .external-service-active { color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 4px 8px; font-size: var(--text-help); font-weight: 600; }
       .external-service-body { padding: 16px 20px; }
       .external-service-card { padding: 16px; border: 1px solid var(--border); border-radius: 9px; margin-bottom: 12px; min-width: 0; }
       .external-service-card:last-child { margin-bottom: 0; }
       .external-service-card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-      .external-service-card-heading h3 { font-size: var(--text-section); font-weight: 600; line-height: 1.4; margin: 0; overflow-wrap: anywhere; }
-      .external-service-actions { margin-left: auto; display: flex; gap: 8px; }
+      .external-service-card-heading h3 { flex: 1 1 160px; min-width: 0; font-size: var(--text-section); font-weight: 600; line-height: 1.4; margin: 0; overflow-wrap: anywhere; }
+      .external-service-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+      .external-service-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
       .external-service-muted { color: var(--muted); font-size: var(--text-help); line-height: 1.7; overflow-wrap: anywhere; }
       .external-service-editor { border: 0; border-top: 1px solid var(--border); margin: 18px 0 0; padding: 20px 0 0; min-width: 0; }
       .external-service-editor > .external-service-card-heading { justify-content: space-between; margin-bottom: 20px; }
-      .external-service-field { display: grid; gap: 6px; font-size: var(--text-control); margin-bottom: 16px; }
+      .external-service-field { display: grid; min-width: 0; max-width: 680px; gap: 6px; font-size: var(--text-control); margin-bottom: 16px; }
       .external-service-field input, .external-service-field select, .external-service-field textarea { width: 100%; min-width: 0; font: inherit; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); }
-      .external-service-button { font: inherit; font-size: var(--text-control); padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; }
+      .external-service-button { font: inherit; font-size: var(--text-control); min-height: 36px; max-width: 100%; padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; }
       .external-service-button:disabled { opacity: .6; cursor: default; }
       .external-service-primary { background: var(--accent); border-color: var(--accent); color: white; }
       .external-service-editor summary { cursor: pointer; font-size: var(--text-help); color: var(--muted); }

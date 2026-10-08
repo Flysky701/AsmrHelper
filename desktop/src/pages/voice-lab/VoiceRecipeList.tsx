@@ -36,7 +36,7 @@ export default function VoiceRecipeList({ recipes, providers, selectedId, onSele
           <span className="voice-recipe-heading"><strong title={recipe.name}>{recipe.name}</strong>
             {recipe.archived && <span className="voice-recipe-archived">旧版保留项</span>}
           </span>
-          <span className="voice-recipe-source">{recipe.variant.kind === 'hosted' ? '云端 ID' : provider?.remote === false ? '本地引擎' : provider?.remote ? '远程引擎' : '声音预设'} · {modeName}</span>
+          <span className="voice-recipe-source">{recipe.variant.kind === 'hosted' ? '云端 ID' : provider?.remote === false ? '本地引擎' : provider?.remote ? '远程引擎' : '声音预设'}</span>
           <span className="voice-recipe-description" title={description}>
             <span className="voice-recipe-model">{modelName}</span><span className="voice-recipe-separator" aria-hidden="true">·</span><span className="voice-recipe-mode">{modeName}</span>
           </span>

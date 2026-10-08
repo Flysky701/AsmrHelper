@@ -74,9 +74,8 @@ export default function FishClonePanel({ active, assets, connections, onSaved }:
       })}>{busy ? '处理中…' : submitted ? '本次已提交' : '上传片段并创建音色'}</button><span className="muted">只创建音色，不自动试音。</span></div>
       <div className="row spread"><h3>创建结果</h3><button onClick={() => void run(load)}>刷新记录</button></div>
       <p className="muted">结果未知请先到 Fish 核查，勿重复创建。删除本地记录不删除云端音色或录音。</p>
-      {items.some(item => item.legacy_deleted) && <p className="muted">旧版隐藏记录仍保留，可在下方确认删除；升级不会自动清除。</p>}
       {items.map(item => <div className="item" key={item.id}>
-        <strong>{item.title} · {stateNames[item.state] || item.state}</strong>
+        <strong>{item.title} · {stateNames[item.state] || item.state}{item.legacy_deleted ? ' · 旧版保留项' : ''}</strong>
         <p className="fish-clone-result-id">Voice ID：{item.remote_voice_id || '尚未取得'}{item.message && ' · ' + item.message}</p>
         <div className="row">
           {item.remote_voice_id && ['created', 'training'].includes(item.state) && <button onClick={() => void run(async () => update(await fishClonesApi.refresh(item.id)))}>更新状态</button>}

@@ -15,3 +15,9 @@
 .connection-delete-preview .connection-delete-ack{display:flex;align-items:flex-start;gap:8px;line-height:1.6}
 .connection-delete-ack input{flex:none;width:16px;height:16px;margin-top:2px}
 .speech-connection-manager [role=alert]{color:#9d442c}
+.connection-manager-row>div:first-child{flex:1 1 180px}
+.connection-manager-actions{margin-left:auto;justify-content:flex-end;max-width:100%}
+.connection-manager-actions button{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.connection-delete-preview>h4,.connection-delete-preview li{overflow-wrap:anywhere}
+.connection-delete-preview>details{margin:10px 0}
+.connection-delete-preview .connection-manager-actions{margin-top:16px}

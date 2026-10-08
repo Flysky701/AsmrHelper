@@ -58,10 +58,10 @@ export function ConnectionVoicePicker({ connectionId, value, onSelect }: Props) 
     <details className="workbench-speech-muted"><summary>声音范围说明</summary><p>{scope === 'mine_public'
       ? '仅显示所选连接账号发布的公开音色；无法核实账号时不显示公共库。'
       : scope === 'workspace' ? '含团队音色，不等同于本人公开库。'
-        : '所有作者的公共音色，不代表属于当前账号。'} 查询不创建音色或生成试听。</p></details>
+        : '所有作者的公共音色，不代表属于当前账号。'}</p></details>
     {!connectionId ? <p className="workbench-speech-muted">选择连接以查询音色，或直接填写 ID。</p>
       : loading ? <p role="status" className="workbench-speech-muted">正在获取声音列表…</p>
-      : current?.error ? <p role="alert" className="workbench-speech-error">{current.error}。可继续手填 Voice ID，已填内容保持不变。</p>
+      : current?.error ? <p role="alert" className="workbench-speech-error">{current.error}。可手填 Voice ID。</p>
       : current?.data && <>
         {current.data.items.length ? <label className="workbench-speech-field"><span>可用声音</span>
           <select value={current.data.items.some(item => item.id === value) ? value : ''}
@@ -78,7 +78,6 @@ export function ConnectionVoicePicker({ connectionId, value, onSelect }: Props) 
           <span>第 {page} 页</span>
           <button type="button" disabled={!current.data.has_more} onClick={() => setPage(page + 1)}>下一页</button>
         </div>
-        <p className="workbench-speech-muted">选好后命名并保存到音色库；只保存云端 ID，不下载模型。</p>
         {current.data.notice && <p className="workbench-speech-muted">{current.data.notice}</p>}
       </>}
   </div>

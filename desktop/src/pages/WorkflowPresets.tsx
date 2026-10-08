@@ -107,8 +107,8 @@ export default function WorkflowPresets() {
       const result = await workflow.deleteCatalogPreset(preset)
       if (result) {
         setCatalogId(current => current === preset.id ? '' : current)
-        const message = result === 'already_missing' ? `“${preset.label}”已不存在，目录引用已清除。当前草稿与已提交任务保留。`
-          : `预设“${preset.label}”已删除，重启不会重新出现。当前草稿、运行参数和素材绑定保留，已提交任务不受影响。`
+        const message = result === 'already_missing' ? `“${preset.label}”已不存在，目录已更新。`
+          : `已删除“${preset.label}”。`
         setNotice(message); setTemplateNotice(message)
       } else {
         const reason = useWorkflowStore.getState().error || '请刷新目录后重试'
@@ -125,22 +125,22 @@ export default function WorkflowPresets() {
     try {
       const restored = await workflow.addBuiltinTemplate(preset.id, preset.revision, label === preset.label ? undefined : label)
       if (restored) {
-        const message = `“${restored.label}”已作为新预设加入目录，尚未打开。当前编辑草稿未改变；请自行选择后打开。`
+        const message = `已添加“${restored.label}”，可在目录中选择并打开。`
         setNotice(message); setTemplateNotice(message)
         setTemplateErrors(current => { const next = { ...current }; delete next[preset.id]; return next })
       } else {
         const reason = useWorkflowStore.getState().error || '请检查目录状态后重试'
-        setTemplateErrors(current => ({ ...current, [preset.id]: `添加未完成：${reason}。若目录已有同名预设，请修改新预设名称后重试，不会覆盖现有预设。` }))
+        setTemplateErrors(current => ({ ...current, [preset.id]: `添加未完成：${reason}` }))
       }
     } catch (reason) {
-      setTemplateErrors(current => ({ ...current, [preset.id]: `添加未完成：${reason instanceof Error ? reason.message : String(reason)}。若名称冲突，请修改名称后重试，不会覆盖现有预设。` }))
+      setTemplateErrors(current => ({ ...current, [preset.id]: `添加未完成：${reason instanceof Error ? reason.message : String(reason)}` }))
     } finally { mutationRef.current = false; setAddingTemplateId(null) }
   }
 
   return <div className="workflow-presets">
     <header className="wfp-header page-heading">
       <div className="page-heading__copy"><h1 className="page-title">{editor ? editor.preset ? '编辑流水线' : '新建流水线' : '流水线编辑器'}</h1>
-        <p className="wfp-description page-description">在这里定义可复用的结构。工作台负责选择流水线、绑定素材与调整本次运行参数。</p></div>
+        <p className="wfp-description page-description">编辑处理步骤，保存后在工作台运行。</p></div>
       <div className="wfp-actions page-heading__actions">
         {editor?.preset && !editor.preset.builtin && <button type="button" className="wfp-button" disabled={busy || !!saveReason} title={saveReason || undefined} onClick={() => void save('copy')}>另存为新预设</button>}
         {editor && <button type="button" className="wfp-button is-primary" disabled={busy || !!saveReason} title={saveReason || undefined} aria-describedby={saveReason ? 'wfp-save-reason' : undefined} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving && !deletingId && !addingTemplateId ? '正在保存…' : editor.preset?.builtin ? '保存副本并返回' : '保存并返回'}</button>}
@@ -158,7 +158,7 @@ export default function WorkflowPresets() {
       <div className="wfp-archive-anchor">
         <button type="button" className="wfp-button" aria-expanded={templatesOpen} aria-controls="wfp-archive-panel" onClick={() => setTemplatesOpen(value => !value)}>添加内置模板{templatesLoading ? ' …' : ` · ${builtinTemplates.length}`}</button>
         {templatesOpen && <section id="wfp-archive-panel" className="wfp-archive-panel" aria-label="添加内置模板" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setTemplatesOpen(false) } }}>
-          <header><div><strong>添加内置模板</strong><p>选择出厂模板新建独立预设，不恢复以前删除的记录。</p></div><div className="wfp-archive-header-actions"><button type="button" className="wfp-button" disabled={busy || templatesLoading} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadBuiltinTemplates()]) }}>刷新目录</button><button type="button" className="wfp-archive-close" aria-label="收起添加内置模板" onClick={() => setTemplatesOpen(false)}>×</button></div></header>
+          <header><div><strong>添加内置模板</strong><p>每次添加都会新建独立预设。</p></div><div className="wfp-archive-header-actions"><button type="button" className="wfp-button" disabled={busy || templatesLoading} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadBuiltinTemplates()]) }}>刷新目录</button><button type="button" className="wfp-archive-close" aria-label="收起添加内置模板" onClick={() => setTemplatesOpen(false)}>×</button></div></header>
           {templateNotice && <p className="wfp-archive-feedback" role="status">{templateNotice}</p>}
           <div className="wfp-archive-scroll" role="region" aria-label="内置模板列表" tabIndex={0}>
             {templatesLoading && <p className="wfp-archive-message" role="status">正在读取内置模板…</p>}
@@ -177,11 +177,11 @@ export default function WorkflowPresets() {
     {(catalogError || catalogNotice || notice || error || saveReason) && <div className="wfp-alerts">
       {catalogError && <div className="wfp-alert" role="alert">目录读取失败：{catalogError} <button type="button" disabled={catalogLoading || busy} onClick={() => void workflow.loadCatalog()}>重试</button></div>}
       {catalogNotice && <p className="wfp-alert" role="status">{catalogNotice}</p>}
-      {notice && <p className="wfp-alert" role="status">{notice}</p>}
-      {error && <p className="wfp-alert" role="alert">{error} 当前草稿已保留；可调整后重试，或另存为新预设。</p>}
+      {notice && (!templatesOpen || notice !== templateNotice) && <p className="wfp-alert wfp-feedback" role="status">{notice}</p>}
+      {error && <p className="wfp-alert" role="alert">{error}</p>}
       {saveReason && <p id="wfp-save-reason" className="wfp-alert" role="status">{saveReason}</p>}
     </div>}
-    {!editor ? <section className="wfp-empty"><h2>{catalog.length ? '选择预设继续编辑' : '活动目录为空'}</h2><p>{catalog.length ? '选择一个已保存流水线，或从空白开始添加模块。' : '可以新建流水线，或添加内置模板创建新预设，之后自行选择打开。'}旧版流程需显式转换，原定义会保留。</p><div className="wfp-empty-actions"><button type="button" className="wfp-button is-primary" disabled={busy} onClick={() => void openPreset(true)}>新建节点流水线</button><button type="button" className="wfp-button" onClick={() => setTemplatesOpen(true)}>添加内置模板</button></div></section> : <>
+    {!editor ? <section className="wfp-empty"><h2>{catalog.length ? '选择预设继续编辑' : '还没有流水线'}</h2><p>{catalog.length ? '选择已保存流水线，或新建一个。' : '从空白开始，或添加内置模板。'}</p><div className="wfp-empty-actions"><button type="button" className="wfp-button is-primary" disabled={busy} onClick={() => void openPreset(true)}>新建节点流水线</button><button type="button" className="wfp-button" onClick={() => setTemplatesOpen(true)}>添加内置模板</button></div></section> : <>
       <fieldset className="wfp-editable" disabled={busy}>
         <div className="wfp-metadata">
           <label><span>名称</span><input aria-label="流水线名称" maxLength={100} value={editor.label} onChange={event => workflow.updateEditor({ label: event.target.value })} placeholder="例如：字幕翻译后配音" /></label>
@@ -193,7 +193,6 @@ export default function WorkflowPresets() {
           onChange={graph => workflow.updateEditor({ graph })} onBindingsChange={() => {}} createNode={newGraphNode}
           renderParameters={(node, onChange) => <GraphNodeParameters node={node} onChange={onChange} disabled={busy} />} />
       </fieldset>
-      <footer className="wfp-footer"><p>保存仅更新预设，不会执行流水线。实际素材、声音与引擎可用性在工作台检查。</p></footer>
     </>}
   </div>
 }

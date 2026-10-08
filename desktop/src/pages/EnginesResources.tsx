@@ -201,11 +201,11 @@ function LocalResources() {
     try {
       if (scan) {
         const result = await modelsApi.scan()
-        setSourceMessage(`已扫描并引用 ${result.found.length} 项本地权重，未下载文件或安装环境。`)
+        setSourceMessage(`已引用 ${result.found.length} 项本地权重`)
       } else {
         const result = await modelsApi.addSource(sourcePath)
         setSourceRoots(result.roots); setSourcePath('')
-        setSourceMessage('已保存只读模型目录引用；即使依赖未就绪，也不会安装或下载。')
+        setSourceMessage('已添加目录引用')
       }
       void loadData(true)
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
@@ -216,7 +216,7 @@ function LocalResources() {
     setSourceBusy(true)
     try {
       const result = await modelsApi.removeSource(path)
-      setSourceRoots(result.roots); setSourceMessage('已解除引用，原目录及权重文件保持不变。')
+      setSourceRoots(result.roots); setSourceMessage('已解除引用，原文件保留')
       void loadData(true)
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { setSourceBusy(false) }
@@ -334,18 +334,18 @@ function LocalResources() {
         <section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>
           <h2 className="section-title" style={{ marginBottom: 8 }}>使用已有模型</h2>
           <p style={{ fontSize: 13, color: 'var(--muted)' }}>引用已有模型或缓存目录，不复制文件；解除引用保留原文件。</p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-            <input aria-label="已有模型目录或缓存目录" value={sourcePath} onChange={e => setSourcePath(e.target.value)} placeholder="例如 D:\AI\Models" style={{ ...actionStyle, flex: 1, minWidth: 220, cursor: 'text' }} />
+          <div className="engines-source-actions">
+            <input aria-label="已有模型目录或缓存目录" value={sourcePath} onChange={e => setSourcePath(e.target.value)} placeholder="例如 D:\AI\Models" style={{ ...actionStyle, cursor: 'text' }} />
             <button style={actionStyle} disabled={sourceBusy} onClick={async () => {
               try { const { open } = await import('@tauri-apps/plugin-dialog'); const path = await open({ directory: true, multiple: false }); if (typeof path === 'string') setSourcePath(path) }
               catch (cause) { setError(String(cause)) }
             }}>选择目录</button>
             <button style={actionStyle} disabled={sourceBusy || !sourcePath.trim()} onClick={() => void handleSource(false)}>引用此目录</button>
-            <button style={actionStyle} disabled={sourceBusy} onClick={() => void handleSource(true)}>扫描并引用已有缓存</button>
+            <button style={actionStyle} disabled={sourceBusy} onClick={() => void handleSource(true)}>扫描并引用缓存</button>
           </div>
           {sourceMessage && <p role="status" style={{ fontSize: 13 }}>{sourceMessage}</p>}
-          {sourceRoots.map(path => <div key={path} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-            <span style={{ flex: 1, overflowWrap: 'anywhere', fontSize: 12 }}>{displayPath(path)}（只读引用）</span>
+          {sourceRoots.map(path => <div key={path} className="engines-source-root">
+            <span>{displayPath(path)}</span>
             <button style={actionStyle} disabled={sourceBusy} onClick={() => void unlinkSource(path)}>解除引用（保留文件）</button>
           </div>)}
         </section>
@@ -390,7 +390,7 @@ function LocalResources() {
             模型管理
           </h2>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-            修复环境可能联网下载或替换依赖；模型权重单独下载。检查状态不会安装或下载。
+            安装环境可能联网下载或替换依赖；模型权重需单独下载。
           </p>
 
           {/* Category tabs */}
@@ -510,13 +510,13 @@ function LocalResources() {
                             fontSize: 'var(--text-control)', gap: '12px',
                           }}>
                             <div className="engines-model-info">
-                              <div style={{ fontWeight: 500 }}>{model.display_name}{model.install_strategy === 'package' && <small style={{ display: 'block', fontWeight: 400, marginTop: 6 }}>支持引用已有 HF / PyTorch 权重；执行时只加载本地文件。</small>}</div>
+                              <div style={{ fontWeight: 500 }}>{model.display_name}{model.install_strategy === 'package' && <small style={{ display: 'block', fontWeight: 400, marginTop: 6 }}>可引用本地 HF / PyTorch 权重</small>}</div>
                               <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
                                 {model.backend || model.family_id || model.kind}
                                 {model.estimated_size_mb ? ` · ${formatEstimatedSize(model.estimated_size_mb)}` : ''}
                               </div>
                               {status && <div style={{ fontSize: 11, marginTop: 6, overflowWrap: 'anywhere' }}>
-                                <div>权重：{status.status === 'unknown' ? '待确认' : status.weights_ready ? '文件完整' : '缺失或不完整'} · 环境：{status.status === 'unknown' ? '待确认' : status.runtime_ready ? '依赖检查通过' : '未就绪'} · 推理：尚未验证</div>
+                                <details className="engines-status-details"><summary>状态明细</summary><p>权重：{status.status === 'unknown' ? '待确认' : status.weights_ready ? '文件完整' : '缺失或不完整'} · 环境：{status.status === 'unknown' ? '待确认' : status.runtime_ready ? '依赖检查通过' : '未就绪'} · 推理：尚未验证</p></details>
                                 <div className="engines-model-location">
                                   {status.path ? <details className="model-path">
                                     <summary title={status.path}>位置：{status.path}</summary>

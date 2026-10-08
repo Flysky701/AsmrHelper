@@ -1,4 +1,14 @@
 /* Local model cards keep actions and the deletion preview below the summary. */
+.engines-source-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.engines-source-actions input { flex: 1 1 260px; min-width: 0; max-width: 100%; }
+.engines-source-actions button { min-height: 36px; }
+.engines-source-root { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.engines-source-root > span { flex: 1 1 260px; min-width: 0; font-size: var(--text-help); overflow-wrap: anywhere; }
+.engines-source-root > button { margin-left: auto; }
+.engines-status-details { color: var(--muted); margin: 6px 0; }
+.engines-status-details summary { cursor: pointer; }
+.engines-status-details p { margin: 6px 0 0; line-height: 1.6; }
+.engines-model-info { line-height: 1.6; }
 .engines-model-toolbar {
   grid-column: 1 / -1;
   display: grid;

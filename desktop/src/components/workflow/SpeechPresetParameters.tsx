@@ -82,7 +82,7 @@ export default function SpeechPresetParameters({ node, onChange, requestChange, 
       {selected && <p className="graph-param-note">{providers.find(item => item.provider_id === selected.provider_id)?.name || selected.provider_id} · {selected.model}</p>}
       <div className="graph-param-actions"><button type="button" onClick={() => void manage()}>{legacy ? '在音色库另存' : '管理音色'}</button>
         <button type="button" disabled={loading} onClick={() => setRevision(value => value + 1)}>刷新</button></div>
-      {legacy && <p className="graph-param-note">旧声音配置已保留，可按原配置运行。编辑声音请先在音色库另存。</p>}
+      {legacy && <p className="graph-param-note">编辑旧声音配置，请先在音色库另存。</p>}
       {!selected && !legacy && !node.options.speech_recipe_id && !loading && <p className="graph-param-note">请先在音色库保存一个音色。</p>}
       <Field label="合成目标语言"><select value={node.target_lang ?? ''} onChange={event => onChange({ ...node, target_lang: event.target.value as GraphNode['target_lang'] })}>
         <option value="" disabled>选择语言</option>{Object.entries(languages).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -106,7 +106,7 @@ export default function SpeechPresetParameters({ node, onChange, requestChange, 
     </fieldset>}
     {selected && common && !!node.options.speech_overrides && <button type="button" disabled={loading || !!error} onClick={() => requestChange(withSpeechOverrides(node, {}), '清除本次微调并恢复音色默认值？')}>恢复音色默认值</button>}
     {issue && <p role="alert">{issue}</p>}
-    {extraData && <p role="alert">旧配置含未识别参数，已完整保留。请在音色库核对迁移后再运行。</p>}
+    {extraData && <p role="alert">含未识别参数，请在音色库核对后再运行。原值见下方。</p>}
     {(legacy || extraData || overrideIssue) && common && <details><summary>保留的旧配置</summary><pre>{JSON.stringify({ provider: node.provider, model: node.model, options: node.options, provider_options: node.provider_options }, null, 2)}</pre></details>}
     {notice && <p role="status">{notice}</p>}
     {error && <button type="button" onClick={() => setRevision(value => value + 1)}>重试</button>}

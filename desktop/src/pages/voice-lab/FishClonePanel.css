@@ -7,4 +7,8 @@
 .fish-clone-transcript { margin: 12px 0 0; max-height: 7em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 .fish-clone-submit { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
 .fish-clone-result-id { overflow-wrap: anywhere; }
+.fish-clone-panel > fieldset > .row { margin-bottom: 12px; }
+.fish-clone-panel > fieldset > .row h3 { margin: 0; }
+.fish-clone-panel .item > .row { gap: 8px; margin-top: 12px; }
+@container voice-content (max-width: 520px) { .fish-clone-summary dl { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
 @media (max-width: 640px) { .fish-clone-summary dl { grid-template-columns: 1fr; gap: 12px; } }

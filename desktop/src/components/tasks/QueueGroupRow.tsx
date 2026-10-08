@@ -45,7 +45,7 @@ export default function QueueGroupRow({ row, index, graph, presetLabel, busy, di
         {!paths.length ? <button type="button" className="queue-missing-link" onClick={() => setExpanded(true)}>补充素材 +</button> : null}
       </div>
       <div className="queue-status-cell"><span className={`queue-status ${['missing', 'unknown'].includes(state) ? 'queue-warning' : ''}`}>{state === 'running' ? '◌ ' : state === 'missing' ? '△ ' : '• '}{STATUS[state] || state}</span>
-        <small>{!editable ? lockReason : group.excluded ? '不参与本次处理' : issues.length ? '检查后可勾选运行' : '按当前流程明确提交'}</small>
+        {!editable || group.excluded || issues.length ? <small>{!editable ? lockReason : group.excluded ? '不参与本次处理' : '请补全输入'}</small> : null}
         {remote && ['pending', 'running'].includes(state) ? <><div className="queue-progress" role="progressbar" aria-label={`${group.label} 进度`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div><small>{progress}%</small></> : null}
         {group.run ? <button type="button" className="queue-result-toggle" onClick={() => useNavStore.getState().openTaskCenter('batches')}>最近执行：{STATUS[group.run.state ?? 'unknown'] || '状态待核实'} ↗</button> : null}
       </div>

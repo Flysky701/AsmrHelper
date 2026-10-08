@@ -5,3 +5,13 @@
 .fish-voice-picker button { min-height:36px; padding:6px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--fg); font:inherit; font-size:13px; cursor:pointer; }
 .fish-voice-picker button:disabled { cursor:default; }
 .fish-voice-pagination { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-top:12px; font-size:13px; }
+.fish-voice-picker .workbench-speech-field { display:grid; gap:6px; min-width:0; margin:0; }
+.fish-voice-picker input, .fish-voice-picker select { width:100%; min-width:0; box-sizing:border-box; }
+.fish-voice-picker p, .fish-voice-picker summary { overflow-wrap:anywhere; }
+.fish-voice-picker > details { margin:10px 0; }
+.fish-voice-picker > details summary { cursor:pointer; }
+.fish-voice-search > button { flex:0 0 auto; }
+@container voice-content (max-width:520px) {
+  .fish-voice-search > label, .fish-voice-search > label:first-child { flex:1 1 100%; }
+  .fish-voice-search > button { margin-left:auto; }
+}

@@ -303,7 +303,7 @@ export default function BatchRunsPanel() {
       setLoadingHistory(false)
       if (result.batch) upsertBatch(result.batch)
       else setBatches(current => current.filter(entry => entry.batch_id !== batch.batch_id))
-      setNotice('条目已删除；空批次已一并删除。原文件保留，无法撤销。')
+      setNotice('条目已删除。')
     } catch (error) { setActionError(`操作未确认完成，请刷新后核对：${String(error)}`) }
     finally { removalPending.current = false; setActionBusy(false); setLoadingHistory(false) }
   }
@@ -319,9 +319,6 @@ export default function BatchRunsPanel() {
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>{visibleBatches.length} 个批次</div>
           </div>
           <button type="button" style={{ ...BUTTON_STYLE, marginTop: 8 }} disabled={actionBusy || loadingHistory} onClick={() => void loadHistory()}>刷新历史</button>
-          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-          选中批次可查看最新进度。
-          </div>
           {(notice || actionError) && <p role="status" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{actionError || notice}</p>}
         </div>
 
@@ -341,7 +338,7 @@ export default function BatchRunsPanel() {
             </div>
           ) : visibleBatches.length === 0 ? (
             <div style={{ minHeight: 180, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>
-              没有可显示的批次。已移除条目可勾选上方选项后恢复。
+              暂无批次记录。
             </div>
           ) : visibleBatches.map((batch) => {
             const selected = batch.batch_id === selectedBatchId

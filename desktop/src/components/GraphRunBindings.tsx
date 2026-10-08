@@ -96,17 +96,17 @@ export default function GraphRunBindings({ graph, bindings, items, onChange, dis
               <option value="">请核实实际语言</option>{LANGUAGES.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
             </select>
           </label>
-          <label className="graph-workbench-checkbox"><input type="checkbox" disabled={disabled || !binding?.language} checked={!!binding?.language_confirmed} onChange={event => patch({ language_confirmed: event.target.checked })} />我确认这是字幕内容的实际语言</label>
+          <label className="graph-workbench-checkbox"><input type="checkbox" disabled={disabled || !binding?.language} checked={!!binding?.language_confirmed} onChange={event => patch({ language_confirmed: event.target.checked })} />确认字幕实际语言</label>
         </> : null}
         {selected && (audioCandidates.length > 0 || binding?.audio_path) ? <>
-          <label>对应时间轴音频（共同使用时）
+          <label>配对音频（可选）
             <select aria-label={`${slot.label} · 对应音频`} value={binding?.audio_path ?? ''} onChange={event => patch({ audio_path: event.target.value || null, pair_confirmed: false })}>
-              <option value="">独立使用，不指定对应音频</option>
+              <option value="">不配对</option>
               {binding?.audio_path && !audioCandidates.some(item => item.path === binding.audio_path) ? <option value={binding.audio_path}>原对应音频已移除</option> : null}
               {audioCandidates.map(item => <option key={item.path} value={item.path}>{item.name} — {displayPath(item.path)}</option>)}
             </select>
           </label>
-          {binding?.audio_path ? <label className="graph-workbench-checkbox"><input type="checkbox" checked={!!binding.pair_confirmed} onChange={event => patch({ pair_confirmed: event.target.checked })} />我确认属于同一录音和时间轴；运行前还会校验时长</label> : null}
+          {binding?.audio_path ? <label className="graph-workbench-checkbox"><input type="checkbox" checked={!!binding.pair_confirmed} onChange={event => patch({ pair_confirmed: event.target.checked })} />确认来自同一录音和时间轴</label> : null}
         </> : null}
         {candidates.length === 0 ? <p className="graph-workbench-warning">没有可用{slot.type === 'audio' ? '音频' : '字幕'}，请在素材库添加。</p> : null}
       </fieldset>

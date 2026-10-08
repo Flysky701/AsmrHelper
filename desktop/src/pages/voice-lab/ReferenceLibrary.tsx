@@ -196,7 +196,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
       const result = await speechApi.subtitles(subtitle_text, subtitle_format)
       setSegments(result.segments); setLoadedSubtitle({ name: file.name, subtitle_text, subtitle_format })
       setSubtitleRole('reference'); setAssistOpen(true)
-      setNotice('已加载字幕供辅助查看。确认是与录音同语的原文后可填入；译文仅供参考。')
+      setNotice('字幕已加载，请确认字幕用途。')
     }) }} />
     {error && <div className="notice error" role="alert">{error}</div>}{notice && <div className="notice" role="status">{notice}</div>}
     {busy && <div className="reference-busy" role="status"><span className="reference-spinner" />{busy}…</div>}
@@ -205,7 +205,6 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
       <aside id="reference-recordings" className={'panel reference-sidebar' + (libraryOpen ? ' is-open' : '')}>
         <div className="row spread"><h2>我的录音 <span className="reference-count">{found.length}</span></h2><button onClick={() => void chooseFile()}>＋ 导入</button></div>
         <input aria-label="搜索录音" placeholder="搜索名称、备注或原文" value={query} onChange={event => setQuery(event.target.value)} />
-        {allAssets.some(item => item.archived) && <p className="muted">旧版保留录音仍显示，可按项确认删除。</p>}
         {listError && <p className="error" role="alert">录音列表加载失败，可点击页面右上角刷新。</p>}
         {!found.length && !listError && <div className="empty">{query ? <>没有匹配的录音。<button onClick={() => setQuery('')}>清空搜索</button></> : source ? '还没有保存的录音。当前片段保存后会出现在这里。' : '还没有参考录音。导入一份音频，保存你想留下的声音。'}</div>}
         <div className="reference-assets">{found.map(item => <button key={item.id} className={'reference-asset ' + (stored?.id === item.id ? 'is-selected' : '')} aria-current={stored?.id === item.id ? 'true' : undefined} onClick={() => { openStored(item); setLibraryOpen(false) }}>
@@ -215,9 +214,8 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
       </aside>
       <section className="reference-main">
         {!source && view !== 'saved' && <div className="panel reference-start" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const file = event.dataTransfer.files[0]; if (file) upload(file) }}>
-          <div className="reference-start-icon" aria-hidden="true">♫</div><h2>导入参考录音</h2><p>整段保存，或从长音频里选出一小段。<br />可以手动框选，也可识别台词后逐段试听选择。</p>
+          <div className="reference-start-icon" aria-hidden="true">♫</div><h2>导入参考录音</h2><p>保存整段录音，或截取需要的片段。</p>
           <button className="primary" onClick={() => void chooseFile()}>选择音频文件</button><p className="muted">也可以拖入文件 · WAV / MP3 / FLAC 等<br />浏览器上传上限 100 MiB</p>
-          <div className="reference-start-tip">录音可独立保存，需要时再用于创建音色。</div>
         </div>}
         {source && view !== 'saved' && <div className="reference-workspace">
           <section className="panel reference-editor">
@@ -258,14 +256,14 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
 
             </section>
             <details className="panel reference-assist" open={assistOpen} onToggle={event => setAssistOpen(event.currentTarget.open)}><summary>台词分段与字幕 <span className="muted">按时间顺序 · 试听后自行选用</span></summary>
-              <div className="row spread"><div><p className="muted">仅复用语言与录音一致的 VTT/SRT；译文和无法确定语言的字幕不会代替原文。没有可用字幕时运行 ASR，按音频时间顺序展示全部台词片段，由你试听选择。</p></div><button disabled={analyzing} onClick={() => void analyze()}>{analyzing ? '正在分析…' : analyzed ? '重新分析' : '识别并分段'}</button></div>
+              <div className="row spread"><div><p className="muted">优先使用与录音同语的字幕；译文不能替代原文。</p></div><button disabled={analyzing} onClick={() => void analyze()}>{analyzing ? '正在分析…' : analyzed ? '重新分析' : '识别并分段'}</button></div>
               {!!source.companion_subtitles?.length && <p className="notice">发现同目录字幕：{source.companion_subtitles.map(item => item.name).join('、')}。分析时先检查时间轴与语言。</p>}
-              <div className="row"><button onClick={() => subtitleInput.current?.click()}>加载已有 VTT / SRT</button><span className="muted">浏览器上传音频时，可另选字幕。</span></div>
+              <div className="row"><button onClick={() => subtitleInput.current?.click()}>加载已有 VTT / SRT</button></div>
               {loadedSubtitle && <div className="row"><span className="muted">优先使用：{loadedSubtitle.name}</span><button onClick={() => { setLoadedSubtitle(null); setSegments([]) }}>移除字幕</button></div>}
               <label className="reference-language"><input type="checkbox" checked={recognizeText} disabled={analyzing} onChange={event => setRecognizeText(event.target.checked)} /> 无可用字幕时运行 ASR（可能耗时数分钟）</label>
               <label className="reference-language">录音语言 <select aria-label="分析语言" value={draft.language} onChange={event => change({ language: event.target.value })}>{Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><span className="muted">不确定时可自动识别</span></label>
-              {analysisTask && <div className="reference-analysis-status" role="status"><div className="row spread"><span>{analysisLabel}</span>{analyzing && <button onClick={() => void run('取消分析', async () => { setAnalysisTask(await tasksApi.cancel(analysisTask.task_id)) })}>取消分析</button>}</div>{analyzing && <progress max={1} value={analysisTask.progress} aria-label="片段分析进度" />}<p className="muted">{analyzing ? `阶段进度 ${Math.round(analysisTask.progress * 100)}% · ` : ''}已用时 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒</p>{analyzing && <p className="muted">百分比表示处理阶段，不是剩余时间估算。可继续试听和编辑；取消将在当前处理阶段结束后生效。</p>}</div>}
-              {analysisSource && <p className="notice">{analysisSource}</p>}
+              {analysisTask && <div className="reference-analysis-status" role="status"><div className="row spread"><span>{analysisLabel}</span>{analyzing && <button onClick={() => void run('取消分析', async () => { setAnalysisTask(await tasksApi.cancel(analysisTask.task_id)) })}>取消分析</button>}</div>{analyzing && <progress max={1} value={analysisTask.progress} aria-label="片段分析进度" />}<p className="muted">{analyzing ? `阶段进度 ${Math.round(analysisTask.progress * 100)}% · ` : ''}已用时 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒</p>{analyzing && <p className="muted">可继续编辑；取消将在当前阶段结束后生效。</p>}</div>}
+              {analysisSource && <p className="muted">{analysisSource}</p>}
               {analysisWarnings.map((warning, index) => <p className="notice" key={index}>{warning}</p>)}
               {analysisError && <div className="notice error" role="alert">{analysisError}<p>你仍可以手动选段并保存。</p></div>}
               {trackingFailed && <div className="row"><span className="muted">进度连接中断，已暂停自动重试。</span><button onClick={() => setTrackingRetry(value => value + 1)}>重新获取进度</button><button onClick={() => { setAnalysisTask(null); setTrackingFailed(false); setNotice('已结束进度跟踪，原任务可能仍在运行，可在任务中心查看。') }}>结束跟踪</button></div>}

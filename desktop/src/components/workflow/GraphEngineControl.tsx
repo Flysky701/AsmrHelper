@@ -42,7 +42,7 @@ export default function GraphEngineControl({ provider, model, category, choices,
   const status = loading ? '正在读取引擎列表' : unknownProvider && choices.length ? '需要重新选择引擎' : connectionIssue ? '当前节点配置需处理' : unavailable ? '引擎列表未能读取' : checking ? '正在检查' : observed?.label || '尚未检查'
   const statusDetail = unknownProvider && choices.length
     ? `“${name}”不可用。请选择引擎，再点击“确认更换”。`
-    : connectionIssue || (unavailable ? '请在“配置与检查”中刷新目录与连接信息。' : observed?.detail || '可在“配置与检查”中检查，不会安装或下载。')
+    : connectionIssue || (unavailable ? '请在“配置与检查”中刷新目录与连接。' : observed?.detail || '')
   async function check() {
     if (checking || connectionIssue || unavailable || (!checkConfiguration && (!local || !installModel))) return
     const sequence = ++request.current, snapshotKey = key
@@ -67,12 +67,12 @@ export default function GraphEngineControl({ provider, model, category, choices,
       {choices.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
     </select></label>}
       <button type="button" onClick={() => setDrawer(true)}>{connectionIssue ? '配置当前节点' : '配置与检查'}</button></div>
-    <div className={`graph-engine-status${observed?.positive && !connectionIssue ? ' is-positive' : ''}`} role="status"><strong>{status}</strong><p>{statusDetail}</p>{observed && <small>本次检查 {observed.time} · 不代表任务已经运行</small>}</div>
+    <div className={`graph-engine-status${observed?.positive && !connectionIssue ? ' is-positive' : ''}`} role="status"><strong>{status}</strong>{statusDetail && <p>{statusDetail}</p>}{observed && <small>检查于 {observed.time}</small>}</div>
     {connectionSummary && <p className="graph-engine-connection">{connectionSummary}</p>}
     <dialog ref={dialog} className="graph-engine-drawer" aria-labelledby={id + '-title'} onCancel={() => setDrawer(false)} onClose={() => setDrawer(false)} onClick={event => { if (event.target === dialog.current) { const rect = dialog.current.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right) setDrawer(false) } }}>
       <header><h2 id={id + '-title'}>配置与检查 · {name}</h2><button type="button" autoFocus onClick={() => setDrawer(false)}>关闭</button></header>
-      <div className="graph-engine-drawer-body"><p>当前模型：{model || '未指定'}</p><p>这里只管理当前引擎的环境与连接，不会改动输入素材、目标语言或已保存音色。</p>
-        <section><h3>运行状态</h3><strong>{status}</strong><p>{statusDetail}</p>
+      <div className="graph-engine-drawer-body"><p>当前模型：{model || '未指定'}</p>
+        <section><h3>运行状态</h3><strong>{status}</strong>{statusDetail && <p>{statusDetail}</p>}
           {local && <><p>{installModel ? `资源：${installModel.display_name}` : '尚未唯一匹配模型目录条目，请到模型管理页确认。'}</p>{catalogError && <p role="alert">{catalogError}</p>}</>}
           {installModel && <dl className="graph-engine-install-facts">
             {installModel.runtime_profile && <><dt>托管运行环境</dt><dd>{installModel.runtime_profile}</dd></>}
@@ -82,12 +82,12 @@ export default function GraphEngineControl({ provider, model, category, choices,
             {!!installModel.recommended_assets?.length && <><dt>建议资源</dt><dd>{installModel.recommended_assets.map(assetName).join('、')}</dd></>}
             {!!installModel.required_system_tools?.length && <><dt>系统工具</dt><dd>{installModel.required_system_tools.join('、')}</dd></>}
           </dl>}
-          {!local && !connectionRequired && <p>此引擎无需填写服务地址或密钥。需网络访问；本页尚未验证网络。</p>}
+          {!local && !connectionRequired && <p>无需密钥，使用时需联网。</p>}
           <button type="button" disabled={checking || !!connectionIssue || unavailable || !checkConfiguration && (!local || !installModel)} onClick={() => void check()}>{checking ? '正在检查…' : checkConfiguration ? '检查当前连接配置' : '检查当前模型环境'}</button>
-          <p className="graph-param-note">检查需要一些时间，不会下载模型或生成内容。连接配置检查不代表远端服务已认证或可达。</p>
+          <p className="graph-param-note">检查不下载模型或生成内容；连接检查仅核对配置。</p>
         </section>
         {configuration && <section><h3>连接与当前节点覆盖</h3>{configuration}</section>}
-        <section><h3>{local || !connectionRequired ? '模型与运行环境' : '外部服务'}</h3><p>{local ? '进入现有管理页选择模型、托管环境与安装方式。安装需另行明确操作；管理页会读取环境状态。' : !connectionRequired ? '可在模型与环境管理中查看引擎要求，无需新建服务连接。管理页会读取环境状态；此处不会自动访问网络。' : '进入现有外部服务页配置或编辑服务地址、凭据与默认连接。这里不会自动测试远端服务。'}</p><button type="button" onClick={() => openManagement(!local && connectionRequired)}>{local || !connectionRequired ? '前往模型与运行环境管理' : '前往外部服务设置'}</button>
+        <section><h3>{local || !connectionRequired ? '模型与运行环境' : '外部服务'}</h3><p>{local ? '安装模型、配置运行环境。' : !connectionRequired ? '查看引擎要求，无需新建连接。' : '管理服务地址、凭据与默认连接。'}</p><button type="button" onClick={() => openManagement(!local && connectionRequired)}>{local || !connectionRequired ? '前往模型与运行环境管理' : '前往外部服务设置'}</button>
           {category === 'tts' && local && <button type="button" onClick={() => useNavStore.getState().setPage('voice-lab')}>前往音色页编辑本机连接</button>}
         </section><button type="button" onClick={refresh}>刷新目录与连接信息</button>
       </div>

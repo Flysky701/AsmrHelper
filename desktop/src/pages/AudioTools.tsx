@@ -199,7 +199,7 @@ export default function AudioTools() {
     <div className="audio-tools-page" style={{ height: '100%', overflow: 'auto', padding: 24 }}>
       <header className="page-heading" style={{ marginBottom: 20 }}>
         <div className="page-heading__copy"><h1 className="page-title">音频工具</h1>
-          <p className="page-description">每次操作都会创建独立任务；进度、错误和产物统一在任务中心查看。</p>
+          <p className="page-description">单项音频处理，进度和结果见任务中心。</p>
         </div>
       </header>
 
