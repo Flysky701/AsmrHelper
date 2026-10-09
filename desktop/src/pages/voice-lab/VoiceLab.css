@@ -69,6 +69,17 @@
 .speech-lab .recipe-actions { border-top: 1px solid var(--border); padding-top: 20px; }
 .speech-lab .recipe-actions p:last-child { margin-bottom: 0; }
 .speech-lab .voice-list-toggle { display: none; }
+.speech-lab .row > :not(button) { min-width: 0; }
+.speech-lab p, .speech-lab summary { overflow-wrap: anywhere; }
+.speech-lab .voice-sidebar > input { margin-bottom: 14px; }
+.speech-lab .connection-summary strong { flex: 1 1 220px; }
+.speech-lab .connection-summary > button { margin-left: auto; }
+.speech-lab .recipe-actions .row { gap: 8px; }
+.speech-lab .recipe-actions p { margin: 8px 0 0; }
+.speech-lab .preset-quick-audition .row { margin-top: 12px; }
+.speech-lab details[open] > summary { margin-bottom: 12px; }
+.speech-lab .speech-cleanup { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 100%; }
+.speech-lab .speech-cleanup .error { flex-basis: 100%; overflow-wrap: anywhere; }
 .speech-lab button:focus-visible, .speech-lab summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @container voice-content (max-width: 860px) {
   .speech-lab .columns { grid-template-columns: minmax(0, 1fr); gap: 14px; }

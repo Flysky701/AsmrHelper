@@ -34,7 +34,6 @@ interface ReferenceSession {
   loop: boolean
   assistOpen: boolean
   subtitleRole: 'reference' | 'original'
-  showArchived: boolean
   query: string
   clipTask: TaskStatusResponse | null
   clipSubmitting: boolean
@@ -51,7 +50,7 @@ export const useReferenceSessionStore = create<ReferenceSession>(() => ({
   busy: '', error: '', notice: '', candidates: [], analyzed: false, analysisError: '', analysisTask: null,
   recognizeText: true, analysisWarnings: [], analysisSource: '', trackingFailed: false, trackingRetry: 0,
   loadedSubtitle: null, preview: null, segments: [], loop: false, assistOpen: false, subtitleRole: 'reference',
-  showArchived: false, query: '', clipTask: null, clipSubmitting: false, clipError: '', clipNote: '',
+  query: '', clipTask: null, clipSubmitting: false, clipError: '', clipNote: '',
   clipRetry: 0, clipDisconnected: false, clipRequest: null, clipResult: null,
 }))
 

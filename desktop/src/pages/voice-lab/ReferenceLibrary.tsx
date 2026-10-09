@@ -8,6 +8,7 @@ import { FILE_FILTERS } from '@/hooks/useFileSelector'
 import { useReferenceField, useReferenceSessionStore, startReferenceAnalysis } from '@/stores/referenceSessionStore'
 import './ReferenceLibrary.css'
 import ClipTranscription from './ClipTranscription'
+import { SpeechCleanupButton } from './SpeechCleanup'
 import { playbackBoundary } from './referencePlayback'
 import { confidenceLabel, hasTimestamp, selectionFromSegment } from './referenceAnalysis'
 
@@ -20,7 +21,6 @@ const message = (cause: unknown) => cause instanceof Error ? cause.message : Str
 
 export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, active }: Props) {
   const [allAssets, setAllAssets] = useState(assets)
-  const [showArchived, setShowArchived] = useReferenceField('showArchived')
   const [query, setQuery] = useReferenceField('query')
   const [stored, setStored] = useReferenceField('stored')
   const [source, setSource] = useReferenceField('source')
@@ -62,10 +62,10 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   const subtitleInput = useRef<HTMLInputElement>(null)
   useEffect(() => {
     let mounted = true
-    void speechApi.references(showArchived).then(result => { if (mounted) { setAllAssets(result.assets); setListError('') } })
+    void speechApi.references(true).then(result => { if (mounted) { setAllAssets(result.assets); setListError('') } })
       .catch(cause => { if (mounted) setListError(message(cause)) })
     return () => { mounted = false }
-  }, [assets, showArchived])
+  }, [assets])
   useEffect(() => { if (!active) audio.current?.pause() }, [active])
   useEffect(() => {
     const player = audio.current
@@ -178,6 +178,16 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   }
 
   return <div className="reference-library">
+    <SpeechCleanupButton kind="staging" itemId="all" label="清理无引用暂存" disabled={!!busy || !!source || !!preview} onChanged={refresh} />
+    {(source || preview) && <button type="button" disabled={!!busy} onClick={async () => {
+      const session = useReferenceSessionStore.getState()
+      if (session.clipSubmitting || [session.analysisTask, session.clipTask].some(task => task && !['completed', 'failed', 'cancelled', 'skipped'].includes(task.state))) {
+        setError('请先等待或取消当前识别任务，再结束编辑。'); return
+      }
+      if (!await confirmAction('结束当前录音编辑并放弃尚未保存的草稿？已保存录音和原文件保持不变。')) return
+      audio.current?.pause()
+      useReferenceSessionStore.setState(useReferenceSessionStore.getInitialState())
+    }}>结束编辑并重置草稿</button>}
     <input ref={fileInput} hidden type="file" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,.wma" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) upload(file) }} />
     <input ref={subtitleInput} hidden type="file" accept=".srt,.vtt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run('读取字幕', async () => {
       if (file.size > 5 * 1024 * 1024) throw new Error('字幕文件不能超过 5 MiB')
@@ -186,7 +196,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
       const result = await speechApi.subtitles(subtitle_text, subtitle_format)
       setSegments(result.segments); setLoadedSubtitle({ name: file.name, subtitle_text, subtitle_format })
       setSubtitleRole('reference'); setAssistOpen(true)
-      setNotice('已加载字幕供辅助查看。确认是与录音同语的原文后可填入；译文仅供参考。')
+      setNotice('字幕已加载，请确认字幕用途。')
     }) }} />
     {error && <div className="notice error" role="alert">{error}</div>}{notice && <div className="notice" role="status">{notice}</div>}
     {busy && <div className="reference-busy" role="status"><span className="reference-spinner" />{busy}…</div>}
@@ -195,19 +205,17 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
       <aside id="reference-recordings" className={'panel reference-sidebar' + (libraryOpen ? ' is-open' : '')}>
         <div className="row spread"><h2>我的录音 <span className="reference-count">{found.length}</span></h2><button onClick={() => void chooseFile()}>＋ 导入</button></div>
         <input aria-label="搜索录音" placeholder="搜索名称、备注或原文" value={query} onChange={event => setQuery(event.target.value)} />
-        <label className="reference-archive"><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)} /> 显示已归档</label>
         {listError && <p className="error" role="alert">录音列表加载失败，可点击页面右上角刷新。</p>}
         {!found.length && !listError && <div className="empty">{query ? <>没有匹配的录音。<button onClick={() => setQuery('')}>清空搜索</button></> : source ? '还没有保存的录音。当前片段保存后会出现在这里。' : '还没有参考录音。导入一份音频，保存你想留下的声音。'}</div>}
         <div className="reference-assets">{found.map(item => <button key={item.id} className={'reference-asset ' + (stored?.id === item.id ? 'is-selected' : '')} aria-current={stored?.id === item.id ? 'true' : undefined} onClick={() => { openStored(item); setLibraryOpen(false) }}>
-          <strong>{item.name || '未命名录音'}</strong><span>{languages[item.language] || item.language} · {(item.duration ?? 0).toFixed(1)} 秒{item.archived ? ' · 已归档' : ''}</span>
+          <strong>{item.name || '未命名录音'}</strong><span>{languages[item.language] || item.language} · {(item.duration ?? 0).toFixed(1)} 秒{item.archived ? ' · 旧版保留项' : ''}</span>
           <span className={'reference-status ' + (item.confirmed ? 'is-confirmed' : '')}>{!item.transcript ? '原文待补充' : item.confirmed ? '原文已核对' : '原文待核对'}</span>
         </button>)}</div>
       </aside>
       <section className="reference-main">
         {!source && view !== 'saved' && <div className="panel reference-start" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const file = event.dataTransfer.files[0]; if (file) upload(file) }}>
-          <div className="reference-start-icon" aria-hidden="true">♫</div><h2>导入参考录音</h2><p>整段保存，或从长音频里选出一小段。<br />可以手动框选，也可识别台词后逐段试听选择。</p>
+          <div className="reference-start-icon" aria-hidden="true">♫</div><h2>导入参考录音</h2><p>保存整段录音，或截取需要的片段。</p>
           <button className="primary" onClick={() => void chooseFile()}>选择音频文件</button><p className="muted">也可以拖入文件 · WAV / MP3 / FLAC 等<br />浏览器上传上限 100 MiB</p>
-          <div className="reference-start-tip">录音可独立保存，需要时再用于创建音色。</div>
         </div>}
         {source && view !== 'saved' && <div className="reference-workspace">
           <section className="panel reference-editor">
@@ -248,14 +256,14 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
 
             </section>
             <details className="panel reference-assist" open={assistOpen} onToggle={event => setAssistOpen(event.currentTarget.open)}><summary>台词分段与字幕 <span className="muted">按时间顺序 · 试听后自行选用</span></summary>
-              <div className="row spread"><div><p className="muted">仅复用语言与录音一致的 VTT/SRT；译文和无法确定语言的字幕不会代替原文。没有可用字幕时运行 ASR，按音频时间顺序展示全部台词片段，由你试听选择。</p></div><button disabled={analyzing} onClick={() => void analyze()}>{analyzing ? '正在分析…' : analyzed ? '重新分析' : '识别并分段'}</button></div>
+              <div className="row spread"><div><p className="muted">优先使用与录音同语的字幕；译文不能替代原文。</p></div><button disabled={analyzing} onClick={() => void analyze()}>{analyzing ? '正在分析…' : analyzed ? '重新分析' : '识别并分段'}</button></div>
               {!!source.companion_subtitles?.length && <p className="notice">发现同目录字幕：{source.companion_subtitles.map(item => item.name).join('、')}。分析时先检查时间轴与语言。</p>}
-              <div className="row"><button onClick={() => subtitleInput.current?.click()}>加载已有 VTT / SRT</button><span className="muted">浏览器上传音频时，可另选字幕。</span></div>
+              <div className="row"><button onClick={() => subtitleInput.current?.click()}>加载已有 VTT / SRT</button></div>
               {loadedSubtitle && <div className="row"><span className="muted">优先使用：{loadedSubtitle.name}</span><button onClick={() => { setLoadedSubtitle(null); setSegments([]) }}>移除字幕</button></div>}
               <label className="reference-language"><input type="checkbox" checked={recognizeText} disabled={analyzing} onChange={event => setRecognizeText(event.target.checked)} /> 无可用字幕时运行 ASR（可能耗时数分钟）</label>
               <label className="reference-language">录音语言 <select aria-label="分析语言" value={draft.language} onChange={event => change({ language: event.target.value })}>{Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><span className="muted">不确定时可自动识别</span></label>
-              {analysisTask && <div className="reference-analysis-status" role="status"><div className="row spread"><span>{analysisLabel}</span>{analyzing && <button onClick={() => void run('取消分析', async () => { setAnalysisTask(await tasksApi.cancel(analysisTask.task_id)) })}>取消分析</button>}</div>{analyzing && <progress max={1} value={analysisTask.progress} aria-label="片段分析进度" />}<p className="muted">{analyzing ? `阶段进度 ${Math.round(analysisTask.progress * 100)}% · ` : ''}已用时 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒</p>{analyzing && <p className="muted">百分比表示处理阶段，不是剩余时间估算。可继续试听和编辑；取消将在当前处理阶段结束后生效。</p>}</div>}
-              {analysisSource && <p className="notice">{analysisSource}</p>}
+              {analysisTask && <div className="reference-analysis-status" role="status"><div className="row spread"><span>{analysisLabel}</span>{analyzing && <button onClick={() => void run('取消分析', async () => { setAnalysisTask(await tasksApi.cancel(analysisTask.task_id)) })}>取消分析</button>}</div>{analyzing && <progress max={1} value={analysisTask.progress} aria-label="片段分析进度" />}<p className="muted">{analyzing ? `阶段进度 ${Math.round(analysisTask.progress * 100)}% · ` : ''}已用时 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒</p>{analyzing && <p className="muted">可继续编辑；取消将在当前阶段结束后生效。</p>}</div>}
+              {analysisSource && <p className="muted">{analysisSource}</p>}
               {analysisWarnings.map((warning, index) => <p className="notice" key={index}>{warning}</p>)}
               {analysisError && <div className="notice error" role="alert">{analysisError}<p>你仍可以手动选段并保存。</p></div>}
               {trackingFailed && <div className="row"><span className="muted">进度连接中断，已暂停自动重试。</span><button onClick={() => setTrackingRetry(value => value + 1)}>重新获取进度</button><button onClick={() => { setAnalysisTask(null); setTrackingFailed(false); setNotice('已结束进度跟踪，原任务可能仍在运行，可在任务中心查看。') }}>结束跟踪</button></div>}
@@ -286,7 +294,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
 <div className="row spread"><span>保存为独立录音，保留来源音频。</span><button className="primary" disabled={!valid || !processingValid || !draft.name.trim()} onClick={() => void save()}>保存到声音库</button></div></div>
         </div>}
         {view === 'saved' && stored && <section className="panel reference-saved">
-          <span className="reference-eyebrow">已保存的参考录音</span><div className="row spread"><h2>{stored.name || '未命名录音'}</h2><span className="pill">{stored.archived ? '已归档' : '已入库'}</span></div>
+          <span className="reference-eyebrow">已保存的参考录音</span><div className="row spread"><h2>{stored.name || '未命名录音'}</h2><span className="pill">{stored.archived ? '旧版保留项' : '已入库'}</span></div>
           <p className="muted">{languages[stored.language] || stored.language} · {(stored.duration ?? 0).toFixed(1)} 秒 · {stored.confirmed ? '原文已核对' : '原文待补充或核对'}</p>
           <audio controls preload="none" src={speechApi.referenceAudio(stored.id)} />
           <div className="reference-saved-transcript"><h3>录音原文</h3><p>{stored.transcript || '尚未填写原文。'}</p>{stored.notes && <p className="muted">备注：{stored.notes}</p>}</div>
@@ -297,7 +305,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
           }}><label className="field">名称<input name="name" required defaultValue={stored.name || ''} /></label><label className="field">备注<input name="notes" defaultValue={stored.notes || ''} /></label><button type="submit">更新名称与备注</button><p className="muted">修改原文或音频时，可通过“截取／处理为新录音”另存新条目。</p></form><div className="row"><a href={speechApi.referenceAudio(stored.id, false, true)} download>导出录音</a><button onClick={() => void run('载入录音', async () => {
             const item = stored; load(await speechApi.inspect(item.path), (item.name || '参考录音') + ' · 副本')
             setDraft(value => ({ ...value, transcript: item.transcript, language: item.language, confirmed: item.confirmed || false, notes: item.notes || '' }))
-          })}>截取／处理为新录音</button><button onClick={() => void run(stored.archived ? '恢复录音' : '归档录音', async () => { const updated = await speechApi.updateReference(stored.id, { archived: !stored.archived }); setStored(updated); await refresh() })}>{stored.archived ? '恢复录音' : '归档录音'}</button></div></details>
+          })}>截取／处理为新录音</button><SpeechCleanupButton kind="assets" itemId={stored.id} name={stored.name || stored.id} label="删除录音及自有副本" disabled={!!busy} onChanged={async () => { setStored(null); await refresh() }} /></div></details>
         </section>}
       </section>
     </div></fieldset>

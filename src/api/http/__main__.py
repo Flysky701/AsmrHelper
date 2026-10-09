@@ -73,6 +73,7 @@ def main():
             host=args.host,
             port=args.port,
             reload=args.reload,
+            reload_dirs=[str(project_root / "src")] if args.reload else None,
             factory=True,
             log_config=None,
         )

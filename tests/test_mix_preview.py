@@ -71,7 +71,7 @@ def test_resolves_separated_source(tmp_path):
     task = SimpleNamespace(task_type="pipeline", state="completed", input_asset_id="a")
     tasks = SimpleNamespace(get_task=lambda _: task, recovery_store=None)
     entries = [SimpleNamespace(artifact_type=kind, path=str(path))
-               for kind, path in zip(("audio.vocals", "audio.tts"), paths[1:])]
+               for kind, path in zip(("audio.vocals", "audio.tts"), paths[1:], strict=True)]
     artifacts = SimpleNamespace(get_task_artifacts=lambda _: SimpleNamespace(entries=entries))
     inputs = SimpleNamespace(get_asset=lambda _: SimpleNamespace(absolute_path=str(paths[0])))
     assert resolve_mix_sources("task", tasks, artifacts, inputs) == tuple(map(str, paths))

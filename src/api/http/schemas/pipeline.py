@@ -67,7 +67,7 @@ class PresetPermanentDeleteResponse(BaseModel):
     status: Literal["deleted", "already_missing"]
 
 
-class PresetRestoreRequest(BaseModel):
+class BuiltinTemplateAddRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     revision: int = Field(ge=1)

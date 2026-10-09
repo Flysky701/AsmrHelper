@@ -15,6 +15,7 @@ from src.core.orchestration import (
 )
 from src.utils import sanitize_filename
 from src.core.subtitles.translation_reuse import prepare_translation_profile
+from src.core.speech.store import reference_submission_operation
 
 from ..dto import ArtifactSet, PipelineRequest, PipelineResult
 from ..errors import AppExecutionError, AppValidationError, ResourceValidationError
@@ -471,6 +472,7 @@ class PipelineService:
         )
         return build_execution_plan(context)
 
+    @reference_submission_operation
     def create_pipeline_task_spec(
         self,
         request: PipelineRequest,

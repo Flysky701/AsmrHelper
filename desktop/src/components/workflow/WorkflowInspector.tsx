@@ -17,7 +17,7 @@ export function WorkflowInspector({ graph, node, issues, onNodeChange, onConnect
   const catalog = GRAPH_CATALOG[node.kind]
   return <aside className="wg-inspector" aria-label="节点设置">
     <div className="wg-panel-heading"><span>节点设置</span><small>{node.id}</small></div>
-    <div className="wg-inspector-title"><div><h2>{catalog.label}</h2><p>每个实例独立配置</p></div></div>
+    <div className="wg-inspector-title"><div><h2>{catalog.label}</h2></div></div>
     <section className="wg-inspector-delivery" aria-label="交付结果"><h3>交付结果</h3>{Object.entries(catalog.outputs).map(([port, type]) => <label className="wg-check" key={port}>
       <input type="checkbox" checked={graph.outputs.some(output => output.node_id === node.id && output.port === port)}
         onChange={event => onOutput(node.id, port, event.target.checked)} aria-label={`交付 ${node.id} ${port}`} />
@@ -35,7 +35,7 @@ export function WorkflowInspector({ graph, node, issues, onNodeChange, onConnect
           {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
-    })}<p className="wg-hint">可绑定输入槽或其他节点的兼容输出。没有来源时不会自动补跑前序。</p></section>
+    })}<p className="wg-hint">选择输入槽或上游节点的输出。</p></section>
     <section><h3>参数</h3>{renderParameters(node, onNodeChange)}</section>
     {!!issues.length && <section className="wg-node-problems"><h3>需要补充</h3>{issues.map((issue, index) => <p key={index}>{issue}</p>)}</section>}
     </div>

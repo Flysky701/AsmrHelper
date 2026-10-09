@@ -9,11 +9,10 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import urllib.request
 
-VERSION = "0.2.1-beta.4"
+VERSION = "0.2.1-beta.5"
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_CONFIG = ("models.yaml", "presets.yaml", "asmr_terms.json", "config.example.json", "voice_profiles.example.json")
 EXCLUDED = ["developer venv/runtime", "config.json", "voice_profiles.json", "voice_lab", "models", "output", "logs", "databases", ".git", ".env", "__pycache__", "imageio_ffmpeg bundled executable", "ffplay"]
@@ -135,7 +134,8 @@ def main():
     scripts_dir = output / "python" / "Scripts"
     if scripts_dir.is_dir():
         for entry in scripts_dir.iterdir():
-            if entry.is_file(): entry.unlink()
+            if entry.is_file():
+                entry.unlink()
     identity = hashlib.sha256(requirements.read_bytes() + launcher.read_bytes() + (python_source / "python.exe").read_bytes()).hexdigest()
     (output / "runtime-id.txt").write_text(identity, encoding="utf-8")
     files = [{"path": p.relative_to(output).as_posix(), "bytes": p.stat().st_size, "sha256": digest(p)} for p in sorted(output.rglob("*")) if p.is_file()]

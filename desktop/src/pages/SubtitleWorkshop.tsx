@@ -1,3 +1,4 @@
+import { displayPath } from '@/utils/displayPath'
 import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { subtitlesApi } from '@/api/subtitles'
@@ -719,7 +720,7 @@ export default function SubtitleWorkshop() {
         output_path: outPath,
       })
       setIsDirty(false)
-      setMessage(`已导出到: ${outPath}`)
+      setMessage(`已导出到: ${displayPath(outPath)}`)
     } catch (err) {
       setError(`导出失败: ${err}`)
     } finally {
@@ -1244,20 +1245,10 @@ export default function SubtitleWorkshop() {
                   <Icon.Info /> 说明
                 </div>
                 <div style={{ ...S.panelBody, ...S.helpText }}>
-                  <p style={{ marginBottom: 12 }}>翻译功能调用 LLM 服务对字幕文件进行逐条翻译，支持输出双语格式。</p>
-                  <p style={{ marginBottom: 12 }}><strong style={{ color: 'var(--fg)' }}>工作流程：</strong></p>
-                  <ol style={{ paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <li>选择要翻译的字幕文件</li>
-                    <li>配置翻译服务和语言方向</li>
-                    <li>点击"开始翻译"提交后台任务</li>
-                    <li>在任务中心查看翻译进度</li>
-                    <li>完成后可在编辑器中打开结果</li>
-                  </ol>
-                  <p style={{ marginTop: 12 }}><strong style={{ color: 'var(--fg)' }}>注意事项：</strong></p>
+                  <p style={{ marginBottom: 12 }}>选择字幕、服务和语言后开始翻译，进度与结果见任务中心。</p>
                   <ul style={{ paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <li>翻译通过 LLM API 执行，需要配置有效的 API Key</li>
-                    <li>大文件翻译可能需要较长时间</li>
-                    <li>双语模式会在每条原文下方添加译文</li>
+                    <li>使用所选 LLM 服务及其凭据。</li>
+                    <li>双语模式在每条原文下方添加译文。</li>
                   </ul>
                 </div>
               </div>
@@ -1283,7 +1274,7 @@ export default function SubtitleWorkshop() {
                   <Icon.Text />
                 </div>
                 <div style={S.modeCardTitle(scriptMode === 'text_only')}>纯文本模式</div>
-                <div style={S.modeCardDesc}>仅从台本文件提取文本，LLM 清洗后生成字幕。适合无音频场景。</div>
+                <div style={S.modeCardDesc}>台本清洗后生成字幕，无精确时间轴。</div>
               </div>
               <div
                 style={S.modeCard(scriptMode === 'full')}
@@ -1293,7 +1284,7 @@ export default function SubtitleWorkshop() {
                   <Icon.Audio />
                 </div>
                 <div style={S.modeCardTitle(scriptMode === 'full')}>音频对齐模式</div>
-                <div style={S.modeCardDesc}>台本 + 音频文件，ASR 识别后与台本对齐，生成带精确时间轴的字幕。</div>
+                <div style={S.modeCardDesc}>根据音频识别与台本对齐，生成时间轴。</div>
               </div>
               <div
                 style={S.modeCard(scriptMode === 'existing_vtt')}
@@ -1303,7 +1294,7 @@ export default function SubtitleWorkshop() {
                   <Icon.Vtt />
                 </div>
                 <div style={S.modeCardTitle(scriptMode === 'existing_vtt')}>VTT 重对齐模式</div>
-                <div style={S.modeCardDesc}>基于已有的 VTT 文件，结合台本重新对齐和清洗。适合修正时间轴。</div>
+                <div style={S.modeCardDesc}>用台本校对、清洗已有 VTT 字幕。</div>
               </div>
             </div>
           </div>
@@ -1531,13 +1522,13 @@ export default function SubtitleWorkshop() {
                 </div>
                 <div style={{ ...S.panelBody, ...S.helpText }}>
                   <p style={{ marginBottom: 8 }}>
-                    <strong style={{ color: 'var(--fg)' }}>纯文本模式</strong> — 从台本提取文本，LLM 清洗后直接生成字幕。不含精确时间轴。
+                    <strong style={{ color: 'var(--fg)' }}>仅有台本</strong>：选择纯文本模式。
                   </p>
                   <p style={{ marginBottom: 8 }}>
-                    <strong style={{ color: 'var(--fg)' }}>音频对齐模式</strong> — ASR 识别音频 → 与台本对齐 → 生成带时间轴的字幕。精度最高。
+                    <strong style={{ color: 'var(--fg)' }}>需要时间轴</strong>：提供音频并选择音频对齐。
                   </p>
                   <p>
-                    <strong style={{ color: 'var(--fg)' }}>VTT 重对齐模式</strong> — 已有 VTT 文件 + 台本，重新清洗和对齐。适合修正错误。
+                    <strong style={{ color: 'var(--fg)' }}>已有 VTT</strong>：选择 VTT 重对齐。
                   </p>
                 </div>
               </div>

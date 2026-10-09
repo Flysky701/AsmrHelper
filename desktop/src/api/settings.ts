@@ -15,11 +15,23 @@ export interface ConnectionProfile {
   base_url: string
   model?: string
   credential_configured: boolean
+  removed?: boolean
+}
+
+export interface ConnectionRemovalPreview {
+  id: string
+  name: string
+  removed: boolean
+  active: boolean
+  can_remove: boolean
+  token: string
+  references: Array<{ kind: 'workflow' | 'task' | 'batch'; id: string; name: string }>
 }
 
 export interface SettingsView {
   connection_profiles: {
     llm: ConnectionProfile[]
+    removed_llm?: ConnectionProfile[]
     active_llm: string
   }
   providers: {
@@ -86,6 +98,12 @@ export interface ProviderModelsResponse {
 }
 
 export const settingsApi = {
+  connectionRemovalPreview: (id: string) =>
+    api.get<ConnectionRemovalPreview>(`/settings/connections/${encodeURIComponent(id)}/removal-preview`),
+
+  deleteConnection: (id: string, token: string) =>
+    api.post<SettingsResponse>(`/settings/connections/${encodeURIComponent(id)}/removal`, { token, confirmed: true }),
+
   listModels: (provider: string, settings?: SettingsUpdate) =>
     api.post<ProviderModelsResponse>('/settings/models', {
       provider,

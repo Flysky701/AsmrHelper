@@ -10,7 +10,7 @@ def test_voxcpm_catalog_and_bootstrap_use_isolated_cuda_runtime(tmp_path, monkey
     assert profile.isolated and profile.cuda_torch
     assert profile.environment_dir == tmp_path / ".runtimes" / "voxcpm2"
     assert ModelService().get_model("voxcpm2").runtime_profile == profile.id
-    monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda _: "uv")
+    monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda _, **kwargs: "uv")
     monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: 12.0)
     commands = resolver.build_bootstrap_commands(profile)
     assert "torch==2.10.0+cu128" in commands[0]

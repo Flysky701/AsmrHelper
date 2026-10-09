@@ -4,8 +4,10 @@
   gap: 0;
 }
 
-.voice-recipe-entry { min-width: 0; }
-.voice-recipe-entry + .voice-recipe-entry { border-top: 1px solid var(--border); }
+.voice-recipe-entry { min-width: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
+.voice-recipe-source { color: var(--muted); font-size: var(--text-help); }
+.voice-recipe-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 8px; }
+.speech-lab .voice-recipe-actions button { font-size: var(--text-help); padding: 5px 7px; border-color: transparent; }
 
 .speech-lab .voice-recipe-list .voice-recipe-row {
   display: grid;

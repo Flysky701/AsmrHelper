@@ -171,6 +171,10 @@ def test_runtime_dependency_install_reports_subprocess_failure(
     monkeypatch,
     tmp_path,
 ):
+    from src.core.runtime.profiles import RuntimeProfileResolver
+
+    runtime_resolver = RuntimeProfileResolver(tmp_path)
+    monkeypatch.setattr(runtime_resolver, "compute_mode", lambda: "cpu")
     entry = ModelEntry(
         id="optional-model",
         kind="local",
@@ -182,7 +186,7 @@ def test_runtime_dependency_install_reports_subprocess_failure(
         install_path="optional/model",
         required_python_extras=["optional"],
     )
-    service = ModelService()
+    service = ModelService(runtime_resolver=runtime_resolver)
     monkeypatch.setattr(
         service,
         "_resolve_installer",
@@ -613,7 +617,10 @@ def test_combined_runtime_import_failure_is_not_reported_executable(tmp_path):
     ]
 
 
-def test_nested_file_does_not_satisfy_required_top_level_asset(tmp_path):
+def test_nested_file_does_not_satisfy_required_top_level_asset(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASMR_HELPER_MODEL_ROOT", str(tmp_path))
+    monkeypatch.setattr("src.core.resources.model_assets.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("src.core.resources.model_assets.sources", lambda: [])
     install_dir = tmp_path / "qwen3tts" / "custom-voice"
     nested_dir = install_dir / "speech_tokenizer"
     nested_dir.mkdir(parents=True)

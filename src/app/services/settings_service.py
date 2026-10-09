@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import threading
+import hashlib
+import json
 from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
 from src.config import config
-from src.provider_profiles import public_profiles, update_profiles
+from src.provider_profiles import profiles_for, public_profiles, update_profiles
 from src.core.engines.llm.registry import LLM_DEFAULT_MODELS
 from src.core.resources.provider_verification import (
     ProviderVerificationRegistry,
@@ -57,6 +59,53 @@ class SettingsService:
     def get_settings(self, masked: bool = True) -> dict[str, Any]:
         settings = self.config.to_dict()
         return self._to_public_settings(settings) if masked else settings
+
+    def connection_removal_preview(self, connection_id: str) -> dict:
+        from .llm_connection_removal import reference_guard
+        with reference_guard(), getattr(self.config, "_state_lock", nullcontext()):
+            return self._connection_removal_preview(connection_id)
+
+    def _connection_removal_preview(self, connection_id: str) -> dict:
+        from .llm_connection_removal import removal_references
+        base = self.config.build_effective_config(include_env=False)
+        profiles = profiles_for(base, include_removed=True)
+        profile = next((item for item in profiles["llm"] if item["id"] == connection_id), None)
+        if profile is None:
+            raise AppValidationError("连接配置不存在，请刷新列表")
+        references = removal_references(connection_id)
+        active = profiles["active_llm"] == connection_id
+        token = hashlib.sha256(json.dumps({"profiles": profiles, "references": references},
+            ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        return {"id": connection_id, "name": profile["name"], "removed": bool(profile.get("removed")),
+                "active": active, "references": references, "token": token,
+                "can_remove": not active and not references}
+
+    def delete_connection(self, connection_id: str, *, token: str, confirmed: bool) -> dict:
+        from .llm_connection_removal import reference_guard
+        if confirmed is not True:
+            raise AppValidationError("请确认删除这条本地连接配置")
+        with reference_guard(), getattr(self.config, "_state_lock", nullcontext()):
+            preview = self._connection_removal_preview(connection_id)
+            if token != preview["token"]:
+                raise AppValidationError("连接或引用已改变，请重新查看删除影响")
+            if not preview["can_remove"]:
+                raise AppValidationError("请先切换当前默认连接，并处理保存的工作流或等待活动任务结束")
+            profiles = profiles_for(self.config.build_effective_config(include_env=False), include_removed=True)
+            profile = next(item for item in profiles["llm"] if item["id"] == connection_id)
+            profiles["llm"] = [item for item in profiles["llm"] if item["id"] != connection_id]
+            updates = {"connection_profiles": profiles}
+            # Remove an unused legacy projection belonging to this profile; retain
+            # other connections, shared credentials and immutable task snapshots.
+            provider = profile["provider"]
+            if not any(item["provider"] == provider for item in profiles["llm"]):
+                base_api = self.config.build_effective_config(include_env=False).get("api", {})
+                updates["api"] = {f"{provider}_{field}": "" for field in ("api_key", "base_url", "model")
+                                  if base_api.get(f"{provider}_{field}") == profile.get(field)}
+            try:
+                self.config.persist_updates(updates)
+            except Exception as exc:
+                raise AppExecutionError("连接列表保存失败；请刷新后核对") from exc
+            return self.get_settings(masked=True)
 
 
     def update_settings(self, updates: dict[str, Any]) -> dict[str, Any]:

@@ -7,6 +7,10 @@ import type {
   BatchRunResponse,
 } from './types'
 
+export type RemovableBatchRunResponse = Omit<BatchRunResponse, 'items'> & {
+  items: Array<BatchRunResponse['items'][number] & { removed?: boolean }>
+}
+
 export const batchesApi = {
   discover: (directory: string, recursive = true, limit?: number, media_kind: 'audio' | 'subtitle' | 'all' = 'audio') =>
     api.post<BatchDiscoverResponse>('/batch-runs/discover', { directory, recursive, limit, media_kind }),
@@ -14,10 +18,14 @@ export const batchesApi = {
   create: (body: BatchRunCreateRequest | GraphBatchRunCreateRequest) =>
     api.post<BatchRunResponse>('/batch-runs', body),
 
-  list: () => api.get<BatchRunListResponse>('/batch-runs'),
+  list: () => api.get<Omit<BatchRunListResponse, 'batches'> & { batches: RemovableBatchRunResponse[] }>('/batch-runs'),
 
   get: (batchId: string) =>
-    api.get<BatchRunResponse>(`/batch-runs/${encodeURIComponent(batchId)}`),
+    api.get<RemovableBatchRunResponse>(`/batch-runs/${encodeURIComponent(batchId)}`),
+
+  deleteItem: (batchId: string, itemId: string, expectedUpdatedAt: string) =>
+    api.post<{ batch_id: string; deleted_item_id: string; batch: RemovableBatchRunResponse | null }>(`/batch-runs/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/removal`,
+      { expected_updated_at: expectedUpdatedAt, confirmed: true }),
 
   cancel: (batchId: string) =>
     api.post<BatchRunResponse>(`/batch-runs/${encodeURIComponent(batchId)}/cancel`),

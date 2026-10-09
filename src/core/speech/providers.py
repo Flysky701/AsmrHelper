@@ -59,7 +59,7 @@ SCHEMAS = {
         "inference_timesteps": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10}},
 }
 MODES = {
-    "fish_audio": [{"id": "hosted", "variant_kinds": ["hosted"], "models": ["s2-pro", "s2.1-pro", "s2.1-pro-free", "s1"]}],
+    "fish_audio": [{"id": "hosted", "variant_kinds": ["hosted"], "models": ["s2.1-pro-free", "s2.1-pro", "s2-pro", "s1"]}],
     "openai_compatible": [{"id": "hosted", "variant_kinds": ["hosted"], "models": []}],
     "edge": [{"id": "builtin", "variant_kinds": ["builtin"], "models": ["edge-tts"]}],
     "qwen3": [
@@ -71,6 +71,16 @@ MODES = {
 _LOCAL_LOCK = threading.Lock()
 EMOTIONS = {"neutral", "happy", "sad", "angry", "excited", "calm", "nervous", "relaxed"}
 STYLE_TEXT = {"normal": "", "soft": "轻柔自然地说话", "whisper": "以清晰气声耳语说话"}
+
+# Consumption controls only. Voice identity, reference conditioning and execution
+# settings never enter this list, even if a future engine declares such options.
+RUNTIME_OPTIONS = {
+    "fish_audio": ("speed", "temperature", "top_p", "style_description", "tag_density"),
+    "openai_compatible": ("speed",),
+    "edge": ("speed",),
+    "qwen3": ("temperature", "top_p", "do_sample", "top_k", "repetition_penalty", "max_new_tokens"),
+    "voxcpm2": ("cfg_value", "inference_timesteps"),
+}
 
 
 class SpeechProvider:
@@ -95,11 +105,20 @@ class SpeechProvider:
                 "transcript_optional_option": "x_vector_only_mode" if self.provider_id == "qwen3" and mode == "reference" else None,
                 "duration_limit_seconds": None, "upload": False}, "max_text_length": None}
 
+    def runtime_options(self, model, mode):
+        if not any(item["id"] == mode and (not item["models"] or model in item["models"]) for item in self.modes):
+            return []
+        return [key for key in RUNTIME_OPTIONS.get(self.provider_id, ())
+                if key in self.options_schema
+                and (not self.options_schema[key].get("applies_to_modes") or mode in self.options_schema[key]["applies_to_modes"])
+                and not (self.provider_id == "fish_audio" and model == "s1" and key in {"style_description", "tag_density"})]
+
     def describe(self):
         modes = deepcopy(self.modes)
         for mode in modes:
             mode["capabilities"] = self.capabilities(mode["models"][0] if mode["models"] else None, mode["id"])
             mode["voice_sources"] = self.voice_sources(mode["id"])
+            mode["runtime_options"] = self.runtime_options(mode["models"][0] if mode["models"] else None, mode["id"])
         return deepcopy({"provider_id": self.provider_id, "name": {"fish_audio": "Fish Audio", "edge": "Edge TTS",
             "qwen3": "Qwen3 TTS", "voxcpm2": "VoxCPM2", "openai_compatible": "OpenAI 兼容语音"}.get(self.provider_id, getattr(self, "name", self.provider_id)),
             "version": self.version, "contract_version": 1, "remote": self.remote,
@@ -125,12 +144,15 @@ class SpeechProvider:
                     {"hosted": "填写服务端真实 Voice ID", "reference": "选择参考音频素材",
                      "design": "填写声音描述", "builtin": "选择引擎预设音色"}.get(mode, "")}
 
-    def list_hosted_voices(self, context, *, title="", page=1, page_size=20, workspace_only=True):
+    def list_hosted_voices(self, context, *, title="", page=1, page_size=20, workspace_only=True, scope=None):
         """Read Fish's voice catalog without synthesis or a guessed default voice."""
         if self.provider_id != "fish_audio":
             raise ProviderError("voice_catalog_unsupported", "此引擎不支持获取声音列表，请手填 Voice ID")
         if not 1 <= page_size <= 100 or page < 1 or len(title) > 200:
             raise ValueError("声音查询参数无效")
+        scope = scope or ("workspace" if workspace_only else "public")
+        if scope not in {"workspace", "mine_public", "public"}:
+            raise ValueError("未知声音查询范围")
         connection = context.get("connection", {})
         base = str(connection.get("base_url", "")).rstrip("/")
         key = connection.get("api_key")
@@ -149,11 +171,31 @@ class SpeechProvider:
             path = path[:-4]
         url = parsed._replace(path=path + "/model").geturl()
         params = {"page_number": page, "page_size": page_size,
-                  "self": "true" if workspace_only else "false"}
+                  "self": "true" if scope == "workspace" else "false"}
         if title.strip():
             params["title"] = title.strip()
+        owner_id = None
+        if scope == "mine_public" and (parsed.scheme != "https" or parsed.hostname != "api.fish.audio"
+                                       or parsed.port not in (None, 443) or path):
+            raise ProviderError("voice_owner_unsupported", "此代理无法核实当前账号，请选工作区或公共库，或手填 Voice ID")
         try:
             with httpx.Client(timeout=httpx.Timeout(20, connect=10), follow_redirects=False) as client:
+                if scope == "mine_public":
+                    # Official /wallet/self/package resolves the authenticated user.
+                    # Read only user_id; never expose or persist subscription/balance fields.
+                    identity = client.get("https://api.fish.audio/wallet/self/package",
+                                          headers={"Authorization": f"Bearer {key}"})
+                    if identity.status_code != 200:
+                        raise ProviderError("voice_owner_unavailable", "无法核实当前 API 账号，请检查权限或手填 Voice ID；未查询公共库")
+                    try:
+                        payload = identity.json()
+                    except ValueError:
+                        payload = None
+                    owner_id = payload.get("user_id") if isinstance(payload, dict) else None
+                    if (not isinstance(owner_id, str) or not owner_id.strip() or len(owner_id) > 200
+                            or not all(char.isascii() and (char.isalnum() or char in "_-") for char in owner_id)):
+                        raise ProviderError("voice_owner_invalid", "未取得有效账号标识，请手填 Voice ID；未查询公共库")
+                    params["author_id"] = owner_id
                 response = client.get(url, params=params, headers={"Authorization": f"Bearer {key}"})
         except httpx.TimeoutException as exc:
             raise ProviderError("voice_catalog_timeout", "声音列表请求超时，请重试或手填 Voice ID") from exc
@@ -179,6 +221,9 @@ class SpeechProvider:
             if (not isinstance(item, dict) or not isinstance(item.get("_id"), str)
                     or not item["_id"].strip() or not isinstance(item.get("title", ""), str)):
                 raise ProviderError("voice_catalog_invalid", "服务返回的声音条目格式不兼容，请手填 Voice ID")
+            if owner_id and (not isinstance(item.get("author"), dict)
+                             or item["author"].get("_id") != owner_id or item.get("visibility") != "public"):
+                raise ProviderError("voice_owner_mismatch", "服务返回的音色作者或公开范围不符，请手填 Voice ID；不会作为本人库展示")
             voice_id = item["_id"].strip()
             if voice_id not in seen:
                 items.append({"id": voice_id, "name": item.get("title", "").strip() or voice_id})
@@ -188,7 +233,7 @@ class SpeechProvider:
         if not isinstance(has_more, bool):
             has_more = page * page_size < total if type(total) is int and total >= 0 else len(data["items"]) >= page_size
         has_more = bool(items) and has_more
-        return {"items": items, "page": page, "page_size": page_size, "has_more": has_more,
+        return {"items": items, "page": page, "page_size": page_size, "has_more": has_more, "scope": scope,
                 "notice": "已到服务端可浏览范围，请按名称缩小搜索。" if data.get("window_limited") and not has_more else ""}
 
     def _options(self, recipe):

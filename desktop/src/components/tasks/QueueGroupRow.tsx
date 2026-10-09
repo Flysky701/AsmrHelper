@@ -1,3 +1,4 @@
+import { displayPath } from '@/utils/displayPath'
 import { useState } from 'react'
 import type { BatchRunItemResponse, BatchRunResponse } from '@/api/types'
 import GraphRunBindings from '@/components/GraphRunBindings'
@@ -38,13 +39,13 @@ export default function QueueGroupRow({ row, index, graph, presetLabel, busy, di
         const item = items.find(item => inputPathKey(item.path) === inputPathKey(path)), subtitle = /\.(srt|vtt|lrc)$/i.test(path)
         const binding = Object.values(bindings).find(binding => inputPathKey(binding.path) === inputPathKey(path))
         const language = item?.subtitleSummary?.language || binding?.language
-        return <div key={path} title={path}><span className="queue-file-icon">{subtitle ? '▤' : '♬'}</span><span className="queue-file-name">{fileName(path)}</span><small>{subtitle ? LANG[language ?? ''] || '语言待确认' : path.split('.').pop()?.toUpperCase()}</small>{binding?.audio_path ? <small className={binding.pair_confirmed ? 'queue-paired' : 'queue-warning'}>{binding.pair_confirmed ? '✓ 已确认配对' : '配对待确认'}</small> : null}</div>
+        return <div key={path} title={displayPath(path)}><span className="queue-file-icon">{subtitle ? '▤' : '♬'}</span><span className="queue-file-name">{fileName(path)}</span><small>{subtitle ? LANG[language ?? ''] || '语言待确认' : path.split('.').pop()?.toUpperCase()}</small>{binding?.audio_path ? <small className={binding.pair_confirmed ? 'queue-paired' : 'queue-warning'}>{binding.pair_confirmed ? '✓ 已确认配对' : '配对待确认'}</small> : null}</div>
       })}{paths.length > 3 ? <small>另有 {paths.length - 3} 个文件</small> : null}
         {editable && issues.length ? <button type="button" className="queue-missing-link" title={issues.join('；')} onClick={() => setExpanded(true)}>△ 检查与补充素材</button> : null}
         {!paths.length ? <button type="button" className="queue-missing-link" onClick={() => setExpanded(true)}>补充素材 +</button> : null}
       </div>
       <div className="queue-status-cell"><span className={`queue-status ${['missing', 'unknown'].includes(state) ? 'queue-warning' : ''}`}>{state === 'running' ? '◌ ' : state === 'missing' ? '△ ' : '• '}{STATUS[state] || state}</span>
-        <small>{!editable ? lockReason : group.excluded ? '不参与本次处理' : issues.length ? '检查后可勾选运行' : '按当前流程明确提交'}</small>
+        {!editable || group.excluded || issues.length ? <small>{!editable ? lockReason : group.excluded ? '不参与本次处理' : '请补全输入'}</small> : null}
         {remote && ['pending', 'running'].includes(state) ? <><div className="queue-progress" role="progressbar" aria-label={`${group.label} 进度`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div><small>{progress}%</small></> : null}
         {group.run ? <button type="button" className="queue-result-toggle" onClick={() => useNavStore.getState().openTaskCenter('batches')}>最近执行：{STATUS[group.run.state ?? 'unknown'] || '状态待核实'} ↗</button> : null}
       </div>
@@ -56,7 +57,7 @@ export default function QueueGroupRow({ row, index, graph, presetLabel, busy, di
       {!editable ? <p className="queue-warning">{lockReason}执行详情与产物请到任务中心查看。</p> : null}
       <>
         <div className="queue-detail-actions"><label>组名<input value={group.label} disabled={busy || !editable} maxLength={100} onChange={event => materials.patchQueueGroup(group.id, { label: event.target.value })} /></label><button type="button" disabled={busy || !editable} onClick={() => materials.patchQueueGroup(group.id, { excluded: !group.excluded })}>{group.excluded ? '恢复此组' : '排除此组'}</button><button type="button" disabled={busy || !editable} onClick={() => materials.duplicateQueueGroup(group.id)}>复制为新组</button><button type="button" disabled={busy || !editable || discovering} onClick={() => recheck(group.materialPaths)}>重新检查文件</button></div>
-        <div className="queue-material-list">{group.materialPaths.map(path => <div key={path}><span title={path}>{path}</span><button type="button" disabled={busy || !editable} onClick={() => removeMaterial(path)}>从组排除</button></div>)}</div>
+        <div className="queue-material-list">{group.materialPaths.map(path => <div key={path}><span title={displayPath(path)}>{displayPath(path)}</span><button type="button" disabled={busy || !editable} onClick={() => removeMaterial(path)}>从组排除</button></div>)}</div>
         {graph ? <GraphRunBindings graph={graph} bindings={group.bindings} items={materials.inputItems} onChange={(slotId, binding) => materials.bindQueueGroup(group.id, slotId, binding)} disabled={busy || !editable} /> : <p>先选择流水线，再为该组指定输入。</p>}
         {editable && issues.length ? <ul className="queue-group-issues">{issues.map(issue => <li key={issue}>{issue}</li>)}</ul> : null}
       </>

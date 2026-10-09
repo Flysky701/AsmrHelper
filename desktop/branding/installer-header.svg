@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="150" height="57" viewBox="0 0 150 57">
+  <rect width="150" height="57" fill="#FFFFFF"/>
+  <g transform="translate(8 10) scale(.075)" fill="none">
+    <rect x="16" y="16" width="480" height="480" rx="116" fill="#234550"/>
+    <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round"/>
+    <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9"/>
+    <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9"/>
+    <path d="M204 272V320M256 228V364M308 256V336" stroke="#9DE5E5" stroke-width="30" stroke-linecap="round"/>
+  </g>
+  <g font-family="Segoe UI, sans-serif" fill="#234550">
+    <text x="56" y="27" font-size="14" font-weight="600">ASMR</text>
+    <text x="56" y="43" font-size="12">Helper</text>
+  </g>
+</svg>

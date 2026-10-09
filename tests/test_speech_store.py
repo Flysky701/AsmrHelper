@@ -41,7 +41,7 @@ def test_reference_preview_save_match_without_transcript_and_preserve_source(tmp
     assert samples[200] == pytest.approx(.2 * 10**(.3), rel=1e-6)
     assert hashlib.sha256(original.read_bytes()).hexdigest() == original_hash
     store.create("recipes", {**_recipe(), "variant": {"kind": "reference", "value": saved["id"], "style": "normal"}})
-    changed = store.reference_metadata(saved["id"], {"name": "已归档", "archived": True})
+    changed = store.reference_metadata(saved["id"], {"name": "新名称"})
     assert changed["id"] == saved["id"] and changed["sha256"] == saved["sha256"]
     assert store.reference_audio_path(saved["id"]).is_file()
     with pytest.raises(ValueError):
@@ -77,12 +77,11 @@ def test_atomic_rule_creation_revision_archive_preserves_history(tmp_path):
         store.create_rule(None, {**first, "previous_id": first["id"], "name": "Stale edit"})
     assert len(store.list("recipes")) == 2
     assert store.active_recipes() == [second]
-    store.archive_recipe(second["id"])
+    state = store._read()
+    state["collections"]["rule_states"][first["id"]] = {"id": first["id"], "archived": True}
+    store._write(state)
     assert store.active_recipes() == []
     assert store.active_recipes(include_archived=True) == [{**second, "archived": True}]
-    store.archive_recipe(first["id"], archived=False)
-    assert store.active_recipes() == [second]
-    assert store.active_recipes(include_archived=True) == [{**second, "archived": False}]
     assert store.get("recipes", first["id"]) == first
     assert store.get("recipes", second["id"]) == second
 
@@ -92,8 +91,10 @@ def test_rule_rechecks_reference_archive_inside_atomic_save(tmp_path):
     original = _audio(tmp_path)
     asset = store.import_reference(original, 0, .5, "hello", "en")
     prepared = {**_recipe(), "variant": {"kind": "reference", "value": asset["id"], "style": "normal"}}
-    # Simulate archival after service validation but before atomic rule saving.
-    store.reference_metadata(asset["id"], {"archived": True})
+    # Read-only compatibility for a legacy archived fixture.
+    state = store._read()
+    state["collections"]["assets"][asset["id"]]["archived"] = True
+    store._write(state)
     with pytest.raises(ValueError, match="archived"):
         store.create_rule(_voice(), prepared)
     assert store.list("voices") == []

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="164" height="314" viewBox="0 0 164 314">
+  <defs><linearGradient id="bg" x2=".9" y2="1"><stop stop-color="#28515C"/><stop offset="1" stop-color="#152F3B"/></linearGradient></defs>
+  <rect width="164" height="314" fill="url(#bg)"/>
+  <circle cx="82" cy="92" r="69" fill="none" stroke="#9DDDE5" stroke-opacity=".08"/>
+  <circle cx="82" cy="92" r="55" fill="none" stroke="#9DDDE5" stroke-opacity=".12"/>
+  <g transform="translate(27 35) scale(.215)" fill="none">
+    <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round"/>
+    <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9"/>
+    <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9"/>
+    <path d="M204 272V320M256 228V364M308 256V336" stroke="#9DE5E5" stroke-width="30" stroke-linecap="round"/>
+  </g>
+  <g font-family="Segoe UI, sans-serif" fill="#E8FAF9">
+    <text x="22" y="171" font-size="24" font-weight="600" letter-spacing="1">ASMR</text>
+    <text x="23" y="194" font-size="19" font-weight="400" letter-spacing=".5">Helper</text>
+    <text x="23" y="224" font-size="9" fill="#A7CCD3" letter-spacing="1.4">AUDIO WORKSPACE</text>
+  </g>
+  <path d="M23 267H141" stroke="#567C86" stroke-opacity=".5"/>
+  <g fill="#9DE5E5"><circle cx="26" cy="267" r="3"/><circle cx="82" cy="267" r="3"/><circle cx="138" cy="267" r="3"/></g>
+  <path d="M26 282H51M64 282H89M102 282H138" stroke="#638B95" stroke-width="2" stroke-linecap="round"/>
+</svg>

@@ -172,7 +172,7 @@
 .wg-module-symbol.kind-audio_export,.wg-module-icon.kind-audio_export { color:#4c7899; background:#e5eff6; }
 .wg-delete-confirm { flex:0 0 auto; padding:10px 12px; background:#fff8ee; border-bottom:1px solid #e5d6bf; font-size:12px; max-height:150px; overflow:auto; }
 .wg-delete-confirm p { margin:0 0 7px; line-height:1.5; overflow-wrap:anywhere; }
-.wg-delete-confirm>div { display:flex; gap:8px; }
+.wg-delete-confirm>div { display:flex; flex-wrap:wrap; gap:8px; }
 .wg-delete-confirm button { padding:5px 10px; border:1px solid #d7c5b8; border-radius:5px; background:white; color:#704d3f; }
 
 .wg-inspector .wg-field input, .wg-inspector .wg-field select { font-size:var(--text-control); }

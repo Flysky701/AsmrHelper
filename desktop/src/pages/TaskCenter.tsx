@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { tasksApi } from '@/api/tasks'
 import { batchesApi } from '@/api/batches'
 import { apiUrl } from '@/api/client'
+import { confirmAction } from '@/utils/confirmAction'
 import type { BatchRunResponse, TaskStatusResponse } from '@/api/types'
 import BatchRunsPanel from '@/components/tasks/BatchRunsPanel'
 import TaskRecoveryAction from '@/components/tasks/TaskRecoveryAction'
@@ -154,6 +155,10 @@ export default function TaskCenter() {
     useWorkbenchStore.getState().markQueueTaskHistoryDeleted(ids)
     setCheckedTaskIds(current => current.filter(id => !ids.includes(id)))
     setPollGeneration(value => value + 1)
+  }
+  const removeLocalFailure = async (task: Task) => {
+    if (!await confirmAction(`删除本地提交失败记录“${task.sourceName}”？\n删除本次会话中的记录，无法撤销；不会取消或删除可能已经在服务端创建的任务，也不删除文件。`)) return
+    useTaskStore.getState().removeLocalFailure(task.id)
   }
   const toggleChecked = (id: string) => setCheckedTaskIds(current => current.includes(id)
     ? current.filter(value => value !== id) : current.length < 500 ? [...current, id] : current)
@@ -399,7 +404,7 @@ export default function TaskCenter() {
   return <div className={`task-center-page ${mobileDetail ? 'detail-open' : ''}`}>
     {/* Refresh restarts the existing serial poller; its cleanup discards older in-flight responses. */}
     <TaskStatusPolling key={pollGeneration} enabled={taskCenterView === 'tasks'} />
-    <header className="tc-page-header page-heading"><div className="page-heading__copy"><h1 className="page-title">任务中心</h1><p className="page-description">处理进度与每次运行的结果</p></div>
+    <header className="tc-page-header page-heading"><div className="page-heading__copy"><h1 className="page-title">任务中心</h1></div>
       <div className="tc-page-actions page-heading__actions"><button type="button" className="tc-action" aria-pressed={taskCenterView === 'tasks'} onClick={() => setTaskCenterView('tasks')}>任务记录</button>
         <button type="button" className="tc-action" aria-pressed={taskCenterView === 'batches'} onClick={() => setTaskCenterView('batches')}>批次管理</button>
         {taskCenterView === 'tasks' && <button type="button" className="tc-icon-button" aria-label="刷新任务状态" onClick={() => setPollGeneration(value => value + 1)}><TaskSymbol name="refresh" /></button>}</div>
@@ -450,7 +455,8 @@ export default function TaskCenter() {
             <button type="button" className="tc-action" onClick={() => void handleCancel(selectedTask.id)} disabled={selectedTask.status !== 'running'}>取消</button>
             <button type="button" className="tc-action" disabled={!canSelectForDeletion(selectedTask)}
               title={canSelectForDeletion(selectedTask) ? '预览此任务的删除范围' : '运行中或待处理任务不可删除'}
-              onClick={() => selectedTask.serverTaskId && openDeletion([selectedTask.serverTaskId])}>删除历史…</button></>}
+              onClick={() => selectedTask.serverTaskId && openDeletion([selectedTask.serverTaskId])}>删除历史…</button>
+            {!selectedTask.serverTaskId && selectedTask.status === 'failed' && <button type="button" className="tc-action" onClick={() => void removeLocalFailure(selectedTask)}>删除本地记录…</button>}</>}
           recovery={selectedTask.serverTaskId && (selectedTask.status === 'failed' || selectedTask.status === 'cancelled')
             ? <div className="tc-recovery"><TaskRecoveryAction key={selectedTask.serverTaskId} taskId={selectedTask.serverTaskId} onResumed={response => handleResumed(selectedTask, response)} /></div> : null}
         /> : <div className="tc-empty">请选择一项任务</div>}

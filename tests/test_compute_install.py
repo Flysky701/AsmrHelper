@@ -10,7 +10,7 @@ from src.core.resources.model_service import ModelService
 @pytest.fixture
 def resolver(tmp_path, monkeypatch):
     monkeypatch.delenv("ASMR_HELPER_COMPUTE", raising=False)
-    monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda name: "uv")
+    monkeypatch.setattr("src.core.runtime.profiles.shutil.which", lambda name, **kwargs: "uv")
     return RuntimeProfileResolver(tmp_path)
 
 
@@ -43,7 +43,9 @@ def test_all_environments_share_pinned_policy(resolver, monkeypatch, profile, mo
     monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: gpu)
     commands = resolver.build_bootstrap_commands(resolver.resolve(profile))
     assert len(commands) == 1
-    assert f"https://download.pytorch.org/whl/{target}" in commands[0]
+    assert commands[0][commands[0].index("--torch-backend") + 1] == target
+    assert "--index" not in commands[0]
+    assert "https://pypi.org/simple" in commands[0]
     for package in ("torch", "torchaudio"):
         assert f"{package}==2.10.0+{target}" in commands[0]
         assert f"{package}==2.10.0+{target}" in resolver.compute_constraints().read_text()

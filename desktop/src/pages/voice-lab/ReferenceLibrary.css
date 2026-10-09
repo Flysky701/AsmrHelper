@@ -102,6 +102,13 @@
 .reference-library .reference-subtitles > summary { margin-bottom: 12px; cursor: pointer; }
 .reference-library .subtitle-segments button { text-align: left; overflow-wrap: anywhere; }
 .reference-library .reference-notes label { margin: 0; }
+.reference-library > .speech-cleanup, .reference-library > button { margin-bottom: 14px; margin-right: 8px; vertical-align: top; }
+.reference-library .reference-sidebar > input { margin-bottom: 14px; }
+.reference-library .reference-workspace > .panel, .reference-library .reference-footer { box-sizing: border-box; }
+.reference-library .reference-confirm input { flex-shrink: 0; }
+.reference-library .reference-assist > .row { margin-top: 12px; }
+.reference-library .reference-more form + .row { margin-top: 16px; }
+.reference-library .reference-more .row { align-items: flex-start; }
 @container voice-content (max-width: 860px) {
   .reference-library .reference-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .reference-library .reference-library-toggle { display: block; justify-self: start; }

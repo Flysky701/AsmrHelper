@@ -44,6 +44,10 @@ class ModelStatusResponse(BaseModel):
     detail: str
     executable: bool = False
     issues: list[ModelStatusIssueResponse] = Field(default_factory=list)
+    path: str | None = None
+    weights_ready: bool = False
+    runtime_ready: bool = False
+    shared_readonly: bool = False
 
 
 class ModelOperationResponse(BaseModel):
@@ -69,3 +73,11 @@ class ModelInstallRequest(BaseModel):
     install_dependencies: bool = Field(True, description="Install required runtime dependencies when supported")
     install_recommended_assets: bool = Field(False, description="Install recommended companion assets")
     allow_fallback_variant: bool = Field(False, description="Allow family-level fallback selection when available")
+
+
+class ModelDownloadRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    mirror: str | None = None
+    force: bool = False
+    install_mode: str = "single"
+    install_recommended_assets: bool = False

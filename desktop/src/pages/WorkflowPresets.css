@@ -87,5 +87,14 @@
 .wfp-archive-message button { margin-left:8px; }
 .wfp-archive-feedback { flex:0 0 auto; max-height:65px; overflow:auto; margin:0; padding:8px 14px; font-size:var(--text-help); line-height:1.5; color:var(--accent); background:var(--accent-soft); border-bottom:1px solid var(--border); }
 .wfp-empty-actions { display:flex; flex-wrap:wrap; justify-content:center; gap:9px; }
+.wfp-button { min-height:34px; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+.wfp-catalog select,.wfp-metadata input,.wfp-archive-restore input { min-height:34px; }
+.wfp-archive-panel>header,.wfp-archive-item-title { flex-wrap:wrap; }
+.wfp-archive-header-actions { margin-left:auto; }
+.wfp-archive-restore { flex-wrap:wrap; }
+.wfp-archive-restore label { flex-basis:220px; }
+.wfp-archive-restore>.wfp-button { margin-left:auto; }
+.wfp-feedback { background:var(--panel-muted); color:var(--muted-strong); }
+.wfp-alert[role=alert] { background:var(--error-soft); color:var(--error); }
 @container workflow-page (max-width:600px) { .wfp-catalog>label { flex-basis:140px; max-width:none; } .wfp-catalog-hint { display:none; } .wfp-archive-panel { width:100%; } .wfp-archive-panel>header { padding:9px 11px; } .wfp-archive-item { padding:9px 11px; } .wfp-archive-item-title { align-items:flex-start; } .wfp-archive-item-title>span { font-size:var(--text-help); } .wfp-archive-restore { gap:7px; } .wfp-archive-restore input { font-size:var(--text-control); } }
 @media(max-height:480px) { .wfp-archive-panel { max-height:48vh; } .wfp-archive-panel>header { padding-block:7px; } .wfp-archive-panel>header p { font-size:var(--text-help); margin-top:2px; } .wfp-archive-feedback { padding-block:5px; max-height:43px; } }

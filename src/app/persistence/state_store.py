@@ -237,6 +237,15 @@ class SqliteStateStore:
                 ),
             )
 
+    def delete_empty_batch(self, record: BatchRunRecord) -> None:
+        """Remove the last explicitly deleted item; retain only request deduplication."""
+        if record.items:
+            raise ValueError("batch still contains items")
+        with self._lock, self._connect() as connection:
+            connection.execute("DELETE FROM batch_runs WHERE batch_id=?", (record.batch_id,))
+            connection.execute("INSERT OR REPLACE INTO deleted_batch_runs VALUES (?, ?, ?)",
+                               (record.batch_id, record.client_request_id, record.request_fingerprint))
+
     def load_batch_runs(self) -> list[BatchRunRecord]:
         with self._lock, self._connect() as connection:
             rows = connection.execute(

@@ -3,6 +3,8 @@ import type { Delivery, ReferenceAsset, SpeechConnection, SpeechProvider, Speech
 import { GRAPH_MIX_OUTPUT_LENGTHS } from './workflowGraph'
 import type { GraphMixOutputLength, GraphNode } from './workflowGraph'
 import { speechLanguageMatches, speechOptionsIssue } from './speechAdvancedOptions'
+import { effectiveSpeechRecipe, speechOverrideIssue } from './speechPresetConsumption'
+import type { SpeechOverrides } from '@/api/speech'
 
 export interface GraphSpeechSource {
   mode: string
@@ -30,8 +32,16 @@ export function withGraphSpeechSource(node: GraphNode, source: GraphSpeechSource
 }
 
 export function graphNodeFromRecipe(node: GraphNode, recipe: SpeechRecipe): GraphNode {
+  const retained = Object.fromEntries(Object.entries(node.options).filter(([key]) => !['speech_recipe_id', 'speech_overrides', 'speech_source', 'voice', 'speed', 'language'].includes(key)))
+  const raw = node.options.speech_source
+  if (raw !== undefined) {
+    const source = readGraphSpeechSource(node)
+    const known = ['mode', 'variant', 'connection_ref', 'provider_options', 'default_delivery', 'default_emotion', 'default_pause_ms']
+    if (!source || Object.keys(raw as object).some(key => !known.includes(key))
+      || Object.keys(source.variant).some(key => !['kind', 'value', 'style'].includes(key))) retained.speech_source = structuredClone(raw)
+  }
   return { ...node, provider: recipe.provider_id, model: recipe.model,
-    options: { speech_recipe_id: recipe.id }, provider_options: {} }
+    options: { ...retained, speech_recipe_id: recipe.id }, provider_options: { ...node.provider_options } }
 }
 
 export function copyRecipeToGraphNode(node: GraphNode, recipe: SpeechRecipe): GraphNode {
@@ -61,20 +71,24 @@ export function freshGraphSpeechNode(node: GraphNode, provider: SpeechProvider, 
 
 export function graphSpeechIssue(node: GraphNode, provider: SpeechProvider | undefined,
   recipes: SpeechRecipe[], assets: ReferenceAsset[], connections: SpeechConnection[]): string {
-  if (!provider) return '当前配音引擎不可用，请选择引擎或刷新能力。'
+  if (!provider) return '原音色引擎不可用，配置已保留。请在音色库处理或选择已保存音色。'
   const recipeId = node.options.speech_recipe_id
   const recipe = typeof recipeId === 'string' ? recipes.find(item => item.id === recipeId && !item.archived) : undefined
-  if (recipeId && !recipe) return '引用的 TTS 高级预设不存在或已归档，请重新选择。'
+  if (recipeId && !recipe) return '原音色不存在或已归档，引用已保留。请管理音色或重新选择。'
   if (recipe && (recipe.provider_id !== node.provider || recipe.model !== node.model)) return '预设与此节点的引擎或模型不一致，请重新应用。'
   if (recipe && !speechLanguageMatches(recipe.language, node.target_lang ?? '')) return `预设合成目标语言 ${recipe.language} 与节点目标语言不一致，请选择匹配预设或自行调整语言。`
-  const source = recipe ? { ...recipe, provider_options: recipe.provider_options } : readGraphSpeechSource(node)
+  if (recipe) {
+    const overrideIssue = speechOverrideIssue(provider, recipe, node.options.speech_overrides)
+    if (overrideIssue) return overrideIssue
+  }
+  const source = recipe ? effectiveSpeechRecipe(recipe, node.options.speech_overrides as SpeechOverrides | undefined) : readGraphSpeechSource(node)
   if (!source) return '请选择 TTS 高级预设或明确配置声音来源。'
   const mode = provider.modes.find(item => item.id === source.mode && (!item.models.length || item.models.includes(node.model ?? '')))
   if (!mode || !mode.variant_kinds.includes(source.variant.kind)) return '当前声音来源与引擎模型不兼容，请重新配置。'
   if (!node.model || node.model === 'default') return '请明确选择或填写配音模型。'
   const ref = source.connection_ref
   const implicit = !provider.connection_required && (!ref || ref === `engine-default-${node.provider}`)
-  if (!implicit && !connections.some(item => item.id === ref && item.provider_id === node.provider)) return '请选择此引擎可用的连接；原连接不存在或不属于当前引擎。'
+  if (!implicit && !connections.some(item => item.id === ref && item.provider_id === node.provider)) return '音色连接已缺失或不匹配，请在音色库处理；原配置已保留。'
   if (mode.voice_sources?.required && !source.variant.value.trim()) return mode.voice_sources.description || '请补齐声音来源。'
   if (mode.voice_sources?.presets.length && !mode.voice_sources.allow_custom && !mode.voice_sources.presets.some(item => item.id === source.variant.value)) return '声音不在此引擎允许的预设列表中，请重新选择。'
   const capabilities = mode.capabilities ?? provider.capabilities
@@ -111,7 +125,7 @@ export function graphMixOutputLength(node: GraphNode): GraphMixOutputLength | nu
 }
 
 export function graphNodeHasAdvancedParameters(node: GraphNode): boolean {
-  return !['align', 'export'].includes(node.kind) && !(node.kind === 'tts' && node.options.speech_recipe_id)
+  return !['align', 'export'].includes(node.kind)
 }
 
 export function editableGraphOptions(fields: CapabilityOptionResponse[]): CapabilityOptionResponse[] {

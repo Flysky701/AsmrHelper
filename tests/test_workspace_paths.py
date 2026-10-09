@@ -1,5 +1,4 @@
 """Directory contracts across settings, status, tasks and installation planning."""
-import importlib
 import threading
 from pathlib import Path
 
@@ -11,6 +10,8 @@ from src.workspace_paths import model_directory, temporary_directory, directory_
 
 @pytest.fixture
 def roots(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.core.resources.model_assets.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("src.core.resources.model_assets.sources", lambda: [])
     values = {'model_cache_dir': str(tmp_path / '模型 with spaces'),
               'output_dir': str(tmp_path / '输出'), 'temp_dir': str(tmp_path / '临时 A')}
     original = config.get
@@ -70,7 +71,8 @@ def test_new_session_refresh_keeps_existing_session_snapshot(roots, tmp_path):
     from src.core.sessions.models import WorkspaceContext
     from types import SimpleNamespace
     catalog = InputCatalogService()
-    source = tmp_path/'sample.vtt'; source.write_text('WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nTest\n')
+    source = tmp_path/'sample.vtt'
+    source.write_text('WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nTest\n')
     asset = catalog.inspect_paths([str(source)])[0]
     workspace = SimpleNamespace(resolve=lambda: WorkspaceContext('w',str(tmp_path), roots['output_dir'],roots['temp_dir'],roots['model_cache_dir']))
     service = SessionService(workspace_service=workspace, input_catalog_service=catalog)
@@ -92,18 +94,24 @@ def test_queued_and_running_task_roots_are_frozen(roots, tmp_path):
     started, release = threading.Event(), threading.Event()
     found=[]
     def execute(spec, context):
-        found.append(model_directory());started.set();assert release.wait(5);found.append(model_directory())
+        found.append(model_directory())
+        started.set()
+        assert release.wait(5)
+        found.append(model_directory())
     dispatcher.register_executor('directory-probe', execute)
     spec,_ = tasks.create_task_spec(task_type='directory-probe',task_source='test',session_id='')
     roots['model_cache_dir'] = str(tmp_path/'changed-before-start')
-    dispatcher.submit(spec.task_id);assert started.wait(5)
+    dispatcher.submit(spec.task_id)
+    assert started.wait(5)
     roots['model_cache_dir'] = str(tmp_path/'changed-while-running')
-    release.set();dispatcher.run(spec.task_id)
+    release.set()
+    dispatcher.run(spec.task_id)
     assert found == [before,before]
 
 
 def test_path_validation_rejects_files_and_types_without_creating_target(tmp_path):
-    existing = tmp_path/'file';existing.write_text('preserve')
+    existing = tmp_path/'file'
+    existing.write_text('preserve')
     assert path_setting_errors({'temp_dir': str(existing/'child')})
     assert path_setting_errors({'model_cache_dir': 42})
     target=tmp_path/'新目录 with spaces'/'child'
@@ -113,6 +121,7 @@ def test_path_validation_rejects_files_and_types_without_creating_target(tmp_pat
 
 def test_status_does_not_treat_a_file_as_a_directory(roots, tmp_path):
     from src.core.runtime.service import RuntimeWorkspaceManager
-    file=Path(roots['model_cache_dir']);file.write_text('preserve')
+    file=Path(roots['model_cache_dir'])
+    file.write_text('preserve')
     status={s.name:s for s in RuntimeWorkspaceManager(tmp_path).check_required_resources()}['models_dir']
     assert not status.available and status.detail == 'not a directory'

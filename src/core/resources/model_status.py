@@ -41,18 +41,21 @@ class ModelStatus:
     path: Optional[Path] = None
     executable: bool = False
     issues: tuple[ModelStatusIssue, ...] = ()
+    weights_ready: bool = False
+    runtime_ready: bool = False
+    shared_readonly: bool = False
 
 
 class ModelStatusResolver:
     """Resolve installation and runtime readiness as separate facts."""
 
     _RUNTIME_IMPORTS = {
-        "faster_whisper": ("faster_whisper",),
+        "faster_whisper": ("faster_whisper", "ctranslate2"),
         "fun_asr": ("funasr", "torch", "torchaudio"),
         "qwen3_asr": ("qwen_asr",),
         "qwen3": ("qwen_tts",),
         "voxcpm2": ("voxcpm",),
-        "demucs": ("demucs",),
+        "demucs": ("demucs.pretrained", "demucs.apply", "julius", "soundfile", "numpy"),
     }
     _EXTRA_IMPORTS = {
         "audio": ("torch",),
@@ -141,97 +144,18 @@ class ModelStatusResolver:
                 issues=(issue,),
             )
 
-        install_dir = entry.resolved_install_dir()
-        if entry.install_strategy == "package":
-            issues = self._runtime_issues(entry)
-            package_issue = next(
-                (issue for issue in issues if issue.code == "PYTHON_DEPENDENCY_MISSING"),
-                None,
-            )
-            if package_issue is not None:
-                return ModelStatus(
-                    entry.id,
-                    ModelState.MISSING,
-                    package_issue.message,
-                    install_dir,
-                    executable=False,
-                    issues=tuple(issues),
-                )
-            return self._installed_status(entry, install_dir, issues)
-
-        if not install_dir.exists():
-            issue = ModelStatusIssue(
-                "MODEL_ASSET_MISSING",
-                str(install_dir),
-                "Model install directory is missing",
-            )
-            return ModelStatus(
-                entry.id,
-                ModelState.MISSING,
-                issue.message,
-                install_dir,
-                issues=(issue,),
-            )
-
-        for required_dir in entry.required_dirs:
-            if not (install_dir / required_dir).exists():
-                issue = ModelStatusIssue(
-                    "MODEL_ASSET_INVALID",
-                    required_dir,
-                    f"Required model directory is missing: {required_dir}",
-                )
-                return ModelStatus(
-                    entry.id,
-                    ModelState.INVALID,
-                    issue.message,
-                    install_dir,
-                    issues=(issue,),
-                )
-
-        for required_file in entry.required_files:
-            if not self._has_required_file(install_dir, required_file):
-                issue = ModelStatusIssue(
-                    "MODEL_ASSET_INVALID",
-                    required_file,
-                    f"Required model file is missing: {required_file}",
-                )
-                return ModelStatus(
-                    entry.id,
-                    ModelState.INVALID,
-                    issue.message,
-                    install_dir,
-                    issues=(issue,),
-                )
-
-        return self._installed_status(
-            entry,
-            install_dir,
-            self._runtime_issues(entry),
-        )
-
-    def _installed_status(
-        self,
-        entry: ModelEntry,
-        install_dir: Path,
-        issues: list[ModelStatusIssue],
-    ) -> ModelStatus:
-        if issues:
-            return ModelStatus(
-                entry.id,
-                ModelState.INSTALLED,
-                "Model is installed but runtime requirements are unavailable",
-                install_dir,
-                executable=False,
-                issues=tuple(issues),
-            )
-        return ModelStatus(
-            entry.id,
-            ModelState.INSTALLED,
-            ("Runtime dependencies are available; weights use a separate PyTorch cache and are not verified"
-             if entry.install_strategy == "package" else "Model is installed and executable"),
-            install_dir,
-            executable=True,
-        )
+        from .model_assets import complete, shared
+        path = entry.resolved_install_dir()
+        weights_ready = complete(entry, path)
+        issues = self._runtime_issues(entry)
+        runtime_ready = not issues
+        if not weights_ready:
+            missing = next((name for name in entry.required_files if not (path / name).is_file() or not (path / name).stat().st_size), str(path))
+            issues.append(ModelStatusIssue('MODEL_ASSET_INVALID' if path.exists() else 'MODEL_ASSET_MISSING', missing, f'权重缺失或不完整：{missing}；依赖检测不能确认模型可运行'))
+        detail = ('权重文件完整' if weights_ready else '权重缺失或不完整') + '；' + ('依赖检查通过' if runtime_ready else '运行环境需处理') + '；尚未实际加载验证'
+        return ModelStatus(entry.id, ModelState.INSTALLED if weights_ready else ModelState.INVALID if path.exists() else ModelState.MISSING,
+                           detail, path, executable=weights_ready and runtime_ready, issues=tuple(issues),
+                           weights_ready=weights_ready, runtime_ready=runtime_ready, shared_readonly=shared(entry, path))
 
     def _runtime_issues(self, entry: ModelEntry) -> list[ModelStatusIssue]:
         issues: list[ModelStatusIssue] = []
@@ -302,6 +226,8 @@ class ModelStatusResolver:
 
         if entry.requires_gpu and not runtime_missing:
             has_gpu = (
+                self._runtime_resolver.has_ctranslate2_cuda(runtime.id)
+                if runtime_key == "faster_whisper" else
                 self._runtime_resolver.has_cuda(runtime.id)
                 if (runtime.isolated or self._cached_gpu) and runtime.python_executable.is_file()
                 else self._gpu_checker()

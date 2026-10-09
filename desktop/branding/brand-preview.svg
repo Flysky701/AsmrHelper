@@ -1,0 +1,172 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+      <rect width="1200" height="760" fill="#F2F6F7" />
+      <g font-family="Segoe UI, Microsoft YaHei, sans-serif">
+        <text x="56" y="60" font-size="14" fill="#537680" letter-spacing="2">ASMR HELPER / VISUAL IDENTITY</text>
+        <text x="56" y="112" font-size="32" fill="#203C47" font-weight="600">让声音，成为作品。</text>
+        <text x="56" y="145" font-size="15" fill="#647C85">耳机 × 声波 · 青蓝色系 · 桌面与安装向导统一视觉</text>
+        <rect x="56" y="186" width="320" height="418" rx="22" fill="#FFFFFF" />
+        <text x="80" y="225" font-size="14" fill="#647C85">应用图标</text>
+        <text x="80" y="530" font-size="12" fill="#647C85">16 / 24 / 32 / 48 px</text>
+        <rect x="56" y="628" width="320" height="76" rx="18" fill="#20333E" />
+        <text x="80" y="662" font-size="16" fill="#E8FAF9" font-weight="600">ASMR Helper</text>
+        <text x="80" y="685" font-size="12" fill="#A7CCD3">Audio workspace</text>
+        <text x="422" y="191" font-size="14" fill="#647C85">安装向导 · 欢迎与完成页共用品牌侧图</text>
+        <rect x="422" y="210" width="722" height="404" rx="8" fill="#FFFFFF" stroke="#CEDADD" />
+        <path d="M430 210H1136Q1144 210 1144 218V246H422V218Q422 210 430 210" fill="#F9FAFB" />
+        <text x="457" y="233" font-size="12" fill="#273E47">ASMR Helper Test 安装</text>
+        <text x="1116" y="233" font-size="15" fill="#61727A">×</text>
+        <text x="614" y="284" font-size="21" font-weight="600" fill="#263F49">欢迎安装 ASMR Helper Test</text>
+        <text x="614" y="324" font-size="14" fill="#5A6F78">音频制作工作台</text>
+        <text x="614" y="355" font-size="13" fill="#5A6F78">准备好素材，连接你的声音工作流。</text>
+        <text x="614" y="396" font-size="13" fill="#5A6F78">安装向导将引导你完成安装。</text>
+        <text x="614" y="421" font-size="13" fill="#5A6F78">点击“下一步”继续。</text>
+        <path d="M422 560H1144" stroke="#DCE3E6" />
+        <rect x="917" y="575" width="104" height="26" rx="3" fill="#FFFFFF" stroke="#24788F" />
+        <text x="934" y="593" font-size="12" fill="#263F49">下一步(N) &gt;</text>
+        <rect x="1035" y="575" width="87" height="26" rx="3" fill="#FFFFFF" stroke="#CEDADD" />
+        <text x="1066" y="593" font-size="12" fill="#263F49">取消</text>
+        <text x="422" y="655" font-size="13" fill="#647C85">步骤页页眉</text>
+        <rect x="570" y="634" width="160" height="65" rx="8" fill="#FFFFFF" stroke="#DEE7E9" />
+        <text x="759" y="658" font-size="12" fill="#647C85">侧图 164 × 314 / 页眉 150 × 57</text>
+        <text x="759" y="683" font-size="12" fill="#647C85">ICO 9 种尺寸 / SVG 可编辑源稿</text>
+        <text x="56" y="739" font-size="12" fill="#748891">安装向导为布局示意，非运行截图；实际文案、按钮和窗口由 NSIS 提供。</text>
+      </g>
+    <svg width="216" height="216" viewBox="0 0 512 512" fill="none" x="108" y="252">
+  <defs>
+    <linearGradient id="tile" x1="64" y1="32" x2="448" y2="492" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28515C" /><stop offset="1" stop-color="#152F3B" />
+    </linearGradient>
+    <linearGradient id="sound" x1="200" y1="222" x2="316" y2="358" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C0F6EF" /><stop offset="1" stop-color="#75D5DE" />
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#tile)" />
+  <rect x="17" y="17" width="478" height="478" rx="115" stroke="#9DDDE5" stroke-opacity=".16" stroke-width="2" />
+  <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round" />
+  <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <path d="M204 272V320M256 228V364M308 256V336" stroke="url(#sound)" stroke-width="30" stroke-linecap="round" />
+</svg><svg width="16" height="16" viewBox="0 0 512 512" fill="none" x="80" y="546">
+  <defs>
+    <linearGradient id="tile" x1="64" y1="32" x2="448" y2="492" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28515C" /><stop offset="1" stop-color="#152F3B" />
+    </linearGradient>
+    <linearGradient id="sound" x1="200" y1="222" x2="316" y2="358" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C0F6EF" /><stop offset="1" stop-color="#75D5DE" />
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#tile)" />
+  <rect x="17" y="17" width="478" height="478" rx="115" stroke="#9DDDE5" stroke-opacity=".16" stroke-width="2" />
+  <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round" />
+  <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <path d="M204 272V320M256 228V364M308 256V336" stroke="url(#sound)" stroke-width="30" stroke-linecap="round" />
+</svg><svg width="24" height="24" viewBox="0 0 512 512" fill="none" x="120" y="546">
+  <defs>
+    <linearGradient id="tile" x1="64" y1="32" x2="448" y2="492" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28515C" /><stop offset="1" stop-color="#152F3B" />
+    </linearGradient>
+    <linearGradient id="sound" x1="200" y1="222" x2="316" y2="358" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C0F6EF" /><stop offset="1" stop-color="#75D5DE" />
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#tile)" />
+  <rect x="17" y="17" width="478" height="478" rx="115" stroke="#9DDDE5" stroke-opacity=".16" stroke-width="2" />
+  <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round" />
+  <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <path d="M204 272V320M256 228V364M308 256V336" stroke="url(#sound)" stroke-width="30" stroke-linecap="round" />
+</svg><svg width="32" height="32" viewBox="0 0 512 512" fill="none" x="168" y="546">
+  <defs>
+    <linearGradient id="tile" x1="64" y1="32" x2="448" y2="492" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28515C" /><stop offset="1" stop-color="#152F3B" />
+    </linearGradient>
+    <linearGradient id="sound" x1="200" y1="222" x2="316" y2="358" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C0F6EF" /><stop offset="1" stop-color="#75D5DE" />
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#tile)" />
+  <rect x="17" y="17" width="478" height="478" rx="115" stroke="#9DDDE5" stroke-opacity=".16" stroke-width="2" />
+  <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round" />
+  <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <path d="M204 272V320M256 228V364M308 256V336" stroke="url(#sound)" stroke-width="30" stroke-linecap="round" />
+</svg><svg width="48" height="48" viewBox="0 0 512 512" fill="none" x="228" y="546">
+  <defs>
+    <linearGradient id="tile" x1="64" y1="32" x2="448" y2="492" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28515C" /><stop offset="1" stop-color="#152F3B" />
+    </linearGradient>
+    <linearGradient id="sound" x1="200" y1="222" x2="316" y2="358" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C0F6EF" /><stop offset="1" stop-color="#75D5DE" />
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#tile)" />
+  <rect x="17" y="17" width="478" height="478" rx="115" stroke="#9DDDE5" stroke-opacity=".16" stroke-width="2" />
+  <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round" />
+  <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <path d="M204 272V320M256 228V364M308 256V336" stroke="url(#sound)" stroke-width="30" stroke-linecap="round" />
+</svg><svg width="40" height="40" viewBox="0 0 512 512" fill="none" x="307" y="647">
+  <defs>
+    <linearGradient id="tile" x1="64" y1="32" x2="448" y2="492" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28515C" /><stop offset="1" stop-color="#152F3B" />
+    </linearGradient>
+    <linearGradient id="sound" x1="200" y1="222" x2="316" y2="358" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C0F6EF" /><stop offset="1" stop-color="#75D5DE" />
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#tile)" />
+  <rect x="17" y="17" width="478" height="478" rx="115" stroke="#9DDDE5" stroke-opacity=".16" stroke-width="2" />
+  <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round" />
+  <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <path d="M204 272V320M256 228V364M308 256V336" stroke="url(#sound)" stroke-width="30" stroke-linecap="round" />
+</svg><svg width="19" height="19" viewBox="0 0 512 512" fill="none" x="432" y="219">
+  <defs>
+    <linearGradient id="tile" x1="64" y1="32" x2="448" y2="492" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28515C" /><stop offset="1" stop-color="#152F3B" />
+    </linearGradient>
+    <linearGradient id="sound" x1="200" y1="222" x2="316" y2="358" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C0F6EF" /><stop offset="1" stop-color="#75D5DE" />
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#tile)" />
+  <rect x="17" y="17" width="478" height="478" rx="115" stroke="#9DDDE5" stroke-opacity=".16" stroke-width="2" />
+  <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round" />
+  <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+  <path d="M204 272V320M256 228V364M308 256V336" stroke="url(#sound)" stroke-width="30" stroke-linecap="round" />
+</svg><svg width="164" height="314" viewBox="0 0 164 314" x="423" y="246">
+  <defs><linearGradient id="bg" x2=".9" y2="1"><stop stop-color="#28515C" /><stop offset="1" stop-color="#152F3B" /></linearGradient></defs>
+  <rect width="164" height="314" fill="url(#bg)" />
+  <circle cx="82" cy="92" r="69" fill="none" stroke="#9DDDE5" stroke-opacity=".08" />
+  <circle cx="82" cy="92" r="55" fill="none" stroke="#9DDDE5" stroke-opacity=".12" />
+  <g transform="translate(27 35) scale(.215)" fill="none">
+    <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round" />
+    <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+    <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+    <path d="M204 272V320M256 228V364M308 256V336" stroke="#9DE5E5" stroke-width="30" stroke-linecap="round" />
+  </g>
+  <g font-family="Segoe UI, sans-serif" fill="#E8FAF9">
+    <text x="22" y="171" font-size="24" font-weight="600" letter-spacing="1">ASMR</text>
+    <text x="23" y="194" font-size="19" font-weight="400" letter-spacing=".5">Helper</text>
+    <text x="23" y="224" font-size="9" fill="#A7CCD3" letter-spacing="1.4">AUDIO WORKSPACE</text>
+  </g>
+  <path d="M23 267H141" stroke="#567C86" stroke-opacity=".5" />
+  <g fill="#9DE5E5"><circle cx="26" cy="267" r="3" /><circle cx="82" cy="267" r="3" /><circle cx="138" cy="267" r="3" /></g>
+  <path d="M26 282H51M64 282H89M102 282H138" stroke="#638B95" stroke-width="2" stroke-linecap="round" />
+</svg><svg width="150" height="57" viewBox="0 0 150 57" x="575" y="638">
+  <rect width="150" height="57" fill="#FFFFFF" />
+  <g transform="translate(8 10) scale(.075)" fill="none">
+    <rect x="16" y="16" width="480" height="480" rx="116" fill="#234550" />
+    <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round" />
+    <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+    <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9" />
+    <path d="M204 272V320M256 228V364M308 256V336" stroke="#9DE5E5" stroke-width="30" stroke-linecap="round" />
+  </g>
+  <g font-family="Segoe UI, sans-serif" fill="#234550">
+    <text x="56" y="27" font-size="14" font-weight="600">ASMR</text>
+    <text x="56" y="43" font-size="12">Helper</text>
+  </g>
+</svg></svg>

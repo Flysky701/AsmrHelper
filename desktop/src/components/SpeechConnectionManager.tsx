@@ -35,7 +35,7 @@ export default function SpeechConnectionManager({ connections, defaults, provide
     try {
       await speechApi.setDefaultConnection(connection.id, connection.revision!, defaults.find(item => item.provider_id === connection.provider_id)?.revision ?? 0)
       if (!alive.current || token !== generation.current) return
-      setNotice(`已将「${connection.name}」设为此引擎默认运行配置。已有音色、显式绑定和当前草稿保持不变。`)
+      setNotice(`已将「${connection.name}」设为默认。`)
       await changed()
     } catch (cause) { if (alive.current && token === generation.current) setError(`默认配置未更新：${String(cause)}。请刷新目录核对后重试。`) }
     finally { if (alive.current && token === generation.current) setBusy('') }
@@ -65,14 +65,14 @@ export default function SpeechConnectionManager({ connections, defaults, provide
       if (!alive.current || token !== generation.current) return
       if (result.deleted_connection_id !== target) throw new Error('删除响应的连接不匹配，请刷新核对')
       setPreview(null); setPreviewFor('')
-      setNotice('连接已删除。当前未保存草稿和显式引用保持原样；如仍引用旧连接，请自行重选。历史任务、音频、模型与凭据没有删除。')
+      setNotice('连接已删除；当前草稿若仍引用旧连接，请重新选择。')
       await changed()
     } catch (cause) {
       if (alive.current && token === generation.current) { setPreview(null); setPreviewFor(''); setError(`删除未确认完成：${String(cause)}。请刷新目录并重新预览，不会自动重试。`) }
     } finally { if (alive.current && token === generation.current) setBusy('') }
   }
   return <section className="speech-connection-manager" aria-label="运行配置管理">
-    <h4>默认与删除</h4><p>默认配置只用于新建且尚未绑定的草稿。已保存音色和明确选择的连接不会随默认值变化。</p>
+    <h4>默认与删除</h4><p>默认连接仅用于未绑定的新草稿。</p>
     {scope.map(item => <div className="connection-manager-row" key={item.id}>
       <div><strong>{item.name}</strong><small>{providers.find(provider => provider.provider_id === item.provider_id)?.name || item.provider_id} · {connectionDeploymentNames[item.deployment]}{defaults.some(value => value.provider_id === item.provider_id && value.connection_ref === item.id) ? ' · 默认' : ''}</small></div>
       <div className="connection-manager-actions"><button type="button" disabled={disabled || !!busy || !Number.isInteger(item.revision) || defaults.some(value => value.provider_id === item.provider_id && value.connection_ref === item.id)} onClick={() => void makeDefault(item)}>设为默认</button>
@@ -93,7 +93,7 @@ export default function SpeechConnectionManager({ connections, defaults, provide
           {action === 'detach' && <label className="connection-delete-ack"><input type="checkbox" checked={acknowledged} disabled={!!busy} onChange={event => setAcknowledged(event.target.checked)} />我理解引用会保留为缺失，重新选择连接前不能运行；不会自动改用默认。</label>}
         </>}
         <div className="connection-manager-actions"><button type="button" disabled={!!busy || disabled || stale || !action || action === 'detach' && !acknowledged || action === 'replace' && (!replacement || !!blockers.length)} onClick={() => void remove()}>确认删除连接</button><button type="button" disabled={busy.startsWith('delete:')} onClick={cancel}>取消</button></div>
-      </> : <><p role="status">正在读取引用；尚未删除任何连接。</p><button type="button" onClick={cancel}>取消预览</button></>}
+      </> : <><p role="status">正在读取引用…</p><button type="button" onClick={cancel}>取消预览</button></>}
     </section>}
     {notice && <p role="status">{notice}</p>}{error && <p role="alert">{error}</p>}
   </section>

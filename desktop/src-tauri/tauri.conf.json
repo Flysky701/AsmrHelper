@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2.11.2",
   "productName": "ASMR Helper Test",
-  "version": "0.2.1-beta.4",
+  "version": "0.2.1-beta.5",
   "identifier": "com.asmrhelper.desktop.test",
   "build": {
     "frontendDist": "../dist",
@@ -29,6 +29,7 @@
   },
   "bundle": {
     "active": true,
+    "icon": ["icons/character/icon.png", "icons/character/icon.ico"],
     "targets": [
       "nsis"
     ],
@@ -37,6 +38,9 @@
     },
     "windows": {
       "nsis": {
+        "installerIcon": "icons/character/icon.ico",
+        "headerImage": "icons/character/installer-header.bmp",
+        "sidebarImage": "icons/character/installer-sidebar.bmp",
         "installMode": "currentUser",
         "languages": [
           "SimpChinese",

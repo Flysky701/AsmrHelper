@@ -1,13 +1,22 @@
+import './EnginesResources.css'
+import { displayPath } from '@/utils/displayPath'
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { modelsApi } from '@/api/models'
 import { resourcesApi } from '@/api/resources'
 import ExternalServices from '@/components/ExternalServices'
+import ModelWeightRemoval from '@/components/ModelWeightRemoval'
 import type { ModelSummaryResponse, ModelStatusResponse, ResourceStatusResponse } from '@/api/types'
 import { useNavStore } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
 import type { TaskStatus } from '@/stores/taskStore'
 
 type CategoryTab = 'llm' | 'asr' | 'tts' | 'other'
+
+const actionStyle = {
+  fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '6px 10px',
+  borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)',
+  color: 'var(--fg)', cursor: 'pointer',
+}
 
 const RESOURCE_LABELS: Record<string, string> = {
   project_root: '项目目录',
@@ -30,7 +39,7 @@ const CATEGORY_COLORS: Record<string, { bg: string; fg: string }> = {
 }
 
 const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
-  installed: { dot: 'oklch(60% 0.16 145)', label: '已安装' },
+  installed: { dot: 'oklch(60% 0.16 145)', label: '权重文件完整' },
   ready: { dot: 'oklch(60% 0.16 145)', label: '就绪' },
   loaded: { dot: 'oklch(60% 0.16 145)', label: '已加载' },
   configured: { dot: 'oklch(60% 0.16 145)', label: '已配置' },
@@ -98,6 +107,10 @@ function LocalResources() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [installing, setInstalling] = useState<Record<string, { active: boolean; message?: string; progress?: number }>>({})
   const [error, setError] = useState('')
+  const [sourcePath, setSourcePath] = useState('')
+  const [sourceRoots, setSourceRoots] = useState<string[]>([])
+  const [sourceBusy, setSourceBusy] = useState(false)
+  const [sourceMessage, setSourceMessage] = useState('')
   const loadRequestId = useRef(0)
 
   useEffect(() => { loadData() }, [])
@@ -107,6 +120,7 @@ function LocalResources() {
     setLoading(true)
     setStatusLoading(true)
     if (!preserveError) setError('')
+    void modelsApi.sources().then(result => setSourceRoots(result.roots)).catch(cause => setError(String(cause)))
     try {
       const [resData, modelData] = await Promise.all([
         resourcesApi.getStatus(),
@@ -138,28 +152,27 @@ function LocalResources() {
     }
   }
 
-  const handleInstall = async (model: ModelSummaryResponse) => {
+  const handleInstall = async (model: ModelSummaryResponse, operation: 'runtime' | 'download') => {
     const modelId = model.model_id
-    const packageOnly = model.install_strategy === 'package'
+    const actionLabel = operation === 'runtime' ? '安装/修复环境' : '下载模型权重'
     const localTaskId = addTask({
       jobType: 'model-install',
-      sourceName: model.display_name,
+      sourceName: `${model.display_name} · ${actionLabel}`,
       sourcePath: modelId,
       params: {
         model_id: modelId,
         install_mode: model.default_install_mode || 'single',
-        install_dependencies: true,
+        operation,
       },
     })
-    updateTask(localTaskId, { message: '正在创建模型安装任务' })
+    updateTask(localTaskId, { message: `正在创建${actionLabel}任务` })
     setInstalling(prev => ({
       ...prev,
-      [modelId]: { active: true, message: packageOnly ? '准备安装运行依赖...' : '准备下载...' },
+      [modelId]: { active: true, message: `正在${actionLabel}…` },
     }))
     try {
-      const res = await modelsApi.install(modelId, {
+      const res = operation === 'runtime' ? await modelsApi.runtime(modelId) : await modelsApi.download(modelId, {
         install_mode: model.default_install_mode || 'single',
-        install_dependencies: true,
       })
       updateTask(localTaskId, {
         serverTaskId: res.task_id,
@@ -181,6 +194,32 @@ function LocalResources() {
       setError(`安装模型 ${modelId} 失败：${installError instanceof Error ? installError.message : String(installError)}`)
       loadData(true)
     }
+  }
+
+  const handleSource = async (scan: boolean) => {
+    setSourceBusy(true); setSourceMessage(''); setError('')
+    try {
+      if (scan) {
+        const result = await modelsApi.scan()
+        setSourceMessage(`已引用 ${result.found.length} 项本地权重`)
+      } else {
+        const result = await modelsApi.addSource(sourcePath)
+        setSourceRoots(result.roots); setSourcePath('')
+        setSourceMessage('已添加目录引用')
+      }
+      void loadData(true)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
+    finally { setSourceBusy(false) }
+  }
+
+  const unlinkSource = async (path: string) => {
+    setSourceBusy(true)
+    try {
+      const result = await modelsApi.removeSource(path)
+      setSourceRoots(result.roots); setSourceMessage('已解除引用，原文件保留')
+      void loadData(true)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
+    finally { setSourceBusy(false) }
   }
 
   const handleVerify = async (modelId: string) => {
@@ -292,6 +331,25 @@ function LocalResources() {
           </div>
         )}
 
+        <section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>
+          <h2 className="section-title" style={{ marginBottom: 8 }}>使用已有模型</h2>
+          <p style={{ fontSize: 13, color: 'var(--muted)' }}>引用已有模型或缓存目录，不复制文件；解除引用保留原文件。</p>
+          <div className="engines-source-actions">
+            <input aria-label="已有模型目录或缓存目录" value={sourcePath} onChange={e => setSourcePath(e.target.value)} placeholder="例如 D:\AI\Models" style={{ ...actionStyle, cursor: 'text' }} />
+            <button style={actionStyle} disabled={sourceBusy} onClick={async () => {
+              try { const { open } = await import('@tauri-apps/plugin-dialog'); const path = await open({ directory: true, multiple: false }); if (typeof path === 'string') setSourcePath(path) }
+              catch (cause) { setError(String(cause)) }
+            }}>选择目录</button>
+            <button style={actionStyle} disabled={sourceBusy || !sourcePath.trim()} onClick={() => void handleSource(false)}>引用此目录</button>
+            <button style={actionStyle} disabled={sourceBusy} onClick={() => void handleSource(true)}>扫描并引用缓存</button>
+          </div>
+          {sourceMessage && <p role="status" style={{ fontSize: 13 }}>{sourceMessage}</p>}
+          {sourceRoots.map(path => <div key={path} className="engines-source-root">
+            <span>{displayPath(path)}</span>
+            <button style={actionStyle} disabled={sourceBusy} onClick={() => void unlinkSource(path)}>解除引用（保留文件）</button>
+          </div>)}
+        </section>
+
         {/* Runtime status cards */}
         <div>
           <h2 className="section-title" style={{ marginBottom: 12 }}>
@@ -313,10 +371,10 @@ function LocalResources() {
                   </span>
                 </div>
                 <div
-                  title={typeof res.metadata.path === 'string' ? res.metadata.path : undefined}
+                  title={typeof res.metadata.path === 'string' ? displayPath(res.metadata.path) : undefined}
                   style={{ fontSize: 'var(--text-help)', lineHeight: 1.6, color: 'var(--muted)', overflowWrap: 'anywhere', userSelect: 'text' }}
                 >
-                  {typeof res.metadata.path === 'string' ? res.metadata.path : '路径未提供'}
+                  {typeof res.metadata.path === 'string' ? displayPath(res.metadata.path) : '路径未提供'}
                 </div>
               </div>
             ))}
@@ -331,6 +389,9 @@ function LocalResources() {
           <h2 className="section-title" style={{ marginBottom: 12 }}>
             模型管理
           </h2>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+            安装环境可能联网下载或替换依赖；模型权重需单独下载。
+          </p>
 
           {/* Category tabs */}
           <div className="engines-category-tabs" style={{
@@ -428,9 +489,6 @@ function LocalResources() {
                         const providerVerificationFailed = status?.issues.some(
                           issue => issue.code === 'PROVIDER_VERIFICATION_FAILED',
                         ) ?? false
-                        const probeFailed = status?.issues.some(
-                          issue => issue.code === 'STATUS_PROBE_FAILED',
-                        ) ?? false
                         const statusInfo = status
                           ? STATUS_STYLES[
                             providerUnverified
@@ -445,39 +503,27 @@ function LocalResources() {
                         const resolvedStatusInfo = statusInfo ?? STATUS_STYLES.unknown!
                         const installState = installing[model.model_id]
                         const isInstalling = !!installState?.active || status?.status === 'installing'
-                        const repairableRuntimeIssue = status?.issues?.some(
-                          issue => [
-                            'PYTHON_DEPENDENCY_MISSING',
-                            'PYTHON_DEPENDENCY_INCOMPATIBLE',
-                            'RUNTIME_ENVIRONMENT_MISSING',
-                          ].includes(issue.code),
-                        ) ?? false
-                        const needsInstall =
-                          !!status && (
-                          status.status === 'not_installed' ||
-                          status.status === 'missing' ||
-                          missingDependencies ||
-                          (status.status === 'invalid' && !probeFailed) ||
-                          repairableRuntimeIssue)
-                        const installLabel = model.install_strategy === 'package'
-                          ? '安装依赖'
-                          : repairableRuntimeIssue || missingDependencies
-                            ? '修复依赖'
-                            : status?.status === 'invalid'
-                              ? '重新安装'
-                              : '安装'
                         return (
                           <div className="engines-model-row" key={model.model_id} style={{
-                            display: 'grid', gridTemplateColumns: '1fr auto auto',
-                            padding: '10px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center',
-                            fontSize: 'var(--text-control)', gap: '12px',
+                            display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)',
+                            padding: '10px 14px', borderBottom: '1px solid var(--border)', alignItems: 'start',
+                            fontSize: 'var(--text-control)', gap: '8px',
                           }}>
                             <div className="engines-model-info">
-                              <div style={{ fontWeight: 500 }}>{model.display_name}{model.install_strategy === 'package' && <small style={{ display: 'block', fontWeight: 400, marginTop: 6 }}>仅检查运行依赖；权重使用 PyTorch 独立缓存，首次执行可能下载，不随模型目录设置迁移。</small>}</div>
+                              <div style={{ fontWeight: 500 }}>{model.display_name}{model.install_strategy === 'package' && <small style={{ display: 'block', fontWeight: 400, marginTop: 6 }}>可引用本地 HF / PyTorch 权重</small>}</div>
                               <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
                                 {model.backend || model.family_id || model.kind}
                                 {model.estimated_size_mb ? ` · ${formatEstimatedSize(model.estimated_size_mb)}` : ''}
                               </div>
+                              {status && <div style={{ fontSize: 11, marginTop: 6, overflowWrap: 'anywhere' }}>
+                                <details className="engines-status-details"><summary>状态明细</summary><p>权重：{status.status === 'unknown' ? '待确认' : status.weights_ready ? '文件完整' : '缺失或不完整'} · 环境：{status.status === 'unknown' ? '待确认' : status.runtime_ready ? '依赖检查通过' : '未就绪'} · 推理：尚未验证</p></details>
+                                <div className="engines-model-location">
+                                  {status.path ? <details className="model-path">
+                                    <summary title={status.path}>位置：{status.path}</summary>
+                                    <p>{status.path}</p>
+                                  </details> : <span>位置：未找到</span>}
+                                </div>
+                              </div>}
                               {status?.issues?.length ? (
                                 <div style={{ fontSize: '11px', color: 'oklch(48% 0.12 65)', marginTop: '4px' }}>
                                   {status.issues.map(issue => issue.message).join('；')}
@@ -487,57 +533,40 @@ function LocalResources() {
                                 <div style={{ fontSize: '11px', color: missingDependencies ? 'oklch(48% 0.12 65)' : 'var(--muted)', marginTop: '4px' }}>
                                   配套资源：{dependencies.map(({ name, status: asset }) =>
                                     `${name}（${asset ? (STATUS_STYLES[asset.status]?.label || '状态未知') : statusLoading ? '检测中' : '状态未知'}）`,
-                                  ).join('；')}。随主模型安装或修复。
+                                  ).join('；')}。随主模型权重下载。
                                 </div>
                               )}
                             </div>
-                            <div className="engines-model-status" style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: 'var(--text-help)' }}>
-                                <span style={{
-                                  width: '6px', height: '6px', borderRadius: '50%', background: resolvedStatusInfo.dot,
-                                  animation: isInstalling || statusLoading ? 'pulse 1.5s infinite' : 'none',
-                                }} />
-                                {resolvedStatusInfo.label}
-                              </span>
-                              {model.is_primary_variant && (
-                                <span style={{
-                                  fontSize: '10px', padding: '1px 6px', borderRadius: '3px', fontWeight: 500,
-                                  background: 'oklch(95% 0.02 255)', color: 'var(--accent)',
-                                }}>
-                                  推荐
+                            <div className="engines-model-toolbar">
+                              <div className="engines-model-actions">
+                                {isInstalling || statusLoading || !status ? (
+                                  <button disabled style={{
+                                    fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '4px 10px',
+                                    borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
+                                    color: 'var(--muted)', cursor: 'not-allowed',
+                                  }}>
+                                    {isInstalling ? '安装中...' : statusLoading ? '检测中...' : '状态不可用'}
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button title={`目标环境：${model.runtime_profile || 'main'}。安装依赖并对齐项目版本，可能替换已有包；不下载模型权重。`} onClick={() => void handleInstall(model, 'runtime')} style={actionStyle}>安装/修复环境</button>
+                                    {model.supports_install && (!status.weights_ready || missingDependencies) &&
+                                      <button onClick={() => void handleInstall(model, 'download')} style={actionStyle}>下载模型权重</button>}
+                                    <button onClick={() => void handleVerify(model.model_id)} style={actionStyle}>检查状态</button>
+                                  </>
+                                )}
+                              </div>
+                              <div className="engines-model-status">
+                                <span className="engines-model-status-label">
+                                  <span style={{ width: 6, height: 6, flexShrink: 0, borderRadius: '50%', background: resolvedStatusInfo.dot,
+                                    animation: isInstalling || statusLoading ? 'pulse 1.5s infinite' : 'none' }} />
+                                  {resolvedStatusInfo.label}
                                 </span>
-                              )}
-                            </div>
-                            <div className="engines-model-actions" style={{ display: 'flex', gap: '4px' }}>
-                              {isInstalling || statusLoading || !status ? (
-                                <button disabled style={{
-                                  fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '4px 10px',
-                                  borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                                  color: 'var(--muted)', cursor: 'not-allowed',
-                                }}>
-                                  {isInstalling ? '安装中...' : statusLoading ? '检测中...' : '状态不可用'}
-                                </button>
-                              ) : (
-                                <>
-                                  {needsInstall && model.supports_install ? (
-                                    <button onClick={() => handleInstall(model)} style={{
-                                      fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '4px 10px',
-                                      borderRadius: '6px', border: '1px solid var(--accent)', background: 'var(--accent)',
-                                      color: 'white', cursor: 'pointer',
-                                    }}>
-                                      {installLabel}
-                                    </button>
-                                  ) : (
-                                    <button onClick={() => handleVerify(model.model_id)} style={{
-                                      fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '4px 10px',
-                                      borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-                                      color: 'var(--fg)', cursor: 'pointer',
-                                    }}>
-                                      验证
-                                    </button>
-                                  )}
-                                </>
-                              )}
+                                {status && <span className="engines-model-ownership">{status.shared_readonly ? '外部引用 · 只读' : '本项目管理'}</span>}
+                                {model.is_primary_variant && <span className="engines-model-recommended">推荐</span>}
+                              </div>
+                              {!isInstalling && !statusLoading && status && model.supports_remove && status.weights_ready && !status.shared_readonly &&
+                                <ModelWeightRemoval modelId={model.model_id} onChanged={() => loadData(true)} />}
                             </div>
                             {isInstalling && (
                               <div style={{ gridColumn: '1 / -1', marginTop: '6px' }}>
@@ -625,10 +654,6 @@ function LocalResources() {
 
           .engines-model-status {
             flex-wrap: wrap;
-          }
-
-          .engines-model-actions {
-            justify-content: flex-end;
           }
 
           .engines-group-header {
