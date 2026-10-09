@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="tile" x1="64" y1="32" x2="448" y2="492" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28515C"/><stop offset="1" stop-color="#152F3B"/>
+    </linearGradient>
+    <linearGradient id="sound" x1="200" y1="222" x2="316" y2="358" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C0F6EF"/><stop offset="1" stop-color="#75D5DE"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#tile)"/>
+  <rect x="17" y="17" width="478" height="478" rx="115" stroke="#9DDDE5" stroke-opacity=".16" stroke-width="2"/>
+  <path d="M128 302V244C128 173.3 185.3 116 256 116S384 173.3 384 244V302" stroke="#E8FAF9" stroke-width="32" stroke-linecap="round"/>
+  <rect x="108" y="260" width="42" height="96" rx="21" fill="#E8FAF9"/>
+  <rect x="362" y="260" width="42" height="96" rx="21" fill="#E8FAF9"/>
+  <path d="M204 272V320M256 228V364M308 256V336" stroke="url(#sound)" stroke-width="30" stroke-linecap="round"/>
+</svg>

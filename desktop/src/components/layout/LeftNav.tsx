@@ -143,7 +143,7 @@ export default function LeftNav() {
   return (
     <nav className="app-nav" aria-label="主导航">
       <div className="app-nav__brand" role="img" aria-label="ASMR Helper">
-        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4" /></svg>
+        <img src="/brand/app-icon.png" width="36" height="36" alt="" aria-hidden="true" />
       </div>
 
       <div className="app-nav__scroller">

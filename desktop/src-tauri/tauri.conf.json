@@ -29,6 +29,7 @@
   },
   "bundle": {
     "active": true,
+    "icon": ["icons/character/icon.png", "icons/character/icon.ico"],
     "targets": [
       "nsis"
     ],
@@ -37,6 +38,9 @@
     },
     "windows": {
       "nsis": {
+        "installerIcon": "icons/character/icon.ico",
+        "headerImage": "icons/character/installer-header.bmp",
+        "sidebarImage": "icons/character/installer-sidebar.bmp",
         "installMode": "currentUser",
         "languages": [
           "SimpChinese",
