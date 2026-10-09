@@ -1,7 +1,6 @@
 """Weight deletion ownership tests use only fresh temporary directories."""
 from contextlib import nullcontext
 import json
-from pathlib import Path
 import threading
 from types import SimpleNamespace
 

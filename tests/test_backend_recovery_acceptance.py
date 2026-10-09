@@ -238,6 +238,8 @@ def test_worker_abnormal_exit_is_reported_and_exchange_files_are_cleaned(
     tmp_path,
     monkeypatch,
 ):
+    temp_root = tmp_path / "isolated-temp"
+    monkeypatch.setenv("ASMR_HELPER_TEMP_ROOT", str(temp_root))
     resolver = RuntimeProfileResolver(project_root=tmp_path)
     profile = resolver.resolve("qwen_asr")
     profile.python_executable.parent.mkdir(parents=True)
@@ -262,7 +264,7 @@ def test_worker_abnormal_exit_is_reported_and_exchange_files_are_cleaned(
             }
         )
 
-    exchange_dir = tmp_path / ".tmp" / "runtime-workers"
+    exchange_dir = temp_root / "runtime-workers"
     assert list(exchange_dir.iterdir()) == []
 
 

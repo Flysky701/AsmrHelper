@@ -68,7 +68,7 @@ def render_mix_preview(source, speech, *, original_volume, tts_volume_ratio, tts
     global_levels = [_rms(source), _rms(speech)]
     with TemporaryDirectory(prefix="asmr-mix-preview-") as directory:
         clips = [str(Path(directory) / name) for name in ("original.wav", "speech.wav")]
-        for path, output in zip((source, speech), clips):
+        for path, output in zip((source, speech), clips, strict=True):
             # An exhausted TTS track is represented as silence, never a new synthesis.
             if clip_start >= sf.info(path).duration:
                 sf.write(output, np.zeros((int(clip_duration * 44100), 2)), 44100, subtype="FLOAT")

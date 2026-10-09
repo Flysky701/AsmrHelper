@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from src.config import PROJECT_ROOT, config
 from src.workspace_paths import model_directory, resolve_directory

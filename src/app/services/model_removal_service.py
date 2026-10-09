@@ -2,7 +2,6 @@
 from contextlib import contextmanager, nullcontext
 import hashlib
 import json
-from pathlib import Path
 
 from src.core.resources.model_removal import removal_evidence
 from src.core.speech.store import reference_file_guard

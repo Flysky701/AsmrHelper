@@ -1,7 +1,6 @@
 """Ownership evidence for app-installed weights; never adopt an existing directory."""
 from functools import wraps
 import json
-from pathlib import Path
 import os
 import tempfile
 
@@ -74,7 +73,9 @@ def track_owned_install(method):
             fd, name = tempfile.mkstemp(dir=path, prefix=".ownership-")
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                    json.dump(payload, stream); stream.flush(); os.fsync(stream.fileno())
+                    json.dump(payload, stream)
+                    stream.flush()
+                    os.fsync(stream.fileno())
                 os.replace(name, path / MARKER)
             finally:
                 if os.path.exists(name):

@@ -498,7 +498,7 @@ class LLMProcessor:
                 # 重叠：取上一块的最后 N 行作为下一块的开头
                 overlap = current[-overlap_lines:] if overlap_lines > 0 else []
                 current = list(overlap)
-                current_len = sum(len(l) + 1 for l in current)
+                current_len = sum(len(chunk_line) + 1 for chunk_line in current)
             current.append(line)
             current_len += len(line) + 1
         if current:

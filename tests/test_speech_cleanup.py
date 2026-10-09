@@ -132,6 +132,8 @@ def test_staging_retains_referenced_and_unknown_entries(cleanup):
     preview = cleanup.preview("staging")
     assert preview["paths"] == [str(free.parent)]
     receipt = cleanup.execute("staging", "all", preview["token"], True)
+    assert receipt == {"deleted": "all", "kind": "staging", "recoverable": False,
+                       "files_deleted": len(preview["files"]), "bytes_deleted": preview["bytes"]}
     assert not free.exists() and used.exists() and unknown.exists()
     assert not free.parent.exists()
     assert not (cleanup.store.root / "_trash").exists()
@@ -147,6 +149,8 @@ def test_assets_delete_owned_files_and_preserve_original(cleanup, tmp_path):
     seed(cleanup, assets=[{"id": "asset", "path": str(path), "source_path": str(path), "original_path": str(original)}])
     preview = cleanup.preview("assets", "asset")
     receipt = cleanup.execute("assets", "asset", preview["token"], True)
+    assert receipt == {"deleted": "asset", "kind": "assets", "recoverable": False,
+                       "files_deleted": len(preview["files"]), "bytes_deleted": preview["bytes"]}
     assert not path.exists() and original.read_bytes() == b"user"
     assert cleanup.store.list("assets") == []
     assert not (cleanup.store.root / "_trash").exists()
