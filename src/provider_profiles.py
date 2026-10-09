@@ -5,11 +5,14 @@ from uuid import uuid4
 from urllib.parse import urlsplit
 
 
-def profiles_for(settings, *, include_legacy_tts=False):
+def profiles_for(settings, *, include_legacy_tts=False, include_removed=False):
     from src.core.engines.llm.registry import LLM_DEFAULT_MODELS
 
     if isinstance(settings.get("connection_profiles"), dict):
-        return deepcopy(settings["connection_profiles"])
+        result = deepcopy(settings["connection_profiles"])
+        if not include_removed:
+            result["llm"] = [p for p in result["llm"] if not p.get("removed")]
+        return result
     api = settings.get("api", {})
     llm = []
     for provider in ("deepseek", "openai"):
@@ -31,7 +34,7 @@ def project_profiles(settings, include_env=True):
         return settings
     profiles = settings["connection_profiles"]
     for kind in ("llm",):
-        selected = next((p for p in profiles[kind] if p["id"] == profiles[f"active_{kind}"]), None)
+        selected = next((p for p in profiles[kind] if p["id"] == profiles[f"active_{kind}"] and not p.get("removed")), None)
         if selected is None:
             raise ValueError("所选连接配置不存在")
         if kind == "llm":
@@ -46,7 +49,7 @@ def project_profiles(settings, include_env=True):
 
 
 def public_profiles(settings):
-    profiles = profiles_for(settings)
+    profiles = profiles_for(settings, include_removed=True)
     result = []
     for profile in profiles["llm"]:
         item = {key: profile.get(key, "") for key in ("id", "name", "provider", "base_url", "model")}
@@ -54,8 +57,10 @@ def public_profiles(settings):
         if profile["id"] == f"legacy-{profile['provider']}":
             secret = os.environ.get(f"{profile['provider'].upper()}_API_KEY") or secret
         item["credential_configured"] = bool(secret)
+        item["removed"] = bool(profile.get("removed"))
         result.append(item)
-    return {"llm": result, "active_llm": profiles["active_llm"]}
+    return {"llm": [p for p in result if not p["removed"]],
+            "removed_llm": [p for p in result if p["removed"]], "active_llm": profiles["active_llm"]}
 
 
 def update_profiles(base, request, legacy_updates):
@@ -67,11 +72,11 @@ def update_profiles(base, request, legacy_updates):
             or isinstance(request.get("connection_profile"), dict)
             and request["connection_profile"].get("kind") == "tts"):
         raise ValueError("旧 TTS 配置只读，请使用 Speech 命名连接")
-    profiles = profiles_for(base)
+    profiles = profiles_for(base, include_removed=True)
     # Legacy clients edit the selected profile for the corresponding provider.
     api = legacy_updates.get("api", {})
     for provider in ("deepseek", "openai"):
-        matching = [p for p in profiles["llm"] if p["provider"] == provider]
+        matching = [p for p in profiles["llm"] if p["provider"] == provider and not p.get("removed")]
         selected = next((p for p in matching if p["id"] == profiles["active_llm"]), None)
         selected = selected or next((p for p in matching if p["id"] == f"legacy-{provider}"), None)
         if selected:
@@ -85,7 +90,7 @@ def update_profiles(base, request, legacy_updates):
         raise ValueError("active_connections 必须是对象")
     for kind in ("llm",):
         if kind in selection:
-            if not any(p["id"] == selection[kind] for p in profiles[kind]):
+            if not any(p["id"] == selection[kind] and not p.get("removed") for p in profiles[kind]):
                 raise ValueError("所选连接配置不存在")
             profiles[f"active_{kind}"] = selection[kind]
     if "connection_profile" in request:
@@ -94,6 +99,8 @@ def update_profiles(base, request, legacy_updates):
             raise ValueError("连接类型必须是 llm；TTS 请使用 Speech")
         kind = draft["kind"]
         existing = next((p for p in profiles[kind] if p["id"] == draft.get("id")), None)
+        if existing and existing.get("removed"):
+            raise ValueError("此连接是旧版保留记录，请删除后新建连接")
         if draft.get("id") and existing is None:
             raise ValueError("连接配置不存在")
         name = draft.get("name", existing.get("name") if existing else "")

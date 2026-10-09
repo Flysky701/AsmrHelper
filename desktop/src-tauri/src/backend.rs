@@ -3,7 +3,7 @@ use std::{
     fs,
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
     time::{Duration, Instant},
@@ -48,7 +48,16 @@ impl Backend {
 
     pub fn start(app: &tauri::AppHandle, data: &Path) -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let bundle = app.path().resource_dir()?.join("backend");
-        if !bundle.join("app/desktop_backend.py").is_file() {
+        let source = std::env::var_os("ASMR_HELPER_SOURCE_ROOT").map(PathBuf::from);
+        let (python, script) = if let Some(ref root) = source {
+            (root.join(".venv/Scripts/python.exe"), root.join("scripts/desktop_backend.py"))
+        } else {
+            (bundle.join("python/python.exe"), bundle.join("app/desktop_backend.py"))
+        };
+        if !script.is_file() || !python.is_file() {
+            if source.is_some() {
+                return Err("Main project Python or desktop backend script is missing; no environment was installed.".into());
+            }
             if cfg!(debug_assertions) {
                 return Ok(None);
             }
@@ -86,9 +95,12 @@ impl Backend {
             return Err(std::io::Error::last_os_error().into());
         }
         drop(listener);
-        let mut child = Command::new(bundle.join("python/python.exe"))
-            .args(["-I", "-B"])
-            .arg(bundle.join("app/desktop_backend.py"))
+        let mut command = Command::new(python);
+        command.args(["-I", "-B"]).arg(script);
+        if let Some(ref root) = source {
+            command.arg("--source-root").arg(root);
+        }
+        let mut child = command
             .arg("--data-dir")
             .arg(&data)
             .arg("--port")

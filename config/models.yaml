@@ -7,7 +7,7 @@ models:
     variant_group: faster_whisper_main
     variant_tier: lite
     dependency_group: faster_whisper
-    required_python_extras: [audio]
+    required_runtime_packages: ["faster-whisper>=1.0.0"]
     display_name: Faster-Whisper Tiny
     description: Fastest Whisper model with the lowest accuracy.
     estimated_size_mb: 78
@@ -39,7 +39,7 @@ models:
     variant_tier: standard
     is_primary_variant: true
     dependency_group: faster_whisper
-    required_python_extras: [audio]
+    required_runtime_packages: ["faster-whisper>=1.0.0"]
     display_name: Faster-Whisper Base
     description: Recommended balanced Whisper model.
     estimated_size_mb: 148
@@ -70,7 +70,7 @@ models:
     variant_group: faster_whisper_main
     variant_tier: standard
     dependency_group: faster_whisper
-    required_python_extras: [audio]
+    required_runtime_packages: ["faster-whisper>=1.0.0"]
     display_name: Faster-Whisper Small
     description: Higher-accuracy Whisper model.
     estimated_size_mb: 486
@@ -101,7 +101,7 @@ models:
     variant_group: faster_whisper_main
     variant_tier: full
     dependency_group: faster_whisper
-    required_python_extras: [audio]
+    required_runtime_packages: ["faster-whisper>=1.0.0"]
     display_name: Faster-Whisper Medium
     description: High-accuracy Whisper model.
     estimated_size_mb: 1530
@@ -132,7 +132,7 @@ models:
     variant_group: faster_whisper_main
     variant_tier: full
     dependency_group: faster_whisper
-    required_python_extras: [audio]
+    required_runtime_packages: ["faster-whisper>=1.0.0"]
     display_name: Faster-Whisper Large-v3
     description: Highest-accuracy Whisper model.
     estimated_size_mb: 3090

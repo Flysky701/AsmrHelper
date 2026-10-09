@@ -1,0 +1,138 @@
+"""Reviewable uploads and durable receipts. Never automatically retry a creation."""
+import hashlib
+import json
+from pathlib import Path
+from uuid import UUID
+
+from src.core.speech import fish_cloning
+from src.core.speech.providers import ProviderError
+from src.core.speech.store import _reference_file_operation
+
+
+class FishCloneService:
+    def __init__(self, speech):
+        self.speech, self.store = speech, speech.store
+
+    def preview(self, body):
+        if set(body) != {"connection_ref", "asset_id", "title"}:
+            raise ValueError("克隆预览字段不正确")
+        title = body["title"]
+        if not isinstance(title, str) or not 1 <= len(title.strip()) <= 100:
+            raise ValueError("音色名称须为 1–100 个字符")
+        connection = self.store.get("connections", body["connection_ref"])
+        endpoint = fish_cloning.model_endpoint(connection)
+        asset = self.store.get("assets", body["asset_id"])
+        if asset.get("archived") or asset.get("confirmed") is not True or not asset.get("transcript", "").strip():
+            raise ValueError("请选择未归档且已核对原文的参考素材，避免隐式远程转写")
+        path = Path(asset["path"]).resolve()
+        if not path.is_relative_to(self.store.assets_root.resolve()) or path.suffix.lower() != ".wav":
+            raise ValueError("只能上传声音库保存的 WAV 参考素材")
+        if not path.is_file() or not 0 < path.stat().st_size <= 25 * 1024 * 1024:
+            raise ValueError("本应用单次克隆限 25 MB 以内的一段参考音频，请先裁剪并保存")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        review = {"connection_ref": connection["id"], "connection_revision": connection["revision"],
+                  "asset_id": asset["id"], "asset_revision": asset["revision"], "audio_sha256": digest,
+                  "transcript": asset["transcript"], "title": title.strip(), "endpoint": endpoint,
+                  "asset_name": asset.get("name") or asset["id"], "bytes": path.stat().st_size,
+                  "duration": asset.get("duration"), "visibility": "private"}
+        review["token"] = hashlib.sha256(json.dumps(review, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        return review
+
+    @staticmethod
+    def _public(record):
+        # A process may have stopped between dispatch and persisting its response.
+        if record["state"] == "submitting":
+            return {**record, "state": "unknown", "message": "提交中或结果未知，请刷新记录并到 Fish 核查；不要重复上传"}
+        return record
+
+    def list(self):
+        # Old hidden receipts remain visible for explicit deletion, without a
+        # migration, automatic purge, or new restore action.
+        return [{**self._public(item), "legacy_deleted": bool(item.get("deleted"))}
+                for item in self.store.list("fish_clones")]
+
+    @_reference_file_operation
+    def delete(self, clone_id, *, confirmed=False):
+        if confirmed is not True:
+            raise ValueError("请确认删除本地克隆记录；不删除云端音色、录音或已保存音色")
+        # This lock also covers dispatch: an in-flight creation must settle first.
+        # Retain only a request identity after deletion, not a recoverable receipt.
+        with self.store._locked(".fish-clones.lock"):
+            record = self.store.get("fish_clones", clone_id)
+            if record["state"] in {"created", "training"}:
+                raise ValueError("音色仍在远程处理中，请查询状态后再删除本地记录")
+            with self.store._locked():
+                state = self.store._read()
+                del state["collections"]["fish_clones"][clone_id]
+                state.setdefault("fish_clone_requests", {})[clone_id] = {
+                    "review_token": record["review_token"],
+                    "result_unknown": record["state"] in {"submitting", "unknown"}}
+                self.store._write(state)
+            return {"deleted": clone_id, "remote_deleted": False}
+
+    @_reference_file_operation
+    def create(self, body):
+        if set(body) != {"connection_ref", "asset_id", "title", "token", "request_id"}:
+            raise ValueError("克隆提交字段不正确")
+        if not isinstance(body["request_id"], str):
+            raise ValueError("提交编号须为 UUID")
+        request_id = str(UUID(body["request_id"]))
+        with self.store._locked(".fish-clones.lock"):
+            with self.store._locked():
+                consumed = self.store._read().get("fish_clone_requests", {}).get(request_id)
+            if consumed:
+                raise ValueError("此请求已处理且本地记录已删除；不会重复上传。结果未知时请先到 Fish 核查")
+            existing = next((item for item in self.store.list("fish_clones") if item["id"] == request_id), None)
+            if existing:
+                if existing["review_token"] != body["token"]:
+                    raise ValueError("此提交编号已用于其他克隆，请刷新记录")
+                return self._public(existing)
+            preview = self.preview({key: body[key] for key in ("connection_ref", "asset_id", "title")})
+            if body["token"] != preview["token"]:
+                raise ValueError("素材或连接已变更，请重新预览和确认")
+            connection = self.store.get("connections", body["connection_ref"])
+            context = self.speech.connection_context(connection)["connection"]
+            if not context.get("api_key"):
+                raise ValueError("请先在现有服务连接入口配置 Fish 凭据")
+            asset = self.store.get("assets", body["asset_id"])
+            record = self.store.create("fish_clones", {"id": request_id, "title": preview["title"],
+                "asset_id": asset["id"], "connection_ref": connection["id"],
+                "connection_revision": connection["revision"], "review_token": preview["token"],
+                "state": "submitting", "remote_voice_id": None, "message": "", "recipe_id": None})
+            try:
+                result = fish_cloning.create_voice(context, title=preview["title"], path=asset["path"], transcript=asset["transcript"])
+            except ProviderError as exc:
+                result = {"state": "unknown" if exc.result_unknown else "failed", "message": str(exc)}
+            except (OSError, ValueError):
+                result = {"state": "unknown", "message": "提交未能完成，结果未知；请先到 Fish 核查"}
+            return self.store.update("fish_clones", record["id"], result)
+
+    def _connection(self, record):
+        connection = self.store.get("connections", record["connection_ref"])
+        if connection["revision"] != record["connection_revision"]:
+            raise ValueError("原连接已修改，请到 Fish 核查并手动绑定音色 ID")
+        return connection
+
+    def refresh(self, clone_id):
+        with self.store._locked(".fish-clones.lock"):
+            record = self.store.get("fish_clones", clone_id)
+            if not record.get("remote_voice_id"):
+                return self._public(record)
+            connection = self._connection(record)
+            result = fish_cloning.get_voice(self.speech.connection_context(connection)["connection"], record["remote_voice_id"])
+            return self.store.update("fish_clones", clone_id, {**result, "message": ""})
+
+    def save_rule(self, clone_id):
+        with self.store._locked(".fish-clones.lock"):
+            record = self.store.get("fish_clones", clone_id)
+            if record.get("recipe_id"):
+                return self.store.get("recipes", record["recipe_id"])
+            if record["state"] != "trained" or not record.get("remote_voice_id"):
+                raise ValueError("远程音色尚未就绪，请刷新状态；不会自动发起试听")
+            self._connection(record)
+            rule = self.speech.save_rule({"name": record["title"], "provider_id": "fish_audio",
+                "model": "s2.1-pro-free", "mode": "hosted", "connection_ref": record["connection_ref"],
+                "variant": {"kind": "hosted", "value": record["remote_voice_id"], "style": "normal"},
+                "language": "auto", "provider_options": {"schema_version": 1}})
+            self.store.update("fish_clones", clone_id, {"recipe_id": rule["id"]})
+            return rule

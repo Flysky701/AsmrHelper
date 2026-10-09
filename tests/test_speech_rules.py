@@ -34,9 +34,11 @@ def test_rule_creates_voice_and_preserves_immutable_revisions(rules):
     assert updated["revision"] == 2
     assert service.store.get("recipes", rule["id"]) == rule
     assert len(service.store.list("voices")) == 1
-    assert [r["id"] for r in service.active_recipes()] == [updated["id"]]
-    service.archive_rule(updated["id"])
-    assert service.active_recipes() == []
+    assert [r["id"] for r in service.active_recipes() if r["provider_id"] != "edge"] == [updated["id"]]
+    state = service.store._read()
+    state["collections"]["rule_states"][rule["id"]] = {"id": rule["id"], "archived": True}
+    service.store._write(state)
+    assert all(r["provider_id"] == "edge" for r in service.active_recipes())
     assert service.store.get("recipes", rule["id"]) == rule
 
 
@@ -103,7 +105,9 @@ def test_archived_reference_blocks_new_rules_but_not_historical_compile(rules):
     rule = service.save_rule(request)
     plan = service.create_plan({"text": "你好。"})
     before = service.compile(rule["id"], plan["id"])
-    service.store.reference_metadata(asset["id"], {"archived": True})
+    state = service.store._read()
+    state["collections"]["assets"][asset["id"]]["archived"] = True
+    service.store._write(state)
     with pytest.raises(ValueError, match="归档"):
         service.save_rule(request)
     assert service.compile(rule["id"], plan["id"]) == before

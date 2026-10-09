@@ -9,16 +9,16 @@ import { cloneDraft, draftFingerprint, emptyGraph, type WorkflowEditorDraft } fr
 
 type Destination = 'workbench' | 'settings'
 type SaveMode = 'update' | 'copy'
-type CatalogApi = Pick<typeof pipelineApi, 'graphPresets' | 'archivedPresets' | 'restorePreset' | 'graphDraft' | 'createGraphPreset' | 'updateGraphPreset' | 'deletePreset' | 'permanentlyDeletePreset' | 'copyPreset'>
+type CatalogApi = Pick<typeof pipelineApi, 'graphPresets' | 'builtinTemplates' | 'addBuiltinTemplate' | 'graphDraft' | 'createGraphPreset' | 'updateGraphPreset' | 'deletePreset' | 'permanentlyDeletePreset' | 'copyPreset'>
 type EditorPatch = Partial<Pick<WorkflowEditorDraft, 'graph' | 'label' | 'description'>>
 export interface WorkflowState {
   catalog: (PresetItem | GraphPresetItem)[]
   catalogLoading: boolean
   catalogError: string | null
   catalogNotice: string | null
-  archivedCatalog: (PresetItem | GraphPresetItem)[]
-  archivedLoading: boolean
-  archivedError: string | null
+  builtinTemplates: (PresetItem | GraphPresetItem)[]
+  templatesLoading: boolean
+  templatesError: string | null
   selectedPreset: GraphPresetItem | null
   runtimeGraph: GraphDefinition | null
   bindings: GraphBindings
@@ -28,8 +28,8 @@ export interface WorkflowState {
   /** An unrecognized saved draft is retained rather than erased during restore. */
   recoveryDraft: unknown | null
   loadCatalog: () => Promise<void>
-  loadArchivedCatalog: () => Promise<void>
-  restorePreset: (id: string, revision: number, label?: string) => Promise<PresetItem | GraphPresetItem | null>
+  loadBuiltinTemplates: () => Promise<void>
+  addBuiltinTemplate: (id: string, revision: number, label?: string) => Promise<PresetItem | GraphPresetItem | null>
   selectPreset: (preset: GraphPresetItem) => void
   updateRuntimeNode: (node: GraphNode) => void
   setBinding: (slotId: string, value: GraphMaterialBinding | undefined) => void
@@ -41,14 +41,14 @@ export interface WorkflowState {
   saveRuntime: (mode: SaveMode, label?: string) => Promise<GraphPresetItem | null>
   deletePreset: (id: string, revision: number) => Promise<boolean>
   permanentlyDeletePreset: (id: string, revision: number) => Promise<'deleted' | 'already_missing' | null>
-  deleteCatalogPreset: (preset: PresetItem | GraphPresetItem) => Promise<'deleted' | 'already_missing' | 'archived' | null>
+  deleteCatalogPreset: (preset: PresetItem | GraphPresetItem) => Promise<'deleted' | 'already_missing' | null>
   copyPreset: (id: string, label: string) => Promise<PresetItem | GraphPresetItem | null>
 }
 
 export function presetDeleteConfirmation(preset: PresetItem | GraphPresetItem): string {
   const identity = `「${preset.label}」\n编号：${preset.id} · 修订：${preset.revision}`
   return preset.builtin
-    ? `删除内置预设 ${identity}？\n仅从目录移除，原定义保留，可恢复。当前草稿、运行参数及素材绑定保留并解除该预设关联；已提交任务不受影响。`
+    ? `删除内置预设 ${identity}？\n删除此目录项，重启不会自动添加。需要时可从内置模板新建独立预设。当前草稿、运行参数及素材绑定保留并解除该预设关联；已提交任务不受影响。`
     : `删除自定义预设 ${identity}？\n将永久删除保存定义与目录项，不能恢复。当前草稿、运行参数及素材绑定保留并解除该预设关联，可另存为新预设；已提交任务继续使用冻结的修订，不受影响。`
 }
 
@@ -92,7 +92,7 @@ function draftFor(graph: GraphDefinition, label: string, description: string): G
 
 /** One draft store, one server catalog. Dependency injection is only for local mock verification. */
 export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: StateStorage) {
-  let selectionGeneration = 0, editorGeneration = 0, catalogGeneration = 0, archiveGeneration = 0
+  let selectionGeneration = 0, editorGeneration = 0, catalogGeneration = 0, templateGeneration = 0
   return create<WorkflowState>()(persist((set, get) => {
     const upsert = (item: PresetItem | GraphPresetItem) => {
       catalogGeneration++
@@ -108,7 +108,7 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
     }
     return {
       catalog: [], catalogLoading: false, catalogError: null, catalogNotice: null,
-      archivedCatalog: [], archivedLoading: false, archivedError: null, selectedPreset: null, runtimeGraph: null,
+      builtinTemplates: [], templatesLoading: false, templatesError: null, selectedPreset: null, runtimeGraph: null,
       bindings: {}, editor: null, saving: false, error: null, recoveryDraft: null,
       loadCatalog: async () => {
         if (get().catalogLoading || get().saving) return
@@ -130,20 +130,20 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
               ...(removedSelection ? { selectedPreset: null } : {}),
               ...(removedEditor && editor ? { editor: { ...editor, preset: null, initialFingerprint: '' } } : {}),
               ...(promotedSelection || promotedEditor ? { catalogNotice: '此预设已归入内置目录；当前草稿和原修订已保留，修改需另存为副本。' } : {}),
-              ...(removedSelection || removedEditor ? { catalogNotice: '原预设已不在活动目录中。编辑草稿、运行参数与素材绑定已保留，可另存为新预设；若仅移出目录，可从已移除列表恢复。' } : {}),
+              ...(removedSelection || removedEditor ? { catalogNotice: '原预设已不在活动目录中。编辑草稿、运行参数与素材绑定已保留，可另存为新预设。' } : {}),
             })
           }
         }
         catch (error) { if (generation === catalogGeneration) set({ catalogError: message(error) }) }
         finally { set({ catalogLoading: false }) }
       },
-      loadArchivedCatalog: async () => {
-        if (get().archivedLoading) return
-        const generation = archiveGeneration
-        set({ archivedLoading: true, archivedError: null })
-        try { const result = await client.archivedPresets(); if (generation === archiveGeneration) set({ archivedCatalog: result.presets }) }
-        catch (error) { if (generation === archiveGeneration) set({ archivedError: message(error) }) }
-        finally { set({ archivedLoading: false }) }
+      loadBuiltinTemplates: async () => {
+        if (get().templatesLoading) return
+        const generation = templateGeneration
+        set({ templatesLoading: true, templatesError: null })
+        try { const result = await client.builtinTemplates(); if (generation === templateGeneration) set({ builtinTemplates: result.presets }) }
+        catch (error) { if (generation === templateGeneration) set({ templatesError: message(error) }) }
+        finally { set({ templatesLoading: false }) }
       },
       selectPreset: preset => {
         selectionGeneration++
@@ -199,7 +199,7 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
           await client.deletePreset(id, revision)
           // Invalidate an older catalog request so it cannot restore the deleted entry.
           catalogGeneration++
-          archiveGeneration++
+          templateGeneration++
           const state = get(), editor = state.editor
           if (state.selectedPreset?.id === id) selectionGeneration++
           if (editor?.preset?.id === id) editorGeneration++
@@ -208,12 +208,12 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
             selectedPreset: state.selectedPreset?.id === id ? null : state.selectedPreset,
             // Deleting a saved template must not erase material bindings or an open draft.
             editor: editor?.preset?.id === id ? { ...editor, preset: null, initialFingerprint: '' } : editor,
-            catalogNotice: '预设已移出活动目录，原定义可恢复；当前草稿、运行参数及素材绑定已保留。',
+            catalogNotice: '预设已删除，重启不会自动添加；当前草稿、运行参数及素材绑定已保留。',
           })
-          // DELETE returns no body. Reload authoritative archive revisions, never guess them.
-          const archive = archiveGeneration
-          try { const result = await client.archivedPresets(); if (archive === archiveGeneration) set({ archivedCatalog: result.presets, archivedError: null }) }
-          catch (error) { if (archive === archiveGeneration) set({ archivedError: message(error) }) }
+          // Refresh shipped templates; deleting a catalog entry does not remove its template.
+          const archive = templateGeneration
+          try { const result = await client.builtinTemplates(); if (archive === templateGeneration) set({ builtinTemplates: result.presets, templatesError: null }) }
+          catch (error) { if (archive === templateGeneration) set({ templatesError: message(error) }) }
           return true
         } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return false }
         finally { set({ saving: false }) }
@@ -226,24 +226,21 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
           const result = await client.permanentlyDeletePreset(id, revision)
           // Neither an older catalog read nor a pending legacy conversion may resurrect this ID.
           catalogGeneration++
-          archiveGeneration++
+          templateGeneration++
           editorGeneration++
           const state = get(), editor = state.editor
           if (state.selectedPreset?.id === id) selectionGeneration++
           set({
             catalog: state.catalog.filter(item => item.id !== id),
-            archivedCatalog: state.archivedCatalog.filter(item => item.id !== id),
             selectedPreset: state.selectedPreset?.id === id ? null : state.selectedPreset,
             editor: editor?.preset?.id === id ? { ...editor, preset: null, initialFingerprint: '' } : editor,
-            catalogNotice: `${result.status === 'already_missing' ? '预设已不存在，目录引用已清除' : '自定义预设已永久删除，不能从已移除列表恢复'}；当前草稿、运行参数及素材绑定已保留，可另存为新预设。已提交任务不受影响。`,
+            catalogNotice: result.status === 'already_missing' ? '预设已不存在，目录已更新。' : '预设已删除，当前草稿可另存。',
           })
           return result.status
         } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return null }
         finally { set({ saving: false }) }
       },
-      deleteCatalogPreset: async preset => preset.builtin
-        ? await get().deletePreset(preset.id, preset.revision) ? 'archived' : null
-        : get().permanentlyDeletePreset(preset.id, preset.revision),
+      deleteCatalogPreset: async preset => get().permanentlyDeletePreset(preset.id, preset.revision),
       copyPreset: async (id, label) => {
         if (get().saving || get().catalogLoading) return null
         set({ saving: true, error: null })
@@ -255,17 +252,16 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
         } catch (error) { set({ error: message(error) }); return null }
         finally { set({ saving: false }) }
       },
-      restorePreset: async (id, revision, label) => {
+      addBuiltinTemplate: async (id, revision, label) => {
         if (get().saving) return null
         const generation = editorGeneration
         set({ saving: true, error: null })
         try {
-          const item = await client.restorePreset(id, revision, label)
+          const item = await client.addBuiltinTemplate(id, revision, label)
           upsert(item)
-          archiveGeneration++
-          set(state => ({ archivedCatalog: state.archivedCatalog.filter(preset => preset.id !== id),
-            catalogNotice: '预设已恢复到目录。当前草稿与运行参数保持不变，可自行选择要使用的预设。' }))
-          // Restoring a catalog entry must not select it or replace an open editor/runtime draft.
+          templateGeneration++
+          set({ catalogNotice: '已从内置模板新建独立预设。当前草稿与运行参数保持不变，请自行选择。' })
+          // Adding a template never selects it or replaces an open editor/runtime draft.
           return item
         } catch (error) { if (generation === editorGeneration) set({ error: message(error) }); return null }
         finally { set({ saving: false }) }

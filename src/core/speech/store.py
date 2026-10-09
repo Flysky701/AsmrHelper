@@ -24,7 +24,7 @@ from typing import Any
 from uuid import uuid4
 
 
-COLLECTIONS = frozenset({"voices", "recipes", "experiments", "takes", "selections", "assemblies", "assets", "plans", "connections", "imports", "rule_states"})
+COLLECTIONS = frozenset({"voices", "recipes", "experiments", "takes", "selections", "assemblies", "assets", "plans", "connections", "imports", "rule_states", "fish_clones"})
 IMMUTABLE = frozenset({"recipes", "takes", "plans", "assets", "assemblies"})
 _LOCKS: dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -46,6 +46,17 @@ def reference_file_guard():
 def _reference_file_operation(method):
     @wraps(method)
     def guarded(*args, **kwargs):
+        with reference_file_guard():
+            return method(*args, **kwargs)
+    return guarded
+
+
+def reference_submission_operation(method):
+    """Batch admission already holds its own reference lease; avoid lock inversion."""
+    @wraps(method)
+    def guarded(*args, **kwargs):
+        if str(kwargs.get("task_source", "")).startswith("batch-run:"):
+            return method(*args, **kwargs)
         with reference_file_guard():
             return method(*args, **kwargs)
     return guarded
@@ -539,6 +550,39 @@ class SpeechStore:
         if connection is None or connection["provider_id"] != recipe.get("provider_id"):
             raise ConnectionConflictError("Connection was removed or changed before saving; select a connection again")
 
+    def ensure_builtin_recipe(self, key: str, recipe_data: dict, *, add: bool = False) -> dict | None:
+        """Seed once atomically; a durable marker survives archive and physical cleanup.
+
+        Explicit add preserves an existing active revision or creates a fresh
+        ordinary recipe. It never restores deleted/archived user records.
+        """
+        with self._locked():
+            state = self._read()
+            markers = state.setdefault("builtin_recipes", {})
+            records = state["collections"]
+            if key in markers:
+                if not add:
+                    return None
+                root = markers[key]["recipe_id"]
+                revisions = [item for item in records["recipes"].values()
+                             if self._recipe_root(records["recipes"], item["id"]) == root]
+                if revisions and not records["rule_states"].get(root, {}).get("archived"):
+                    latest = max(revisions, key=lambda item: item["revision"])
+                    return deepcopy(latest)
+            timestamp = _now()
+            voice = {"id": str(uuid4()), "name": recipe_data["name"], "bindings": [],
+                     "revision": 1, "created_at": timestamp, "updated_at": timestamp}
+            recipe = {**deepcopy(recipe_data), "id": str(uuid4()), "voice_id": voice["id"],
+                      "revision": 1, "created_at": timestamp, "updated_at": timestamp}
+            self._validate("voices", voice)
+            self._validate("recipes", recipe)
+            self._check_recipe_connection(state, recipe)
+            records["voices"][voice["id"]] = voice
+            records["recipes"][recipe["id"]] = recipe
+            markers[key] = {"recipe_id": recipe["id"]}
+            self._write(state)
+            return deepcopy(recipe)
+
     def create_rule(self, voice_data: dict | None, recipe_data: dict) -> dict:
         with self._locked():
             state = self._read()
@@ -596,17 +640,6 @@ class SpeechStore:
                     root = self._recipe_root(records["recipes"], recipe["id"])
                     recipe["archived"] = bool(records["rule_states"].get(root, {}).get("archived"))
             return result
-
-    def archive_recipe(self, id: str, archived: bool = True) -> dict:
-        if type(archived) is not bool:
-            raise ValueError("Archive status must be a boolean")
-        with self._locked():
-            state = self._read()
-            root = self._recipe_root(state["collections"]["recipes"], id)
-            record = {"id": root, "archived": archived, "updated_at": _now()}
-            state["collections"]["rule_states"][root] = record
-            self._write(state)
-            return deepcopy(record)
 
     def validate_plan(self, text: str, proposed: dict) -> dict:
         return self.create("plans", validate_plan(text, proposed))
@@ -715,15 +748,13 @@ class SpeechStore:
             raise
 
     def reference_metadata(self, id: str, data: dict) -> dict:
-        """Rename/archive without modifying immutable audio or historical IDs."""
-        if set(data) - {"name", "notes", "archived"}:
-            raise ValueError("Only reference name, notes and archive status can change")
+        """Rename without modifying immutable audio, IDs or legacy archive data."""
+        if set(data) - {"name", "notes"}:
+            raise ValueError("Only reference name and notes can change; use confirmed deletion to delete")
         if "name" in data and (not isinstance(data["name"], str) or not data["name"].strip()):
             raise ValueError("Reference name is required")
         if "notes" in data and not isinstance(data["notes"], str):
             raise ValueError("Reference notes must be text")
-        if "archived" in data and type(data["archived"]) is not bool:
-            raise ValueError("Invalid archive status")
         with self._locked():
             state = self._read()
             record = state["collections"]["assets"][id]

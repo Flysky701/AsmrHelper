@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
 from src.core.batches import BatchRunItem, BatchRunRecord
 
@@ -119,6 +119,7 @@ class BatchRunItemResponse(BaseModel):
     bindings: dict[str, Any] = Field(default_factory=dict)
     retry_available: bool = False
     retry_blocked_reason: str | None = None
+    removed: bool = False
 
     @classmethod
     def from_item(cls, item: BatchRunItem) -> "BatchRunItemResponse":
@@ -138,7 +139,14 @@ class BatchRunItemResponse(BaseModel):
             bindings=dict(item.bindings),
             retry_available=item.state in {"failed", "cancelled"} and not item.retry_blocked_reason,
             retry_blocked_reason=item.retry_blocked_reason,
+            removed=item.removed,
         )
+
+
+class BatchItemRemovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_updated_at: str = Field(min_length=1)
+    confirmed: StrictBool
 
 
 class BatchRunResponse(BaseModel):

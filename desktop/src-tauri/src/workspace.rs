@@ -86,6 +86,18 @@ fn choose(app: &tauri::AppHandle, bundle: &Path) -> Result<Option<PathBuf>, Stri
 }
 impl WorkspaceState {
     pub fn initialize(app: &tauri::AppHandle) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        if let Some(root) = std::env::var_os("ASMR_HELPER_SOURCE_ROOT") {
+            let active = PathBuf::from(root).canonicalize()?;
+            if !active.join("src/api/http/app.py").is_file()
+                || !active.join(".venv/Scripts/python.exe").is_file() {
+                return Err("Main project source or Python environment is missing.".into());
+            }
+            return Ok(Some(Self {
+                locator: active.join("config/local-desktop-workspace.json"),
+                bundle: active.clone(), active, fixed_by_environment: true,
+                pending: Mutex::new(None),
+            }));
+        }
         let bundle = app.path().resource_dir()?.join("backend");
         let local = app.path().local_data_dir()?;
         let locator = std::env::var_os("ASMR_HELPER_LOCATOR_DIR").map(PathBuf::from)

@@ -11,7 +11,6 @@ from typing import Optional
 import numpy as np
 import soundfile as sf
 import torch
-from demucs.pretrained import get_model
 from demucs.apply import apply_model
 
 from src.utils import ensure_dir
@@ -48,7 +47,13 @@ class VocalSeparator:
         self.progress = progress
 
         # 加载模型
-        self.model = get_model(model_name)
+        from src.core.resources.model_assets import complete, load_demucs
+        from src.core.resources.model_catalog import ModelCatalog
+        entry = ModelCatalog().get("demucs-" + model_name)
+        model_path = entry.resolved_install_dir()
+        if not complete(entry, model_path):
+            raise RuntimeError("Demucs 权重未准备完整，请先引用已有模型或单独下载权重")
+        self.model = load_demucs(model_name, model_path)
         self.model = self.model.to(self.device)
         self.model.eval()
 
@@ -93,9 +98,10 @@ class VocalSeparator:
 
         # 重采样到模型采样率（如果需要）
         if sample_rate != self.model.samplerate:
-            import torchaudio
-            resampler = torchaudio.transforms.Resample(sample_rate, self.model.samplerate)
-            wav = resampler(wav)
+            # Julius is already a Demucs runtime dependency. Avoid requiring an
+            # additional Torch-coupled Torchaudio wheel just for resampling.
+            from julius import resample_frac
+            wav = resample_frac(wav, sample_rate, self.model.samplerate)
         
         # 确保声道数匹配
         if wav.shape[0] != self.model.audio_channels:

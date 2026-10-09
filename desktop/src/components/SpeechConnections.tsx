@@ -69,7 +69,7 @@ export default function SpeechConnections() {
       await load()
       setChecks(current => ({ ...current, [saved.id]: '' }))
       setEditor(null)
-      setNotice(lastLoadSucceeded.current ? '语音服务已保存，可由声音与音色等功能引用。' : '语音服务已保存，但列表刷新失败。请重新加载核对，勿重复新增。')
+      setNotice(lastLoadSucceeded.current ? '语音服务已保存。' : '语音服务已保存，但列表刷新失败。请重新加载核对，勿重复新增。')
     } catch (cause) { setNotice('保存失败：' + String(cause)) }
     finally { setBusy('') }
   }
@@ -90,12 +90,12 @@ export default function SpeechConnections() {
       <button className="external-service-button" disabled={loading || !!busy || !providers.length} onClick={() => edit()}>添加服务</button>
     </div>
     <div className="external-service-body">
-      <p className="external-service-muted">独立管理语音服务的接口与凭据。声音与音色可引用这里的连接，无需先创建音色。</p>
+      <p className="external-service-muted">配置音色使用的外部服务。</p>
       {notice && <div className="external-service-notice" role="status">{notice}</div>}
       {loading ? <p className="external-service-muted">加载语音服务中…</p> : error ? <div role="alert"><p>{error}</p><button className="external-service-button" onClick={() => void load()}>重新加载</button></div> : <>
         {external.map(connection => <div className="external-service-card" key={connection.id}>
           <div className="external-service-card-heading"><h3>{connection.name}</h3><div className="external-service-actions">
-            <button className="external-service-button" disabled={!!busy} onClick={() => void check(connection)}>检查配置</button>
+            <button className="external-service-button" title="检查地址与凭据是否齐备，不验证服务可达性或发起合成" disabled={!!busy} onClick={() => void check(connection)}>检查配置</button>
             <button className="external-service-button" disabled={!!busy} aria-expanded={editor?.id === connection.id} onClick={() => edit(connection)}>编辑</button>
           </div></div>
           <p className="external-service-muted">{providers.find(provider => provider.provider_id === connection.provider_id)?.name} · {{ local: '本机服务', lan: '局域网', cloud: '云端' }[connection.deployment]}</p>
@@ -113,12 +113,10 @@ export default function SpeechConnections() {
         </select></label>
         {editor.provider_id !== 'fish_audio' && <label className="external-service-field">运行位置<select value={editor.deployment} onChange={event => setEditor({ ...editor, deployment: event.target.value as SpeechConnection['deployment'] })}><option value="cloud">云端</option><option value="lan">局域网</option><option value="local">本机服务</option></select></label>}
         <label className="external-service-field">API 地址<input value={editor.base_url || ''} onChange={event => setEditor({ ...editor, base_url: event.target.value })} placeholder="填写服务商文档中的 API 基础地址" /></label>
-        {editor.provider_id === 'fish_audio' && <p className="external-service-muted">已预填 Fish Audio 官方云端地址，可直接填写密钥保存。</p>}
         <label className="external-service-field">API 密钥<input type="password" autoComplete="off" value={editor.api_key} onChange={event => setEditor({ ...editor, api_key: event.target.value })} placeholder={editor.credential_configured ? '已配置；留空保持此连接的密钥' : '输入 API 密钥'} /></label>
         {editor.id && <p className="external-service-muted">更换 API 地址时需重新填写密钥。</p>}
         <div className="external-service-actions" style={{ marginTop: 20 }}><button className="external-service-button external-service-primary" onClick={() => void save()}>{busy || '保存服务'}</button><button className="external-service-button" onClick={async () => { if (await canDiscard()) setEditor(null) }}>取消</button></div>
       </fieldset>}
-      <p className="external-service-muted">“检查配置”仅检查已保存的地址与凭据是否齐备，不会发起语音合成或验证服务可达性。</p>
     </div>
   </section>
 }

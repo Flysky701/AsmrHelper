@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 
 class SettingsResponse(BaseModel):
     settings: dict[str, Any]
+
+
+class ConnectionRemovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=64, max_length=64)
+    confirmed: StrictBool
 
 
 class SettingsUpdateRequest(BaseModel):

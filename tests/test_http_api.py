@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -613,7 +613,7 @@ class TestModelRoutes:
 
     def test_remove_model(self, client):
         mock_svc = MagicMock()
-        mock_svc.remove_model.return_value = ModelOperationResult(
+        result = ModelOperationResult(
             action="remove",
             model_id="whisper-base",
             success=True,
@@ -622,11 +622,25 @@ class TestModelRoutes:
         )
         client.app.dependency_overrides[dependencies.model_service] = _mock_dep(mock_svc)
 
-        resp = client.delete("/api/v1/models/whisper-base")
+        with patch("src.app.services.model_removal_service.ModelRemovalService") as removal:
+            removal.return_value.execute.return_value = result
+            resp = client.delete("/api/v1/models/whisper-base", params={"token": "reviewed-token", "confirmed": True})
+            removal.assert_called_once_with(mock_svc)
+            removal.return_value.execute.assert_called_once_with("whisper-base", "reviewed-token", True)
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert data["action"] == "remove"
+
+    def test_remove_model_rejects_unconfirmed_request(self, client):
+        mock_svc = MagicMock()
+        client.app.dependency_overrides[dependencies.model_service] = _mock_dep(mock_svc)
+        with patch("src.app.services.model_removal_service.ModelRemovalService") as removal:
+            removal.return_value.execute.side_effect = ValueError("Explicit confirmation required")
+            resp = client.delete("/api/v1/models/whisper-base")
+            removal.return_value.execute.assert_called_once_with("whisper-base", "", False)
+        assert resp.status_code == 400
+        mock_svc.remove_model.assert_not_called()
 
 
 # ─── Subtitles ────────────────────────────────────────────────────────

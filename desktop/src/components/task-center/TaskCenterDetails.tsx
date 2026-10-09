@@ -1,3 +1,4 @@
+import { displayPath } from '@/utils/displayPath'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Task, TaskStatus } from '@/stores/taskStore'
@@ -119,7 +120,7 @@ export default function TaskCenterDetails({ task, execution, events, batchName, 
             </div>}
           </div>
         })}</div>}
-        <div className="tc-frozen-inputs"><span>本次输入</span>{frozenTaskInputs(task).map(input => <p key={input.label}>{input.label} · {input.path}</p>)}</div>
+        <div className="tc-frozen-inputs"><span>本次输入</span>{frozenTaskInputs(task).map(input => <p key={input.label}>{input.label} · {displayPath(input.path)}</p>)}</div>
         {!!graph?.outputs.length && <div className="tc-final-output"><span>计划交付</span>{graph.outputs.map(output => <code key={`${output.node_id}.${output.port}`}>{output.node_id}.{output.port}</code>)}</div>}
         {task.message && execution && <p className="tc-message">{task.message}</p>}
         {recovery}
@@ -134,7 +135,7 @@ export default function TaskCenterDetails({ task, execution, events, batchName, 
           <div><strong>{artifact.label || artifact.type}</strong><p><code>{artifactNodeId(artifact) || '节点未记录'}</code><span>{artifact.type}</span></p><small>{taskId}</small></div>
           {artifact.preview && artifact.type.startsWith('audio.') && <button type="button" onClick={() => onPlay(artifact.artifactId, artifact.label || artifact.type)}>播放</button>}
           <button type="button" onClick={() => setPreviewId(previewId === artifact.artifactId ? null : artifact.artifactId)} aria-expanded={previewId === artifact.artifactId}>文件详情</button>
-          {previewId === artifact.artifactId && <div className="tc-artifact-preview"><strong>{artifact.label || artifact.type}</strong><p>{artifact.path}</p><p>归属：{taskId} / {artifactNodeId(artifact) || '节点未记录'}</p><button type="button" onClick={() => onCopy(artifact.path)}>复制路径</button></div>}
+          {previewId === artifact.artifactId && <div className="tc-artifact-preview"><strong>{artifact.label || artifact.type}</strong><p>{displayPath(artifact.path)}</p><p>归属：{taskId} / {artifactNodeId(artifact) || '节点未记录'}</p><button type="button" onClick={() => onCopy(artifact.path)}>复制路径</button></div>}
         </article>)}</section>)}
       </>}
       {tab === 'errors' && (hasError ? <>

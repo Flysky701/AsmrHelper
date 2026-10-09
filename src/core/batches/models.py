@@ -22,6 +22,7 @@ class BatchRunItem:
     label: str = ""
     bindings: dict[str, Any] = field(default_factory=dict)
     retry_blocked_reason: str | None = None
+    removed: bool = False
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "BatchRunItem":
@@ -40,6 +41,7 @@ class BatchRunItem:
             label=str(payload.get("label") or ""),
             bindings=dict(payload.get("bindings") or {}),
             retry_blocked_reason=payload.get("retry_blocked_reason"),
+            removed=bool(payload.get("removed", False)),
         )
 
 

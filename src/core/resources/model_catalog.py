@@ -79,6 +79,10 @@ class ModelEntry:
         return resolve_directory(None, default, project_root=PROJECT_ROOT)
 
     def resolved_install_dir(self) -> Path:
+        from .model_assets import resolve_assets
+        return resolve_assets(self)
+
+    def managed_install_dir(self) -> Path:
         root = self.resolved_install_root()
         if not self.install_path:
             return root

@@ -304,6 +304,10 @@ export interface ModelStatusResponse {
   status: ModelRuntimeStatus
   detail: string
   executable: boolean
+  path?: string | null
+  weights_ready?: boolean
+  runtime_ready?: boolean
+  shared_readonly?: boolean
   issues: Array<{
     code: string
     requirement: string

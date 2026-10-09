@@ -10,10 +10,12 @@ cd /d "%PROJECT_ROOT%"
 if /I "%~1"=="api" goto api
 if /I "%~1"=="test" goto test
 if /I "%~1"=="desktop" goto desktop
+if /I "%~1"=="dev" goto dev
 if "%~1"=="" goto desktop
 
 echo Usage:
-echo   run.bat            Start the desktop application
+echo   run.bat            Open the main project desktop application
+echo   run.bat dev        Start source API and Vite
 echo   run.bat desktop    Start the desktop application
 echo   GUIRun.bat --dev   Start from current frontend source
 echo   GUIRun.bat --release Build and start a release application
@@ -46,5 +48,9 @@ call :check_python || exit /b 1
 exit /b %errorlevel%
 
 :desktop
-call "%PROJECT_ROOT%GUIRun.bat"
+call "%PROJECT_ROOT%GUIRun.bat" --desktop
+exit /b %errorlevel%
+
+:dev
+call "%PROJECT_ROOT%GUIRun.bat" --dev
 exit /b %errorlevel%

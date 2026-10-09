@@ -1,7 +1,48 @@
 @echo off
 chcp 65001 >nul
-title ASMR Helper - Desktop GUI
+title ASMR Helper - Source Development
 setlocal EnableExtensions EnableDelayedExpansion
+
+if "%~1"=="" goto local_desktop
+if /I "%~1"=="--desktop" goto local_desktop
+if /I "%~1"=="--dev" goto source_dev
+if /I "%~1"=="--vite" goto source_dev
+if /I "%~1"=="--check" goto source_check
+if /I "%~1"=="--smoke" goto source_smoke
+if /I "%~1"=="--rewrite" goto rewrite_dev
+goto desktop_mode
+
+:local_desktop
+"%~dp0.venv\Scripts\python.exe" -B "%~dp0scripts\desktop_local.py"
+set "DEV_EXIT=!ERRORLEVEL!"
+if not "!DEV_EXIT!"=="0" pause
+exit /b !DEV_EXIT!
+
+:source_dev
+set "DEV_ARGS="
+goto launch_source
+:rewrite_dev
+set "DEV_ARGS=--project "%~dp0.tmp\full-stack-v2" --python "%~dp0.venv\Scripts\python.exe" --runtime-sources "%~dp0config\dev-runtime-sources.json""
+if /I "%~2"=="--smoke" set "DEV_ARGS=!DEV_ARGS! --smoke"
+goto launch_source
+:source_check
+set "DEV_ARGS=--check"
+goto launch_source
+:source_smoke
+set "DEV_ARGS=--smoke"
+:launch_source
+if not exist "%~dp0.venv\Scripts\python.exe" (
+    echo [ERROR] Project Python is missing. No environment was installed.
+    pause
+    exit /b 1
+)
+"%~dp0.venv\Scripts\python.exe" -B "%~dp0scripts\dev.py" %DEV_ARGS%
+set "DEV_EXIT=!ERRORLEVEL!"
+if not "!DEV_EXIT!"=="0" pause
+exit /b !DEV_EXIT!
+
+:desktop_mode
+title ASMR Helper - Desktop GUI
 
 set "PROJECT_ROOT=%~dp0"
 set "VENV_PYTHON=%PROJECT_ROOT%.venv\Scripts\python.exe"
@@ -15,6 +56,7 @@ set "BACKEND_STARTER=%PROJECT_ROOT%scripts\start_backend.ps1"
 set "FRESHNESS_CHECKER=%PROJECT_ROOT%scripts\check_runtime_freshness.ps1"
 set "RELEASE_EXE=%DESKTOP_DIR%\src-tauri\target\release\asmr-helper.exe"
 set "LAUNCH_MODE=%~1"
+if /I "%LAUNCH_MODE%"=="--desktop" set "LAUNCH_MODE=--dev"
 set "BACKEND_STARTED=0"
 set "BACKEND_PID="
 set "PORT_PID="
@@ -37,25 +79,11 @@ if errorlevel 1 (
     goto launch_failed
 )
 
-if not defined LAUNCH_MODE (
-    if exist "%RELEASE_EXE%" (
-        call :get_frontend_state
-        if /I "!FRONTEND_STATE!"=="fresh" (
-            set "LAUNCH_MODE=--installed"
-        ) else (
-            echo [INFO] Desktop sources are newer than the installed release. Rebuilding...
-            set "LAUNCH_MODE=--release"
-        )
-    ) else (
-        set "LAUNCH_MODE=--dev"
-    )
-)
-
 if /I "%LAUNCH_MODE%"=="--installed" goto frontend_ready
 if /I "%LAUNCH_MODE%"=="--dev" goto check_dev_tools
 if /I "%LAUNCH_MODE%"=="--release" goto check_dev_tools
 echo [ERROR] Unknown launch mode: %LAUNCH_MODE%
-echo         Supported: --installed, --dev, --release
+echo         Supported: --dev, --rewrite, --check, --smoke, --desktop, --installed, --release
 goto launch_failed
 
 :check_dev_tools

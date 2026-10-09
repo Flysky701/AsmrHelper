@@ -51,7 +51,7 @@ export default function TaskRecoveryAction({ taskId, onResumed }: {
         </button>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>
           {recovery?.can_resume
-            ? '复用校验通过的已完成阶段，中断阶段重新执行。'
+            ? '复用已校验的阶段，从中断处重试。'
             : recovery?.reason || (error ? '无法读取恢复信息' : '正在检查恢复信息…')}
         </span>
       </div>
