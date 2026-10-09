@@ -2,6 +2,8 @@
 
 ## 日常桌面入口
 
+原生构建优先使用完整的项目内 Node、Cargo 和 LLVM MinGW；项目工具集不完整时使用 PATH 中已安装的 Node 和 Cargo，沿用本机 Rust 工具链及缓存。两种方式均锁定依赖并离线构建，不自动安装工具；使用 MSVC 工具链的 PC 需已有对应 Visual Studio C++ 构建工具。
+
 双击 `RUNGUI.bat`（或桌面“ASMR Helper 主项目”快捷方式）打开主项目独立桌面窗口。`GUIRun.bat` 与 `run.bat` 无参数也指向这个窗口。
 它使用主项目源码、`.venv`、已有模型和配置，不复制 Python、不安装依赖、不启动浏览器，也不制作安装包。
 桌面壳为 `desktop/src-tauri/target/release/asmr-helper-local.exe`；独立随机端口及令牌连接本次后端，关闭窗口会结束本次后端及其子进程，不接管 8000 上的服务。

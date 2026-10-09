@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -84,7 +85,8 @@ def launcher_lock():
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+b") as stream:
         if path.stat().st_size == 0:
-            stream.write(b"0"); stream.flush()
+            stream.write(b"0")
+            stream.flush()
         stream.seek(0)
         import msvcrt
         try:
@@ -114,28 +116,43 @@ def verified_staged_build() -> bool:
     return build_receipt(STAGED_EXE) is not None
 
 
-def build(*, staged: bool = False) -> Path:
-    output = build_target(staged)
-    fingerprint = source_fingerprint()
+def build_environment() -> tuple[Path, Path, dict[str, str]]:
+    """Prefer a complete portable toolchain, otherwise use installed tools offline."""
     node = ROOT / ".runtimes/node-v24.19.0-win-x64/node.exe"
     cargo = ROOT / ".runtimes/cargo/bin/cargo.exe"
     mingw = next((ROOT / ".runtimes").glob("llvm-mingw-*/bin/gcc.exe"), None)
-    required = [node, cargo, DESKTOP / "node_modules/vite/bin/vite.js",
-                DESKTOP / "node_modules/typescript/bin/tsc"]
-    missing = [str(p) for p in required if not p.is_file()]
-    if mingw is None:
-        missing.append("project LLVM MinGW")
+    env = os.environ.copy()
+    paths = []
+    if node.is_file() and cargo.is_file() and mingw is not None:
+        env.update(CARGO_HOME=str(ROOT / ".runtimes/cargo"),
+                   RUSTUP_HOME=str(ROOT / ".runtimes/rustup"),
+                   RUSTUP_TOOLCHAIN="stable-x86_64-pc-windows-gnu")
+        paths.append(str(mingw.parent))
+    else:
+        installed_node = shutil.which("node")
+        installed_cargo = shutil.which("cargo")
+        if not installed_node or not installed_cargo:
+            missing = [name for name, found in (("Node.js on PATH", installed_node),
+                                                ("Cargo on PATH", installed_cargo)) if not found]
+            raise RuntimeError("Missing build tools; nothing installed: " + ", ".join(missing))
+        node, cargo = Path(installed_node), Path(installed_cargo)
+    missing = [str(p) for p in (DESKTOP / "node_modules/vite/bin/vite.js",
+                               DESKTOP / "node_modules/typescript/bin/tsc") if not p.is_file()]
     if missing:
         raise RuntimeError("Missing build tools; nothing installed: " + ", ".join(missing))
-    env = os.environ.copy()
-    env.update(CARGO_HOME=str(ROOT / ".runtimes/cargo"),
-               RUSTUP_HOME=str(ROOT / ".runtimes/rustup"),
-               RUSTUP_TOOLCHAIN="stable-x86_64-pc-windows-gnu",
-               RUSTUP_AUTO_INSTALL="0", CARGO_NET_OFFLINE="true",
+    env.update(RUSTUP_AUTO_INSTALL="0", CARGO_NET_OFFLINE="true",
                CARGO_TARGET_DIR=str(DESKTOP / "src-tauri/target"),
                TAURI_CONFIG=json.dumps({"productName": "ASMR Helper", "identifier": "com.asmrhelper.desktop.local",
                                         "bundle": {"active": False, "resources": None}}))
-    env["PATH"] = os.pathsep.join([str(node.parent), str(cargo.parent), str(mingw.parent), env.get("PATH", "")])
+    env["PATH"] = os.pathsep.join([str(node.parent), str(cargo.parent), *paths, env.get("PATH", "")])
+    return node, cargo, env
+
+
+def build(*, staged: bool = False) -> Path:
+    output = build_target(staged)
+    fingerprint = source_fingerprint()
+    node, cargo, env = build_environment()
+    print(f"[TOOLS] Node: {node}; Cargo: {cargo}", flush=True)
     for command, cwd in [
         ([str(node), str(DESKTOP / "node_modules/typescript/bin/tsc"), "-b"], DESKTOP),
         ([str(node), str(DESKTOP / "node_modules/vite/bin/vite.js"), "build"], DESKTOP),
