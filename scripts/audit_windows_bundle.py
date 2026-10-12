@@ -34,6 +34,8 @@ def main():
         path = root / name
         if denied_parts.intersection(path.relative_to(root).parts) or path.name in {"config.json", "voice_profiles.json", ".env"} or path.suffix.lower() in {".sqlite", ".sqlite3", ".db", ".pyc"}:
             errors.append({"path": name, "reason": "private/runtime filename"})
+        if path.suffix.lower() in {".wav", ".mp3", ".flac", ".ogg", ".aac", ".m4a"}:
+            errors.append({"path": name, "reason": "audio asset"})
         if name.startswith("app/") and path.suffix.lower() in {".py", ".json", ".yaml", ".toml", ".md"}:
             content = path.read_text(encoding="utf-8", errors="replace")
             if re.search(r"(?i)(sk-[a-z0-9]{24,}|ghp_[a-z0-9]{25,}|github_pat_[a-z0-9_]{30,})", content):

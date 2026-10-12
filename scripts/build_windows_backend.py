@@ -15,7 +15,7 @@ import urllib.request
 VERSION = "1.0.0"
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_CONFIG = ("models.yaml", "presets.yaml", "asmr_terms.json", "config.example.json", "voice_profiles.example.json")
-EXCLUDED = ["developer venv/runtime", "config.json", "voice_profiles.json", "voice_lab", "models", "output", "logs", "databases", ".git", ".env", "__pycache__", "imageio_ffmpeg bundled executable", "ffplay"]
+EXCLUDED = ["developer venv/runtime", "config.json", "voice_profiles.json", "voice_lab", "models", "output", "logs", "databases", ".git", ".env", "__pycache__", "imageio_ffmpeg bundled executable", "dependency test audio", "ffplay"]
 
 
 def run(args: list[str], **kwargs):
@@ -34,6 +34,19 @@ def digest(path: Path) -> str:
 def copy_file(source: Path, destination: Path):
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
+
+
+def remove_dependency_test_audio(site: Path) -> int:
+    """Remove only upstream test audio inside this fresh packaging tree."""
+    site = site.resolve()
+    audio = {".wav", ".mp3", ".flac", ".ogg", ".aac", ".m4a"}
+    candidates = [path for path in site.rglob("*") if path.is_file()
+                  and "tests" in path.relative_to(site).parts and path.suffix.lower() in audio]
+    if any(path.is_symlink() or not path.resolve().is_relative_to(site) for path in candidates):
+        raise RuntimeError("Dependency test audio escapes staging")
+    for path in candidates:
+        path.unlink()
+    return len(candidates)
 
 
 def main():
@@ -105,6 +118,7 @@ def main():
     run([uv, "export", "--project", str(app), "--locked", "--no-dev", "--no-editable", "--no-emit-project", "--no-header", "--output-file", str(requirements)], cwd=app, env=env, stdout=subprocess.DEVNULL)
     run([uv, "pip", "install", "--python", str(output / "python" / "python.exe"), "--index-url", "https://pypi.org/simple", "--require-hashes", "-r", str(requirements)], env=env)
     installed_site = output / "python" / "Lib" / "site-packages"
+    print("Removed dependency test audio:", remove_dependency_test_audio(installed_site), flush=True)
     for exe in (installed_site / "imageio_ffmpeg" / "binaries").glob("*.exe"):
         exe.unlink()
     records = []
