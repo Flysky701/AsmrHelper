@@ -132,9 +132,16 @@ def _item(value: Any, *, builtin: bool) -> dict[str, Any]:
 
 
 def _promotion_value(value: dict[str, Any]) -> dict[str, Any]:
-    """Compare original payloads, allowing only API-added optional nulls."""
+    """Compare payloads with supported shipped wording and optional null defaults."""
     result = deepcopy(value)
     result.pop("builtin", None)
+    # Only these shipped wording updates are equivalent. User edits still conflict.
+    wording = {
+        "custom_07458dd97f9e467eb6aef34d499923a5": ("无字幕输入， 正常流程", "音频翻译配音并混音。"),
+        "custom_964998d159ec4c30a5cc6bf44b76caeb": ("输入希望语言字幕与原音频， 进行混音", "字幕配音并与原音频混音。"),
+    }.get(result.get("id"))
+    if wording and result.get("description") == wording[0]:
+        result["description"] = wording[1]
     graph = result.get("graph")
     if isinstance(graph, dict):
         for slot in graph.get("input_slots", []):
@@ -207,7 +214,8 @@ class PresetCatalogService:
         if (not isinstance(data, dict) or set(data) != {"presets"}
                 or not isinstance(data["presets"], list)):
             raise ValueError("Preset catalog has an invalid format; existing contents were not changed")
-        return [_item(value, builtin=True) for value in data["presets"]]
+        return sorted([_item(value, builtin=True) for value in data["presets"]],
+                      key=lambda item: item["id"] != "starter_edge_chinese_v1")
 
     def _load_catalog(self) -> _Catalog:
         definitions = self._read_builtins()

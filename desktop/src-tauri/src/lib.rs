@@ -132,7 +132,7 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
             )
             .title(if std::env::var_os("ASMR_HELPER_SOURCE_ROOT").is_some() {
                 "ASMR Helper · 主项目"
-            } else { "ASMR Helper Test 0.2.1-beta.5" })
+            } else { "ASMR Helper Test 1.0.0" })
             .inner_size(1200.0, 800.0)
             .min_inner_size(900.0, 600.0)
             .center();

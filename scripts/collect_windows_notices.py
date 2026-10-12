@@ -1,13 +1,15 @@
 """Collect local dependency notices without fetching or copying personal data."""
 from pathlib import Path
 import json
+import os
 import shutil
 import tomllib
 
 def collect(root: Path, output: Path):
     records=[]
     lock=tomllib.loads((root/'desktop/src-tauri/Cargo.lock').read_text(encoding='utf-8'))
-    registries=list((Path.home()/'.cargo/registry/src').glob('*'))
+    cargo_home = Path(os.environ.get('CARGO_HOME', str(Path.home() / '.cargo')))
+    registries=list((cargo_home/'registry/src').glob('*'))
     for package in lock['package']:
         if not package.get('source','').startswith('registry+'):
             continue
@@ -38,7 +40,7 @@ def collect(root: Path, output: Path):
                 shutil.copy2(source,target)
     output.mkdir(parents=True,exist_ok=True)
     (output/'desktop-dependencies.json').write_text(json.dumps(records,indent=2),encoding='utf-8')
-    (output/'THIRD-PARTY-NOTICES.txt').write_text('ASMR Helper Test 0.2.1-beta.5\nApplication metadata declares MIT.\nThis distribution contains separately licensed third-party software.\nFFmpeg 8.1.2 from Gyan is GPL v3; see ../ffmpeg/LICENSE and ../ffmpeg/README.txt for its build and source information.\nPython, uv, Python packages, native components, Rust crates and npm production dependencies retain notices in this directory and their original package directories.\nModel weights are not bundled and have separate download/license terms.\nThis inventory is not a legal certification.\n',encoding='utf-8')
+    (output/'THIRD-PARTY-NOTICES.txt').write_text('ASMR Helper Test 1.0.0\nApplication metadata declares MIT.\nThis distribution contains separately licensed third-party software.\nFFmpeg 8.1.2 from Gyan is GPL v3; see ../ffmpeg/LICENSE and ../ffmpeg/README.txt for its build and source information.\nPython, uv, Python packages, native components, Rust crates and npm production dependencies retain notices in this directory and their original package directories.\nModel weights are not bundled and have separate download/license terms.\nThis inventory is not a legal certification.\n',encoding='utf-8')
     return len(records)
 
 if __name__=='__main__':

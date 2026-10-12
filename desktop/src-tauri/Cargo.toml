@@ -1,6 +1,7 @@
 [package]
 name = "asmr-helper"
-version = "0.2.1-beta.5"
+default-run = "asmr-helper"
+version = "1.0.0"
 edition = "2021"
 
 [[bin]]

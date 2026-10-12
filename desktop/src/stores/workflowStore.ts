@@ -122,9 +122,17 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
             const promotedEditor = !!editor?.preset && !editor.preset.builtin && result.presets.some(item => item.id === editor.preset?.id && item.builtin)
             const removedSelection = !!state.selectedPreset && !result.presets.some(item => item.id === state.selectedPreset?.id)
             const removedEditor = !!editor?.preset && !result.presets.some(item => item.id === editor.preset?.id)
+            // Only a blank workbench gets the starter. Never replace restored
+            // selections, runtime/editor drafts, bindings or recovery data.
+            const starter = !state.selectedPreset && !state.runtimeGraph && !editor
+              && state.recoveryDraft === null && !Object.keys(state.bindings).length
+              ? result.presets.find((item): item is GraphPresetItem => item.id === 'starter_edge_chinese_v1'
+                && item.builtin && 'version' in item && item.version === 2) : undefined
+            if (starter) selectionGeneration++
             if (removedSelection) selectionGeneration++
             if (removedEditor) editorGeneration++
             set({ catalog: result.presets,
+              ...(starter ? { selectedPreset: cloneDraft(starter), runtimeGraph: cloneDraft(starter.graph) } : {}),
               ...(promotedSelection && state.selectedPreset ? { selectedPreset: { ...state.selectedPreset, builtin: true } } : {}),
               ...(promotedEditor && editor?.preset ? { editor: { ...editor, preset: { ...editor.preset, builtin: true } } } : {}),
               ...(removedSelection ? { selectedPreset: null } : {}),

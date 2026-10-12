@@ -12,6 +12,11 @@
 
 .queue-workbench{container-name:queue-workbench;container-type:inline-size}
 
+.queue-quick-start{margin:0 0 10px;color:var(--muted);font-size:var(--text-help);line-height:1.7;overflow-wrap:anywhere}
+.queue-quick-start>summary{cursor:pointer;width:fit-content;color:var(--queue-accent)}
+.queue-quick-start p,.queue-quick-start ol{margin-top:8px}.queue-quick-start ol{padding-left:22px}
+.queue-quick-start pre{white-space:pre-wrap;padding:8px 12px;margin-top:8px;background:var(--bg);border:1px solid var(--queue-border);border-radius:6px;user-select:text}
+
 .queue-material-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;border-top:1px solid #edf0f3;color:#7d94a4;font-size:11px;flex-wrap:wrap}.queue-workbench .queue-remove-material{font-size:var(--text-control);padding:4px 7px;color:#925655;border-color:#eadbdd;min-height:29px}.queue-material-toolbar>span{flex:1;min-width:160px}
 
 /* Keep controls aligned when names, paths, or viewport width change. */

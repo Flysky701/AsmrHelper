@@ -34,7 +34,7 @@ def test_shared_graph_catalog_copies_builtin_without_changing_outputs(catalog, m
     client, _, path = catalog
     monkeypatch.setattr(dependencies, "get_pipeline_service", lambda: pytest.fail("No execution"))
     initial = client.get("/api/v1/pipeline/presets?include_graph=true").json()["presets"]
-    assert len(initial) == 2 and not path.exists()
+    assert len(initial) == 3 and not path.exists()
     source = initial[0]
     assert all(item["version"] == 2 and item["builtin"] for item in initial)
     created = client.post(f"/api/v1/pipeline/presets/{source['id']}/copy",

@@ -4,6 +4,8 @@ Windows 桌面音频处理工具，支持人声分离、语音识别、字幕翻
 
 ## 开始使用
 
+先看[中文快速上手](docs/guides/quick-start.md)：默认“演示预设 · 中文配音”无需模型下载或 API 密钥，使用在线 Edge 晓晓音色，需联网。工作台提供收起的“快速上手”说明。
+
 需要 Windows 10/11、PowerShell 5.1+。安装脚本默认使用项目内的 Python 3.12；桌面开发与构建另需 Node.js 22+、Rust/Cargo 及对应 Windows 编译工具链。模型和 GPU 要求取决于所选引擎。
 
 ```powershell

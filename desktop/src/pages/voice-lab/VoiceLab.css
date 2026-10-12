@@ -94,3 +94,34 @@
   .speech-lab .recipe-actions .row { align-items: stretch; }
   .speech-lab .recipe-actions button { flex: 1 1 150px; }
 }
+
+
+/* Compact saved-preset layout; reference and audition pages keep their spacing. */
+.speech-lab .columns.voice-management { grid-template-columns: 300px minmax(0, 1fr); gap: 14px; }
+.speech-lab .voice-management .voice-sidebar { display: block; padding: 14px 12px; }
+.speech-lab .voice-management .voice-sidebar > .row { gap: 6px; }
+.speech-lab .voice-management .voice-sidebar h2 { font-size: var(--text-control); }
+.speech-lab .voice-management .voice-sidebar > .row > button { padding: 6px 9px; min-height: 32px; }
+.speech-lab .voice-management .voice-sidebar > input { margin: 12px 0 10px; }
+.speech-lab .voice-management .voice-list-toggle { display: none; }
+.speech-lab .voice-management .voice-recipe-list { max-height: min(600px, 58dvh); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.speech-lab .voice-management .voice-detail { padding: 18px; }
+.speech-lab .voice-management .voice-detail-heading { gap: 8px; }
+.speech-lab .voice-management .voice-detail-heading h2 { font-size: 18px; }
+.speech-lab .voice-management .voice-detail-heading p { margin-bottom: 12px; }
+.speech-lab .voice-management .recipe-section { padding: 14px 0; }
+.speech-lab .voice-management .recipe-section h3 { margin-bottom: 12px; font-size: var(--text-control); }
+.speech-lab .voice-management .recipe-fields { gap: 0 12px; }
+.speech-lab .voice-management label.field { margin-bottom: 12px; }
+.speech-lab .voice-management .recipe-actions { padding-top: 14px; }
+.speech-lab .voice-management .recipe-actions .row { gap: 6px; }
+@container voice-content (max-width: 740px) {
+  .speech-lab .columns.voice-management { grid-template-columns: minmax(0, 1fr); }
+  .speech-lab .voice-management .voice-list-toggle { display: block; justify-self: start; }
+  .speech-lab .voice-management .voice-sidebar { display: none; margin: 0; }
+  .speech-lab .voice-management .voice-sidebar.is-open { display: block; }
+  .speech-lab .voice-management .voice-recipe-list { max-height: 250px; }
+}
+@container voice-content (max-width: 520px) {
+  .speech-lab .voice-management .voice-detail { padding: 16px; }
+}

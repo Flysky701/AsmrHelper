@@ -1,6 +1,6 @@
 [project]
 name = "asmr-helper"
-version = "0.2.1b5"
+version = "1.0.0"
 description = "ASMR 音频汉化工具，支持人声分离、ASR、翻译、TTS 和智能混音"
 authors = [
     {name = "ASMR Helper Team"}
@@ -10,7 +10,7 @@ requires-python = ">=3.11,<3.13"
 license = {text = "MIT"}
 keywords = ["asmr", "audio", "whisper", "tts", "translation"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",

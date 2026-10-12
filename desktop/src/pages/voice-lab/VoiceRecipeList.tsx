@@ -30,8 +30,8 @@ export default function VoiceRecipeList({ recipes, providers, selectedId, onSele
       const modelName = modelNames[recipe.model] || recipe.model || providerName || '模型未记录'
       const modeName = modeNames[recipe.mode] || recipe.mode || '方式未记录'
       const description = [providerName, recipe.model, modeName].filter(Boolean).join(' · ')
-      return <div className="voice-recipe-entry" role="listitem" key={recipe.id} aria-label={recipe.name}>
-        <button type="button" className="voice-recipe-row" disabled={disabled}
+      return <div className="voice-recipe-entry" role="listitem" key={recipe.id} aria-label={recipe.name} data-selected={recipe.id === selectedId ? 'true' : undefined}>
+        <button type="button" className="voice-recipe-row" disabled={disabled} title={recipe.name} aria-label={recipe.name}
           aria-current={recipe.id === selectedId ? 'true' : undefined} onClick={() => onSelect(recipe)}>
           <span className="voice-recipe-heading"><strong title={recipe.name}>{recipe.name}</strong>
             {recipe.archived && <span className="voice-recipe-archived">旧版保留项</span>}

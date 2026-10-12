@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "bundle-resources/native/WebView2Loader.dll": "WebView2Loader.dll"
+    }
+  }
+}
