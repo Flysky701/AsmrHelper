@@ -10,7 +10,7 @@ or replace the existing v1.1 candidate preview.
 | Provider | Models | Voice source | Exposed controls |
 | --- | --- | --- | --- |
 | Gemini | `gemini-3.8-flash-tts`, `gemini-3.8-flash-lite-tts` | 30 built-in voices or existing persistent `voice_` ID | Style metadata, delivery and emotion instructions |
-| ElevenLabs | `eleven_v3`, `eleven_flash_v2_5` | Existing Voice ID, entered manually | Speed; stability only on Flash v2.5 |
+| ElevenLabs | `eleven_v3`, `eleven_flash_v2_5`, `eleven_v4` | Existing Voice ID, entered manually | Speed on v3/Flash; stability only on Flash; v4 has no numeric voice overrides |
 | MiMo | `mimo-v2.5-tts` | Nine documented built-in voice IDs | Style, delivery, emotion and language instructions |
 
 All use single-voice, non-streaming requests and normalize audio into the existing
@@ -24,8 +24,9 @@ English only; its explicit language is an instruction, not a guarantee of adhere
 The app's initial Gemini/ElevenLabs scope is auto/Chinese/English/Japanese.
 Output language is separate from reference recording language.
 
-ElevenLabs v4 and v4 Turbo use different documented dialogue interfaces and are
-not routed through this ordinary TTS adapter. Model-specific unsupported options
+ElevenLabs v4 uses the ordinary HTTP TTS endpoint, as demonstrated by its official
+product-page sample. v4 Turbo ordinary REST support remains unverified and is not
+advertised; this does not imply that it is unavailable. Model-specific unsupported options
 are rejected, including stability on the current v3 adapter. Cloud responses and
 errors do not prove model quality or reproducibility.
 
@@ -49,6 +50,13 @@ take but cannot undo remote generation or charges. Existing stage recovery can
 reuse audited completed output; graph checkpoint resume is not introduced.
 
 ## Verification on FLY-Laptop
+
+The v4 correction passed 201 affected backend tests, all 76 frontend tests,
+`tsc --noEmit`, and `git diff --check`. New coverage checks the minimal v4 HTTP
+payload without numeric voice settings, verbatim script tags, language selection,
+10,000/10,001-character boundaries, invalid recipe/snapshot options, model-switch
+cleanup, saved recipe reload, pinned graph execution and recovery. The earlier
+extension checks below are historical, not additional tests rerun for this correction.
 
 - 355 backend tests passed: three adapters, shared transport/integration, existing
   speech providers/store/service/HTTP/rules/defaults/overrides/recovery, pipeline

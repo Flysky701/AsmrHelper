@@ -22,11 +22,12 @@ from test_speech_recovery import speech_plan
 CASES = [
     ("gemini", "gemini-3.8-flash-tts", "builtin", "Kore", {"style_description": "Calm"}),
     ("elevenlabs", "eleven_v3", "hosted", "JBFqnCBsd6RMkjVDRZzb", {"speed": .9}),
+    ("elevenlabs", "eleven_v4", "hosted", "JBFqnCBsd6RMkjVDRZzb", {}),
     ("mimo", "mimo-v2.5-tts", "builtin", "mimo_default", {"style_description": "Calm"}),
 ]
 
 
-@pytest.fixture(params=CASES, ids=[case[0] for case in CASES])
+@pytest.fixture(params=CASES, ids=[case[1] for case in CASES])
 def cloud(request, tmp_path, monkeypatch):
     provider, model, mode, voice, options = request.param
     service = SpeechService(store=SpeechStore(tmp_path / "speech"), tasks=Mock(),

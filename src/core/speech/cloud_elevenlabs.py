@@ -8,9 +8,9 @@ from urllib.parse import quote
 from .providers import COMMON, ProviderError, SpeechProvider, _number
 
 
-MODELS = ("eleven_v3", "eleven_flash_v2_5")
+MODELS = ("eleven_v3", "eleven_flash_v2_5", "eleven_v4")
 LANGUAGES = ("auto", "zh", "en", "ja")
-TEXT_LIMITS = {"eleven_v3": 5000, "eleven_flash_v2_5": 40000}
+TEXT_LIMITS = {"eleven_v3": 5000, "eleven_flash_v2_5": 40000, "eleven_v4": 10000}
 
 
 class ElevenLabsSpeechProvider(SpeechProvider):
@@ -22,7 +22,8 @@ class ElevenLabsSpeechProvider(SpeechProvider):
         self.remote = self.http = True
         self.options_schema = {
             **deepcopy(COMMON),
-            "speed": {**_number(.7, 1.2, 1), "title": "Speed"},
+            "speed": {**_number(.7, 1.2, 1), "title": "Speed",
+                "applies_to_models": ["eleven_v3", "eleven_flash_v2_5"]},
             "stability": {**_number(0, 1, .5), "title": "Stability",
                 "applies_to_models": ["eleven_flash_v2_5"]},
         }
@@ -35,7 +36,7 @@ class ElevenLabsSpeechProvider(SpeechProvider):
         return result
 
     def runtime_options(self, model, mode):
-        if model not in MODELS or mode != "hosted":
+        if model not in MODELS or mode != "hosted" or model == "eleven_v4":
             return []
         return ["speed", "stability"] if model == "eleven_flash_v2_5" else ["speed"]
 
@@ -91,8 +92,12 @@ class ElevenLabsSpeechProvider(SpeechProvider):
             raise ProviderError("snapshot_mismatch", "The ElevenLabs request differs from its compiled parameters")
         params = recompiled
         options = params["options"]
-        body = {"text": request["text"], "model_id": request["model"],
-            "voice_settings": {key: options[key] for key in self.runtime_options(request["model"], "hosted")}}
+        body = {"text": request["text"], "model_id": request["model"]}
+        voice_settings = {key: options[key] for key in self.runtime_options(request["model"], "hosted")}
+        # v4 follows the official minimal convert example: do not inherit numeric
+        # settings from older models without a verified model-specific contract.
+        if voice_settings:
+            body["voice_settings"] = voice_settings
         if params["language"] != "auto":
             body["language_code"] = params["language"]
         voice_id = quote(params["variant"]["value"], safe="")

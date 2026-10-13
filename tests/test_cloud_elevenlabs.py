@@ -71,7 +71,6 @@ def test_auto_language_omitted_and_proxy_prefix_preserved(monkeypatch, tmp_path)
 
 
 @pytest.mark.parametrize("changes,code", [
-    ({"model": "eleven_v4"}, "invalid_model"),
     ({"model": "eleven_v4_turbo"}, "invalid_model"),
     ({"model": "eleven_multilingual_v2"}, "invalid_model"),
     ({"language": "nonsense"}, "invalid_language"),
@@ -141,3 +140,52 @@ def test_snapshot_revalidated_before_network(monkeypatch, tmp_path):
     with pytest.raises(ProviderError) as error:
         ElevenLabsSpeechProvider().synthesize(compiled, tmp_path / "audio.wav", context(), lambda: False)
     assert error.value.code == "snapshot_mismatch"
+
+
+@pytest.mark.parametrize("language", ["auto", "zh", "en", "ja"])
+def test_v4_minimal_payload_preserves_script(monkeypatch, tmp_path, language):
+    text = "[whispers] Hello. [long pause] 再见。"
+    def handler(req):
+        assert req.url.path == "/v1/text-to-speech/fixtureVoice123"
+        expected = {"text": text, "model_id": "eleven_v4"}
+        if language != "auto":
+            expected["language_code"] = language
+        assert json.loads(req.content) == expected
+        return httpx.Response(200, content=wav())
+    mock_http(monkeypatch, handler)
+    compiled = request(model="eleven_v4", language=language)
+    compiled["text"] = text
+    ElevenLabsSpeechProvider().synthesize(compiled, tmp_path / "v4.wav", context(), lambda: False)
+
+
+@pytest.mark.parametrize("option,value", [("speed", 1), ("stability", .5),
+    ("similarity_boost", .5), ("style", 0)])
+def test_v4_rejects_unverified_settings_in_recipe_and_snapshot(monkeypatch, tmp_path, option, value):
+    mock_http(monkeypatch, lambda req: pytest.fail("Unsupported v4 settings must not reach the API"))
+    with pytest.raises(ProviderError) as error:
+        request(model="eleven_v4", provider_options={"schema_version": 1, option: value})
+    assert error.value.code == "invalid_options"
+    compiled = request(model="eleven_v4")
+    compiled["parameters"]["options"][option] = value
+    with pytest.raises(ProviderError) as error:
+        ElevenLabsSpeechProvider().synthesize(compiled, tmp_path / "v4.wav", context(), lambda: False)
+    assert error.value.code == "invalid_options"
+
+
+def test_v4_length_boundary_and_execution_revalidation(monkeypatch, tmp_path):
+    provider = ElevenLabsSpeechProvider()
+    value = recipe(model="eleven_v4")
+    provider.compile(value, {}, "x" * 10000, {})
+    with pytest.raises(ProviderError) as error:
+        provider.compile(value, {}, "x" * 10001, {})
+    assert error.value.code == "invalid_text"
+    assert provider.capabilities("eleven_v4", "hosted")["max_text_length"] == 10000
+    assert provider.runtime_options("eleven_v4", "hosted") == []
+    assert provider.modes[0]["models"] == ["eleven_v3", "eleven_flash_v2_5", "eleven_v4"]
+    assert request(model="eleven_v4")["parameters"]["options"] == {"schema_version": 1}
+    mock_http(monkeypatch, lambda req: pytest.fail("Overlong snapshots must not reach the API"))
+    compiled = request(model="eleven_v4")
+    compiled["text"] = "x" * 10001
+    with pytest.raises(ProviderError) as error:
+        provider.synthesize(compiled, tmp_path / "v4.wav", context(), lambda: False)
+    assert error.value.code == "invalid_text"

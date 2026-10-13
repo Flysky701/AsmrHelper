@@ -34,6 +34,34 @@ const provider = {
 }
 const recipe = { ...transitions.blankSpeechRecipe(), provider_id: 'cloud', mode: 'hosted', model: 'v3', language: 'auto', variant: { kind: 'hosted', value: 'voice-id', style: 'normal' }, provider_options: { schema_version: 1, stability: .5 } }
 
+test('Eleven v4 selection removes older model controls and preserves voice and connection', () => {
+  const eleven = {
+    provider_id: 'elevenlabs', capabilities: caps,
+    options_schema: { properties: {
+      speed: { type: 'number', default: 1, minimum: .7, maximum: 1.2, applies_to_models: ['eleven_v3', 'eleven_flash_v2_5'] },
+      stability: { type: 'number', default: .5, minimum: 0, maximum: 1, applies_to_models: ['eleven_flash_v2_5'] },
+    } },
+    modes: [{ id: 'hosted', models: ['eleven_v3', 'eleven_flash_v2_5', 'eleven_v4'], variant_kinds: ['hosted'],
+      capabilities: caps, runtime_options: ['speed'],
+      model_runtime_options: { eleven_v3: ['speed'], eleven_flash_v2_5: ['speed', 'stability'], eleven_v4: [] },
+    }],
+  }
+  const original = { ...recipe, provider_id: 'elevenlabs', model: 'eleven_flash_v2_5', connection_ref: 'saved-connection',
+    provider_options: { schema_version: 1, speed: .9, stability: .3 } }
+  const v4 = transitions.selectSpeechModel(original, eleven, 'eleven_v4')
+  assert.equal(v4.model, 'eleven_v4')
+  assert.equal(v4.connection_ref, original.connection_ref)
+  assert.deepEqual(v4.variant, original.variant)
+  assert.deepEqual(v4.provider_options, { schema_version: 1 })
+  assert.deepEqual(options.availableSpeechOptions(eleven, 'hosted', 'eleven_v4'), [])
+  assert.deepEqual(consumption.runtimeSpeechOptions(eleven, v4), [])
+  assert.ok(options.speechOptionsIssue(eleven, 'hosted', { speed: 1 }, 'eleven_v4'))
+  assert.deepEqual(consumption.runtimeSpeechOptions(eleven, original).map(([name]) => name), ['speed', 'stability'])
+  const v3 = transitions.selectSpeechModel(v4, eleven, 'eleven_v3')
+  assert.deepEqual(v3.provider_options, { schema_version: 1, speed: 1 })
+  assert.equal(original.provider_options.stability, .3)
+})
+
 test('model schema resolves enum, ranges and applicability without changing shared descriptors', () => {
   const original = structuredClone(provider)
   const fields = options.availableSpeechOptions(provider, 'hosted', 'v3')
