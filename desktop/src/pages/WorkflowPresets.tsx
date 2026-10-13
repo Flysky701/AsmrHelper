@@ -143,7 +143,7 @@ export default function WorkflowPresets() {
       <div className="wfp-actions page-heading__actions">
         {editor?.preset && !editor.preset.builtin && <button type="button" className="wfp-button" disabled={busy || !!saveReason} title={saveReason ? t(saveReason) : undefined} onClick={() => void save('copy')}>{t("另存为新预设")}</button>}
         {editor && <button type="button" className="wfp-button is-primary" disabled={busy || !!saveReason} title={saveReason ? t(saveReason) : undefined} aria-describedby={saveReason ? 'wfp-save-reason' : undefined} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving && !deletingId && !addingTemplateId ? t("正在保存…") : editor.preset?.builtin ? t("保存副本并返回") : t("保存并返回")}</button>}
-        <button type="button" className="wfp-button" disabled={busy} onClick={goBack}>{t("返回")}{editor?.returnTo === 'workbench' ? t("工作台") : t("设置")}</button>
+        <button type="button" className="wfp-button" disabled={busy} onClick={goBack}>{format("返回{0}", [editor?.returnTo === 'workbench' ? t("工作台") : t("设置")])}</button>
       </div>
     </header>
     <section className="wfp-catalog" aria-label={t("选择要编辑的流水线")}>

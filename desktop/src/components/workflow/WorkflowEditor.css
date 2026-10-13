@@ -178,5 +178,8 @@
 .wg-inspector .wg-field input, .wg-inspector .wg-field select { font-size:var(--text-control); }
 
 .wg-node-ports>div { min-width:0; }
+.wg-node-ports>div:first-child { flex:1 1 0; }
+.wg-node-ports>div:last-child { flex:0 0 auto; }
+.wg-port { white-space:normal; }
 .wg-port span { min-width:0; overflow-wrap:anywhere; text-align:left; }
 .wg-module-symbol.kind-audio_difference,.wg-module-icon.kind-audio_difference { color:#8b653b; background:#f4ebdf; }

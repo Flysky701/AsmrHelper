@@ -9,7 +9,7 @@ import subprocess
 import sys
 import uuid
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 
 def extended_path(path: Path) -> Path:
     """Use Win32 extended paths without requiring a machine policy change."""

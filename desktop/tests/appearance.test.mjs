@@ -61,7 +61,7 @@ test('UI translation preserves supplied names, paths and unknown backend details
   const { en } = load('../src/locales/en.ts')
   const { t, format } = load('../src/i18n.ts', {
     './locales/en': { en },
-    ...Object.fromEntries(['workflow', 'voices', 'operations', 'shared'].map(name => [`./locales/${name}`, load(`../src/locales/${name}.ts`)])), './stores/appearanceStore': { useAppearanceStore: { getState: () => ({ language }) } },
+    ...Object.fromEntries(['workflow', 'voices', 'operations', 'shared', 'audio'].map(name => [`./locales/${name}`, load(`../src/locales/${name}.ts`)])), './stores/appearanceStore': { useAppearanceStore: { getState: () => ({ language }) } },
   })
   assert.equal(t('工作台'), 'Workbench')
   assert.equal(format('查看 {0}', ['我的模板 中文声线']), 'View 我的模板 中文声线')

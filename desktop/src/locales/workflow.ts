@@ -1,5 +1,6 @@
 /** Application-owned workflow copy. User names and model content stay unchanged. */
 export const workflowMessages: Record<string, string> = {
+  "返回{0}": "Return to {0}",
   "尚未选择引擎": "No engine selected",
   "模型目录暂未读取，不能据此判断是否安装。": "The model catalog has not loaded. Installation status is unknown.",
   "正在读取引擎列表": "Loading engines",
