@@ -1,6 +1,6 @@
 # Windows x64 test installer
 
-Version: **1.0.0** (Python metadata: `1.0.0`). Product: **ASMR Helper Test**. This is a separate per-user NSIS test product, not a signed public release.
+Version: **1.0.1** (Python metadata: `1.0.1`). Product: **ASMR Helper Test**. This is a separate per-user NSIS test product, not a signed public release.
 
 The installed desktop executable starts its own loopback backend on an ephemeral port and passes a fresh session token to the WebView. It refuses packaged startup if resources are missing. A Windows Job Object owns the backend and model-worker process tree; application exit requests graceful shutdown and then terminates remaining children.
 
@@ -9,7 +9,7 @@ Immutable installed resources include a complete clean CPython 3.12.13 distribut
 On first launch, the app asks the user to select and confirm a dedicated empty writable workspace outside the installation. It contains config, state database, output, models, runtime environments, logs and the WebView cache. The workspace locator is saved under `%LOCALAPPDATA%\ASMRHelperTest\workspace.json`; an existing legacy `%LOCALAPPDATA%\ASMRHelperTestData` workspace can still be recognized. Upgrades and the standard uninstaller leave the workspace in place. `ASMR_HELPER_DATA_DIR` overrides this root for isolated testing.
 
 
-**1.0.0 is a local pending-acceptance package, not approved for public release.** The existing ASMR Helper Test product name, com.asmrhelper.desktop.test identifier and beta workspace marker/locator are retained for upgrade continuity. No user workspace is moved or reset. See [1.0 acceptance and compatibility](windows-release-1.0-acceptance.md).
+**1.0.1 is a license-only update to the published v1.0.0.** This release changes application-owned licensing to CC-BY-NC-4.0 and retains third-party licenses. Interactive installation acceptance and clean Windows/VM acceptance have not been repeated for this build. The existing ASMR Helper Test product name, com.asmrhelper.desktop.test identifier and beta workspace marker/locator are retained for upgrade continuity. No user workspace is moved or reset. See [1.0 acceptance and compatibility](windows-release-1.0-acceptance.md).
 
 ## Reproduce
 

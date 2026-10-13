@@ -36,7 +36,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="ASMR Helper API",
         description="HTTP API for ASMR Helper audio processing pipeline",
-        version="1.0.0",
+        version="1.0.1",
         docs_url="/docs",
         redoc_url="/redoc",
     )
@@ -82,7 +82,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": "1.0.0"}
+        return {"status": "ok", "version": "1.0.1"}
 
     if os.environ.get("ASMR_HELPER_DEV_SESSION"):
         @app.get("/__dev/identity", include_in_schema=False)
