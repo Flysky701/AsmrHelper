@@ -1,3 +1,4 @@
+import { t, useI18n, format } from '@/i18n'
 import { useEffect, useRef, useState } from 'react'
 import { fishClonesApi } from '@/api/fishClones'
 import type { FishClone, FishCloneDraft } from '@/api/fishClones'
@@ -12,6 +13,7 @@ const stateNames: Record<string, string> = { created: '已创建，待就绪', t
 export default function FishClonePanel({ active, assets, connections, onSaved }: {
   active: boolean; assets: ReferenceAsset[]; connections: SpeechConnection[]; onSaved: (recipe: SpeechRecipe) => Promise<void>
 }) {
+  useI18n()
   const [draft, setDraft] = useState<FishCloneDraft>({ connection_ref: '', asset_id: '', title: '' })
   const [items, setItems] = useState<FishClone[]>([])
   const [busy, setBusy] = useState(false)
@@ -46,46 +48,46 @@ export default function FishClonePanel({ active, assets, connections, onSaved }:
   const connection = connections.find(item => item.id === draft.connection_ref && item.provider_id === 'fish_audio')
   const submitted = submission.current.dispatched(draft)
   return <section className="panel fish-clone-panel">
-    <h2>Fish 远程克隆</h2>
-    <p className="muted">将片段与原文上传至 Fish，创建私有音色。创建可能收费，Free 仅指合成档位。</p>
-    {error && <p role="alert" className="error">{error}</p>}{notice && <p role="status">{notice}</p>}
+    <h2>{t("Fish 远程克隆")}</h2>
+    <p className="muted">{t("将片段与原文上传至 Fish，创建私有音色。创建可能收费，Free 仅指合成档位。")}</p>
+    {error && <p role="alert" className="error">{t(error)}</p>}{notice && <p role="status">{notice.startsWith('已提交，状态：') ? format('已提交，状态：{0}。', [t(notice.slice(7, -1))]) : t(notice)}</p>}
     <fieldset className="lab-fieldset" disabled={busy}>
       <div className="recipe-fields">
-        <label className="field">Fish 服务连接<select value={draft.connection_ref} onChange={event => setDraft(previous => ({ ...previous, connection_ref: event.target.value }))}>
-          <option value="">选择连接</option>{connections.filter(item => item.provider_id === 'fish_audio').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        <label className="field">{t("Fish 服务连接")}<select value={draft.connection_ref} onChange={event => setDraft(previous => ({ ...previous, connection_ref: event.target.value }))}>
+          <option value="">{t("选择连接")}</option>{connections.filter(item => item.provider_id === 'fish_audio').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select></label>
-        <label className="field">上传的参考素材<select value={draft.asset_id} onChange={event => setDraft(previous => ({ ...previous, asset_id: event.target.value }))}>
-          <option value="">选择已保存的录音</option>{assets.filter(item => !item.archived).map(item => <option key={item.id} value={item.id}>{item.name || item.id}{!item.confirmed || !item.transcript.trim() ? '（需核对原文）' : ''}</option>)}
+        <label className="field">{t("上传的参考素材")}<select value={draft.asset_id} onChange={event => setDraft(previous => ({ ...previous, asset_id: event.target.value }))}>
+          <option value="">{t("选择已保存的录音")}</option>{assets.filter(item => !item.archived).map(item => <option key={item.id} value={item.id}>{item.name || item.id}{!item.confirmed || !item.transcript.trim() ? t('（需核对原文）') : ''}</option>)}
         </select></label>
-        <label className="field">远程音色名称<input value={draft.title} maxLength={100} onChange={event => setDraft(previous => ({ ...previous, title: event.target.value }))} /></label>
+        <label className="field">{t("远程音色名称")}<input value={draft.title} maxLength={100} onChange={event => setDraft(previous => ({ ...previous, title: event.target.value }))} /></label>
       </div>
-      <section className="fish-clone-summary" aria-label="远程创建摘要">
+      <section className="fish-clone-summary" aria-label={t("远程创建摘要")}>
         <dl>
-          <div><dt>上传至</dt><dd>Fish Audio · 私有{connection && <small>{connection.name}</small>}</dd></div>
-          <div><dt>参考片段</dt><dd>{asset?.name || (asset ? '已选片段' : '尚未选择')}{asset?.duration != null && <small>{asset.duration.toFixed(1)} 秒 · 已保存的 WAV</small>}</dd></div>
-          <div><dt>目标音色</dt><dd>{draft.title.trim() || '尚未填写'}</dd></div>
+          <div><dt>{t("上传至")}</dt><dd>{t("Fish Audio · 私有")}{connection && <small>{connection.name}</small>}</dd></div>
+          <div><dt>{t("参考片段")}</dt><dd>{asset?.name || (asset ? t('已选片段') : t('尚未选择'))}{asset?.duration != null && <small>{format("{0} 秒 · 已保存的 WAV", [asset.duration.toFixed(1)])}</small>}</dd></div>
+          <div><dt>{t("目标音色")}</dt><dd>{draft.title.trim() || t('尚未填写')}</dd></div>
         </dl>
-        {asset && <audio aria-label="试听所选参考片段" controls preload="none" src={speechApi.referenceAudio(asset.id)} />}
-        <p className="fish-clone-transcript">{asset?.transcript || '选择素材后显示随片段上传的原文。'}</p>
+        {asset && <audio aria-label={t("试听所选参考片段")} controls preload="none" src={speechApi.referenceAudio(asset.id)} />}
+        <p className="fish-clone-transcript">{asset?.transcript || t('选择素材后显示随片段上传的原文。')}</p>
       </section>
       <div className="fish-clone-submit"><button className="primary" disabled={!connection || !asset?.confirmed || !asset.transcript.trim() || !draft.title.trim() || submitted} onClick={() => void run(async () => {
         const result = await submission.current.submit(draft)
         update(result); setNotice('已提交，状态：' + (stateNames[result.state] || result.state) + '。')
-      })}>{busy ? '处理中…' : submitted ? '本次已提交' : '上传片段并创建音色'}</button><span className="muted">只创建音色，不自动试音。</span></div>
-      <div className="row spread"><h3>创建结果</h3><button onClick={() => void run(load)}>刷新记录</button></div>
-      <p className="muted">结果未知请先到 Fish 核查，勿重复创建。删除本地记录不删除云端音色或录音。</p>
+      })}>{busy ? t('处理中…') : submitted ? t('本次已提交') : t('上传片段并创建音色')}</button><span className="muted">{t("只创建音色，不自动试音。")}</span></div>
+      <div className="row spread"><h3>{t("创建结果")}</h3><button onClick={() => void run(load)}>{t("刷新记录")}</button></div>
+      <p className="muted">{t("结果未知请先到 Fish 核查，勿重复创建。删除本地记录不删除云端音色或录音。")}</p>
       {items.map(item => <div className="item" key={item.id}>
-        <strong>{item.title} · {stateNames[item.state] || item.state}{item.legacy_deleted ? ' · 旧版保留项' : ''}</strong>
-        <p className="fish-clone-result-id">Voice ID：{item.remote_voice_id || '尚未取得'}{item.message && ' · ' + item.message}</p>
+        <strong>{item.title} · {t(stateNames[item.state] || item.state)}{item.legacy_deleted ? t(' · 旧版保留项') : ''}</strong>
+        <p className="fish-clone-result-id">Voice ID：{item.remote_voice_id || t('尚未取得')}{item.message && ' · ' + item.message}</p>
         <div className="row">
-          {item.remote_voice_id && ['created', 'training'].includes(item.state) && <button onClick={() => void run(async () => update(await fishClonesApi.refresh(item.id)))}>更新状态</button>}
+          {item.remote_voice_id && ['created', 'training'].includes(item.state) && <button onClick={() => void run(async () => update(await fishClonesApi.refresh(item.id)))}>{t("更新状态")}</button>}
           {item.state === 'trained' && <button onClick={() => void run(async () => {
             const recipe = await fishClonesApi.save(item.id); await load(); await onSaved(recipe)
-          })}>{item.recipe_id ? '打开已保存预设' : '保存到音色库（Free 合成）'}</button>}
-          <button disabled={['created', 'training', 'submitting'].includes(item.state)} title={['created', 'training', 'submitting'].includes(item.state) ? '仍在处理中，请更新状态后再删除' : undefined} onClick={() => void run(async () => {
-            if (!await confirmAction(`删除本地克隆记录“${item.title}”？不删除任何录音文件、已保存音色或云端音色。无法撤销。`)) return
+          })}>{item.recipe_id ? t('打开已保存预设') : t('保存到音色库（Free 合成）')}</button>}
+          <button disabled={['created', 'training', 'submitting'].includes(item.state)} title={['created', 'training', 'submitting'].includes(item.state) ? t('仍在处理中，请更新状态后再删除') : undefined} onClick={() => void run(async () => {
+            if (!await confirmAction(format("删除本地克隆记录“{0}”？不删除任何录音文件、已保存音色或云端音色。无法撤销。", [item.title]))) return
             await fishClonesApi.remove(item.id); setItems(previous => previous.filter(row => row.id !== item.id)); setNotice('已删除本地克隆记录。')
-          })}>删除本地记录</button>
+          })}>{t("删除本地记录")}</button>
         </div>
       </div>)}
     </fieldset>

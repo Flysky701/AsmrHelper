@@ -1,7 +1,9 @@
+import { t, useI18n } from '@/i18n'
 import { useEffect, useRef, useState } from 'react'
 
 /** Playback gain only; never rewrites the provider's original artifact. */
 export default function CandidateAudio({ url, equalLoudness }: { url: string; equalLoudness: boolean }) {
+  useI18n()
   const player = useRef<HTMLAudioElement>(null)
   const context = useRef<AudioContext | null>(null)
   const gain = useRef<GainNode | null>(null)
@@ -57,7 +59,7 @@ export default function CandidateAudio({ url, equalLoudness }: { url: string; eq
 
   return <div>
     <audio ref={player} controls crossOrigin="anonymous" src={url} onPlay={preparePlayback} onError={() => setError('音频无法播放，请检查候选产物是否仍存在')} />
-    {equalLoudness && <p className="muted">{measuring ? '正在分析播放音量…' : '按 RMS 校准试听音量，保留峰值余量；原始文件不变。'}</p>}
-    {error && <p role="alert" className="error muted">{error}</p>}
+    {equalLoudness && <p className="muted">{measuring ? t('正在分析播放音量…') : t('按 RMS 校准试听音量，保留峰值余量；原始文件不变。')}</p>}
+    {error && <p role="alert" className="error muted">{t(error)}</p>}
   </div>
 }

@@ -1,3 +1,4 @@
+import { t, useI18n } from '@/i18n'
 import { useEffect, useRef, useState } from 'react'
 
 import { tasksApi } from '@/api/tasks'
@@ -8,6 +9,7 @@ export default function TaskRecoveryAction({ taskId, onResumed }: {
   taskId: string
   onResumed: (response: TaskStatusResponse) => void
 }) {
+  useI18n()
   const [recovery, setRecovery] = useState<TaskRecoveryResponse | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -47,17 +49,17 @@ export default function TaskRecoveryAction({ taskId, onResumed }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <button type="button" disabled={!recovery?.can_resume || busy} onClick={() => void resume()}
           style={{ padding: '8px 14px', borderRadius: 'var(--radius-button)', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--fg)', cursor: !recovery?.can_resume || busy ? 'not-allowed' : 'pointer', opacity: !recovery?.can_resume || busy ? 0.5 : 1 }}>
-          {busy ? '正在继续…' : '继续任务'}
+          {busy ? t("正在继续…") : t("继续任务")}
         </button>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>
           {recovery?.can_resume
-            ? '复用已校验的阶段，从中断处重试。'
-            : recovery?.reason || (error ? '无法读取恢复信息' : '正在检查恢复信息…')}
+            ? t("复用已校验的阶段，从中断处重试。")
+            : recovery?.reason || (error ? t("无法读取恢复信息") : t("正在检查恢复信息…"))}
         </span>
       </div>
       {error ? <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--error)' }}>
-        {error}
-        {!recovery ? <button type="button" onClick={() => setRefresh((value) => value + 1)} style={{ marginLeft: 8 }}>重新检查</button> : null}
+        {t(error)}
+        {!recovery ? <button type="button" onClick={() => setRefresh((value) => value + 1)} style={{ marginLeft: 8 }}>{t("重新检查")}</button> : null}
       </div> : null}
     </div>
   )

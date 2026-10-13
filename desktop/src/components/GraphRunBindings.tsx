@@ -1,3 +1,4 @@
+import { t, format, useI18n } from '@/i18n'
 import { displayPath } from '@/utils/displayPath'
 import type { GraphBindings, GraphDefinition, GraphLanguage, GraphMaterialBinding } from '@/domain/workflowGraph'
 import { isMultitrackMix, GRAPH_CATALOG, topologicalNodeIds, validateGraph } from '@/domain/workflowGraph'
@@ -41,7 +42,7 @@ export function graphBindingIssues(graph: GraphDefinition, bindings: GraphBindin
     }
   }
   const withLanguages = { ...graph, input_slots: graph.input_slots.map(slot => ({ ...slot, language: languageBySlot[slot.id] ?? slot.language })) }
-  issues.push(...validateGraph(withLanguages).map(issue => `${issue.node_id ? `${issue.node_id}：` : ''}${issue.message}`))
+  issues.push(...validateGraph(withLanguages).map(issue => `${issue.node_id ? `${issue.node_id}：` : ''}${t(issue.message)}`))
   if (validateGraph(graph).length === 0) {
     const timelines = new Map<string, string | undefined>()
     for (const id of topologicalNodeIds(graph)) {
@@ -50,13 +51,13 @@ export function graphBindingIssues(graph: GraphDefinition, bindings: GraphBindin
         edge.source.kind === 'slot' ? timelineBySlot[edge.source.slot_id] : timelines.get(edge.source.node_id)]))
       if (node.kind === 'align' || node.kind === 'mix' && !isMultitrackMix(node)) {
         const other = incoming[node.kind === 'align' ? 'subtitle' : 'speech']
-        if (incoming.audio && other && incoming.audio !== other) issues.push(`${id} · ${GRAPH_CATALOG[node.kind].label}：请在素材槽确认输入属于同一录音和时间轴`)
+        if (incoming.audio && other && incoming.audio !== other) issues.push(`${id} · ${t(GRAPH_CATALOG[node.kind].label)}：请在素材槽确认输入属于同一录音和时间轴`)
       }
       timelines.set(id, isMultitrackMix(node) ? `mix:${id}` : node.kind === 'audio_difference' ? incoming.mixed
         : incoming[['asr', 'separate', 'mix', 'audio_export'].includes(node.kind) ? 'audio' : 'subtitle'])
     }
   }
-  return [...new Set(issues)]
+  return [...new Set(issues)].map(t)
 }
 
 export default function GraphRunBindings({ graph, bindings, items, onChange, disabled = false }: {
@@ -66,6 +67,7 @@ export default function GraphRunBindings({ graph, bindings, items, onChange, dis
   onChange: (id: string, binding: GraphMaterialBinding | undefined) => void
   disabled?: boolean
 }) {
+  useI18n()
   return <div className="graph-run-bindings">
     {usedGraphSlots(graph).map(slot => {
       const binding = bindings[slot.id]
@@ -76,40 +78,37 @@ export default function GraphRunBindings({ graph, bindings, items, onChange, dis
       const patch = (value: Partial<GraphMaterialBinding>) => { if (binding) onChange(slot.id, { ...binding, ...value }) }
       const consumers = graph.edges.filter(edge => edge.source.kind === 'slot' && edge.source.slot_id === slot.id).map(edge => edge.target.node_id)
       return <fieldset className="graph-run-slot" key={slot.id} disabled={disabled}>
-        <legend>{slot.label} <span>{slot.type === 'audio' ? '音频' : '字幕'}</span></legend>
-        <p className="graph-workbench-muted">用于 {consumers.join('、')}{slot.language ? ` · 需要 ${LANGUAGES.find(language => language.value === slot.language)?.label}` : ''}</p>
-        <label>输入素材
-          <select aria-label={`${slot.label} · 输入素材`} value={selected?.path ?? binding?.path ?? ''} onChange={event => {
+        <legend>{slot.label} <span>{slot.type === 'audio' ? t("音频") : t("字幕")}</span></legend>
+        <p className="graph-workbench-muted">{t("用于 ")}{consumers.join('、')}{slot.language ? format(" · 需要 {0}", [t(LANGUAGES.find(language => language.value === slot.language)?.label || '')]) : ''}</p>
+        <label>{t("输入素材 ")}<select aria-label={format("{0} · 输入素材", [slot.label])} value={selected?.path ?? binding?.path ?? ''} onChange={event => {
             const item = candidates.find(candidate => candidate.path === event.target.value)
             if (!item) { onChange(slot.id, undefined); return }
             const language = item.subtitleSummary?.language
             // Keep inspected metadata separate from the user's explicit language confirmation.
             onChange(slot.id, { path: item.path, ...(knownLanguage(language) ? { language } : {}) })
           }}>
-            <option value="">请选择{slot.type === 'audio' ? '音频' : '字幕'}</option>
-            {binding && !selected ? <option value={binding.path}>原素材已移除：{displayPath(binding.path)}</option> : null}
+            <option value="">{t("请选择")}{slot.type === 'audio' ? t("音频") : t("字幕")}</option>
+            {binding && !selected ? <option value={binding.path}>{t("原素材已移除：")}{displayPath(binding.path)}</option> : null}
             {candidates.map(item => <option key={item.path} value={item.path}>{item.name} — {displayPath(item.path)}</option>)}
           </select>
         </label>
-        {selected && slot.type === 'subtitle' ? knownLanguage(detected) ? <p className="graph-workbench-muted">字幕语言：{LANGUAGES.find(language => language.value === detected)?.label}（文件信息）</p> : <>
-          <label>字幕实际语言
-            <select aria-label={`${slot.label} · 字幕语言`} value={binding?.language ?? ''} onChange={event => patch({ language: (event.target.value || null) as GraphLanguage | null, language_confirmed: false })}>
-              <option value="">请核实实际语言</option>{LANGUAGES.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
+        {selected && slot.type === 'subtitle' ? knownLanguage(detected) ? <p className="graph-workbench-muted">{t("字幕语言：")}{t(LANGUAGES.find(language => language.value === detected)?.label || '')}{t("（文件信息）")}</p> : <>
+          <label>{t("字幕实际语言 ")}<select aria-label={format("{0} · 字幕语言", [slot.label])} value={binding?.language ?? ''} onChange={event => patch({ language: (event.target.value || null) as GraphLanguage | null, language_confirmed: false })}>
+              <option value="">{t("请核实实际语言")}</option>{LANGUAGES.map(language => <option key={language.value} value={language.value}>{t(language.label)}</option>)}
             </select>
           </label>
-          <label className="graph-workbench-checkbox"><input type="checkbox" disabled={disabled || !binding?.language} checked={!!binding?.language_confirmed} onChange={event => patch({ language_confirmed: event.target.checked })} />确认字幕实际语言</label>
+          <label className="graph-workbench-checkbox"><input type="checkbox" disabled={disabled || !binding?.language} checked={!!binding?.language_confirmed} onChange={event => patch({ language_confirmed: event.target.checked })} />{t("确认字幕实际语言")}</label>
         </> : null}
         {selected && (audioCandidates.length > 0 || binding?.audio_path) ? <>
-          <label>配对音频（可选）
-            <select aria-label={`${slot.label} · 对应音频`} value={binding?.audio_path ?? ''} onChange={event => patch({ audio_path: event.target.value || null, pair_confirmed: false })}>
-              <option value="">不配对</option>
-              {binding?.audio_path && !audioCandidates.some(item => item.path === binding.audio_path) ? <option value={binding.audio_path}>原对应音频已移除</option> : null}
+          <label>{t("配对音频（可选） ")}<select aria-label={format("{0} · 对应音频", [slot.label])} value={binding?.audio_path ?? ''} onChange={event => patch({ audio_path: event.target.value || null, pair_confirmed: false })}>
+              <option value="">{t("不配对")}</option>
+              {binding?.audio_path && !audioCandidates.some(item => item.path === binding.audio_path) ? <option value={binding.audio_path}>{t("原对应音频已移除")}</option> : null}
               {audioCandidates.map(item => <option key={item.path} value={item.path}>{item.name} — {displayPath(item.path)}</option>)}
             </select>
           </label>
-          {binding?.audio_path ? <label className="graph-workbench-checkbox"><input type="checkbox" checked={!!binding.pair_confirmed} onChange={event => patch({ pair_confirmed: event.target.checked })} />确认来自同一录音和时间轴</label> : null}
+          {binding?.audio_path ? <label className="graph-workbench-checkbox"><input type="checkbox" checked={!!binding.pair_confirmed} onChange={event => patch({ pair_confirmed: event.target.checked })} />{t("确认来自同一录音和时间轴")}</label> : null}
         </> : null}
-        {candidates.length === 0 ? <p className="graph-workbench-warning">没有可用{slot.type === 'audio' ? '音频' : '字幕'}，请在素材库添加。</p> : null}
+        {candidates.length === 0 ? <p className="graph-workbench-warning">{t("没有可用")}{slot.type === 'audio' ? t("音频") : t("字幕")}{t("，请在素材库添加。")}</p> : null}
       </fieldset>
     })}
   </div>

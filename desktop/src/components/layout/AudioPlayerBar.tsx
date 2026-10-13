@@ -64,9 +64,9 @@ export default function AudioPlayerBar() {
         <span
           className="audio-player__title"
           data-error={error ? 'true' : undefined}
-          title={error || title}
+          title={error ? t(error) : title}
         >
-          {error || title}
+          {error ? t(error) : title}
         </span>
       </div>
 

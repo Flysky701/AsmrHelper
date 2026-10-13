@@ -60,12 +60,15 @@ test('UI translation preserves supplied names, paths and unknown backend details
   let language = 'en'
   const { en } = load('../src/locales/en.ts')
   const { t, format } = load('../src/i18n.ts', {
-    './locales/en': { en }, './stores/appearanceStore': { useAppearanceStore: { getState: () => ({ language }) } },
+    './locales/en': { en },
+    ...Object.fromEntries(['workflow', 'voices', 'operations', 'shared'].map(name => [`./locales/${name}`, load(`../src/locales/${name}.ts`)])), './stores/appearanceStore': { useAppearanceStore: { getState: () => ({ language }) } },
   })
   assert.equal(t('工作台'), 'Workbench')
   assert.equal(format('查看 {0}', ['我的模板 中文声线']), 'View 我的模板 中文声线')
   assert.equal(t('状态刷新失败：backend 原始错误。当前显示为上次已知状态。'), 'Could not refresh status: backend 原始错误. Showing the last known state.')
   assert.equal(t('unknown backend detail'), 'unknown backend detail')
+  assert.equal(t('将本次节点参数保存到“用户模板”？'), 'Save these node parameters to “用户模板”?')
+  assert.equal(format('将本次节点参数保存到“{0}”？', ['用户 {1} 模板']), 'Save these node parameters to “用户 {1} 模板”?')
   language = 'zh-CN'
   assert.equal(t('工作台'), '工作台')
   assert.equal(format('查看 {0}', ['My voice']), '查看 My voice')

@@ -1,3 +1,4 @@
+import { t, useI18n, format } from '@/i18n'
 import { useEffect, useRef, useState } from 'react'
 import { speechApi } from '@/api/speech'
 import type { SpeechConnection, SpeechConnectionDefault, SpeechConnectionDeletionPreview, SpeechProvider } from '@/api/speech'
@@ -10,6 +11,7 @@ export default function SpeechConnectionManager({ connections, defaults, provide
   connections: SpeechConnection[]; defaults: SpeechConnectionDefault[]; providers: SpeechProvider[]
   providerId?: string; disabled?: boolean; protectNavigation?: boolean; onChanged: () => Promise<void>
 }) {
+  useI18n()
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -71,30 +73,30 @@ export default function SpeechConnectionManager({ connections, defaults, provide
       if (alive.current && token === generation.current) { setPreview(null); setPreviewFor(''); setError(`删除未确认完成：${String(cause)}。请刷新目录并重新预览，不会自动重试。`) }
     } finally { if (alive.current && token === generation.current) setBusy('') }
   }
-  return <section className="speech-connection-manager" aria-label="运行配置管理">
-    <h4>默认与删除</h4><p>默认连接仅用于未绑定的新草稿。</p>
+  return <section className="speech-connection-manager" aria-label={t("运行配置管理")}>
+    <h4>{t("默认与删除")}</h4><p>{t("默认连接仅用于未绑定的新草稿。")}</p>
     {scope.map(item => <div className="connection-manager-row" key={item.id}>
-      <div><strong>{item.name}</strong><small>{providers.find(provider => provider.provider_id === item.provider_id)?.name || item.provider_id} · {connectionDeploymentNames[item.deployment]}{defaults.some(value => value.provider_id === item.provider_id && value.connection_ref === item.id) ? ' · 默认' : ''}</small></div>
-      <div className="connection-manager-actions"><button type="button" disabled={disabled || !!busy || !Number.isInteger(item.revision) || defaults.some(value => value.provider_id === item.provider_id && value.connection_ref === item.id)} onClick={() => void makeDefault(item)}>设为默认</button>
-        <button type="button" disabled={disabled || !!busy} aria-label={`删除连接 ${item.name}`} onClick={() => void inspect(item)}>删除</button></div>
+      <div><strong>{item.name}</strong><small>{providers.find(provider => provider.provider_id === item.provider_id)?.name || item.provider_id} · {t(connectionDeploymentNames[item.deployment])}{defaults.some(value => value.provider_id === item.provider_id && value.connection_ref === item.id) ? t(' · 默认') : ''}</small></div>
+      <div className="connection-manager-actions"><button type="button" disabled={disabled || !!busy || !Number.isInteger(item.revision) || defaults.some(value => value.provider_id === item.provider_id && value.connection_ref === item.id)} onClick={() => void makeDefault(item)}>{t("设为默认")}</button>
+        <button type="button" disabled={disabled || !!busy} aria-label={format("删除连接 {0}", [item.name])} onClick={() => void inspect(item)}>{t("删除")}</button></div>
     </div>)}
-    {!scope.length && <p>此处没有已保存的运行配置。</p>}
-    {previewFor && <section className="connection-delete-preview" aria-label="连接删除预览">
-      {preview ? <><h4>删除「{preview.connection.name}」</h4>
-        <p>当前与归档音色 {preview.recipes.length} 项；历史音色修订 {preview.historical_recipe_ids.length} 项；工作流引用 {preview.presets.length} 项。</p>
-        {!!preview.recipes.length && <ul>{preview.recipes.map(item => <li key={item.id}>{item.name} · r{item.revision} · {item.archived ? '已归档' : '当前'}<small>{item.id}</small></li>)}</ul>}
-        {!!preview.historical_recipe_ids.length && <details><summary>历史修订引用</summary><ul>{preview.historical_recipe_ids.map(id => <li key={id}>{id}</li>)}</ul></details>}
-        {!!preview.presets.length && <ul>{preview.presets.map(item => <li key={`${item.preset_id}:${item.node_id}:${item.kind}:${item.recipe_id || ''}`}>{item.label} · r{item.revision} · {item.node_id} · {item.builtin ? '内置' : '自定义'} · {item.active ? '当前目录' : '已移除目录'}{item.kind === 'recipe' ? ' · 引用音色' : ' · 节点独立配置'}</li>)}</ul>}
-        <p>历史任务快照、已有音频、模型文件和凭据会保留。删除只移除连接记录。</p>
-        {stale ? <p role="alert">连接已发生变化，请取消后重新预览。</p> : <>
-          <label>处理引用<select aria-label="删除连接时如何处理引用" value={action} disabled={!!busy} onChange={event => { setAction(event.target.value as typeof action); setAcknowledged(false) }}><option value="">请明确选择</option><option value="replace" disabled={!candidates.length || !!blockers.length}>替换为同引擎连接</option><option value="detach">保留缺失引用，之后自行重选</option></select></label>
-          {!!blockers.length && <p role="alert">部分内置工作流或固定旧音色修订无法自动迁移。替换前请先编辑或复制这些工作流：{blockers.map(item => `${item.label} / ${item.node_id}`).join('、')}。</p>}
-          {action === 'replace' && <><label>替换连接<select aria-label="替换连接" value={replacement} disabled={!!busy} onChange={event => setReplacement(event.target.value)}><option value="">选择同引擎连接</option>{candidates.map(item => <option key={item.id} value={item.id}>{item.name} · {connectionDeploymentNames[item.deployment]}</option>)}</select></label><p>当前音色与可迁移的自定义工作流会生成新修订；旧修订与当前未保存草稿保持不变。</p></>}
-          {action === 'detach' && <label className="connection-delete-ack"><input type="checkbox" checked={acknowledged} disabled={!!busy} onChange={event => setAcknowledged(event.target.checked)} />我理解引用会保留为缺失，重新选择连接前不能运行；不会自动改用默认。</label>}
+    {!scope.length && <p>{t("此处没有已保存的运行配置。")}</p>}
+    {previewFor && <section className="connection-delete-preview" aria-label={t("连接删除预览")}>
+      {preview ? <><h4>{format("删除「{0}」", [preview.connection.name])}</h4>
+        <p>{format("当前与归档音色 {0} 项；历史音色修订 {1} 项；工作流引用 {2} 项。", [preview.recipes.length, preview.historical_recipe_ids.length, preview.presets.length])}</p>
+        {!!preview.recipes.length && <ul>{preview.recipes.map(item => <li key={item.id}>{item.name} · r{item.revision} · {item.archived ? t('已归档') : t('当前')}<small>{item.id}</small></li>)}</ul>}
+        {!!preview.historical_recipe_ids.length && <details><summary>{t("历史修订引用")}</summary><ul>{preview.historical_recipe_ids.map(id => <li key={id}>{id}</li>)}</ul></details>}
+        {!!preview.presets.length && <ul>{preview.presets.map(item => <li key={`${item.preset_id}:${item.node_id}:${item.kind}:${item.recipe_id || ''}`}>{item.label} · r{item.revision} · {item.node_id} · {item.builtin ? t('内置') : t('自定义')} · {item.active ? t('当前目录') : t('已移除目录')}{item.kind === 'recipe' ? t(' · 引用音色') : t(' · 节点独立配置')}</li>)}</ul>}
+        <p>{t("历史任务快照、已有音频、模型文件和凭据会保留。删除只移除连接记录。")}</p>
+        {stale ? <p role="alert">{t("连接已发生变化，请取消后重新预览。")}</p> : <>
+          <label>{t("处理引用")}<select aria-label={t("删除连接时如何处理引用")} value={action} disabled={!!busy} onChange={event => { setAction(event.target.value as typeof action); setAcknowledged(false) }}><option value="">{t("请明确选择")}</option><option value="replace" disabled={!candidates.length || !!blockers.length}>{t("替换为同引擎连接")}</option><option value="detach">{t("保留缺失引用，之后自行重选")}</option></select></label>
+          {!!blockers.length && <p role="alert">{t("部分内置工作流或固定旧音色修订无法自动迁移。替换前请先编辑或复制这些工作流：")}{blockers.map(item => `${item.label} / ${item.node_id}`).join('、')}。</p>}
+          {action === 'replace' && <><label>{t("替换连接")}<select aria-label={t("替换连接")} value={replacement} disabled={!!busy} onChange={event => setReplacement(event.target.value)}><option value="">{t("选择同引擎连接")}</option>{candidates.map(item => <option key={item.id} value={item.id}>{item.name} · {t(connectionDeploymentNames[item.deployment])}</option>)}</select></label><p>{t("当前音色与可迁移的自定义工作流会生成新修订；旧修订与当前未保存草稿保持不变。")}</p></>}
+          {action === 'detach' && <label className="connection-delete-ack"><input type="checkbox" checked={acknowledged} disabled={!!busy} onChange={event => setAcknowledged(event.target.checked)} />{t("我理解引用会保留为缺失，重新选择连接前不能运行；不会自动改用默认。")}</label>}
         </>}
-        <div className="connection-manager-actions"><button type="button" disabled={!!busy || disabled || stale || !action || action === 'detach' && !acknowledged || action === 'replace' && (!replacement || !!blockers.length)} onClick={() => void remove()}>确认删除连接</button><button type="button" disabled={busy.startsWith('delete:')} onClick={cancel}>取消</button></div>
-      </> : <><p role="status">正在读取引用…</p><button type="button" onClick={cancel}>取消预览</button></>}
+        <div className="connection-manager-actions"><button type="button" disabled={!!busy || disabled || stale || !action || action === 'detach' && !acknowledged || action === 'replace' && (!replacement || !!blockers.length)} onClick={() => void remove()}>{t("确认删除连接")}</button><button type="button" disabled={busy.startsWith('delete:')} onClick={cancel}>{t("取消")}</button></div>
+      </> : <><p role="status">{t("正在读取引用…")}</p><button type="button" onClick={cancel}>{t("取消预览")}</button></>}
     </section>}
-    {notice && <p role="status">{notice}</p>}{error && <p role="alert">{error}</p>}
+    {notice && <p role="status">{t(notice)}</p>}{error && <p role="alert">{t(error)}</p>}
   </section>
 }

@@ -1,3 +1,4 @@
+import { t, useI18n } from '@/i18n'
 import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import type { ConnectionProfile, ConnectionRemovalPreview, SettingsUpdate, SettingsView } from '@/api/settings'
@@ -20,6 +21,7 @@ function isSavedProfile(profile: ConnectionProfile) {
 }
 
 export default function ExternalServices() {
+  useI18n()
   const [settings, setSettings] = useState<SettingsView | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -95,9 +97,9 @@ export default function ExternalServices() {
 
   async function save() {
     if (!editor) return
-    if (!editor.name.trim()) { setMessage('保存失败：请填写配置名称'); return }
+    if (!editor.name.trim()) { setMessage("保存失败：请填写配置名称"); return }
     if (editor.kind === 'llm' && !editor.model?.trim()) {
-      setMessage('保存失败：请获取并选择模型，或根据服务商文档手动填写模型'); return
+      setMessage("保存失败：请获取并选择模型，或根据服务商文档手动填写模型"); return
     }
     setSaving(true)
     setMessage('')
@@ -106,10 +108,10 @@ export default function ExternalServices() {
       setSettings(result.settings)
       syncWorkbench(result.settings)
       const id = result.settings.connection_profiles.active_llm
-      setVerified(previous => ({ ...previous, [id]: editor.kind === 'llm' && discovery?.success ? '已获取模型' : '' }))
+      setVerified(previous => ({ ...previous, [id]: editor.kind === 'llm' && discovery?.success ? "已获取模型" : '' }))
       resetDiscovery()
       setEditor(null)
-      setMessage('已保存并用于新任务')
+      setMessage("已保存并用于新任务")
     } catch (cause) { setMessage(`保存失败：${String(cause)}`) }
     finally { setSaving(false) }
   }
@@ -121,7 +123,7 @@ export default function ExternalServices() {
       const result = await settingsApi.update({ active_connections: { [kind]: id } })
       setSettings(result.settings)
       syncWorkbench(result.settings)
-      setMessage('新任务将使用此配置')
+      setMessage("新任务将使用此配置")
     } catch (cause) { setMessage(`启用失败：${String(cause)}`) }
     finally { setSaving(false) }
   }
@@ -132,9 +134,9 @@ export default function ExternalServices() {
     setSaving(true); setMessage(''); setRemoval(null)
     try {
       const preview = await settingsApi.connectionRemovalPreview(profile.id)
-      if (preview.id !== profile.id) throw new Error('连接预览归属不匹配')
+      if (preview.id !== profile.id) throw new Error("连接预览归属不匹配")
       setEditor(null); resetDiscovery(); setRemoval(preview)
-    } catch { setMessage('无法读取连接删除影响，请刷新后重试。') }
+    } catch { setMessage("无法读取连接删除影响，请刷新后重试。") }
     finally { mutationRef.current = false; setSaving(false) }
   }
 
@@ -147,7 +149,7 @@ export default function ExternalServices() {
       const result = await settingsApi.deleteConnection(reviewed.id, reviewed.token)
       loadGeneration.current += 1
       setSettings(result.settings); setRemoval(null)
-      setMessage('本地连接及其独有凭据已删除')
+      setMessage("本地连接及其独有凭据已删除")
     } catch (cause) {
       setRemoval(null); setMessage(`操作未确认完成，请刷新并重新检查：${String(cause)}`)
     } finally { mutationRef.current = false; setSaving(false) }
@@ -164,14 +166,14 @@ export default function ExternalServices() {
       const models = [...new Set(result.models)]
       setDiscovery({ success: models.length > 0, models, message: models.length
         ? `找到 ${models.length} 个模型`
-        : '服务未返回可选模型。可重试，或根据服务商文档手动填写。' })
+        : "服务未返回可选模型。可重试，或根据服务商文档手动填写。" })
     } catch (cause) {
       if (generation === discoveryGeneration.current) setDiscovery({ success: false, models: [], message: `获取模型失败：${String(cause)}` })
     } finally { if (generation === discoveryGeneration.current) setTesting(false) }
   }
 
-  if (loading) return <p style={{ color: 'var(--muted)' }}>加载外部服务中...</p>
-  if (!settings) return <div role="alert"><p>{error}</p><button onClick={() => void load()}>重新加载</button></div>
+  if (loading) return <p style={{ color: 'var(--muted)' }}>{t("加载外部服务中...")}</p>
+  if (!settings) return <div role="alert"><p>{t(error)}</p><button onClick={() => void load()}>{t("重新加载")}</button></div>
 
   const profiles = {
     active_llm: settings.connection_profiles.active_llm,
@@ -180,91 +182,85 @@ export default function ExternalServices() {
   const editorForm = (kind: Kind) => editor?.kind === kind && (
     <fieldset disabled={saving} className="external-service-editor">
       <div className="external-service-card-heading">
-        <h3>{editor.id ? '编辑配置' : '添加翻译服务'}</h3>
-        <button className="external-service-button" onClick={async () => { if (await canDiscard()) { resetDiscovery(); setEditor(null) } }}>收起</button>
+        <h3>{editor.id ? t("编辑配置") : t("添加翻译服务")}</h3>
+        <button className="external-service-button" onClick={async () => { if (await canDiscard()) { resetDiscovery(); setEditor(null) } }}>{t("收起")}</button>
       </div>
-      <label className="external-service-field">配置名称
-        <input value={editor.name} maxLength={80} onChange={event => setEditor({ ...editor, name: event.target.value })} placeholder="例如：日常翻译" />
+      <label className="external-service-field">{t("配置名称")}<input value={editor.name} maxLength={80} onChange={event => setEditor({ ...editor, name: event.target.value })} placeholder={t("例如：日常翻译")} />
       </label>
-      <label className="external-service-field">服务提供商
-        <select value={editor.provider} disabled={!!editor.id} onChange={event => {
+      <label className="external-service-field">{t("服务提供商")}<select value={editor.provider} disabled={!!editor.id} onChange={event => {
           resetDiscovery()
           setEditor({ ...editor, provider: event.target.value, base_url: event.target.value === 'deepseek' ? 'https://api.deepseek.com' : '', credential: '', model: '' })
-        }}><option value="deepseek">DeepSeek</option><option value="openai">OpenAI / 兼容接口</option></select>
+        }}><option value="deepseek">DeepSeek</option><option value="openai">{t("OpenAI / 兼容接口")}</option></select>
       </label>
-      <label className="external-service-field">API 地址
-        <input value={editor.base_url} onChange={event => {
+      <label className="external-service-field">{t("API 地址")}<input value={editor.base_url} onChange={event => {
           resetDiscovery()
           const base_url = event.target.value
           setEditor({ ...editor, base_url })
-        }} placeholder="填写服务商提供的 API 基础地址" />
+        }} placeholder={t("填写服务商提供的 API 基础地址")} />
       </label>
-      <label className="external-service-field">API 密钥
-        <input type="password" autoComplete="off" value={editor.credential} onChange={event => { resetDiscovery(); setEditor({ ...editor, credential: event.target.value }) }} placeholder={editor.credential_configured ? '已配置；留空保持此配置的密钥' : '输入 API 密钥'} />
+      <label className="external-service-field">{t("API 密钥")}<input type="password" autoComplete="off" value={editor.credential} onChange={event => { resetDiscovery(); setEditor({ ...editor, credential: event.target.value }) }} placeholder={editor.credential_configured ? t("已配置；留空保持此配置的密钥") : t("输入 API 密钥")} />
       </label>
       <>
-        <button className="external-service-button" disabled={testing} onClick={() => void discover()}>{testing ? '检测中...' : '检测连接并获取模型'}</button>
-        {discovery && <p role="status" className="external-service-muted" style={{ color: discovery.success ? 'var(--muted)' : 'var(--danger)' }}>{discovery.message}</p>}
-        <label className="external-service-field" style={{ marginTop: 16 }}>翻译模型
-          <select value={editor.model || ''} onChange={event => setEditor({ ...editor, model: event.target.value })}>
-            <option value="">{discovery?.models.length ? '选择模型' : '获取模型后选择'}</option>
-            {editor.model && !discovery?.models.includes(editor.model) && <option value={editor.model}>{editor.model}（未核验）</option>}
+        <button className="external-service-button" disabled={testing} onClick={() => void discover()}>{testing ? t("检测中...") : t("检测连接并获取模型")}</button>
+        {discovery && <p role="status" className="external-service-muted" style={{ color: discovery.success ? 'var(--muted)' : 'var(--danger)' }}>{t(discovery.message)}</p>}
+        <label className="external-service-field" style={{ marginTop: 16 }}>{t("翻译模型")}<select value={editor.model || ''} onChange={event => setEditor({ ...editor, model: event.target.value })}>
+            <option value="">{discovery?.models.length ? t("选择模型") : t("获取模型后选择")}</option>
+            {editor.model && !discovery?.models.includes(editor.model) && <option value={editor.model}>{editor.model}{t("（未核验）")}</option>}
             {discovery?.models.map(model => <option key={model} value={model}>{model}</option>)}
           </select>
         </label>
-        <details><summary>手动填写模型</summary><label className="external-service-field" style={{ marginTop: 12 }}>服务商文档中的模型 ID
-          <input value={editor.model || ''} onChange={event => setEditor({ ...editor, model: event.target.value })} placeholder="填写文档中支持翻译的模型 ID" />
+        <details><summary>{t("手动填写模型")}</summary><label className="external-service-field" style={{ marginTop: 12 }}>{t("服务商文档中的模型 ID")}<input value={editor.model || ''} onChange={event => setEditor({ ...editor, model: event.target.value })} placeholder={t("填写文档中支持翻译的模型 ID")} />
         </label></details>
       </>
       <div className="external-service-editor-actions">
-        <button className="external-service-button external-service-primary" disabled={testing} onClick={() => void save()}>{saving ? '保存中...' : '保存并启用'}</button>
-        <button className="external-service-button" onClick={async () => { if (await canDiscard()) { resetDiscovery(); setEditor(null) } }}>取消</button>
+        <button className="external-service-button external-service-primary" disabled={testing} onClick={() => void save()}>{saving ? t("保存中...") : t("保存并启用")}</button>
+        <button className="external-service-button" onClick={async () => { if (await canDiscard()) { resetDiscovery(); setEditor(null) } }}>{t("取消")}</button>
       </div>
     </fieldset>
   )
 
   return <div className="external-services">
-    {message && <div className="external-service-notice" role="status">{message}</div>}
-    {removal && <section className="external-service-notice" aria-label="翻译连接删除影响">
-      <h3>删除「{removal.name}」</h3>
-      <p>删除本地连接记录及独有凭据，不删除文件或云端账号；历史快照保留。无法撤销。</p>
-      {removal.active && <p role="alert">此连接当前已启用，请先在列表中启用另一条连接。</p>}
-      {!!removal.references.length && <><p>请为以下工作流更换连接，并等待活动任务或批次结束。</p><ul>{removal.references.map(item =>
-        <li key={`${item.kind}:${item.id}`}>{({ workflow: '工作流', task: '活动任务', batch: '活动批次' })[item.kind]}：{item.name}</li>)}</ul></>}
-      <button className="external-service-button" disabled={saving || !removal.can_remove} onClick={() => void changeRemoval()}>确认删除</button>
-      <button className="external-service-button" disabled={saving} onClick={() => setRemoval(null)}>取消</button>
+    {message && <div className="external-service-notice" role="status">{t(message)}</div>}
+    {removal && <section className="external-service-notice" aria-label={t("翻译连接删除影响")}>
+      <h3>{t("删除「")}{removal.name}」</h3>
+      <p>{t("删除本地连接记录及独有凭据，不删除文件或云端账号；历史快照保留。无法撤销。")}</p>
+      {removal.active && <p role="alert">{t("此连接当前已启用，请先在列表中启用另一条连接。")}</p>}
+      {!!removal.references.length && <><p>{t("请为以下工作流更换连接，并等待活动任务或批次结束。")}</p><ul>{removal.references.map(item =>
+        <li key={`${item.kind}:${item.id}`}>{({ workflow: t("工作流"), task: t("活动任务"), batch: t("活动批次") })[item.kind]}：{item.name}</li>)}</ul></>}
+      <button className="external-service-button" disabled={saving || !removal.can_remove} onClick={() => void changeRemoval()}>{t("确认删除")}</button>
+      <button className="external-service-button" disabled={saving} onClick={() => setRemoval(null)}>{t("取消")}</button>
     </section>}
     {(['llm'] as const).map(kind => <section className="external-service-section" key={kind}>
       <div className="external-service-heading">
         <span className="external-service-tag">{kind.toUpperCase()}</span>
-        <h2>翻译服务</h2>
-        <button className="external-service-button" disabled={saving} onClick={() => edit(kind)}>添加服务</button>
+        <h2>{t("翻译服务")}</h2>
+        <button className="external-service-button" disabled={saving} onClick={() => edit(kind)}>{t("添加服务")}</button>
       </div>
       <div className="external-service-body">
-        {profiles[kind].length === 0 && <p className="external-service-muted">尚未添加翻译服务</p>}
+        {profiles[kind].length === 0 && <p className="external-service-muted">{t("尚未添加翻译服务")}</p>}
         {profiles[kind].map(profile => {
           const active = profile.id === profiles.active_llm
           return <div className="external-service-card" key={profile.id}>
             <div className="external-service-card-heading">
               <h3>{profile.name}</h3>
-              {active && <span className="external-service-active">已启用</span>}
+              {active && <span className="external-service-active">{t("已启用")}</span>}
               <div className="external-service-actions">
-                {!active && <button className="external-service-button" disabled={saving} onClick={() => void activate(kind, profile.id)}>启用</button>}
-                <button className="external-service-button" aria-expanded={editor?.kind === kind && editor.id === profile.id} disabled={saving} onClick={() => edit(kind, profile)}>编辑</button>
-                <button className="external-service-button" disabled={saving} onClick={() => void inspectRemoval(profile)}>删除…</button>
+                {!active && <button className="external-service-button" disabled={saving} onClick={() => void activate(kind, profile.id)}>{t("启用")}</button>}
+                <button className="external-service-button" aria-expanded={editor?.kind === kind && editor.id === profile.id} disabled={saving} onClick={() => edit(kind, profile)}>{t("编辑")}</button>
+                <button className="external-service-button" disabled={saving} onClick={() => void inspectRemoval(profile)}>{t("删除…")}</button>
               </div>
             </div>
-            <p className="external-service-muted">{`${profile.provider === 'deepseek' ? 'DeepSeek' : 'OpenAI / 兼容接口'} · ${profile.model || '未选择模型'}`}</p>
-            <div className="external-service-muted">{profile.credential_configured ? '密钥已配置' : '未配置密钥'} · {verified[profile.id] || '连接未验证'}</div>
+            <p className="external-service-muted">{`${profile.provider === 'deepseek' ? 'DeepSeek' : t("OpenAI / 兼容接口")} · ${profile.model || t("未选择模型")}`}</p>
+            <div className="external-service-muted">{profile.credential_configured ? t("密钥已配置") : t("未配置密钥")} · {t(verified[profile.id] || "连接未验证")}</div>
             {editor?.kind === kind && editor.id === profile.id && editorForm(kind)}
           </div>
         })}
         {editor?.kind === kind && !editor.id && editorForm(kind)}
       </div>
     </section>)}
-    {!!settings.connection_profiles.removed_llm?.length && <details className="external-service-notice"><summary>旧版保留连接</summary>
+    {!!settings.connection_profiles.removed_llm?.length && <details className="external-service-notice"><summary>{t("旧版保留连接")}</summary>
       {settings.connection_profiles.removed_llm.map(profile => <div key={profile.id} className="external-service-card-heading"><span>{profile.name}</span>
-        <button className="external-service-button" disabled={saving} onClick={() => void inspectRemoval(profile)}>删除…</button></div>)}
+        <button className="external-service-button" disabled={saving} onClick={() => void inspectRemoval(profile)}>{t("删除…")}</button></div>)}
     </details>}
     <SpeechConnections />
     <style>{`

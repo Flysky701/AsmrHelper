@@ -1,3 +1,4 @@
+import { t, useI18n, format } from '@/i18n'
 import { useEffect, useState } from 'react'
 import { useReferenceField, useReferenceSessionStore, startReferenceTranscription } from '@/stores/referenceSessionStore'
 import { tasksApi } from '@/api/tasks'
@@ -8,6 +9,7 @@ type Props = { path: string; start: number; end: number; language: string; trans
 const terminal = (task: TaskStatusResponse) => ['completed', 'failed', 'cancelled', 'skipped'].includes(task.state)
 
 export default function ClipTranscription(props: Props) {
+  useI18n()
   const [task, setTask] = useReferenceField('clipTask')
   const [submitting] = useReferenceField('clipSubmitting')
   const [error, setError] = useReferenceField('clipError')
@@ -34,11 +36,11 @@ export default function ClipTranscription(props: Props) {
     } catch (cause) { if (useReferenceSessionStore.getState().source === source) setError(String(cause)) }
   }
   return <div className="reference-clip-asr">
-    <div className="row"><button disabled={!props.valid || submitting || running} onClick={() => void start()}>{submitting ? '正在提交…' : running ? '正在识别选段…' : '识别选段原文'}</button><span className="muted">仅识别框选的 {Math.max(0, props.end - props.start).toFixed(1)} 秒，不读取字幕。</span></div>
-    {task && <div className="reference-analysis-status" role="status"><div className="row spread"><span>{terminal(task) ? stateLabels[task.state] : task.message || stateLabels[task.state]}</span>{running && <button onClick={() => void cancel()}>取消识别</button>}</div><progress max={1} value={task.progress} aria-label="选段识别进度" /><p className="muted">阶段进度 {Math.round(task.progress * 100)}% · 已用时 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒</p>{running && <p className="muted">首次加载可能较慢；可在任务中心查看进度。</p>}</div>}
-    {error && <p className="notice error" role="alert">{error}</p>}
-    {disconnected && <div className="row"><button onClick={() => setRetry(value => value + 1)}>重新获取识别进度</button><button onClick={() => { setTask(null); setDisconnected(false); setNote('已结束跟踪，原任务可能仍在运行，可在任务中心查看。') }}>结束跟踪</button></div>}
-    {note && <p className="muted" role="status">{note}</p>}
-    {result && <div className="notice"><p>{result.text}</p><button disabled={!sameClip(result.snapshot, props)} onClick={() => { props.onResult(result.text); setResult(null); setNote('已填入原文，请试听核对。') }}>使用识别结果</button>{!sameClip(result.snapshot, props) && <p>返回识别时的选段和语言后可填入，或重新识别当前选段。</p>}</div>}
+    <div className="row"><button disabled={!props.valid || submitting || running} onClick={() => void start()}>{submitting ? t('正在提交…') : running ? t('正在识别选段…') : t('识别选段原文')}</button><span className="muted">{format("仅识别框选的 {0} 秒，不读取字幕。", [Math.max(0, props.end - props.start).toFixed(1)])}</span></div>
+    {task && <div className="reference-analysis-status" role="status"><div className="row spread"><span>{terminal(task) ? t(stateLabels[task.state] || task.state) : task.message || t(stateLabels[task.state] || task.state)}</span>{running && <button onClick={() => void cancel()}>{t("取消识别")}</button>}</div><progress max={1} value={task.progress} aria-label={t("选段识别进度")} /><p className="muted">{format("阶段进度 {0}% · 已用时 {1} 分 {2} 秒", [Math.round(task.progress * 100), Math.floor(elapsed / 60), elapsed % 60])}</p>{running && <p className="muted">{t("首次加载可能较慢；可在任务中心查看进度。")}</p>}</div>}
+    {error && <p className="notice error" role="alert">{t(error)}</p>}
+    {disconnected && <div className="row"><button onClick={() => setRetry(value => value + 1)}>{t("重新获取识别进度")}</button><button onClick={() => { setTask(null); setDisconnected(false); setNote('已结束跟踪，原任务可能仍在运行，可在任务中心查看。') }}>{t("结束跟踪")}</button></div>}
+    {note && <p className="muted" role="status">{t(note)}</p>}
+    {result && <div className="notice"><p>{result.text}</p><button disabled={!sameClip(result.snapshot, props)} onClick={() => { props.onResult(result.text); setResult(null); setNote('已填入原文，请试听核对。') }}>{t("使用识别结果")}</button>{!sameClip(result.snapshot, props) && <p>{t("返回识别时的选段和语言后可填入，或重新识别当前选段。")}</p>}</div>}
   </div>
 }

@@ -1,3 +1,4 @@
+import { t, format as formatMessage, useI18n } from '@/i18n'
 import { displayPath } from '@/utils/displayPath'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
@@ -183,6 +184,7 @@ function isRetryable(batch: BatchRunResponse | null) {
 }
 
 export default function BatchRunsPanel() {
+  useI18n()
   const [batches, setBatches] = useState<BatchRunResponse[]>([])
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(true)
@@ -286,7 +288,7 @@ export default function BatchRunsPanel() {
         : await batchesApi.retryFailed(selectedBatch.batch_id)
       upsertBatch(updated)
     } catch (error) {
-      setActionError(`${action === 'cancel' ? '取消批次' : '重试失败项'}失败：${String(error)}`)
+      setActionError(action === 'cancel' ? `取消批次失败：${String(error)}` : `重试失败项失败：${String(error)}`)
     } finally {
       setActionBusy(false)
     }
@@ -299,16 +301,16 @@ export default function BatchRunsPanel() {
     removalPending.current = true
     setActionBusy(true); setActionError(''); setNotice('')
     try {
-      if (!await confirmAction(`删除批次条目「${item.label || fileName(item.input_path)}」？\n仅删除未提交的本地条目记录，不删除素材或产物。无法撤销。`)) return
+      if (!await confirmAction(formatMessage("删除批次条目「{0}」？\n仅删除未提交的本地条目记录，不删除素材或产物。无法撤销。", [item.label || fileName(item.input_path)]))) return
       historyRequestRef.current += 1
       const result = await batchesApi.deleteItem(batch.batch_id, item.item_id, batch.updated_at)
       if (result.batch_id !== batch.batch_id || result.deleted_item_id !== item.item_id)
-        throw new Error('删除响应与请求不匹配，请刷新核对')
+        throw new Error("删除响应与请求不匹配，请刷新核对")
       historyRequestRef.current += 1
       setLoadingHistory(false)
       if (result.batch) upsertBatch(result.batch)
       else setBatches(current => current.filter(entry => entry.batch_id !== batch.batch_id))
-      setNotice('条目已删除。')
+      setNotice("条目已删除。")
     } catch (error) { setActionError(`操作未确认完成，请刷新后核对：${String(error)}`) }
     finally { removalPending.current = false; setActionBusy(false); setLoadingHistory(false) }
   }
@@ -320,31 +322,28 @@ export default function BatchRunsPanel() {
       <section className="batch-runs-history" style={SURFACE_STYLE}>
         <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>批次历史</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{visibleBatches.length} 个批次</div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>{t("批次历史")}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{visibleBatches.length} {t("个批次")}</div>
           </div>
-          <button type="button" style={{ ...BUTTON_STYLE, marginTop: 8 }} disabled={actionBusy || loadingHistory} onClick={() => void loadHistory()}>刷新历史</button>
+          <button type="button" style={{ ...BUTTON_STYLE, marginTop: 8 }} disabled={actionBusy || loadingHistory} onClick={() => void loadHistory()}>{t("刷新历史")}</button>
           {(notice || actionError) && <p role="status" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{actionError || notice}</p>}
         </div>
 
         {historyError ? (
           <div style={{ margin: 12, padding: '11px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--error-soft)', color: 'var(--error)', fontSize: 12 }}>
-            <div>{historyError}</div>
+            <div>{t(historyError)}</div>
             <button type="button" style={{ ...BUTTON_STYLE, marginTop: 10 }} onClick={() => { void loadHistory() }}>
-              重新加载
-            </button>
+              {t("重新加载")}</button>
           </div>
         ) : null}
 
         <div className="batch-runs-history-list">
           {loadingHistory && visibleBatches.length === 0 ? (
             <div style={{ minHeight: 180, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 13 }}>
-              正在读取批次历史…
-            </div>
+              {t("正在读取批次历史…")}</div>
           ) : visibleBatches.length === 0 ? (
             <div style={{ minHeight: 180, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>
-              暂无批次记录。
-            </div>
+              {t("暂无批次记录。")}</div>
           ) : visibleBatches.map((batch) => {
             const selected = batch.batch_id === selectedBatchId
             return (
@@ -375,7 +374,7 @@ export default function BatchRunsPanel() {
                     {batch.name}
                   </span>
                   <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: stateColor(batch.state) }}>
-                    {STATE_LABELS[batch.state] || batch.state}
+                    {t(STATE_LABELS[batch.state] || batch.state)}
                   </span>
                 </div>
                 <div style={{ marginTop: 7, height: 5, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
@@ -383,7 +382,7 @@ export default function BatchRunsPanel() {
                 </div>
                 <div style={{ marginTop: 7, display: 'flex', justifyContent: 'space-between', gap: 10, color: 'var(--muted)', fontSize: 10 }}>
                   <span>{formatDateTime(batch.created_at)}</span>
-                  <span>{batch.completed_count + batch.skipped_count}/{Math.max(0, batch.total_count - (batch.history_deleted_count ?? 0))}{batch.history_deleted_count ? ` · 历史已删除 ${batch.history_deleted_count}` : ''}</span>
+                  <span>{batch.completed_count + batch.skipped_count}/{Math.max(0, batch.total_count - (batch.history_deleted_count ?? 0))}{batch.history_deleted_count ? formatMessage(" · 历史已删除 {0}", [batch.history_deleted_count]) : ''}</span>
                 </div>
               </button>
             )
@@ -394,8 +393,7 @@ export default function BatchRunsPanel() {
       <section className="batch-runs-detail" style={SURFACE_STYLE}>
         {!selectedBatch ? (
           <div style={{ minHeight: 340, display: 'grid', placeItems: 'center', padding: 28, color: 'var(--muted)', textAlign: 'center' }}>
-          选择一个批次查看进度。
-          </div>
+          {t("选择一个批次查看进度。")}</div>
         ) : (
           <>
             <div className="batch-runs-detail-header" style={{ padding: '17px 18px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
@@ -406,24 +404,24 @@ export default function BatchRunsPanel() {
               <div className="batch-runs-detail-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {CANCELLABLE_BATCH_STATES.has(selectedBatch.state) ? (
                   <button type="button" style={{ ...BUTTON_STYLE, color: 'var(--error)' }} disabled={actionBusy} onClick={() => { void runBatchAction('cancel') }}>
-                    {actionBusy ? '处理中…' : '整批取消'}
+                    {actionBusy ? t("处理中…") : t("整批取消")}
                   </button>
                 ) : null}
                 {retryable ? (
                   <button type="button" style={{ ...BUTTON_STYLE, color: 'var(--accent)' }} disabled={actionBusy} onClick={() => { void runBatchAction('retry') }}>
-                    {actionBusy ? '处理中…' : '重试失败项'}
+                    {actionBusy ? t("处理中…") : t("重试失败项")}
                   </button>
                 ) : null}
               </div>
             </div>
 
             <div className="batch-runs-detail-scroll">
-              {actionError ? <div style={{ margin: '14px 18px 0', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--error-soft)', color: 'var(--error)', fontSize: 12 }}>{actionError}</div> : null}
-              {pollError ? <div style={{ margin: '14px 18px 0', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--warning-soft)', color: 'var(--warning)', fontSize: 12 }}>{pollError}</div> : null}
+              {actionError ? <div style={{ margin: '14px 18px 0', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--error-soft)', color: 'var(--error)', fontSize: 12 }}>{t(actionError)}</div> : null}
+              {pollError ? <div style={{ margin: '14px 18px 0', padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--warning-soft)', color: 'var(--warning)', fontSize: 12 }}>{t(pollError)}</div> : null}
 
               <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12 }}>
-                  <span style={{ color: stateColor(selectedBatch.state), fontWeight: 750 }}>{STATE_LABELS[selectedBatch.state] || selectedBatch.state}</span>
+                  <span style={{ color: stateColor(selectedBatch.state), fontWeight: 750 }}>{t(STATE_LABELS[selectedBatch.state] || selectedBatch.state)}</span>
                   <span>{progressPercent(selectedBatch.progress)}%</span>
                 </div>
                 <div style={{ marginTop: 8, height: 8, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
@@ -431,13 +429,13 @@ export default function BatchRunsPanel() {
                 </div>
                 <div style={{ marginTop: 13, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 92px), 1fr))', gap: 8 }}>
                   {[
-                    ['总数', selectedBatch.total_count],
-                    ['等待', selectedBatch.pending_count],
-                    ['运行', selectedBatch.running_count],
-                    ['完成', selectedBatch.completed_count + selectedBatch.skipped_count],
-                    ['失败', selectedBatch.failed_count],
-                    ['取消', selectedBatch.cancelled_count],
-                    ['历史已删除', selectedBatch.history_deleted_count ?? 0],
+                    [t("总数"), selectedBatch.total_count],
+                    [t("等待"), selectedBatch.pending_count],
+                    [t("运行"), selectedBatch.running_count],
+                    [t("完成"), selectedBatch.completed_count + selectedBatch.skipped_count],
+                    [t("失败"), selectedBatch.failed_count],
+                    [t("取消"), selectedBatch.cancelled_count],
+                    [t("历史已删除"), selectedBatch.history_deleted_count ?? 0],
                   ].map(([label, value]) => (
                     <div key={String(label)} style={{ padding: '9px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)', textAlign: 'center' }}>
                       <div style={{ fontSize: 15, fontWeight: 750 }}>{value}</div>
@@ -448,10 +446,10 @@ export default function BatchRunsPanel() {
 
                 <div style={{ marginTop: 13, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 190px), 1fr))', gap: 8 }}>
                   {[
-                    ['创建时间', formatDateTime(selectedBatch.created_at)],
-                    ['更新时间', formatDateTime(selectedBatch.updated_at)],
-                    ['并行文件数', String(selectedBatch.max_parallel)],
-                    ['输出目录', selectedBatch.output_dir || '工作区默认目录'],
+                    [t("创建时间"), formatDateTime(selectedBatch.created_at)],
+                    [t("更新时间"), formatDateTime(selectedBatch.updated_at)],
+                    [t("并行文件数"), String(selectedBatch.max_parallel)],
+                    [t("输出目录"), selectedBatch.output_dir || t("工作区默认目录")],
                   ].map(([label, value]) => (
                     <div key={label} style={{ padding: '10px 11px', borderRadius: 'var(--radius-sm)', background: 'var(--panel-muted)', minWidth: 0 }}>
                       <div style={{ fontSize: 10, color: 'var(--muted)' }}>{label}</div>
@@ -462,7 +460,7 @@ export default function BatchRunsPanel() {
               </div>
 
               <div style={{ padding: '14px 18px 10px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>批次条目</div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{t("批次条目")}</div>
               </div>
 
               <div className="batch-runs-item-list">
@@ -472,24 +470,24 @@ export default function BatchRunsPanel() {
                   return (
                     <div className="batch-runs-item" key={item.item_id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 150px', gap: 16, padding: '13px 18px', borderBottom: '1px solid var(--border)', alignItems: 'start' }}>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{historyDeleted ? `历史已删除 · ${item.group_id || item.item_id}` : fileName(item.input_path)}</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{historyDeleted ? formatMessage("历史已删除 · {0}", [item.group_id || item.item_id]) : fileName(item.input_path)}</div>
                         <div style={{ marginTop: 4, fontSize: 10, color: 'var(--muted)', overflowWrap: 'anywhere' }}>{displayPath(item.input_path)}</div>
                         <div style={{ marginTop: 6, fontSize: 10, color: 'var(--muted)', overflowWrap: 'anywhere' }}>
-                          当前任务：{historyDeleted ? '历史已删除' : item.current_task_id || '尚未创建'}
-                          {historyDeleted && item.task_ids.length ? ` · 仍保留 ${item.task_ids.length} 条历史尝试` : item.task_ids.length > 1 ? ` · ${item.task_ids.length} 次尝试` : ''}
+                          {t("当前任务：")}{historyDeleted ? t("历史已删除") : item.current_task_id || t("尚未创建")}
+                          {historyDeleted && item.task_ids.length ? formatMessage(" · 仍保留 {0} 条历史尝试", [item.task_ids.length]) : item.task_ids.length > 1 ? formatMessage(" · {0} 次尝试", [item.task_ids.length]) : ''}
                         </div>
                         {item.companion_paths.length > 0 ? (
                           <div style={{ marginTop: 5, fontSize: 10, color: 'var(--muted)', overflowWrap: 'anywhere' }}>
-                            伴随文件：{item.companion_paths.map(displayPath).join('、')}
+                            {t("伴随文件：")}{item.companion_paths.map(displayPath).join('、')}
                           </div>
                         ) : null}
                         {item.message ? <div style={{ marginTop: 6, fontSize: 10, color: 'var(--muted-strong)', overflowWrap: 'anywhere' }}>{item.message}</div> : null}
-                        {!historyDeleted && item.output_path ? <div style={{ marginTop: 5, fontSize: 10, color: 'var(--success)', overflowWrap: 'anywhere' }}>输出：{displayPath(item.output_path)}</div> : null}
+                        {!historyDeleted && item.output_path ? <div style={{ marginTop: 5, fontSize: 10, color: 'var(--success)', overflowWrap: 'anywhere' }}>{t("输出：")}{displayPath(item.output_path)}</div> : null}
                         {errorMessage ? <div style={{ marginTop: 5, fontSize: 10, color: 'var(--error)', overflowWrap: 'anywhere' }}>{errorMessage}</div> : null}
                       </div>
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10 }}>
-                          <span style={{ color: stateColor(item.state), fontWeight: 700 }}>{item.removed ? '旧版保留项' : STATE_LABELS[item.state] || item.state}</span>
+                          <span style={{ color: stateColor(item.state), fontWeight: 700 }}>{item.removed ? t("旧版保留项") : t(STATE_LABELS[item.state] || item.state)}</span>
                           {!historyDeleted && <span>{progressPercent(item.progress)}%</span>}
                         </div>
                         {!historyDeleted && <div style={{ marginTop: 6, height: 5, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
@@ -497,7 +495,7 @@ export default function BatchRunsPanel() {
                         </div>}
                         {!item.current_task_id && !item.task_ids.length && ['completed', 'failed', 'cancelled', 'skipped'].includes(item.state) &&
                           <button type="button" style={{ ...BUTTON_STYLE, marginTop: 8 }} disabled={actionBusy || ACTIVE_BATCH_STATES.has(selectedBatch.state)}
-                            onClick={() => void changeItemRemoval(selectedBatch, item)}>删除条目…</button>}
+                            onClick={() => void changeItemRemoval(selectedBatch, item)}>{t("删除条目…")}</button>}
                       </div>
                     </div>
                   )

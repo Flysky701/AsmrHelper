@@ -133,7 +133,7 @@ export default function Workbench() {
     if (busy || discovering) return
     let paths = Array.from(event.dataTransfer.files).map(file => (file as File & { path?: string }).path || file.name)
     if (paths.some(path => !/[\\/]/.test(path))) {
-      const directory = window.prompt('浏览器模式无法读取完整路径，请输入这些文件所在目录：')
+      const directory = window.prompt(t('浏览器模式无法读取完整路径，请输入这些文件所在目录：'))
       if (!directory) return
       paths = paths.map(path => /[\\/]/.test(path) ? path : `${directory}${directory.includes('/') ? '/' : '\\'}${path}`)
     }
@@ -161,7 +161,7 @@ export default function Workbench() {
   const removeMaterials = async (ids: string[]) => {
     if (busy || discovering) return
     const eligible = useWorkbenchStore.getState().queueGroups.filter(group => ids.includes(group.id) && groupEditable(group))
-    if (!eligible.length || !await confirmAction(`从素材目录删除 ${eligible.length} 组素材引用？只移除本地目录中的这些组；磁盘音频、字幕和任务历史均保留。`)) return
+    if (!eligible.length || !await confirmAction(format('从素材目录删除 {0} 组素材引用？只移除本地目录中的这些组；磁盘音频、字幕和任务历史均保留。', [eligible.length]))) return
     useWorkbenchStore.getState().removeQueueMaterials(eligible.map(group => group.id))
   }
 
@@ -216,7 +216,7 @@ export default function Workbench() {
   }
   const saveParameters = async (mode: 'update' | 'copy') => {
     if (busy || !graph) return
-    if (mode === 'update' && (!selectedPreset || !await confirmAction(`将本次节点参数保存到“${selectedPreset.label}”？`))) return
+    if (mode === 'update' && (!selectedPreset || !await confirmAction(format('将本次节点参数保存到“{0}”？', [selectedPreset.label])))) return
     const saved = await workflow.saveRuntime(mode, mode === 'copy' ? copyName.trim() : undefined)
     if (saved && active.current) { setSavedNotice(`已保存“${saved.label}”`); setSaveOpen(false) }
   }
@@ -230,9 +230,9 @@ export default function Workbench() {
         <button type="button" className="queue-adjust" disabled={!graph} aria-expanded={panelOpen} onClick={() => setPanelOpen(value => !value)}>{t("☷ 调整参数")}{dirty ? <span className="queue-count" aria-label={format("{0} 个节点有临时覆盖", [overrideCount])}>{overrideCount}</span> : null}</button>
         <button type="button" className="queue-link" disabled={busy} onClick={() => openEditor(selectedPreset, true)}>{selectedPreset ? t("编辑流程 ↗") : graph ? t("编辑保留草稿 ↗") : t("新建流程 ↗")}</button><span className={`queue-parameter-summary${dirty ? ' changed' : ''}`}>{!selectedPreset && graph ? t("● 保留的未保存流程草稿") : dirty ? format("● {0} 个节点有本次覆盖", [overrideCount]) : selectedPreset ? t("● 使用预设参数") : t("请选择或新建流水线")}</span>
       </div>
-      <div className="queue-flow-summary">{graph ? <><span>{t("输入：")}{usedGraphSlots(graph).map(slot => slot.label).join(' + ')}</span><span>{t("· 包含")}</span>{graph.nodes.map(node => <Fragment key={node.id}><span title={`${node.id} · ${node.provider}`}>{GRAPH_CATALOG[node.kind].label}</span><span>·</span></Fragment>)}<strong>{t("输出：")}{queueOutputLabel(graph)}</strong></> : <span>{t("选择流水线，导入素材后勾选运行。")}</span>}</div>
-      {workflow.catalogError ? <div className="queue-notice" role="alert">{workflow.catalogError}<button type="button" onClick={() => void workflow.loadCatalog()}>{t("重试加载")}</button></div> : null}
-      {workflow.catalogNotice ? <div className="queue-draft-notice" role="status">{workflow.catalogNotice}</div> : null}
+      <div className="queue-flow-summary">{graph ? <><span>{t("输入：")}{usedGraphSlots(graph).map(slot => slot.label).join(' + ')}</span><span>{t("· 包含")}</span>{graph.nodes.map(node => <Fragment key={node.id}><span title={`${node.id} · ${node.provider}`}>{t(GRAPH_CATALOG[node.kind].label)}</span><span>·</span></Fragment>)}<strong>{t("输出：")}{t(queueOutputLabel(graph))}</strong></> : <span>{t("选择流水线，导入素材后勾选运行。")}</span>}</div>
+      {workflow.catalogError ? <div className="queue-notice" role="alert">{t(workflow.catalogError)}<button type="button" onClick={() => void workflow.loadCatalog()}>{t("重试加载")}</button></div> : null}
+      {workflow.catalogNotice ? <div className="queue-draft-notice" role="status">{t(workflow.catalogNotice)}</div> : null}
       {!workflow.catalogLoading && !workflow.catalogError && !presets.length ? <div className="queue-draft-notice">{t("还没有流水线，可新建或添加内置模板。")}<button type="button" disabled={busy} onClick={() => useNavStore.getState().setPage('workflow-presets')}>{t("新建或添加模板")}</button></div> : null}
       {workflow.editor ? <div className="queue-draft-notice">{t("保留")}{editorDirty(workflow.editor) ? t("未保存的") : t("上次的")}{t("编辑草稿：")}{workflow.editor.label || t("未命名流水线")}<button type="button" disabled={busy} onClick={() => useNavStore.getState().setPage('workflow-presets')}>{t("继续编辑")}</button></div> : null}
       {materials.queueMigrationNotice ? <div className="queue-draft-notice">{t("素材草稿已保留，请检查输入并勾选运行。")}<button type="button" onClick={() => useWorkbenchStore.setState({ queueMigrationNotice: false })}>{t("知道了")}</button></div> : null}
@@ -255,7 +255,7 @@ export default function Workbench() {
     {panelOpen ? <aside className="queue-parameter-panel" aria-label={t("本次运行参数")}><div className="queue-panel-heading"><div><small>{selectedPreset?.label}</small><h2>{t("本次运行参数")}</h2></div><button type="button" aria-label={t("关闭参数面板")} onClick={() => setPanelOpen(false)}>×</button></div>
       <div className="queue-override-note"><span className="queue-count">{overrideCount}  {t("个节点覆盖")}</span><p>{t("仅影响下一次处理，保存后才更新预设。")}</p></div>
       <div className="queue-parameter-tabs" role="tablist" aria-label={t("参数分类")}><button role="tab" type="button" aria-selected={parameterSection === 'common'} onClick={() => setParameterSection('common')}>{t("常用参数")}</button><button role="tab" type="button" aria-selected={parameterSection === 'advanced'} onClick={() => setParameterSection('advanced')}>{t("高级参数")}</button></div>
-      <div className="queue-panel-scroll">{graph?.nodes.filter(node => parameterSection !== 'advanced' || graphNodeHasAdvancedParameters(node)).map((node, index) => <section className="queue-node-parameters" key={`${selectedPreset?.id}:${node.id}`}><h3><small>{String(index + 1).padStart(2, '0')}</small>{GRAPH_CATALOG[node.kind].label}<span>{node.id}</span></h3><GraphNodeParameters node={node} onChange={workflow.updateRuntimeNode} disabled={busy} section={parameterSection} /></section>)}
+      <div className="queue-panel-scroll">{graph?.nodes.filter(node => parameterSection !== 'advanced' || graphNodeHasAdvancedParameters(node)).map((node, index) => <section className="queue-node-parameters" key={`${selectedPreset?.id}:${node.id}`}><h3><small>{String(index + 1).padStart(2, '0')}</small>{t(GRAPH_CATALOG[node.kind].label)}<span>{node.id}</span></h3><GraphNodeParameters node={node} onChange={workflow.updateRuntimeNode} disabled={busy} section={parameterSection} /></section>)}
         {parameterSection === 'advanced' && !graph?.nodes.some(graphNodeHasAdvancedParameters) ? <p className="queue-muted">{t("这条流水线没有额外高级参数。")}</p> : null}<section className="queue-panel-outputs"><h3>{t("输出")}</h3>{graph?.outputs.map(output => <div key={`${output.node_id}:${output.port}`}><span>{output.label || (output.port === 'audio' ? t("音频") : t("字幕"))}</span><small>{output.port === 'audio' ? t("音频") : String(graph.nodes.find(node => node.id === output.node_id)?.options.subtitle_format || t("字幕")).toUpperCase()}</small></div>)}</section>
         {saveOpen ? <div className="queue-save-form"><label>{t("新流水线名称")}<input value={copyName} disabled={busy} maxLength={100} onChange={event => setCopyName(event.target.value)} /></label><button type="button" disabled={busy || !copyName.trim()} onClick={() => void saveParameters('copy')}>{t("保存为新流水线")}</button>{selectedPreset && !selectedPreset.builtin ? <button type="button" disabled={busy || !dirty} onClick={() => void saveParameters('update')}>{t("保存参数到原预设")}</button> : <p>{selectedPreset ? t("内置预设请另存修改。") : t("原预设已移除；当前参数保留，请另存为新流水线。")}</p>}</div> : null}
       </div><div className="queue-panel-footer"><button type="button" disabled={busy} onClick={() => setSaveOpen(value => !value)}>{t("另存为流水线")}</button><button type="button" className="queue-primary" onClick={() => setPanelOpen(false)}>{t("完成调整")}</button></div>

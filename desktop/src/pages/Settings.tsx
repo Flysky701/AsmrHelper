@@ -25,8 +25,8 @@ const PATH_FIELDS: { key: keyof Paths; label: string; placeholder: string; hint:
   { key: 'temp_dir', label: '临时文件目录', placeholder: '留空使用工作区 / debug / runtime', hint: '供工作区会话存放处理中间文件。' },
 ]
 const reason = (error: unknown) => error instanceof Error ? error.message : String(error)
-const inputs = (preset: Preset) => 'graph' in preset ? preset.graph.input_slots.map(slot => slot.label).join(' + ') || '未定义输入' : '在编辑页确认输入'
-const outputs = (preset: Preset) => 'graph' in preset ? preset.graph.outputs.map(output => output.label || `${output.node_id} · ${output.port === 'audio' ? '音频' : '字幕'}`).join(' / ') || '未定义产出' : preset.outputs.map(stage => GRAPH_CATALOG[stage as keyof typeof GRAPH_CATALOG]?.label || stage).join(' / ')
+const inputs = (preset: Preset) => 'graph' in preset ? preset.graph.input_slots.map(slot => slot.label).join(' + ') || t('未定义输入') : t('在编辑页确认输入')
+const outputs = (preset: Preset) => 'graph' in preset ? preset.graph.outputs.map(output => output.label || `${output.node_id} · ${t(output.port === 'audio' ? '音频' : '字幕')}`).join(' / ') || '未定义产出' : preset.outputs.map(stage => t(GRAPH_CATALOG[stage as keyof typeof GRAPH_CATALOG]?.label || stage)).join(' / ')
 
 function Icon({ kind }: { kind: 'graph' | 'folder' | 'refresh' | 'plus' | 'search' }) {
   return <svg viewBox="0 0 20 20" aria-hidden="true">{kind === 'graph' ? <path d="M2 3h6v6H2zM12 11h6v6h-6zM8 6h7v5M5 9v5h7" /> : kind === 'folder' ? <path d="M2 5h6l2 2h8v9H2zM2 5V3h6l2 2" /> : kind === 'refresh' ? <path d="M16 7a6 6 0 1 0 0 7M16 3v4h-4" /> : kind === 'plus' ? <path d="M10 3v14M3 10h14" /> : <><circle cx="8" cy="8" r="5" /><path d="m12 12 5 5" /></>}</svg>
@@ -138,7 +138,7 @@ export default function Settings() {
   }
 
   async function deletePreset(preset: Preset) {
-    if (catalogBusy || catalogError || actionRef.current || !await confirmAction(presetDeleteConfirmation(preset))) return
+    if (catalogBusy || catalogError || actionRef.current || !await confirmAction(t(presetDeleteConfirmation(preset)))) return
     actionRef.current = true; setWorking(true); setActionError(''); setNotice('')
     try {
       const result = await useWorkflowStore.getState().deleteCatalogPreset(preset)
@@ -242,7 +242,7 @@ export default function Settings() {
           </section>
           <aside className="settings-definition" aria-label={t("所选预设概览")}>{selected ? <>
             <p className="settings-definition-label">{t("所选流水线")}</p><h3>{selected.label}</h3><p>{selected.description || t("暂无说明")}</p>
-            {'graph' in selected && <div className="settings-flow-preview"><div className="settings-flow-label"><span>{t("流程概览")}</span><span>{selected.graph.nodes.length}  {t("节点 ·")} {selected.graph.input_slots.length}  {t("输入")}</span></div><div className="settings-flow-slots">{selected.graph.input_slots.map(slot => <span key={slot.id}>{slot.label}</span>)}</div><div className="settings-flow-nodes">{selected.graph.nodes.map(node => <span className="settings-flow-node" key={node.id}><strong>{GRAPH_CATALOG[node.kind]?.label || node.kind}</strong><small>{node.id}</small></span>)}</div><p className="settings-flow-output">{outputs(selected)}</p></div>}
+            {'graph' in selected && <div className="settings-flow-preview"><div className="settings-flow-label"><span>{t("流程概览")}</span><span>{selected.graph.nodes.length}  {t("节点 ·")} {selected.graph.input_slots.length}  {t("输入")}</span></div><div className="settings-flow-slots">{selected.graph.input_slots.map(slot => <span key={slot.id}>{slot.label}</span>)}</div><div className="settings-flow-nodes">{selected.graph.nodes.map(node => <span className="settings-flow-node" key={node.id}><strong>{t(GRAPH_CATALOG[node.kind]?.label || node.kind)}</strong><small>{node.id}</small></span>)}</div><p className="settings-flow-output">{outputs(selected)}</p></div>}
             <dl><div><dt>{t("适用输入")}</dt><dd>{inputs(selected)}</dd></div><div><dt>{t("交付内容")}</dt><dd>{outputs(selected)}</dd></div><div><dt>{t("来源")}</dt><dd>{selected.builtin ? t("内置 · 另存后编辑") : t("自定义")}  {t("· 修订")} {selected.revision}</dd></div></dl><div className="settings-definition-footer"><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => catalogTab === 'active' ? void openEditor(selected) : openModal('template', selected)}>{catalogTab === 'active' ? selected.builtin ? t("另存并编辑 ↗") : t("编辑流水线 ↗") : t("添加到目录")}</button></div>
           </> : <div className="settings-empty"><Icon kind="graph" /><strong>{t("选择一个流水线")}</strong><p>{t("查看输入、节点与交付内容。")}</p></div>}</aside></div>
         </> : <>

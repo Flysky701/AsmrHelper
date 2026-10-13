@@ -1,8 +1,18 @@
 import { useAppearanceStore } from './stores/appearanceStore'
+import { audioMessages } from './locales/audio'
 import { en } from './locales/en'
+import { workflowMessages } from './locales/workflow'
+import { voiceMessages } from './locales/voices'
+import { operationMessages } from './locales/operations'
+import { sharedMessages } from './locales/shared'
 
 export const messages: Record<string, string> = {
   ...en,
+  ...audioMessages,
+  ...workflowMessages,
+  ...voiceMessages,
+  ...operationMessages,
+  ...sharedMessages,
   '外观与语言': 'Appearance & language',
   '界面偏好': 'Display preferences',
   '即时生效，自动保存到此设备。': 'Applied immediately and saved on this device.',
@@ -38,6 +48,16 @@ export function t(source: string): string {
     const match = source.match(pattern)
     if (match) return render(match)
   }
+  if (source.length <= 20_000) {
+    for (const template of messageTemplates) {
+      const match = source.match(template.pattern)
+      if (!match) continue
+      return template.translation.replace(/\{(\d+)\}/g, (placeholder, index: string) => {
+        const group = template.indices.indexOf(index)
+        return group < 0 ? placeholder : (match[group + 1] ?? placeholder)
+      })
+    }
+  }
   return source
 }
 export function format(source: string, values: (string | number)[]): string {
@@ -52,6 +72,25 @@ const statusPatterns: [RegExp, (match: RegExpMatchArray) => string][] = [
   [/^已保存“([\s\S]+)”$/, m => `Saved “${m[1]}”`],
   [/^预设“([\s\S]+)”已删除。$/, m => `Preset “${m[1]}” deleted.`],
 ]
+// Match only catalogued application messages. Captured names, paths and backend
+// details are carried through verbatim; they are never translated recursively.
+const escapePattern = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const messageTemplates = Object.entries(messages)
+  .filter(([source]) => /\{\d+\}/.test(source) && /[\u3400-\u9fff]/.test(source))
+  .sort(([a], [b]) => b.replace(/\{\d+\}/g, '').length - a.replace(/\{\d+\}/g, '').length)
+  .map(([source, translation]) => {
+    const indices: string[] = []
+    let offset = 0, pattern = '^'
+    for (const match of source.matchAll(/\{(\d+)\}/g)) {
+      pattern += escapePattern(source.slice(offset, match.index))
+      const index = match[1]!
+      const existing = indices.indexOf(index)
+      if (existing >= 0) pattern += `\\${existing + 1}`
+      else { indices.push(index); pattern += '([\\s\\S]*?)' }
+      offset = match.index + match[0].length
+    }
+    return { pattern: new RegExp(pattern + escapePattern(source.slice(offset)) + '$'), translation, indices }
+  })
 export function useI18n() {
   useAppearanceStore(state => state.language)
   return t
