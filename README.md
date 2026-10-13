@@ -47,4 +47,12 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 
 用户配置在 `config/`，声音数据在 `config/voice_lab/`；模型、运行环境和输出目录不是构建缓存。Windows 任务数据库默认在 `%LOCALAPPDATA%\AsmrHelper\state.sqlite3`，桌面草稿位于 WebView 用户数据中。清理或回退前保留这些数据，详见安装指南的[数据与备份](docs/guides/installation.md#数据与备份)。
 
-项目许可：MIT（见项目元数据）。
+## 许可
+
+本项目中维护者有权授权的原创代码、文档和素材采用 **Creative Commons Attribution-NonCommercial 4.0 International（署名—非商业性使用 4.0 国际，SPDX：`CC-BY-NC-4.0`）**。完整条款见 [LICENSE](LICENSE) 和 [CC 官方法律文本](https://creativecommons.org/licenses/by-nc/4.0/legalcode.en)。
+
+在许可允许的非商业目的下，可复制、分享和改编；分享时须保留署名、许可链接及已有声明，并标明修改。建议署名包含项目名 AsmrHelper、作者 Flysky701、[项目链接](https://github.com/Flysky701/AsmrHelper)，并保留相关贡献者的已有署名。非商业性以许可原文定义为准；超出许可范围的商业使用须另获相应权利人的授权。
+
+第三方依赖、运行时、FFmpeg、模型权重及用户输入/输出素材依各自条款处理，不因本项目许可而重新授权。范围和第三方说明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+
+此次变更适用于包含本许可变更的版本，不追溯撤销此前已授出的许可。此前 README 与 Python 元数据声明 MIT；已发布的 [v1.0.0](https://github.com/Flysky701/AsmrHelper/releases/tag/v1.0.0)（`d54affdaa9974822b40e22e25e626b686d9e8862`）及其既有安装包不随本次源码变更而更新，旧副本及旧许可仍可继续流通。

@@ -29,12 +29,16 @@
   },
   "bundle": {
     "active": true,
+    "license": "CC-BY-NC-4.0",
+    "licenseFile": "../../LICENSE",
     "icon": ["icons/character/icon.png", "icons/character/icon.ico"],
     "targets": [
       "nsis"
     ],
     "resources": {
-      "bundle-resources/backend/": "backend/"
+      "bundle-resources/backend/": "backend/",
+      "../../LICENSE": "licenses/AsmrHelper-LICENSE.txt",
+      "../../THIRD-PARTY-NOTICES.md": "licenses/AsmrHelper-THIRD-PARTY-NOTICES.md"
     },
     "windows": {
       "nsis": {

@@ -37,7 +37,7 @@ npm run tauri -- build --bundles nsis --config src-tauri/tauri.windows-gnu.conf.
 
 Verify the extracted installer has `WebView2Loader.dll` beside `asmr-helper.exe`. The configured WebView2 download bootstrapper needs internet when WebView2 is absent; model runtimes and weights remain on-demand downloads.
 
-The staging script collects Python/native, uv, Rust and production npm dependency notices. FFmpeg's supplied build is **GPL v3**, not MIT; its license, build options and source references are retained. The application's metadata declares MIT. Dependency notices and inventory are supporting evidence, not legal certification. Model weights have independent terms and are downloaded only when requested.
+The staging script collects Python/native, uv, Rust and production npm dependency notices. FFmpeg's supplied build is **GPL v3**, not MIT; its license, build options and source references are retained. Application-owned material is licensed under **CC-BY-NC-4.0**; third-party components retain their own licenses. New staging trees include `app/LICENSE` and `app/THIRD-PARTY-NOTICES.md`. Tauri bundles copies under `licenses/` and uses the root `LICENSE` for the NSIS license page. This page is new relative to the published v1.0.0 installer and requires fresh interactive acceptance; do not use silent installation to substitute for that review. Existing v1.0.0 assets retain their original MIT declarations and are not updated by this source change. Dependency notices and inventory are supporting evidence, not legal certification. Model weights have independent terms and are downloaded only when requested.
 
 ## Acceptance scope
 

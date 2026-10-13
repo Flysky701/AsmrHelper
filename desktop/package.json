@@ -1,6 +1,7 @@
 {
   "name": "asmr-helper-desktop",
   "private": true,
+  "license": "CC-BY-NC-4.0",
   "version": "1.0.0",
   "type": "module",
   "scripts": {

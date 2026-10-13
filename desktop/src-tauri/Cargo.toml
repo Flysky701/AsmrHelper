@@ -3,6 +3,7 @@ name = "asmr-helper"
 default-run = "asmr-helper"
 version = "1.0.0"
 edition = "2021"
+license = "CC-BY-NC-4.0"
 
 [[bin]]
 name = "asmr-helper-local"

@@ -81,7 +81,7 @@ def main():
     for name in tracked:
         if name.endswith(".py"):
             copy_file(ROOT / name, app / name)
-    for name in ("pyproject.toml", "uv.lock", "README.md"):
+    for name in ("pyproject.toml", "uv.lock", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md"):
         copy_file(ROOT / name, app / name)
     copy_file(launcher, app / "desktop_backend.py")
     for name in PUBLIC_CONFIG:

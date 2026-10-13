@@ -7,12 +7,12 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
-license = {text = "MIT"}
+license = "CC-BY-NC-4.0"
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
 keywords = ["asmr", "audio", "whisper", "tts", "translation"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
@@ -84,7 +84,7 @@ dev = [
 asmr-helper = "src.cli:cli"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
