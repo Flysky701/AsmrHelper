@@ -1,3 +1,4 @@
+import { t, useI18n } from '@/i18n'
 import { useNavStore, PAGE_LABELS } from '@/stores/navStore'
 import type { PageId } from '@/stores/navStore'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -68,6 +69,7 @@ const PAGE_DESCRIPTIONS: Record<PageId, string> = {
 }
 
 export default function LeftNav() {
+  useI18n()
   const activePage = useNavStore((s) => s.activePage)
   const setPage = useNavStore((s) => s.setPage)
   const tooltipId = useId()
@@ -126,7 +128,7 @@ export default function LeftNav() {
         type="button"
         className="app-nav__item"
         data-page={pageId}
-        aria-label={PAGE_LABELS[pageId]}
+        aria-label={t(PAGE_LABELS[pageId])}
         aria-current={isActive ? 'page' : undefined}
         aria-describedby={tooltip?.pageId === pageId ? tooltipId : undefined}
         onMouseEnter={event => showTooltip(pageId, event.currentTarget)}
@@ -141,24 +143,24 @@ export default function LeftNav() {
   }
 
   return (
-    <nav className="app-nav" aria-label="主导航">
+    <nav className="app-nav" aria-label={t("主导航")}>
       <div className="app-nav__brand" role="img" aria-label="ASMR Helper">
         <img src="/brand/app-icon.png" width="36" height="36" alt="" aria-hidden="true" />
       </div>
 
       <div className="app-nav__scroller">
-        <div className="app-nav__items" role="group" aria-label="流水线与任务">
+        <div className="app-nav__items" role="group" aria-label={t("流水线与任务")}>
           {WORKFLOW_PAGES.map(renderItem)}
         </div>
-        <div className="app-nav__items app-nav__items--tools" role="group" aria-label="工具与资源">
+        <div className="app-nav__items app-nav__items--tools" role="group" aria-label={t("工具与资源")}>
           {TOOL_PAGES.map(renderItem)}
         </div>
       </div>
       <div className="app-nav__footer">{renderItem('settings')}</div>
       {tooltip && createPortal(
         <div ref={tooltipRef} id={tooltipId} role="tooltip" className="app-nav__tooltip" style={{ top: tooltip.top, left: tooltip.left }} onMouseEnter={cancelClose} onMouseLeave={scheduleClose}>
-          <strong>{PAGE_LABELS[tooltip.pageId]}</strong>
-          <span>{PAGE_DESCRIPTIONS[tooltip.pageId]}</span>
+          <strong>{t(PAGE_LABELS[tooltip.pageId])}</strong>
+          <span>{t(PAGE_DESCRIPTIONS[tooltip.pageId])}</span>
         </div>, document.body,
       )}
     </nav>

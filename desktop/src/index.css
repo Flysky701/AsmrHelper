@@ -1,5 +1,23 @@
 @import "tailwindcss";
 
+/* Decorative background never sits above interactive content. */
+.app-shell.has-custom-background { position: relative; isolation: isolate; background: transparent; }
+.app-shell.has-custom-background::before,
+.app-shell.has-custom-background::after { content: ''; position: absolute; inset: 0; pointer-events: none; z-index: -1; }
+.app-shell.has-custom-background::before { background: var(--app-background) center / cover no-repeat; }
+.app-shell.has-custom-background::after { background: #f5f8fa; opacity: var(--app-overlay, .78); }
+.has-custom-background .queue-workbench,.has-custom-background .settings-page { background: transparent; }
+.has-custom-background .settings-sidebar { background: rgba(247,250,251,.88); }
+.has-custom-background .queue-page-heading,.has-custom-background .queue-action-bar,
+.has-custom-background .queue-parameter-panel { background: rgba(255,255,255,.95); }
+.has-custom-background .queue-section { background: rgba(255,255,255,.96); }
+.has-custom-background .queue-preset-toolbar > label,
+.has-custom-background .queue-flow-summary,.has-custom-background .queue-parameter-summary,
+.has-custom-background .queue-destination,.has-custom-background .queue-quick-start,
+.has-custom-background .queue-draft-notice,.has-custom-background .queue-legacy { color: #30434e; }
+.has-custom-background .queue-quick-start > summary { color: #30434e; }
+html[lang=en] .queue-workbench.is-dragging::after { content: 'Drop to import audio or subtitles'; }
+
 .subtitle-translation-cell:empty::before {
   color: var(--muted);
   content: attr(data-placeholder);

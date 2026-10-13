@@ -1,3 +1,4 @@
+import { t, format, useI18n } from '@/i18n'
 import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
@@ -9,11 +10,12 @@ import { useFileSelector } from '@/hooks/useFileSelector'
 import { useNavStore } from '@/stores/navStore'
 import { presetDeleteConfirmation, useWorkflowStore } from '@/stores/workflowStore'
 import './Settings.css'
+import AppearanceSettings from '@/components/AppearanceSettings'
 import WorkspaceSettings from '@/components/WorkspaceSettings'
 
 type Preset = PresetItem | GraphPresetItem
 type Paths = SettingsView['paths']
-type Category = 'presets' | 'paths'
+type Category = 'presets' | 'paths' | 'appearance'
 type CatalogTab = 'active' | 'builtin'
 const EMPTY_PATHS: Paths = { output_dir: '', vtt_dir: '', model_cache_dir: '', temp_dir: '' }
 const PATH_FIELDS: { key: keyof Paths; label: string; placeholder: string; hint: string; compatibility?: boolean }[] = [
@@ -31,9 +33,10 @@ function Icon({ kind }: { kind: 'graph' | 'folder' | 'refresh' | 'plus' | 'searc
 }
 
 export default function Settings() {
+  useI18n()
   const workflow = useWorkflowStore()
   const { selectFolder } = useFileSelector()
-  const [category, setCategory] = useState<Category>('presets')
+  const [category, setCategory] = useState<Category>('appearance')
   const [catalogTab, setCatalogTab] = useState<CatalogTab>('active')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -96,7 +99,7 @@ export default function Settings() {
   useEffect(() => {
     const guard = async () => {
       if (navigation.current.busy || actionRef.current) { setNotice('正在处理设置，请稍候再离开。'); return false }
-      return !navigation.current.dirty || await confirmAction('路径有未保存的修改。离开设置页将放弃这些路径修改，继续离开？')
+      return !navigation.current.dirty || await confirmAction(t('路径有未保存的修改。离开设置页将放弃这些路径修改，继续离开？'))
     }
     guardRef.current = guard
     useNavStore.getState().setNavigationGuard(guard)
@@ -116,7 +119,7 @@ export default function Settings() {
     if (!(await useNavStore.getState().confirmLeaveCurrentPage())) return
     const current = useWorkflowStore.getState().editor
     const keepCurrent = !!current && !!preset && current.preset?.id === preset.id && editorDirty(current)
-    if (!keepCurrent && editorDirty(current) && !await confirmAction('已有未保存的流水线草稿。打开新的编辑内容会替换该草稿；工作台素材和运行参数保留。继续？')) return
+    if (!keepCurrent && editorDirty(current) && !await confirmAction(t('已有未保存的流水线草稿。打开新的编辑内容会替换该草稿；工作台素材和运行参数保留。继续？'))) return
     actionRef.current = true; setWorking(true); setActionError('')
     try {
       if (!keepCurrent) {
@@ -207,52 +210,53 @@ export default function Settings() {
     setActionError(''); setModal({ kind, preset, label: kind === 'copy' ? `${preset.label.slice(0, 96)}（副本）` : preset.label })
   }
   return <div className="settings-page">
-    <aside className="settings-sidebar"><h1 className="page-title">设置</h1><p className="settings-sidebar-caption">工作区</p>
-      <nav className="settings-categories" aria-label="设置分类">
-        <button type="button" aria-current={category === 'presets' ? 'page' : undefined} onClick={() => setCategory('presets')}><Icon kind="graph" /><span>预设管理<small>复用流水线</small></span></button>
-        <button type="button" aria-current={category === 'paths' ? 'page' : undefined} onClick={() => setCategory('paths')}><Icon kind="folder" /><span>文件与缓存<small>输出与存储位置</small></span></button>
+    <aside className="settings-sidebar"><h1 className="page-title">{t("设置")}</h1><p className="settings-sidebar-caption">{t("工作区")}</p>
+      <nav className="settings-categories" aria-label={t("设置分类")}>
+        <button type="button" aria-current={category === 'appearance' ? 'page' : undefined} onClick={() => setCategory('appearance')}><span aria-hidden="true">◐</span><span>{t("外观与语言")}<small>{t("界面偏好")}</small></span></button>
+        <button type="button" aria-current={category === 'presets' ? 'page' : undefined} onClick={() => setCategory('presets')}><Icon kind="graph" /><span>{t("预设管理")}<small>{t("复用流水线")}</small></span></button>
+        <button type="button" aria-current={category === 'paths' ? 'page' : undefined} onClick={() => setCategory('paths')}><Icon kind="folder" /><span>{t("文件与缓存")}<small>{t("输出与存储位置")}</small></span></button>
       </nav>
     </aside>
-    <main className="settings-main" aria-label="设置内容">
-      <header className="settings-header page-heading"><div className="page-heading__copy"><h2 className="panel-title">{category === 'presets' ? '预设管理' : '文件与缓存'}</h2><p className="settings-description page-description">{category === 'presets' ? '工作台共用的流水线，集中查看与维护。' : '留空沿用工作区默认位置。'}</p></div>
-        <div className="settings-header-actions page-heading__actions">{category === 'presets' ? <><button className="settings-button quiet" disabled={catalogBusy} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadBuiltinTemplates()]) }}><Icon kind="refresh" />刷新</button><button className="settings-button primary" disabled={catalogBusy} onClick={() => void openEditor()}><Icon kind="plus" />新建流水线</button></> : <button className="settings-button quiet" disabled={busy || pathsLoading} onClick={() => void loadPaths()}><Icon kind="refresh" />重新读取</button>}</div>
+    <main className="settings-main" aria-label={t("设置内容")}>
+      <header className="settings-header page-heading"><div className="page-heading__copy"><h2 className="panel-title">{category === 'appearance' ? t("外观与语言") : category === 'presets' ? t("预设管理") : t("文件与缓存")}</h2><p className="settings-description page-description">{category === 'appearance' ? t("即时生效，自动保存到此设备。") : category === 'presets' ? t("工作台共用的流水线，集中查看与维护。") : t("留空沿用工作区默认位置。")}</p></div>
+        <div className="settings-header-actions page-heading__actions">{category === 'presets' ? <><button className="settings-button quiet" disabled={catalogBusy} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadBuiltinTemplates()]) }}><Icon kind="refresh" />{t("刷新")}</button><button className="settings-button primary" disabled={catalogBusy} onClick={() => void openEditor()}><Icon kind="plus" />{t("新建流水线")}</button></> : category === 'paths' ? <button className="settings-button quiet" disabled={busy || pathsLoading} onClick={() => void loadPaths()}><Icon kind="refresh" />{t("重新读取")}</button> : null}</div>
       </header>
       <div className="settings-body">
-        {category === 'presets' ? <>
-          {(notice || workflow.catalogNotice) && <p className="settings-status" role="status">{notice || workflow.catalogNotice}</p>}
-          {actionError && !modal && <p className="settings-status error" role="alert">{actionError}</p>}
-          <div className="settings-catalog-toolbar"><nav className="settings-catalog-tabs" aria-label="预设目录">
-            <button aria-current={catalogTab === 'active' ? 'page' : undefined} onClick={() => { setCatalogTab('active'); setSelectedId(null) }}>当前目录 <small>{workflow.catalog.length}</small></button>
-            <button aria-current={catalogTab === 'builtin' ? 'page' : undefined} onClick={() => { setCatalogTab('builtin'); setSelectedId(null) }}>添加内置模板 <small>{templates.length}</small></button>
-          </nav><label className="settings-search"><Icon kind="search" /><input aria-label="搜索预设" placeholder="搜索流水线名称" value={query} onChange={event => setQuery(event.target.value)} /></label></div>
-          {catalogError && <p className="settings-status error" role="alert">目录读取失败：{catalogError}。已保留上次列表，读取成功前暂停修改。</p>}
-          {(workflow.catalogLoading || workflow.templatesLoading) && <p className="settings-status" role="status">正在读取共享目录…</p>}
-          {catalogTab !== 'active' && <p className="settings-archive-hint">选择模板，添加为独立预设。</p>}
-          <div className="settings-preset-layout"><section className="settings-catalog-list" aria-label="流水线列表">
-            <div className="settings-list-heading"><span>{catalogTab === 'active' ? '可用流水线' : '可添加的内置模板'}</span><span>{filtered.length} 个预设</span></div>
+        {category === 'appearance' ? <AppearanceSettings /> : category === 'presets' ? <>
+          {(notice || workflow.catalogNotice) && <p className="settings-status" role="status">{t(notice || workflow.catalogNotice || '')}</p>}
+          {actionError && !modal && <p className="settings-status error" role="alert">{t(actionError)}</p>}
+          <div className="settings-catalog-toolbar"><nav className="settings-catalog-tabs" aria-label={t("预设目录")}>
+            <button aria-current={catalogTab === 'active' ? 'page' : undefined} onClick={() => { setCatalogTab('active'); setSelectedId(null) }}>{t("当前目录")} <small>{workflow.catalog.length}</small></button>
+            <button aria-current={catalogTab === 'builtin' ? 'page' : undefined} onClick={() => { setCatalogTab('builtin'); setSelectedId(null) }}>{t("添加内置模板")} <small>{templates.length}</small></button>
+          </nav><label className="settings-search"><Icon kind="search" /><input aria-label={t("搜索预设")} placeholder={t("搜索流水线名称")} value={query} onChange={event => setQuery(event.target.value)} /></label></div>
+          {catalogError && <p className="settings-status error" role="alert">{t("目录读取失败：")}{catalogError}{t("。已保留上次列表，读取成功前暂停修改。")}</p>}
+          {(workflow.catalogLoading || workflow.templatesLoading) && <p className="settings-status" role="status">{t("正在读取共享目录…")}</p>}
+          {catalogTab !== 'active' && <p className="settings-archive-hint">{t("选择模板，添加为独立预设。")}</p>}
+          <div className="settings-preset-layout"><section className="settings-catalog-list" aria-label={t("流水线列表")}>
+            <div className="settings-list-heading"><span>{catalogTab === 'active' ? t("可用流水线") : t("可添加的内置模板")}</span><span>{filtered.length}  {t("个预设")}</span></div>
             {filtered.map(preset => <article className={`settings-preset-row${selected?.id === preset.id ? ' selected' : ''}`} key={preset.id}>
-              <button type="button" className="settings-preset-summary" aria-label={`查看 ${preset.label}`} aria-pressed={selected?.id === preset.id} onClick={() => setSelectedId(preset.id)}><span className="settings-preset-title"><strong>{preset.label}</strong><Icon kind="graph" /></span><span className="settings-preset-flow">{inputs(preset)} → {outputs(preset)}</span><span className="settings-preset-meta"><span className={`settings-chip${preset.builtin ? '' : ' custom'}`}>{preset.builtin ? '内置' : '自定义'}</span><span>{'graph' in preset ? `${preset.graph.nodes.length} 个节点` : '旧版流程'}</span><span>· 修订 {preset.revision}</span></span></button>
-              <div className="settings-row-actions">{catalogTab === 'active' ? <><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => void openEditor(preset)}>{preset.builtin ? '另存编辑' : '编辑'}</button><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => openModal('copy', preset)}>复制</button></> : <button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => openModal('template', preset)}>添加到目录</button>}{catalogTab === 'active' && <button className="settings-text-button danger" disabled={catalogBusy || !!catalogError} aria-label={`删除 ${preset.label}`} onClick={() => void deletePreset(preset)}>删除</button>}</div>
+              <button type="button" className="settings-preset-summary" aria-label={format("查看 {0}", [preset.label])} aria-pressed={selected?.id === preset.id} onClick={() => setSelectedId(preset.id)}><span className="settings-preset-title"><strong>{preset.label}</strong><Icon kind="graph" /></span><span className="settings-preset-flow">{inputs(preset)} → {outputs(preset)}</span><span className="settings-preset-meta"><span className={`settings-chip${preset.builtin ? '' : ' custom'}`}>{preset.builtin ? t("内置") : t("自定义")}</span><span>{'graph' in preset ? format("{0} 个节点", [preset.graph.nodes.length]) : t("旧版流程")}</span><span>{t("· 修订")} {preset.revision}</span></span></button>
+              <div className="settings-row-actions">{catalogTab === 'active' ? <><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => void openEditor(preset)}>{preset.builtin ? t("另存编辑") : t("编辑")}</button><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => openModal('copy', preset)}>{t("复制")}</button></> : <button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => openModal('template', preset)}>{t("添加到目录")}</button>}{catalogTab === 'active' && <button className="settings-text-button danger" disabled={catalogBusy || !!catalogError} aria-label={format("删除 {0}", [preset.label])} onClick={() => void deletePreset(preset)}>{t("删除")}</button>}</div>
             </article>)}
-            {!filtered.length && !workflow.catalogLoading && !workflow.templatesLoading && <div className="settings-empty"><Icon kind="folder" /><strong>{query ? '没有匹配的流水线' : catalogTab === 'active' ? '当前目录为空' : '没有可添加的模板'}</strong><p>{catalogTab === 'active' ? '新建流水线，或添加内置模板。' : '添加后进入当前目录，不会自动打开。'}</p></div>}
+            {!filtered.length && !workflow.catalogLoading && !workflow.templatesLoading && <div className="settings-empty"><Icon kind="folder" /><strong>{query ? t("没有匹配的流水线") : catalogTab === 'active' ? t("当前目录为空") : t("没有可添加的模板")}</strong><p>{catalogTab === 'active' ? t("新建流水线，或添加内置模板。") : t("添加后进入当前目录，不会自动打开。")}</p></div>}
           </section>
-          <aside className="settings-definition" aria-label="所选预设概览">{selected ? <>
-            <p className="settings-definition-label">所选流水线</p><h3>{selected.label}</h3><p>{selected.description || '暂无说明'}</p>
-            {'graph' in selected && <div className="settings-flow-preview"><div className="settings-flow-label"><span>流程概览</span><span>{selected.graph.nodes.length} 节点 · {selected.graph.input_slots.length} 输入</span></div><div className="settings-flow-slots">{selected.graph.input_slots.map(slot => <span key={slot.id}>{slot.label}</span>)}</div><div className="settings-flow-nodes">{selected.graph.nodes.map(node => <span className="settings-flow-node" key={node.id}><strong>{GRAPH_CATALOG[node.kind]?.label || node.kind}</strong><small>{node.id}</small></span>)}</div><p className="settings-flow-output">{outputs(selected)}</p></div>}
-            <dl><div><dt>适用输入</dt><dd>{inputs(selected)}</dd></div><div><dt>交付内容</dt><dd>{outputs(selected)}</dd></div><div><dt>来源</dt><dd>{selected.builtin ? '内置 · 另存后编辑' : '自定义'} · 修订 {selected.revision}</dd></div></dl><div className="settings-definition-footer"><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => catalogTab === 'active' ? void openEditor(selected) : openModal('template', selected)}>{catalogTab === 'active' ? selected.builtin ? '另存并编辑 ↗' : '编辑流水线 ↗' : '添加到目录'}</button></div>
-          </> : <div className="settings-empty"><Icon kind="graph" /><strong>选择一个流水线</strong><p>查看输入、节点与交付内容。</p></div>}</aside></div>
+          <aside className="settings-definition" aria-label={t("所选预设概览")}>{selected ? <>
+            <p className="settings-definition-label">{t("所选流水线")}</p><h3>{selected.label}</h3><p>{selected.description || t("暂无说明")}</p>
+            {'graph' in selected && <div className="settings-flow-preview"><div className="settings-flow-label"><span>{t("流程概览")}</span><span>{selected.graph.nodes.length}  {t("节点 ·")} {selected.graph.input_slots.length}  {t("输入")}</span></div><div className="settings-flow-slots">{selected.graph.input_slots.map(slot => <span key={slot.id}>{slot.label}</span>)}</div><div className="settings-flow-nodes">{selected.graph.nodes.map(node => <span className="settings-flow-node" key={node.id}><strong>{GRAPH_CATALOG[node.kind]?.label || node.kind}</strong><small>{node.id}</small></span>)}</div><p className="settings-flow-output">{outputs(selected)}</p></div>}
+            <dl><div><dt>{t("适用输入")}</dt><dd>{inputs(selected)}</dd></div><div><dt>{t("交付内容")}</dt><dd>{outputs(selected)}</dd></div><div><dt>{t("来源")}</dt><dd>{selected.builtin ? t("内置 · 另存后编辑") : t("自定义")}  {t("· 修订")} {selected.revision}</dd></div></dl><div className="settings-definition-footer"><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => catalogTab === 'active' ? void openEditor(selected) : openModal('template', selected)}>{catalogTab === 'active' ? selected.builtin ? t("另存并编辑 ↗") : t("编辑流水线 ↗") : t("添加到目录")}</button></div>
+          </> : <div className="settings-empty"><Icon kind="graph" /><strong>{t("选择一个流水线")}</strong><p>{t("查看输入、节点与交付内容。")}</p></div>}</aside></div>
         </> : <>
           <WorkspaceSettings disabled={busy || dirty || pathsLoading} onBusy={setWorkspaceBusy} />
-          {dirty && <p className="settings-paths-summary">请先保存或放弃下方路径草稿，再切换工作目录。</p>}
-          {pathsLoading && <p className="settings-status" role="status">正在读取路径…</p>}
-          {pathsLoadError && <p className="settings-status error" role="alert">{pathsLoadError}<button onClick={() => void loadPaths()} disabled={pathsLoading || busy}>重试</button></p>}
-          {pathsMessage && <p className={`settings-status${pathsSaveError ? ' error' : ''}`} role={pathsSaveError ? 'alert' : 'status'}>{pathsMessage}</p>}
-          {[0, 2].map(start => <section className="settings-path-section" key={start}><h3><Icon kind="folder" />{start === 0 ? '输出与字幕' : '模型与临时文件'}</h3>{PATH_FIELDS.slice(start, start + 2).map(field => <div className="settings-path-field" key={field.key}><div className="settings-field-label"><label htmlFor={`settings-${field.key}`}>{field.label}</label>{field.compatibility && <span>兼容</span>}</div><div className="settings-path-row"><input id={`settings-${field.key}`} value={paths[field.key]} disabled={!savedPaths || pathsSaving || !!pathsLoadError} placeholder={field.placeholder} autoComplete="off" spellCheck={false} onChange={event => changePath(field.key, event.target.value)} /><button className="settings-button" disabled={!savedPaths || busy || !!pathsLoadError} aria-label={`浏览${field.label}`} onClick={() => void browse(field.key)}><Icon kind="folder" />{browsing === field.key ? '选择中…' : '浏览'}</button></div><p>{field.hint}</p></div>)}</section>)}
-          <p className="settings-paths-summary">更改路径不会移动或删除现有文件。</p>
+          {dirty && <p className="settings-paths-summary">{t("请先保存或放弃下方路径草稿，再切换工作目录。")}</p>}
+          {pathsLoading && <p className="settings-status" role="status">{t("正在读取路径…")}</p>}
+          {pathsLoadError && <p className="settings-status error" role="alert">{t(pathsLoadError)}<button onClick={() => void loadPaths()} disabled={pathsLoading || busy}>{t("重试")}</button></p>}
+          {pathsMessage && <p className={`settings-status${pathsSaveError ? ' error' : ''}`} role={pathsSaveError ? 'alert' : 'status'}>{t(pathsMessage)}</p>}
+          {[0, 2].map(start => <section className="settings-path-section" key={start}><h3><Icon kind="folder" />{start === 0 ? t("输出与字幕") : t("模型与临时文件")}</h3>{PATH_FIELDS.slice(start, start + 2).map(field => <div className="settings-path-field" key={field.key}><div className="settings-field-label"><label htmlFor={`settings-${field.key}`}>{t(field.label)}</label>{field.compatibility && <span>{t("兼容")}</span>}</div><div className="settings-path-row"><input id={`settings-${field.key}`} value={paths[field.key]} disabled={!savedPaths || pathsSaving || !!pathsLoadError} placeholder={t(field.placeholder)} autoComplete="off" spellCheck={false} onChange={event => changePath(field.key, event.target.value)} /><button className="settings-button" disabled={!savedPaths || busy || !!pathsLoadError} aria-label={format("浏览{0}", [t(field.label)])} onClick={() => void browse(field.key)}><Icon kind="folder" />{browsing === field.key ? t("选择中…") : t("浏览")}</button></div><p>{t(field.hint)}</p></div>)}</section>)}
+          <p className="settings-paths-summary">{t("更改路径不会移动或删除现有文件。")}</p>
         </>}
       </div>
-      {category === 'paths' ? <footer className="settings-save-bar"><span className={dirty ? 'changed' : ''}>● {dirty ? '有未保存的修改' : savedPaths ? '使用已保存的路径' : '尚未读取路径'}</span><div><button className="settings-button quiet" disabled={!dirty || busy || pathsLoading} onClick={() => { if (savedPaths) { PATH_FIELDS.forEach(({ key }) => versions.current[key]++); setPaths({ ...savedPaths }); setPathsMessage('') } }}>放弃修改</button><button className="settings-button primary" disabled={!dirty || busy || pathsLoading || !!pathsLoadError} onClick={() => void savePaths()}>{pathsSaving ? '正在保存…' : '保存路径'}</button></div></footer> : <footer className="settings-footnote"><span>在工作台选择预设以运行流程</span></footer>}
+      {category === 'paths' ? <footer className="settings-save-bar"><span className={dirty ? 'changed' : ''}>● {dirty ? t("有未保存的修改") : savedPaths ? t("使用已保存的路径") : t("尚未读取路径")}</span><div><button className="settings-button quiet" disabled={!dirty || busy || pathsLoading} onClick={() => { if (savedPaths) { PATH_FIELDS.forEach(({ key }) => versions.current[key]++); setPaths({ ...savedPaths }); setPathsMessage('') } }}>{t("放弃修改")}</button><button className="settings-button primary" disabled={!dirty || busy || pathsLoading || !!pathsLoadError} onClick={() => void savePaths()}>{pathsSaving ? t("正在保存…") : t("保存路径")}</button></div></footer> : <footer className="settings-footnote"><span>{category === 'appearance' ? t("本机图片副本 · 不上传") : t("在工作台选择预设以运行流程")}</span></footer>}
     </main>
-    {modal && <dialog ref={dialog} className="settings-dialog" aria-labelledby="settings-dialog-title" onCancel={event => { if (busy) event.preventDefault(); else setModal(null) }} onClose={() => { if (!busy) setModal(null) }}><form onSubmit={event => { event.preventDefault(); void submitModal() }}><header><h2 id="settings-dialog-title">{modal.kind === 'copy' ? '复制流水线' : '添加内置模板'}</h2><p>{modal.preset.label} · 修订 {modal.preset.revision}</p></header><div className="settings-dialog-body"><label htmlFor="settings-preset-name">{modal.kind === 'copy' ? '副本名称' : '新预设名称'}</label><input id="settings-preset-name" autoFocus maxLength={100} value={modal.label} disabled={busy} onChange={event => setModal(current => current ? { ...current, label: event.target.value } : null)} /><p>{modal.kind === 'copy' ? '复制已保存的流程，另存为独立预设。' : '使用新名称添加，不会覆盖已有预设。'}</p>{actionError && <p className="settings-status error" role="alert">{actionError}</p>}</div><footer><button type="button" className="settings-button" disabled={busy} onClick={() => { dialog.current?.close(); setModal(null) }}>取消</button><button className="settings-button primary" disabled={catalogBusy || !modal.label.trim()}>{working ? '正在处理…' : modal.kind === 'copy' ? '保存副本' : '添加到目录'}</button></footer></form></dialog>}
+    {modal && <dialog ref={dialog} className="settings-dialog" aria-labelledby="settings-dialog-title" onCancel={event => { if (busy) event.preventDefault(); else setModal(null) }} onClose={() => { if (!busy) setModal(null) }}><form onSubmit={event => { event.preventDefault(); void submitModal() }}><header><h2 id="settings-dialog-title">{modal.kind === 'copy' ? t("复制流水线") : t("添加内置模板")}</h2><p>{modal.preset.label}  {t("· 修订")} {modal.preset.revision}</p></header><div className="settings-dialog-body"><label htmlFor="settings-preset-name">{modal.kind === 'copy' ? t("副本名称") : t("新预设名称")}</label><input id="settings-preset-name" autoFocus maxLength={100} value={modal.label} disabled={busy} onChange={event => setModal(current => current ? { ...current, label: event.target.value } : null)} /><p>{modal.kind === 'copy' ? t("复制已保存的流程，另存为独立预设。") : t("使用新名称添加，不会覆盖已有预设。")}</p>{actionError && <p className="settings-status error" role="alert">{t(actionError)}</p>}</div><footer><button type="button" className="settings-button" disabled={busy} onClick={() => { dialog.current?.close(); setModal(null) }}>{t("取消")}</button><button className="settings-button primary" disabled={catalogBusy || !modal.label.trim()}>{working ? t("正在处理…") : modal.kind === 'copy' ? t("保存副本") : t("添加到目录")}</button></footer></form></dialog>}
   </div>
 }
