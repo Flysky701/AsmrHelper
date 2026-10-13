@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
-import { GRAPH_CATALOG, GRAPH_ADDABLE_NODE_KINDS, type GraphDefinition, type GraphNode, type GraphNodeKind, type GraphEdge, type GraphBindings } from '@/domain/workflowGraph'
+import { graphNodeInputs, GRAPH_CATALOG, GRAPH_ADDABLE_NODE_KINDS, type GraphDefinition, type GraphNode, type GraphNodeKind, type GraphEdge, type GraphBindings } from '@/domain/workflowGraph'
 import { WorkflowNode } from './WorkflowNode'
 import { WorkflowInspector } from './WorkflowInspector'
 import { bindingIssues, connectPort, removeNode, removeInputSlot, sourceKey, sourceLabel, TYPE_NAMES, updateNode, updateInputSlot, type WorkflowMaterial } from './graphEditorModel'
@@ -23,7 +23,17 @@ type Line = { id: string; path: string; type: string }
 
 function autoPositions(graph: GraphDefinition, narrow: boolean, templateMode: boolean): { points: Record<string, Point>; width: number; height: number } {
   const rowHeight = templateMode ? 290 : 235
-  if (narrow) return { points: Object.fromEntries([...graph.input_slots.map(slot => `slot:${slot.id}`), ...graph.nodes.map(node => node.id)].map((id, index) => [id, { x: 48, y: 30 + index * rowHeight }])), width: 302, height: Math.max(440, (graph.input_slots.length + graph.nodes.length) * rowHeight + 45) }
+  const cardHeight = (id: string) => {
+    const node = graph.nodes.find(item => item.id === id)
+    return node ? Math.max(rowHeight, 170 + Object.keys(graphNodeInputs(node)).length * 32) : rowHeight
+  }
+  if (narrow) {
+    let y = 30
+    const points = Object.fromEntries([...graph.input_slots.map(slot => `slot:${slot.id}`), ...graph.nodes.map(node => node.id)].map(id => {
+      const point = { x: 48, y }; y += cardHeight(id); return [id, point]
+    }))
+    return { points, width: 302, height: Math.max(440, y + 45) }
+  }
   const depth: Record<string, number> = Object.fromEntries(graph.nodes.map(node => [node.id, 1]))
   for (let pass = 0; pass < graph.nodes.length; pass++) {
     for (const edge of graph.edges) if (edge.source.kind === 'node') depth[edge.target.node_id] = Math.min(graph.nodes.length, Math.max(depth[edge.target.node_id] || 1, (depth[edge.source.node_id] || 1) + 1))
@@ -31,9 +41,12 @@ function autoPositions(graph: GraphDefinition, narrow: boolean, templateMode: bo
   const layers: Record<number, string[]> = { 0: graph.input_slots.map(slot => `slot:${slot.id}`) }
   graph.nodes.forEach(node => { const layer = depth[node.id] || 1; (layers[layer] ||= []).push(node.id) })
   const maxCount = Math.max(2, ...Object.values(layers).map(items => items.length))
-  const height = Math.max(520, maxCount * rowHeight + 45)
+  const height = Math.max(520, ...Object.values(layers).map(ids => ids.reduce((total, id) => total + cardHeight(id), 0) + 45 + (maxCount - ids.length) * 28))
   const points: Record<string, Point> = {}
-  for (const [layer, ids] of Object.entries(layers)) ids.forEach((id, index) => { points[id] = { x: 26 + Number(layer) * 262, y: 28 + index * rowHeight + (maxCount - ids.length) * 28 } })
+  for (const [layer, ids] of Object.entries(layers)) {
+    let y = 28 + (maxCount - ids.length) * 28
+    ids.forEach(id => { points[id] = { x: 26 + Number(layer) * 262, y }; y += cardHeight(id) })
+  }
   return { points, width: 26 + (Math.max(0, ...Object.values(depth)) + 1) * 262, height }
 }
 
@@ -153,7 +166,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
         const added = createNode(kind, graph)
         revealRef.current = added.id; setCompactPane('canvas')
         onChange({ ...graph, nodes: [...graph.nodes, added] }); setSelectedId(added.id); setError('')
-      }} aria-label={`添加${GRAPH_CATALOG[kind].label}`}><span className={`wg-module-symbol kind-${kind}`} aria-hidden="true">{kind === 'tts' ? '♫' : kind === 'translate' ? '译' : kind === 'mix' ? '≋' : ['export', 'audio_export'].includes(kind) ? '↗' : kind === 'align' ? '↔' : kind === 'asr' ? '文' : '∿'}</span><span>{GRAPH_CATALOG[kind].label}<small>{Object.values(GRAPH_CATALOG[kind].inputs).join(' + ')} → {Object.values(GRAPH_CATALOG[kind].outputs).join(', ')}</small></span><b aria-hidden="true">+</b></button>)}</div>
+      }} aria-label={`添加${GRAPH_CATALOG[kind].label}`}><span className={`wg-module-symbol kind-${kind}`} aria-hidden="true">{kind === 'tts' ? '♫' : kind === 'translate' ? '译' : kind === 'mix' ? '≋' : ['export', 'audio_export'].includes(kind) ? '↗' : kind === 'align' ? '↔' : kind === 'asr' ? '文' : '∿'}</span><span>{GRAPH_CATALOG[kind].label}<small>{kind === 'mix' ? 'N × audio' : Object.values(GRAPH_CATALOG[kind].inputs).join(' + ')} → {Object.values(GRAPH_CATALOG[kind].outputs).join(', ')}</small></span><b aria-hidden="true">+</b></button>)}</div>
       <div className="wg-slot-tools"><strong>添加输入槽</strong>{(['audio', 'subtitle'] as const).map(type => <button type="button" key={type} onClick={() => {
         let index = 1
         while (graph.input_slots.some(slot => slot.id.toLowerCase() === `${type}_${index}`)) index++

@@ -176,3 +176,7 @@
 .wg-delete-confirm button { padding:5px 10px; border:1px solid #d7c5b8; border-radius:5px; background:white; color:#704d3f; }
 
 .wg-inspector .wg-field input, .wg-inspector .wg-field select { font-size:var(--text-control); }
+
+.wg-node-ports>div { min-width:0; }
+.wg-port span { min-width:0; overflow-wrap:anywhere; text-align:left; }
+.wg-module-symbol.kind-audio_difference,.wg-module-icon.kind-audio_difference { color:#8b653b; background:#f4ebdf; }

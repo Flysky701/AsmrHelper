@@ -62,3 +62,10 @@
 .graph-engine-drawer>header>h2 { min-width: 0; }
 .graph-engine-drawer>header>button { flex: 0 0 auto; }
 @media(max-width:520px) { .graph-engine-install-facts { grid-template-columns: minmax(0, 1fr); gap: 4px; } .graph-engine-install-facts dd { margin-bottom: 8px; } }
+
+.graph-mix-track { border:1px solid var(--border-color, #dce5df); border-radius:8px; padding:12px; min-width:0; }
+.graph-mix-track-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+.graph-mix-track-heading strong { min-width:0; overflow-wrap:anywhere; }
+.graph-mix-track-heading small { display:block; font-weight:400; opacity:.65; }
+.graph-mix-mute { display:flex; align-items:center; gap:8px; font-size:12px; margin:8px 0; }
+.graph-mix-mute input[type=checkbox] { width:16px; height:16px; margin:0; }

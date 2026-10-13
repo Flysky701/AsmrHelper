@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { GRAPH_CATALOG, type GraphDefinition, type GraphNode, type GraphEdge } from '@/domain/workflowGraph'
+import { graphNodeInputs, graphInputLabel, GRAPH_CATALOG, type GraphDefinition, type GraphNode, type GraphEdge } from '@/domain/workflowGraph'
 import { connectionChoices, PORT_NAMES, readSource, sourceKey, TYPE_NAMES } from './graphEditorModel'
 
 export interface WorkflowInspectorProps {
@@ -24,11 +24,11 @@ export function WorkflowInspector({ graph, node, issues, onNodeChange, onConnect
       <span>{PORT_NAMES[port] || port}<small>{TYPE_NAMES[type]}</small></span>
     </label>)}<p className="wg-hint">勾选后显示在任务结果中；未勾选仍可供下游使用。</p></section>
     <div className="wg-inspector-scroll" role="region" aria-label={`${node.id} 参数与来源`} tabIndex={0}>
-    <section><h3>输入来源</h3>{Object.entries(catalog.inputs).map(([port, type]) => {
+    <section><h3>输入来源</h3>{Object.entries(graphNodeInputs(node)).map(([port, type]) => {
       const edge = graph.edges.find(edge => edge.target.node_id === node.id && edge.target.port === port)
       const value = edge ? sourceKey(edge.source) : ''
       const options = connectionChoices(graph, node.id, type)
-      return <label className="wg-field" key={port}><span>{PORT_NAMES[port] || port}<em>{TYPE_NAMES[type]}</em></span>
+      return <label className="wg-field" key={port}><span>{graphInputLabel(node, port)}<em>{TYPE_NAMES[type]}</em></span>
         <select aria-label={`${node.id} ${port} 来源`} value={value} onChange={event => onConnect({ node_id: node.id, port }, readSource(event.target.value))}>
           <option value="">请选择来源</option>
           {value && !options.some(option => option.value === value) && <option value={value}>原来源不可用</option>}

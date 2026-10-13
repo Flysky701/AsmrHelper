@@ -14,15 +14,16 @@ import { speechApi } from '@/api/speech'
 import type { Delivery, OptionSchema, ReferenceAsset, SpeechConnection, SpeechConnectionDefault, SpeechProvider, SpeechRecipe } from '@/api/speech'
 import type { CapabilityDescriptorResponse, CapabilityOptionResponse } from '@/api/types'
 import type { GraphLanguage, GraphNode } from '@/domain/workflowGraph'
+import { GRAPH_MAX_MIX_TRACKS, graphMixTracks, isMultitrackMix } from '@/domain/workflowGraph'
 import { copyRecipeToGraphNode, editableGraphOptions, freshGraphSpeechNode, graphNodeFromRecipe,
   graphCapabilityDisabledReason, graphCapabilityValue, graphSpeechIssue, graphSpeechOptionDisabledReason,
-  graphMixOutputLength, graphMixOutputLengthOptions,
+  graphMixOutputLength, graphMixOutputLengthOptions, addGraphMixTrack, removeGraphMixTrack, updateGraphMixTrack,
   parseGraphObjectOption, readGraphSpeechSource, retainedGraphOptions, setGraphOption, unknownGraphOptions, withGraphSpeechSource } from '@/domain/graphNodeParameters'
 import type { GraphParameterSection, GraphSpeechSource } from '@/domain/graphNodeParameters'
 import { availableSpeechOptions, speechLanguageMatches } from '@/domain/speechAdvancedOptions'
 import './GraphNodeParameters.css'
 
-interface Props { node: GraphNode; onChange: (node: GraphNode) => void; disabled?: boolean; section?: GraphParameterSection }
+interface Props { node: GraphNode; onChange: (node: GraphNode) => void; disabled?: boolean; section?: GraphParameterSection; allowStructureChanges?: boolean }
 const languageNames: Record<GraphLanguage, string> = { zh: '中文', ja: '日语', en: '英语' }
 const modeNames: Record<string, string> = { default: '引擎默认声音', builtin: '预设声音', hosted: '服务端音色', reference: '参考录音克隆', design: '声音描述' }
 const deliveryNames = { normal: '自然', soft: '轻柔', whisper: '耳语' }
@@ -48,7 +49,7 @@ export default function GraphNodeParameters(props: Props) {
   return <NodeParameters key={`${props.node.id}:${props.node.kind}`} {...props} />
 }
 
-function NodeParameters({ node, onChange, disabled = false, section = 'all' }: Props) {
+function NodeParameters({ node, onChange, disabled = false, section = 'all', allowStructureChanges = false }: Props) {
   const common = section !== 'advanced'
   const mixOutputLength = graphMixOutputLength(node)
   const mixOutputLengthChoice = graphMixOutputLengthOptions.find(option => option.value === mixOutputLength)
@@ -90,7 +91,8 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all' }: P
         && <CapabilityParameters node={node} onChange={scopedChange} requestChange={requestChange} requestEngineChange={requestEngineChange} section={section} />}
       {node.kind === 'tts' && <SpeechPresetParameters node={node} onChange={scopedChange} requestChange={requestChange} section={section} />}
       {common && node.kind === 'align' && <p className="graph-param-note">Qwen3 Forced Aligner 0.6B · 需要匹配的音频与字幕。</p>}
-      {node.kind === 'mix' && <>
+      {common && isMultitrackMix(node) && <MixTrackParameters node={node} onChange={scopedChange} allowStructureChanges={allowStructureChanges} />}
+      {node.kind === 'mix' && !isMultitrackMix(node) && <>
         {common && <div className="graph-param-grid">{([['original_volume', '音频轨音量', 0.85], ['tts_volume_ratio', '配音轨音量', 0.5]] as const).map(([key, label, fallback]) =>
           <Field key={key} label={label}><input type="number" min={0} step={0.1} value={String(node.options[key] ?? fallback)}
             onChange={event => scopedChange(setGraphOption(node, 'options', key, event.target.value === '' ? undefined : Number(event.target.value)))} /></Field>)}</div>}
@@ -104,6 +106,7 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all' }: P
           <small>正数后移，负数前移；前移会截去零点前的配音。</small></Field></Advanced>
         {common && <p className="graph-param-note">两路音频需对应同一时间轴。</p>}
       </>}
+      {node.kind === 'audio_difference' && <DifferenceParameters node={node} onChange={scopedChange} section={section} />}
       {common && node.kind === 'export' && <><Field label="目标字幕格式"><select value={String(node.options.subtitle_format ?? 'srt')}
         onChange={event => scopedChange(setGraphOption(node, 'options', 'subtitle_format', event.target.value))}>
         {['srt', 'vtt', 'lrc'].map(format => <option key={format} value={format}>{format.toUpperCase()}</option>)}
@@ -111,6 +114,58 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all' }: P
       {common && node.kind === 'audio_export' && <p className="graph-param-note">旧流程兼容：按原格式复制音频，不转码。新的音频产物可直接勾选交付。</p>}
       {switchNotice && <p role="status" className="graph-param-note">{switchNotice}</p>}
     </fieldset>
+  </div>
+}
+
+function MixTrackParameters({ node, onChange, allowStructureChanges }: Props) {
+  const tracks = graphMixTracks(node), length = graphMixOutputLength(node)
+  return <div className="graph-param-section">
+    <p className="graph-param-note">各轨在输出时间轴上独立定位。音量 1 为原幅度；相加峰值超过上限时整体衰减至 0.98，保留轨道间音量比例。</p>
+    {tracks.map(track => <section className="graph-mix-track" key={track.id} aria-label={`音轨 · ${track.id}`}>
+      <div className="graph-mix-track-heading"><strong>音轨<small>{track.id}</small></strong>
+        {allowStructureChanges && <button type="button" disabled={tracks.length <= 1} aria-label={`删除音轨 ${track.id}`} onClick={() => onChange(removeGraphMixTrack(node, track.id))}>删除轨道</button>}</div>
+      <div className="graph-param-grid">
+        <Field label={`${track.id} 音量`}><input type="number" min={0} step={0.1} value={String(track.gain ?? 1)} onChange={event => onChange(updateGraphMixTrack(node, track.id, { gain: event.target.value === '' ? undefined : Number(event.target.value) }))} /></Field>
+        <Field label={`${track.id} 偏移（毫秒）`}><input type="number" step="any" value={String(track.offset_ms ?? 0)} onChange={event => onChange(updateGraphMixTrack(node, track.id, { offset_ms: event.target.value === '' ? undefined : Number(event.target.value) }))} /></Field>
+      </div>
+      <label className="graph-mix-mute"><input type="checkbox" checked={track.muted === true} onChange={event => onChange(updateGraphMixTrack(node, track.id, { muted: event.target.checked }))} />{track.id} 静音</label>
+    </section>)}
+    {allowStructureChanges ? <><button type="button" disabled={tracks.length >= GRAPH_MAX_MIX_TRACKS} onClick={() => onChange(addGraphMixTrack(node))}>添加音轨</button><p className="graph-param-note">支持 1–32 轨。删除轨道会移除其输入连线；新增轨道后请指定来源。</p></>
+      : <p className="graph-param-note">增删音轨与修改连线请进入流水线编辑页。</p>}
+    <Field label="输出时长"><select value={length ?? String(node.options.output_length)} onChange={event => onChange(setGraphOption(node, 'options', 'output_length', event.target.value))}>
+      {!length && <option value={String(node.options.output_length)}>原设置（待确认）</option>}
+      <option value="longest">保留最长轨道（默认）</option><option value="main">跟随第一轨</option>
+    </select><small>{length === 'main' ? '跟随列表第一轨偏移后的结束位置；其他轨道超出部分截断。' : '按所有轨道偏移后的最晚结束位置输出，空缺补静音。静音轨道仍参与时长计算。'}</small></Field>
+    <p className="graph-param-note">正偏移延后，负偏移提前并截去零点前的音频。输入素材可来自不同录音，不自动做响度匹配。</p>
+  </div>
+}
+
+function DifferenceParameters({ node, onChange, section = 'all' }: Props) {
+  const automatic = node.options.alignment === 'auto', matchGain = node.options.match_gain === true
+  const change = (key: string, value: unknown) => onChange(setGraphOption(node, 'options', key, value))
+  const number = (key: string, label: string, fallback: number | undefined, disabled = false, min?: number, max?: number) => <Field key={key} label={label}>
+    <input type="number" step="any" min={min} max={max} disabled={disabled} value={String(node.options[key] ?? fallback ?? '')}
+      placeholder={key === 'calibration_end' ? '音频末尾' : undefined} onChange={event => change(key, event.target.value === '' ? undefined : Number(event.target.value))} />
+  </Field>
+  return <div className="graph-param-section">
+    {section !== 'advanced' && <>
+      <p className="graph-param-note">含附加音效音频 − 对齐并调整增益后的基准音频。两路须是同源的有／无音效版本。</p>
+      <Field label="时间对齐"><select value={String(node.options.alignment ?? 'manual')} onChange={event => change('alignment', event.target.value)}>
+        {!['manual', 'auto'].includes(String(node.options.alignment ?? 'manual')) && <option value={String(node.options.alignment)}>原设置（待确认）</option>}
+        <option value="manual">手动指定偏移</option><option value="auto">自动估计固定偏移</option>
+      </select></Field>
+      {number('offset_ms', '基准音频偏移（毫秒）', 0, automatic)}
+      <p className="graph-param-note">正值延后基准，负值提前基准。{automatic ? '自动估计替代手动偏移，保存的手动值不叠加。' : '偏移以含附加音效音频的时间轴为准。'}</p>
+      <label className="graph-mix-mute"><input type="checkbox" checked={matchGain} onChange={event => change('match_gain', event.target.checked)} />自动匹配基准增益</label>
+      <div className="graph-param-grid">{number('gain_left', '左声道／单声道增益', 1, matchGain)}{number('gain_right', '右声道增益', 1, matchGain)}</div>
+      <p className="graph-param-note">{matchGain ? '自动拟合替代手动增益，手动值保留。' : '增益 1 保持幅度；负值用于极性反转。'}</p>
+      <p className="graph-param-note">输出浮点 WAV 保留差分幅值。不同母带、压缩、混响或时间漂移可能留下残留；这不是通用 AI 源分离。</p>
+    </>}
+    <Advanced section={section}>
+      <div className="graph-param-grid">{number('calibration_start', '校准开始（秒）', 0, false, 0)}{number('calibration_end', '校准结束（秒，可留空）', undefined, false, 0)}</div>
+      {number('max_shift_seconds', '自动对齐搜索范围（±秒）', 5, !automatic, .01, 30)}
+      <p className="graph-param-note">校准区间使用含附加音效音频的时间轴，尽量选没有附加音效的片段，用于自动对齐和增益拟合。留空结束时间使用可用音频末尾；附加音效进入校准区间可能被误消。自动对齐只估计固定偏移。</p>
+    </Advanced>
   </div>
 }
 

@@ -1,5 +1,5 @@
 import type { PointerEvent } from 'react'
-import { GRAPH_CATALOG, type GraphDefinition, type GraphNode, type GraphEdge } from '@/domain/workflowGraph'
+import { graphNodeInputs, graphInputLabel, GRAPH_CATALOG, type GraphDefinition, type GraphNode, type GraphEdge } from '@/domain/workflowGraph'
 import { PORT_NAMES, TYPE_NAMES, sourceKey } from './graphEditorModel'
 
 export interface WorkflowNodeProps {
@@ -25,12 +25,12 @@ export function WorkflowNode({ node, graph, selected, issues, pendingSource, onS
       <span><strong>{catalog.label}</strong><small>{node.id}</small></span><span className="wg-node-drag" aria-hidden="true">⠿</span>
     </button><button type="button" className="wg-card-remove" aria-label={`删除节点 ${node.id}`} title="删除节点及关联连线；不会删除素材文件" onClick={onRemove}><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 10v7M14 10v7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg></button></div>
     <div className="wg-node-ports">
-      <div>{Object.entries(catalog.inputs).map(([port, type]) => {
+      <div>{Object.entries(graphNodeInputs(node)).map(([port, type]) => {
         const connected = graph.edges.some(edge => edge.target.node_id === node.id && edge.target.port === port)
         return <button type="button" key={port} className={`wg-port input ${connected ? 'connected' : ''} ${pendingSource ? 'can-connect' : ''}`}
           data-endpoint={`target:${node.id}:${port}`} onClick={() => { onSelect(); onTarget({ node_id: node.id, port }) }}
-          aria-label={`连接到 ${node.id} ${port}`} title={`${PORT_NAMES[port] || port} · ${TYPE_NAMES[type]}${connected ? ' · 已连接' : ' · 缺少来源'}`}>
-          <i className={`wg-port-dot ${type}`} /><span>{PORT_NAMES[port] || port}</span>
+          aria-label={`连接到 ${node.id} ${port}`} title={`${graphInputLabel(node, port)} · ${TYPE_NAMES[type]}${connected ? ' · 已连接' : ' · 缺少来源'}`}>
+          <i className={`wg-port-dot ${type}`} /><span>{graphInputLabel(node, port)}</span>
         </button>
       })}</div>
       <div>{Object.entries(catalog.outputs).map(([port, type]) => {
@@ -44,7 +44,7 @@ export function WorkflowNode({ node, graph, selected, issues, pendingSource, onS
       })}</div>
     </div>
     <button type="button" className="wg-node-summary" onClick={onSelect}>
-      {node.kind === 'translate' ? `${node.source_lang || '?'} → ${node.target_lang || '?'}` : node.kind === 'tts' ? speechSummary : node.kind === 'export' ? `转换为 ${String(node.options.subtitle_format || 'srt').toUpperCase()}` : node.kind === 'audio_export' ? '原格式音频文件（兼容）' : node.kind === 'mix' ? '双音轨混合' : '查看节点参数'}
+      {node.kind === 'translate' ? `${node.source_lang || '?'} → ${node.target_lang || '?'}` : node.kind === 'tts' ? speechSummary : node.kind === 'export' ? `转换为 ${String(node.options.subtitle_format || 'srt').toUpperCase()}` : node.kind === 'audio_export' ? '原格式音频文件（兼容）' : node.kind === 'mix' ? ('tracks' in node.options ? `${Object.keys(graphNodeInputs(node)).length} 轨混音` : '双音轨混合（兼容）') : node.kind === 'audio_difference' ? '含附加音效 − 对齐后的基准' : '查看节点参数'}
     </button>
     <footer className="wg-node-footer"><span className={issues.length ? 'wg-warning' : ''}>{issues.length ? `! ${issues.length} 项待补充` : '未运行'}</span>{hasOutput && <span className="wg-delivery-tag">交付</span>}</footer>
   </article>

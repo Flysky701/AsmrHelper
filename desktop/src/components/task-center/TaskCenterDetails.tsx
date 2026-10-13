@@ -36,6 +36,21 @@ const paramLabels: Record<string, string> = {
 type Tab = 'nodes' | 'artifacts' | 'errors' | 'events' | 'params'
 const groupLabels = { final: '最终交付', intermediate: '中间片段', unconfirmed: '交付归属未确认' }
 
+function AudioProcessingDetails({ metadata }: { metadata?: Record<string, unknown> }) {
+  if (!metadata) return null
+  const number = (key: string) => typeof metadata[key] === 'number' && Number.isFinite(metadata[key]) ? metadata[key] as number : undefined
+  const offset = number('offset_ms'), attenuation = number('safety_gain')
+  const start = number('coverage_start'), end = number('coverage_end')
+  const gains = Array.isArray(metadata.gains) ? metadata.gains.filter((value): value is number => typeof value === 'number' && Number.isFinite(value)) : []
+  const warnings = Array.isArray(metadata.warnings) ? metadata.warnings.filter((value): value is string => typeof value === 'string') : []
+  return <>
+    {offset !== undefined && <p>基准偏移：{offset.toFixed(3)} ms{gains.length > 0 && ` · 实际增益：${gains.map(value => value.toFixed(4)).join(' / ')}`}</p>}
+    {start !== undefined && end !== undefined && <p>有效差分区间：{start.toFixed(3)}–{end.toFixed(3)} 秒；区间外保留含效果音原音频。</p>}
+    {attenuation !== undefined && attenuation < 1 && <p>混音峰值保护：整轨输出乘以 {attenuation.toFixed(4)}，保留各轨相对音量。</p>}
+    {warnings.map((warning, index) => <p className="tc-evidence-note" key={index}>{warning}</p>)}
+  </>
+}
+
 export default function TaskCenterDetails({ task, execution, events, batchName, visible, stage, jobLabel,
   actions, recovery, onBack, onPlay, onCopy, onConfigure, levelFilter, onToggleLevel, onClearLogs,
 }: {
@@ -132,7 +147,7 @@ export default function TaskCenterDetails({ task, execution, events, batchName, 
         {!shownArtifacts.length && <div className="tc-empty"><span className="tc-empty-glyph">▱</span><strong>暂无{nodeId ? '此节点的' : '此任务的'}产物</strong><p>生成后会在这里列出，不展示其他任务的文件。</p></div>}
         {groups.filter(group => group.items.length).map(group => <section key={group.id} className="tc-artifacts" aria-label={groupLabels[group.id]}><h3>{groupLabels[group.id]} <small>{group.items.length}</small></h3>{group.items.map(artifact => <article key={artifact.artifactId} data-artifact-task={taskId}>
           <div className="tc-artifact-icon">{artifact.type.startsWith('audio.') ? '♫' : '≡'}</div>
-          <div><strong>{artifact.label || artifact.type}</strong><p><code>{artifactNodeId(artifact) || '节点未记录'}</code><span>{artifact.type}</span></p><small>{taskId}</small></div>
+          <div><strong>{artifact.label || artifact.type}</strong><p><code>{artifactNodeId(artifact) || '节点未记录'}</code><span>{artifact.type}</span></p><small>{taskId}</small><AudioProcessingDetails metadata={artifact.metadata} /></div>
           {artifact.preview && artifact.type.startsWith('audio.') && <button type="button" onClick={() => onPlay(artifact.artifactId, artifact.label || artifact.type)}>播放</button>}
           <button type="button" onClick={() => setPreviewId(previewId === artifact.artifactId ? null : artifact.artifactId)} aria-expanded={previewId === artifact.artifactId}>文件详情</button>
           {previewId === artifact.artifactId && <div className="tc-artifact-preview"><strong>{artifact.label || artifact.type}</strong><p>{displayPath(artifact.path)}</p><p>归属：{taskId} / {artifactNodeId(artifact) || '节点未记录'}</p><button type="button" onClick={() => onCopy(artifact.path)}>复制路径</button></div>}

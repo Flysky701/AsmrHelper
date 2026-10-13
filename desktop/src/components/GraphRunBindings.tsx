@@ -1,6 +1,6 @@
 import { displayPath } from '@/utils/displayPath'
 import type { GraphBindings, GraphDefinition, GraphLanguage, GraphMaterialBinding } from '@/domain/workflowGraph'
-import { GRAPH_CATALOG, topologicalNodeIds, validateGraph } from '@/domain/workflowGraph'
+import { isMultitrackMix, GRAPH_CATALOG, topologicalNodeIds, validateGraph } from '@/domain/workflowGraph'
 import { inputPathKey, type WorkbenchInputItem } from '@/domain/workbenchInput'
 
 const LANGUAGES = [{ value: 'ja', label: '日语' }, { value: 'zh', label: '中文' }, { value: 'en', label: '英语' }] as const
@@ -48,11 +48,12 @@ export function graphBindingIssues(graph: GraphDefinition, bindings: GraphBindin
       const node = graph.nodes.find(candidate => candidate.id === id)!
       const incoming = Object.fromEntries(graph.edges.filter(edge => edge.target.node_id === id).map(edge => [edge.target.port,
         edge.source.kind === 'slot' ? timelineBySlot[edge.source.slot_id] : timelines.get(edge.source.node_id)]))
-      if (node.kind === 'align' || node.kind === 'mix') {
+      if (node.kind === 'align' || node.kind === 'mix' && !isMultitrackMix(node)) {
         const other = incoming[node.kind === 'align' ? 'subtitle' : 'speech']
         if (incoming.audio && other && incoming.audio !== other) issues.push(`${id} · ${GRAPH_CATALOG[node.kind].label}：请在素材槽确认输入属于同一录音和时间轴`)
       }
-      timelines.set(id, incoming[['asr', 'separate', 'mix'].includes(node.kind) ? 'audio' : 'subtitle'])
+      timelines.set(id, isMultitrackMix(node) ? `mix:${id}` : node.kind === 'audio_difference' ? incoming.mixed
+        : incoming[['asr', 'separate', 'mix', 'audio_export'].includes(node.kind) ? 'audio' : 'subtitle'])
     }
   }
   return [...new Set(issues)]

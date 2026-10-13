@@ -3,10 +3,10 @@ import type { Task } from '@/stores/taskStore'
 
 const labels: Record<string, string> = {
   prepare: '准备', separate: '人声分离', asr: 'ASR 识别', align: '字幕对齐',
-  translate: '字幕翻译', tts: 'TTS 合成', mix: '混音输出', export: '导出产物', audio_export: '音频导出',
+  translate: '字幕翻译', tts: 'TTS 合成', mix: '混音输出', export: '导出产物', audio_export: '音频导出', audio_difference: '音频差分',
 }
 const kinds = ['separate', 'asr', 'align', 'translate', 'tts', 'mix', 'export']
-const graphKinds = [...kinds, 'audio_export']
+const graphKinds = [...kinds, 'audio_export', 'audio_difference']
 type StepState = 'completed' | 'running' | 'failed' | 'cancelled' | 'pending' | 'unknown'
 export interface TaskExecutionStep { id: string; label: string; state: StepState }
 export interface TaskExecutionView {

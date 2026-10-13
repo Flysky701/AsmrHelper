@@ -11,6 +11,7 @@ GRAPH_CATALOG = {
     "translate": {"label": "字幕翻译", "inputs": {"subtitle": "subtitle"}, "outputs": {"subtitle": "subtitle"}},
     "tts": {"label": "语音合成", "inputs": {"subtitle": "subtitle"}, "outputs": {"audio": "audio"}},
     "mix": {"label": "混音", "inputs": {"audio": "audio", "speech": "audio"}, "outputs": {"audio": "audio"}},
+    "audio_difference": {"label": "音频差分", "inputs": {"reference": "audio", "mixed": "audio"}, "outputs": {"audio": "audio"}},
     "export": {"label": "字幕格式转换", "inputs": {"subtitle": "subtitle"}, "outputs": {"subtitle": "subtitle"}},
     "audio_export": {"label": "音频导出", "inputs": {"audio": "audio"}, "outputs": {"audio": "audio"}},
 }
@@ -21,10 +22,23 @@ GRAPH_PORT_TYPES = ("audio", "subtitle")
 GRAPH_OPTION_KEYS = {
     "separate": ("mode",), "asr": None, "align": (), "translate": None,
     "tts": ("speech_recipe_id", "speech_overrides", "speech_source", "voice", "speed"),
-    "mix": ("original_volume", "tts_volume_ratio", "tts_delay_ms", "output_length"),
+    "mix": ("original_volume", "tts_volume_ratio", "tts_delay_ms", "output_length", "tracks"),
+    "audio_difference": ("alignment", "offset_ms", "match_gain", "gain_left", "gain_right",
+                         "calibration_start", "calibration_end", "max_shift_seconds"),
     "export": ("subtitle_format",),
     "audio_export": (),
 }
+
+
+def is_multitrack(node: dict) -> bool:
+    return node.get("kind") == "mix" and "tracks" in node.get("options", {})
+
+
+def input_ports(node: dict) -> dict[str, str]:
+    """Resolve stable instance ports; absent tracks retains the legacy contract."""
+    if is_multitrack(node):
+        return {track["id"]: "audio" for track in node["options"]["tracks"]}
+    return GRAPH_CATALOG[node["kind"]]["inputs"]
 
 
 def graph_catalog() -> dict:

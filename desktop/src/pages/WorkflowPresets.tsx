@@ -188,7 +188,7 @@ export default function WorkflowPresets() {
         {!!editor.warnings?.length && <div className="wfp-conversion" role="status"><strong>旧版转换说明</strong>{editor.warnings.map((warning, index) => <p key={index}>{warning}</p>)}<p>请确认输入槽和连线。转换草稿会另存，原流程保持不变。</p></div>}
         <WorkflowEditor key={`${editor.preset?.id || 'new'}:${editor.initialFingerprint}`} templateMode graph={editor.graph} bindings={{}} materials={[]} issues={issues.map(issue => ({ message: `${issue.node_id ? `${issue.node_id}：` : ''}${issue.message}`, nodeId: issue.node_id }))}
           onChange={graph => workflow.updateEditor({ graph })} onBindingsChange={() => {}} createNode={newGraphNode}
-          renderParameters={(node, onChange) => <GraphNodeParameters node={node} onChange={onChange} disabled={busy} />} />
+          renderParameters={(node, onChange) => <GraphNodeParameters node={node} onChange={onChange} disabled={busy} allowStructureChanges />} />
       </fieldset>
     </>}
   </div>

@@ -1,7 +1,7 @@
 import type { CapabilityDescriptorResponse, CapabilityOptionResponse } from '@/api/types'
 import type { Delivery, ReferenceAsset, SpeechConnection, SpeechProvider, SpeechRecipe, VoiceVariant } from '@/api/speech'
-import { GRAPH_MIX_OUTPUT_LENGTHS } from './workflowGraph'
-import type { GraphMixOutputLength, GraphNode } from './workflowGraph'
+import { GRAPH_MIX_OUTPUT_LENGTHS, GRAPH_MAX_MIX_TRACKS, graphMixTracks, isMultitrackMix } from './workflowGraph'
+import type { GraphMixOutputLength, GraphMixTrack, GraphNode } from './workflowGraph'
 import { speechLanguageMatches, speechOptionsIssue } from './speechAdvancedOptions'
 import { effectiveSpeechRecipe, speechOverrideIssue } from './speechPresetConsumption'
 import type { SpeechOverrides } from '@/api/speech'
@@ -120,12 +120,32 @@ export const graphMixOutputLengthOptions: { value: GraphMixOutputLength; label: 
 
 /** Old templates inherit main; invalid saved values remain visible for correction. */
 export function graphMixOutputLength(node: GraphNode): GraphMixOutputLength | null {
-  return node.options.output_length === undefined ? 'main'
+  return node.options.output_length === undefined ? isMultitrackMix(node) ? 'longest' : 'main'
     : GRAPH_MIX_OUTPUT_LENGTHS.find(value => value === node.options.output_length) ?? null
 }
 
+export function updateGraphMixTrack(node: GraphNode, id: string, patch: Partial<Omit<GraphMixTrack, 'id'>>): GraphNode {
+  return { ...node, options: { ...node.options, tracks: graphMixTracks(node).map(track => track.id === id ? { ...track, ...patch } : track) } }
+}
+export function addGraphMixTrack(node: GraphNode): GraphNode {
+  const tracks = graphMixTracks(node)
+  if (!isMultitrackMix(node) || tracks.length >= GRAPH_MAX_MIX_TRACKS) return node
+  // Monotonic among the current IDs: deleting a middle track never renumbers its neighbours.
+  let sequence = Math.max(0, ...tracks.map(track => {
+    const value = /^track_\d+$/i.test(track.id) ? Number(track.id.slice(6)) : 0
+    return Number.isSafeInteger(value) && value < Number.MAX_SAFE_INTEGER ? value : 0
+  })) + 1
+  const ids = new Set(tracks.map(track => track.id.toLowerCase()))
+  while (ids.has(`track_${sequence}`)) sequence++
+  return { ...node, options: { ...node.options, tracks: [...tracks, { id: `track_${sequence}`, gain: 1, offset_ms: 0, muted: false }] } }
+}
+export function removeGraphMixTrack(node: GraphNode, id: string): GraphNode {
+  const tracks = graphMixTracks(node)
+  return tracks.length <= 1 ? node : { ...node, options: { ...node.options, tracks: tracks.filter(track => track.id !== id) } }
+}
+
 export function graphNodeHasAdvancedParameters(node: GraphNode): boolean {
-  return !['align', 'export'].includes(node.kind)
+  return !['align', 'export'].includes(node.kind) && !isMultitrackMix(node)
 }
 
 export function editableGraphOptions(fields: CapabilityOptionResponse[]): CapabilityOptionResponse[] {

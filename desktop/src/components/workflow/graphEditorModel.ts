@@ -1,4 +1,4 @@
-import { GRAPH_CATALOG, type GraphDefinition, type GraphNode, type GraphNodeKind, type GraphEdge, type GraphBindings, type GraphInputSlot } from '@/domain/workflowGraph'
+import { graphNodeInputs, GRAPH_CATALOG, type GraphDefinition, type GraphNode, type GraphNodeKind, type GraphEdge, type GraphBindings, type GraphInputSlot } from '@/domain/workflowGraph'
 
 export interface WorkflowMaterial {
   id: string
@@ -55,10 +55,11 @@ export function wouldCycle(graph: GraphDefinition, edge: GraphEdge): boolean {
 export function connectPort(graph: GraphDefinition, target: GraphEdge['target'], source: GraphEdge['source'] | null): { graph: GraphDefinition; error: string } {
   const targetNode = graph.nodes.find(node => node.id === target.node_id)
   if (!targetNode) return { graph, error: '目标节点已不存在' }
+  if (!graphNodeInputs(targetNode)[target.port]) return { graph, error: '目标输入端口已不存在' }
   const edges = graph.edges.filter(edge => edge.target.node_id !== target.node_id || edge.target.port !== target.port)
   if (!source) return { graph: { ...graph, edges }, error: '' }
   const candidate = { source, target }
-  if (sourceType(graph, source) !== GRAPH_CATALOG[targetNode.kind].inputs[target.port]) return { graph, error: '端口类型不匹配；请选择同类型的来源' }
+  if (sourceType(graph, source) !== graphNodeInputs(targetNode)[target.port]) return { graph, error: '端口类型不匹配；请选择同类型的来源' }
   if (wouldCycle({ ...graph, edges }, candidate)) return { graph, error: '这条连线会形成循环；请改选其他来源' }
   return { graph: { ...graph, edges: [...edges, candidate] }, error: '' }
 }
@@ -73,7 +74,9 @@ export function nextNodeId(graph: GraphDefinition, kind: GraphNodeKind): string 
   return `${kind}_${count}`
 }
 export function updateNode(graph: GraphDefinition, node: GraphNode): GraphDefinition {
-  return { ...graph, nodes: graph.nodes.map(item => item.id === node.id ? node : item) }
+  const inputs = graphNodeInputs(node)
+  return { ...graph, nodes: graph.nodes.map(item => item.id === node.id ? node : item),
+    edges: graph.edges.filter(edge => edge.target.node_id !== node.id || Object.prototype.hasOwnProperty.call(inputs, edge.target.port)) }
 }
 /** Removing a slot leaves its consumers unbound; never guesses replacement input. */
 export function removeInputSlot(graph: GraphDefinition, id: string): GraphDefinition {
