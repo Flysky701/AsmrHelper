@@ -1,3 +1,4 @@
+import { speechProviderText } from '@/locales/voices'
 import { t, format, useI18n } from '@/i18n'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -21,7 +22,7 @@ import { copyRecipeToGraphNode, editableGraphOptions, freshGraphSpeechNode, grap
   graphMixOutputLength, graphMixOutputLengthOptions, addGraphMixTrack, removeGraphMixTrack, updateGraphMixTrack,
   parseGraphObjectOption, readGraphSpeechSource, retainedGraphOptions, setGraphOption, unknownGraphOptions, withGraphSpeechSource } from '@/domain/graphNodeParameters'
 import type { GraphParameterSection, GraphSpeechSource } from '@/domain/graphNodeParameters'
-import { availableSpeechOptions, speechLanguageMatches } from '@/domain/speechAdvancedOptions'
+import { availableSpeechOptions, speechLanguageMatches, speechCapabilities } from '@/domain/speechAdvancedOptions'
 import './GraphNodeParameters.css'
 
 interface Props { node: GraphNode; onChange: (node: GraphNode) => void; disabled?: boolean; section?: GraphParameterSection; allowStructureChanges?: boolean }
@@ -381,7 +382,7 @@ export function LegacySpeechParameters({ node, onChange, requestChange, requestE
   const issue = loading || error ? '' : graphSpeechIssue(node, provider, recipes, assets, connections)
   const updateSource = (patch: Partial<GraphSpeechSource>) => { if (source) onChange(withGraphSpeechSource(node, { ...source, ...patch })) }
   const changeValue = (value: string) => { if (source) updateSource({ variant: { ...source.variant, value } }) }
-  const capabilities = compatibleSource ? mode?.capabilities ?? provider?.capabilities : undefined
+  const capabilities = compatibleSource ? speechCapabilities(provider, source?.mode ?? '', node.model ?? '') : undefined
   const deliveryCaps = capabilities?.delivery as Record<string, { support?: string }> | undefined
   const emotionCaps = capabilities?.emotion as { support?: string } | undefined
   const fields = compatibleSource ? availableSpeechOptions(provider, source?.mode ?? '', node.model ?? '') : []
@@ -414,6 +415,7 @@ export function LegacySpeechParameters({ node, onChange, requestChange, requestE
         configuration={<><p className="graph-param-note">默认变更不覆盖已绑定节点或已保存音色。缺失的旧引用需要明确重选。</p>{source && !node.options.speech_recipe_id && connectionControl}<SpeechConnectionManager connections={connections} defaults={defaults} providers={providers} providerId={node.provider} onChanged={async () => { const [next, rules] = await Promise.all([speechApi.connections(), speechApi.rules()]); setConnections(next.connections); setDefaults(next.defaults || []); setRecipes(rules.recipes.filter(item => !item.archived)) }} /></>}
         onSelect={value => { const next = providers.find(item => item.provider_id === value); if (next && value !== node.provider) requestEngineChange(freshGraphSpeechNode(node, next)) }} onRefresh={() => setRevision(value => value + 1)} />
       <Language node={node} field="target_lang" onChange={onChange} />
+      {capabilities?.language_control === 'automatic' && <p className="graph-param-note">{t('目标语言用于新台词，服务按文本自动识别语言。')}</p>}
       {(!source && !node.options.speech_recipe_id || choosingPreset) ? <Field label={t("声音预设")}><select value={previewId} onChange={event => { setPreviewId(event.target.value); setCopyError('') }}>
         <option value="">{t("选择已保存预设，预览后应用")}</option>{recipes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select></Field> : <button type="button" onClick={() => setChoosingPreset(true)}>{t("更换声音预设")}</button>}
@@ -474,10 +476,10 @@ export function LegacySpeechParameters({ node, onChange, requestChange, requestE
             {!catalog.presets.some(item => item.id === source.variant.value) && <option value={source.variant.value}>{source.variant.value || t("选择声音")}</option>}
             {catalog.presets.map(item => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}
           </select> : source.mode === 'design' ? <textarea value={source.variant.value} rows={3} onChange={event => changeValue(event.target.value)} />
-            : <><input list={voiceList} value={source.variant.value} onChange={event => changeValue(event.target.value)} placeholder={catalog.description} />
+            : <><input list={voiceList} value={source.variant.value} onChange={event => changeValue(event.target.value)} placeholder={t(speechProviderText(catalog.description))} />
               <datalist id={voiceList}>{catalog.presets.map(item => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</datalist></>}
         </Field>}
-        {catalog?.description && provider?.provider_id !== 'fish_audio' && <details><summary>{t("声音来源说明")}</summary><p className="graph-param-note">{catalog.description}</p></details>}
+        {catalog?.description && provider?.provider_id !== 'fish_audio' && <details><summary>{t("声音来源说明")}</summary><p className="graph-param-note">{t(speechProviderText(catalog.description))}</p></details>}
         {reference && <div className="graph-param-reference"><p>{reference.name || reference.id} {t(" · 参考录音语言：")}{reference.language === 'auto' || !reference.language ? t("未明确") : t(languageNames[reference.language as GraphLanguage] || reference.language)} · {reference.confirmed ? t("原文已核对") : t("原文未确认")}</p>
           <audio controls preload="none" src={speechApi.referenceAudio(reference.id)} aria-label={t("试听所选参考录音")} />
           <p>{t("参考原文（不翻译）：")}{reference.transcript || t("未提供")}</p></div>}
@@ -497,7 +499,7 @@ function SpeechOption({ name, field, value, disabledReason, onChange }: {
   const current = value ?? field.default
   const numeric = ['number', 'integer'].includes(field.type ?? '')
   return <div className="graph-param-field">
-    <label htmlFor={id}>{optionNames[name] ? t(optionNames[name]!) : field.title || name}</label>
+    <label htmlFor={id}>{optionNames[name] ? t(optionNames[name]!) : t(speechProviderText(field.title || name))}</label>
     {field.type === 'boolean' ? <input id={id} type="checkbox" checked={current === true} disabled={!!disabledReason} onChange={event => onChange(event.target.checked)} />
       : field.enum ? <select id={id} value={String(current ?? '')} disabled={!!disabledReason} onChange={event => onChange(numeric ? Number(event.target.value) : event.target.value)}>
         {field.enum.map(item => <option key={String(item)} value={String(item)}>{String(item)}</option>)}</select>
@@ -506,6 +508,6 @@ function SpeechOption({ name, field, value, disabledReason, onChange }: {
             min={field.minimum} max={field.maximum} step={field.type === 'integer' ? 1 : 'any'} maxLength={field.maxLength}
             onChange={event => onChange(event.target.value === '' ? undefined : numeric ? Number(event.target.value) : event.target.value)} />}
     {disabledReason && <small>{t(disabledReason)}</small>}
-    {!disabledReason && field.description && <details className="graph-param-help"><summary>{t("参数说明")}</summary><small>{field.description}</small></details>}
+    {!disabledReason && field.description && <details className="graph-param-help"><summary>{t("参数说明")}</summary><small>{t(speechProviderText(field.description))}</small></details>}
   </div>
 }

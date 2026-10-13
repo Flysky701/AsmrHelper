@@ -1,3 +1,4 @@
+import { speechProviderText } from '@/locales/voices'
 import { t, useI18n } from '@/i18n'
 import { useEffect, useId, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -7,7 +8,7 @@ import type { GraphNode } from '@/domain/workflowGraph'
 import { graphNodeFromRecipe, graphSpeechIssue, graphSpeechOptionDisabledReason } from '@/domain/graphNodeParameters'
 import type { GraphParameterSection } from '@/domain/graphNodeParameters'
 import { effectiveSpeechRecipe, runtimeSpeechOptions, speechOverrideIssue, withSpeechOverrides } from '@/domain/speechPresetConsumption'
-import { speechLanguageMatches } from '@/domain/speechAdvancedOptions'
+import { speechLanguageMatches, speechCapabilities, speechLanguageSupported } from '@/domain/speechAdvancedOptions'
 import { openSpeechPresetLibrary } from '@/stores/speechPresetHandoffStore'
 
 const deliveryNames: Record<string, string> = { normal: '自然', soft: '轻柔', whisper: '耳语' }
@@ -48,7 +49,7 @@ export default function SpeechPresetParameters({ node, onChange, requestChange, 
   const overrides = (node.options.speech_overrides ?? {}) as SpeechOverrides
   const effective = selected && !overrideIssue ? effectiveSpeechRecipe(selected, overrides) : selected
   const mode = selected && provider?.modes.find(item => item.id === selected.mode && (!item.models.length || item.models.includes(selected.model)))
-  const caps = mode?.capabilities ?? provider?.capabilities
+  const caps = selected ? speechCapabilities(provider, selected.mode, selected.model) : {}
   const delivery = caps?.delivery as Record<string, { support?: string }> | undefined
   const emotion = caps?.emotion as { support?: string } | undefined
   const pause = caps?.pause as { support?: string } | undefined
@@ -91,6 +92,8 @@ export default function SpeechPresetParameters({ node, onChange, requestChange, 
       <Field label={t("合成目标语言")}><select value={node.target_lang ?? ''} onChange={event => onChange({ ...node, target_lang: event.target.value as GraphNode['target_lang'] })}>
         <option value="" disabled>{t("选择语言")}</option>{Object.entries(languages).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
       </select></Field>
+      {caps.language_control === 'automatic' && <p className="graph-param-note">{t('目标语言用于新台词，服务按文本自动识别语言。')}</p>}
+      {selected && !speechLanguageSupported(provider, selected.mode, selected.model, node.target_lang ?? '') && <p role="alert">{t('当前模型不支持所选目标语言，请重新选择。')}</p>}
       {selected && !speechLanguageMatches(selected.language, node.target_lang ?? '') && <p role="alert">{t("音色与目标语言不匹配，请选择适合的音色或修改目标语言。")}</p>}
     </>}
     {selected && validIdentity && mode && <fieldset disabled={loading || !!error || !!overrideIssue} className="graph-param-section">
@@ -120,12 +123,12 @@ export default function SpeechPresetParameters({ node, onChange, requestChange, 
 function Option({ name, field, value, reason, onChange }: { name: string; field: OptionSchema; value: unknown; reason: string; onChange: (value: unknown) => void }) {
   useI18n()
   const id = useId(), current = value ?? field.default, numeric = ['number', 'integer'].includes(field.type ?? '')
-  return <div className="graph-param-field"><label htmlFor={id}>{optionNames[name] ? t(optionNames[name]!) : field.title || name}</label>
+  return <div className="graph-param-field"><label htmlFor={id}>{optionNames[name] ? t(optionNames[name]!) : t(speechProviderText(field.title || name))}</label>
     {field.type === 'boolean' ? <input id={id} type="checkbox" checked={current === true} disabled={!!reason} onChange={event => onChange(event.target.checked)} />
       : field.enum ? <select id={id} value={String(current ?? '')} disabled={!!reason} onChange={event => onChange(numeric ? Number(event.target.value) : event.target.value)}>{field.enum.map(item => <option key={String(item)} value={String(item)}>{String(item)}</option>)}</select>
         : <input id={id} type={numeric ? 'number' : 'text'} value={String(current ?? '')} disabled={!!reason} min={field.minimum} max={field.maximum} maxLength={field.maxLength} step={field.type === 'integer' ? 1 : 'any'}
           onChange={event => onChange(event.target.value === '' ? undefined : numeric ? Number(event.target.value) : event.target.value)} />}
     {reason && <small>{t(reason)}</small>}
-    {field.description && <details><summary>{t("说明")}</summary><small>{field.description}</small></details>}
+    {field.description && <details><summary>{t("说明")}</summary><small>{t(speechProviderText(field.description))}</small></details>}
   </div>
 }

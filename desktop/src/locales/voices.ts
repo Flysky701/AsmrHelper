@@ -1,5 +1,19 @@
 /** Application-owned voice UI copy. Voice/model names and user content stay unchanged. */
 export const voiceMessages: Record<string, string> = {
+  "风格指令": "Style instructions",
+  "本次合成的风格指令，不会作为台词朗读。": "Turn-level style metadata; never appended to the spoken text.",
+  "Gemini 内置音色；语言按输入文本识别。": "Gemini studio voices; language follows the input text.",
+  "填写 Gemini 账户中已有的持久 voice_ 音色 ID；不会创建云端音色。": "Existing persistent voice_ ID from your Gemini account; this does not create a voice.",
+  "稳定度": "Stability",
+  "填写已有的 ElevenLabs 音色 ID": "Enter an existing ElevenLabs Voice ID",
+  "演绎风格": "Speech style",
+  "用自然语言描述演绎方式，不会作为台词朗读。": "Natural-language delivery instructions; not spoken text.",
+  "MiMo 内置音色；默认音色取决于服务区域。": "Built-in MiMo voices; mimo_default depends on the service region.",
+  "MiMo 默认音色（取决于服务区域）": "MiMo default (region dependent)",
+
+  '目标语言用于新台词，服务按文本自动识别语言。': 'The target language applies to new lines. The service detects the language from the text.',
+  '当前模型不支持所选目标语言，请重新选择。': 'This model does not support the selected target language. Choose another language.',
+
   "音频不可读取": "Audio could not be read",
   "音量校准不可用：{0}": "Loudness matching unavailable: {0}",
   "音频无法播放，请检查候选产物是否仍存在": "Cannot play audio. Check that the candidate file still exists.",
@@ -609,7 +623,6 @@ export const voiceMessages: Record<string, string> = {
   "输入 API 密钥": "Enter API key",
   "更换 API 地址时需重新填写密钥。": "Re-enter the key when changing the API URL.",
   "保存服务": "Save service",
-  "语速": "Speed",
   "采样温度": "Sampling temperature",
   "采样范围（top_p）": "Sampling range (top_p)",
   "风格描述": "Style description",
@@ -674,3 +687,19 @@ export const voiceMessages: Record<string, string> = {
   "运行中": "Running",
   "已完成": "Completed"
 }
+
+// Only provider-owned static labels are mapped; arbitrary server text and user names stay intact.
+const providerCopy: Record<string, string> = {
+  "Style instructions": "风格指令",
+  "Turn-level style metadata; never appended to the spoken text.": "本次合成的风格指令，不会作为台词朗读。",
+  "Gemini studio voices; language follows the input text.": "Gemini 内置音色；语言按输入文本识别。",
+  "Existing persistent voice_ ID from your Gemini account; this does not create a voice.": "填写 Gemini 账户中已有的持久 voice_ 音色 ID；不会创建云端音色。",
+  "Speed": "语速",
+  "Stability": "稳定度",
+  "Enter an existing ElevenLabs Voice ID": "填写已有的 ElevenLabs 音色 ID",
+  "Speech style": "演绎风格",
+  "Natural-language delivery instructions; not spoken text.": "用自然语言描述演绎方式，不会作为台词朗读。",
+  "Built-in MiMo voices; mimo_default depends on the service region.": "MiMo 内置音色；默认音色取决于服务区域。",
+  "MiMo default (region dependent)": "MiMo 默认音色（取决于服务区域）"
+}
+export function speechProviderText(source: string): string { return providerCopy[source] ?? source }

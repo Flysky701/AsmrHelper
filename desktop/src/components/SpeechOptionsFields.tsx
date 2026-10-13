@@ -1,3 +1,4 @@
+import { speechProviderText } from '@/locales/voices'
 import { t, useI18n } from '@/i18n'
 import { useId } from 'react'
 import type { SpeechProvider } from '@/api/speech'
@@ -22,13 +23,13 @@ export default function SpeechOptionsFields({ provider, mode, model, values, onC
       const value = values[key] ?? field.default
       if (provider?.provider_id === 'qwen3' && mode === 'reference' && key === 'x_vector_only_mode') return <QwenReferenceMode key={key} value={value === true} onChange={next => update(key, next)} />
       return <div key={key} className="speech-option">
-        <label htmlFor={controlId}>{t(field.title || names[key] || key)}</label>
+        <label htmlFor={controlId}>{t(speechProviderText(field.title || names[key] || key))}</label>
         {field.type === 'boolean' ? <input id={controlId} type="checkbox" checked={value === true} aria-describedby={field.description ? controlId + '-hint' : undefined} onChange={event => update(key, event.target.checked)} />
           : field.enum ? <select id={controlId} value={String(value ?? '')} onChange={event => update(key, ['number', 'integer'].includes(field.type || '') ? Number(event.target.value) : event.target.value)}>{field.enum.map(option => <option key={String(option)} value={String(option)}>{String(option)}</option>)}</select>
           : field.type === 'string' && (field.maxLength || 0) > 200 ? <textarea id={controlId} rows={3} maxLength={field.maxLength} value={String(value ?? '')} onChange={event => update(key, event.target.value || undefined)} />
           : <input id={controlId} type={['number', 'integer'].includes(field.type || '') ? 'number' : 'text'} min={field.minimum} max={field.maximum} maxLength={field.maxLength} step={field.type === 'integer' ? 1 : 'any'} value={String(value ?? '')} aria-describedby={field.description ? controlId + '-hint' : undefined}
             onChange={event => update(key, event.target.value === '' ? undefined : ['number', 'integer'].includes(field.type || '') ? Number(event.target.value) : event.target.value)} />}
-        {field.description && <details className="speech-option-help"><summary>{t("参数说明")}</summary><p id={controlId + '-hint'}>{t(field.description)}</p></details>}
+        {field.description && <details className="speech-option-help"><summary>{t("参数说明")}</summary><p id={controlId + '-hint'}>{t(speechProviderText(field.description))}</p></details>}
       </div>
     })}
     {!fields.length && <p>{t("当前引擎没有额外可调参数。")}</p>}

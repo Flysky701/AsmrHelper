@@ -231,6 +231,10 @@ def freeze_graph_speech(profile: dict) -> dict:
         language = snapshot["recipe"].get("language", "auto")
         if language not in ("auto", node.get("target_lang")):
             raise ValueError(f"节点 {node['id']} 的声音规则语言与目标字幕不一致")
+        # Resolving 'auto' can select a language outside a model's capability.
+        # Reject it during submission, before a remote request can be charged.
+        from src.core.speech.providers import get_provider
+        get_provider(snapshot["recipe"]["provider_id"]).validate(snapshot["recipe"], snapshot.get("assets", {}))
         snapshots[node["id"]] = snapshot
     return result
 

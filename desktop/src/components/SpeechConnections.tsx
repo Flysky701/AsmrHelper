@@ -3,10 +3,10 @@ import { useEffect, useRef, useState } from 'react'
 import SpeechConnectionManager from './SpeechConnectionManager'
 import { useConnectionDraftGuard } from '@/hooks/useConnectionDraftGuard'
 import { speechApi } from '@/api/speech'
+import { speechProviderBaseUrl } from '@/domain/speechAdvancedOptions'
 import type { SpeechConnection, SpeechConnectionDefault, SpeechProvider } from '@/api/speech'
 
 type Editor = Partial<SpeechConnection> & { name: string; provider_id: string; deployment: SpeechConnection['deployment']; api_key: string }
-const FISH_BASE_URL = 'https://api.fish.audio/v1'
 
 export default function SpeechConnections() {
   useI18n()
@@ -43,11 +43,12 @@ export default function SpeechConnections() {
   async function edit(connection?: SpeechConnection) {
     if (!(await canDiscard())) return
     setNotice('')
+    const initialProvider = providers.find(item => item.provider_id === 'openai_compatible') || providers[0]
     const next: Editor = connection ? {
       id: connection.id, name: connection.name, provider_id: connection.provider_id,
-      deployment: connection.deployment, base_url: connection.base_url || (connection.provider_id === 'fish_audio' ? FISH_BASE_URL : ''),
+      deployment: connection.deployment, base_url: connection.base_url || '',
       credential_configured: connection.credential_configured, api_key: '',
-    } : { name: '', provider_id: providers.find(item => item.provider_id === 'openai_compatible')?.provider_id || providers[0]?.provider_id || '', deployment: 'cloud', base_url: '', api_key: '' }
+    } : { name: '', provider_id: initialProvider?.provider_id || '', deployment: 'cloud', base_url: speechProviderBaseUrl(initialProvider), api_key: '' }
     editorBaseline.current = JSON.stringify(next)
     setEditor(next)
   }
@@ -110,7 +111,7 @@ export default function SpeechConnections() {
       {editor && <fieldset disabled={!!busy} className="external-service-editor">
         <div className="external-service-card-heading"><h3>{editor.id ? t('编辑语音服务') : t('添加语音服务')}</h3><button className="external-service-button" onClick={async () => { if (await canDiscard()) setEditor(null) }}>{t("收起")}</button></div>
         <label className="external-service-field">{t("连接名称")}<input value={editor.name} maxLength={80} onChange={event => setEditor({ ...editor, name: event.target.value })} placeholder={t("例如：日常配音")} /></label>
-        <label className="external-service-field">{t("接口协议")}<select value={editor.provider_id} disabled={!!editor.id} onChange={event => setEditor({ ...editor, provider_id: event.target.value, base_url: event.target.value === 'fish_audio' ? FISH_BASE_URL : '', deployment: 'cloud', api_key: '' })}>
+        <label className="external-service-field">{t("接口协议")}<select value={editor.provider_id} disabled={!!editor.id} onChange={event => setEditor({ ...editor, provider_id: event.target.value, base_url: speechProviderBaseUrl(providers.find(item => item.provider_id === event.target.value)), deployment: 'cloud', api_key: '' })}>
           {providers.map(item => <option key={item.provider_id} value={item.provider_id}>{item.name}</option>)}
         </select></label>
         {editor.provider_id !== 'fish_audio' && <label className="external-service-field">{t("运行位置")}<select value={editor.deployment} onChange={event => setEditor({ ...editor, deployment: event.target.value as SpeechConnection['deployment'] })}><option value="cloud">{t("云端")}</option><option value="lan">{t("局域网")}</option><option value="local">{t("本机服务")}</option></select></label>}

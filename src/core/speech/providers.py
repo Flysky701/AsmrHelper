@@ -119,10 +119,13 @@ class SpeechProvider:
             mode["capabilities"] = self.capabilities(mode["models"][0] if mode["models"] else None, mode["id"])
             mode["voice_sources"] = self.voice_sources(mode["id"])
             mode["runtime_options"] = self.runtime_options(mode["models"][0] if mode["models"] else None, mode["id"])
+            mode["model_capabilities"] = {model: self.capabilities(model, mode["id"]) for model in mode["models"]}
+            mode["model_runtime_options"] = {model: self.runtime_options(model, mode["id"]) for model in mode["models"]}
         return deepcopy({"provider_id": self.provider_id, "name": {"fish_audio": "Fish Audio", "edge": "Edge TTS",
             "qwen3": "Qwen3 TTS", "voxcpm2": "VoxCPM2", "openai_compatible": "OpenAI 兼容语音"}.get(self.provider_id, getattr(self, "name", self.provider_id)),
             "version": self.version, "contract_version": 1, "remote": self.remote,
             "connection_required": self.http,
+            "default_base_url": getattr(self, "default_base_url", None),
             "modes": modes, "options_schema": {"type": "object", "additionalProperties": False,
             "properties": self.options_schema}, "capabilities": self.capabilities()})
 
@@ -243,6 +246,11 @@ class SpeechProvider:
             raise ProviderError("invalid_options", "引擎参数版本无效或包含未知字段")
         resolved = {}
         for key, rule in schema.items():
+            if rule.get("applies_to_models") and recipe.get("model") not in rule["applies_to_models"]:
+                if key in options:
+                    raise ProviderError("invalid_options", f"当前模型不支持参数：{key}")
+                continue
+            rule = {**rule, **rule.get("model_overrides", {}).get(recipe.get("model"), {})}
             value = options.get(key, rule.get("default"))
             valid = ((rule["type"] == "number" and type(value) in (int, float) and math.isfinite(value))
                 or (rule["type"] == "integer" and type(value) is int)
@@ -536,6 +544,25 @@ class SpeechProvider:
 
 
 _PROVIDERS = {name: SpeechProvider(name) for name in SCHEMAS}
+_CLOUD_REGISTERED = False
+_CLOUD_LOCK = threading.Lock()
+
+
+def _ensure_cloud_providers():
+    # Lazy registration also allows adapters to import the base contract without
+    # creating a circular import when a focused test imports an adapter first.
+    global _CLOUD_REGISTERED
+    if _CLOUD_REGISTERED:
+        return
+    with _CLOUD_LOCK:
+        if _CLOUD_REGISTERED:
+            return
+        from .cloud_gemini import GeminiSpeechProvider
+        from .cloud_elevenlabs import ElevenLabsSpeechProvider
+        from .cloud_mimo import MimoSpeechProvider
+        for provider in (GeminiSpeechProvider(), ElevenLabsSpeechProvider(), MimoSpeechProvider()):
+            register_provider(provider)
+        _CLOUD_REGISTERED = True
 
 
 def register_provider(provider):
@@ -545,6 +572,7 @@ def register_provider(provider):
 
 
 def get_provider(provider_id):
+    _ensure_cloud_providers()
     try:
         return _PROVIDERS[provider_id]
     except (KeyError, TypeError):
@@ -552,4 +580,5 @@ def get_provider(provider_id):
 
 
 def list_providers():
+    _ensure_cloud_providers()
     return [provider.describe() for provider in _PROVIDERS.values()]
