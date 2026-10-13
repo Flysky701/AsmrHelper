@@ -4,6 +4,7 @@ import { graphNodeInputs, GRAPH_CATALOG, GRAPH_ADDABLE_NODE_KINDS, type GraphDef
 import { WorkflowNode } from './WorkflowNode'
 import { WorkflowInspector } from './WorkflowInspector'
 import { bindingIssues, connectPort, removeNode, removeInputSlot, sourceKey, TYPE_NAMES, updateNode, updateInputSlot, type WorkflowMaterial } from './graphEditorModel'
+import { MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM, clampCanvasZoom, canvasPoint, zoomedScroll, draggedCanvasPoint, fitCanvasView, pannedCanvasScroll } from './canvasViewport'
 import './WorkflowEditor.css'
 
 export interface WorkflowEditorIssue { message: string; nodeId?: string }
@@ -61,12 +62,21 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
   const [narrow, setNarrow] = useState(false)
   const [compactPane, setCompactPane] = useState<'canvas' | 'inspector'>('canvas')
   const [moved, setMoved] = useState<Record<string, Point>>({})
+  const [viewport, setViewport] = useState({ width: 0, height: 0 })
+  const paddingRef = useRef<Point>({ x: 0, y: 0 })
+  const panRef = useRef<{ pointerId: number; x: number; y: number; scroll: Point } | null>(null)
+  const spaceRef = useRef(false)
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const [panning, setPanning] = useState(false)
+  const [zoom, setZoom] = useState(1)
+  const zoomRef = useRef(1)
+  const pendingScrollRef = useRef<Point | null>(null)
   const [lines, setLines] = useState<Line[]>([])
   const [measuredExtent, setMeasuredExtent] = useState({ width: 0, height: 0 })
   const editorRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<{ id: string; x: number; y: number; origin: Point; scrollLeft: number; scrollTop: number } | null>(null)
+  const dragRef = useRef<{ id: string; x: number; y: number; origin: Point; zoom: number; scrollLeft: number; scrollTop: number } | null>(null)
   const revealRef = useRef<string | null>(null)
   const layout = autoPositions(graph, narrow, templateMode)
   // Deleted nodes cannot keep the stage expanded through an obsolete drag position.
@@ -85,13 +95,23 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
       setEditorWidth(editor.clientWidth)
       // The available canvas width, rather than window width or device pixels,
       // determines whether the compact one-column arrangement is useful.
-      if (scroll.clientWidth) setNarrow(scroll.clientWidth < 340)
+      if (scroll.clientWidth) {
+        setNarrow(scroll.clientWidth < 340)
+        setViewport(current => current.width === scroll.clientWidth && current.height === scroll.clientHeight ? current
+          : { width: scroll.clientWidth, height: scroll.clientHeight })
+      }
     }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(editor); observer.observe(scroll)
     return () => observer.disconnect()
   }, [])
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current, prior = paddingRef.current
+    paddingRef.current = { x: viewport.width, y: viewport.height }
+    if (scroll) scroll.scrollTo({ left: scroll.scrollLeft + viewport.width - prior.x,
+      top: scroll.scrollTop + viewport.height - prior.y, behavior: 'instant' })
+  }, [viewport.width, viewport.height])
   useEffect(() => { if (!graph.nodes.some(item => item.id === selectedId)) setSelectedId(graph.nodes[0]?.id || '') }, [graph.nodes, selectedId])
   useLayoutEffect(() => {
     const stage = stageRef.current
@@ -109,8 +129,8 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
         if (!from || !to) return []
         const start = from.querySelector('.wg-port-dot')?.getBoundingClientRect() || from.getBoundingClientRect()
         const end = to.querySelector('.wg-port-dot')?.getBoundingClientRect() || to.getBoundingClientRect()
-        const sx = start.left + start.width / 2 - origin.left; const sy = start.top + start.height / 2 - origin.top
-        const tx = end.left + end.width / 2 - origin.left; const ty = end.top + end.height / 2 - origin.top
+        const { x: sx, y: sy } = canvasPoint({ x: start.left + start.width / 2, y: start.top + start.height / 2 }, { x: origin.left, y: origin.top }, zoom)
+        const { x: tx, y: ty } = canvasPoint({ x: end.left + end.width / 2, y: end.top + end.height / 2 }, { x: origin.left, y: origin.top }, zoom)
         const curve = narrow ? `M${sx},${sy} C${sx + 38},${sy + 42} ${tx - 38},${ty - 42} ${tx},${ty}` : `M${sx},${sy} C${sx + 64},${sy} ${tx - 64},${ty} ${tx},${ty}`
         return [{ id: String(index), path: curve, type: graph.input_slots.find(slot => edge.source.kind === 'slot' && slot.id === edge.source.slot_id)?.type || (edge.source.kind === 'node' && edge.source.port === 'audio' ? 'audio' : 'subtitle') }]
       }))
@@ -120,12 +140,12 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
     observer.observe(stage)
     stage.querySelectorAll<HTMLElement>('[data-canvas-id]').forEach(card => observer.observe(card))
     return () => observer.disconnect()
-  }, [graph, bindings, narrow, moved])
+  }, [graph, bindings, narrow, moved, zoom])
   function reveal(id: string) {
     const scroll = scrollRef.current, stage = stageRef.current
     const card = Array.from(stage?.querySelectorAll<HTMLElement>('[data-canvas-id]') || []).find(item => item.dataset.canvasId === id)
     if (!scroll || !card) return
-    scroll.scrollTo({ left: Math.max(0, card.offsetLeft - 24), top: Math.max(0, card.offsetTop - 24), behavior: 'instant' })
+    scroll.scrollTo({ left: Math.max(0, viewport.width + card.offsetLeft * zoom - 24), top: Math.max(0, viewport.height + card.offsetTop * zoom - 24), behavior: 'instant' })
   }
   useLayoutEffect(() => {
     if (!revealRef.current) return
@@ -139,17 +159,96 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
     if (!result.error) { onChange(result.graph); setPendingSource(null) }
   }
   function moveStart(id: string, event: PointerEvent<HTMLElement>) {
-    if (narrow || event.button !== 0) return
-    dragRef.current = { id, x: event.clientX, y: event.clientY, origin: positions[id]!, scrollLeft: scrollRef.current?.scrollLeft || 0, scrollTop: scrollRef.current?.scrollTop || 0 }
+    if (narrow || event.button !== 0 || panRef.current) return
+    dragRef.current = { id, x: event.clientX, y: event.clientY, origin: positions[id]!, zoom, scrollLeft: scrollRef.current?.scrollLeft || 0, scrollTop: scrollRef.current?.scrollTop || 0 }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
   function move(event: PointerEvent<HTMLDivElement>) {
     const drag = dragRef.current
     if (!drag || narrow) return
-    const x = Math.max(10, drag.origin.x + event.clientX - drag.x + (scrollRef.current?.scrollLeft || 0) - drag.scrollLeft)
-    const y = Math.max(12, drag.origin.y + event.clientY - drag.y + (scrollRef.current?.scrollTop || 0) - drag.scrollTop)
-    setMoved(current => ({ ...current, [drag.id]: { x, y } }))
+    const point = draggedCanvasPoint(drag.origin, {
+      x: event.clientX - drag.x + (scrollRef.current?.scrollLeft || 0) - drag.scrollLeft,
+      y: event.clientY - drag.y + (scrollRef.current?.scrollTop || 0) - drag.scrollTop,
+    }, drag.zoom)
+    setMoved(current => ({ ...current, [drag.id]: point }))
   }
+  function applyView(next: number, scroll: Point) {
+    zoomRef.current = next
+    if (next === zoom) scrollRef.current?.scrollTo({ left: scroll.x, top: scroll.y, behavior: 'instant' })
+    else { pendingScrollRef.current = scroll; setZoom(next) }
+  }
+  function changeZoom(value: number, anchor?: Point) {
+    const scroll = scrollRef.current
+    if (!scroll || dragRef.current || panRef.current) return
+    const next = clampCanvasZoom(value)
+    applyView(next, zoomedScroll({ x: scroll.scrollLeft, y: scroll.scrollTop },
+      anchor ?? { x: scroll.clientWidth / 2, y: scroll.clientHeight / 2 }, zoomRef.current, next, { x: viewport.width, y: viewport.height }))
+  }
+  function fitNodes() {
+    const scroll = scrollRef.current, stage = stageRef.current
+    if (!scroll || !stage || dragRef.current || panRef.current) return
+    const cards = Array.from(stage.querySelectorAll<HTMLElement>('[data-canvas-id]'))
+    if (!cards.length) { applyView(1, { x: viewport.width, y: viewport.height }); return }
+    const x = Math.min(...cards.map(card => card.offsetLeft)), y = Math.min(...cards.map(card => card.offsetTop))
+    const view = fitCanvasView({ x, y, width: Math.max(...cards.map(card => card.offsetLeft + card.offsetWidth)) - x,
+      height: Math.max(...cards.map(card => card.offsetTop + card.offsetHeight)) - y }, { width: scroll.clientWidth, height: scroll.clientHeight })
+    applyView(view.zoom, { x: viewport.width + view.scroll.x, y: viewport.height + view.scroll.y })
+  }
+  useLayoutEffect(() => {
+    const position = pendingScrollRef.current
+    if (position) { scrollRef.current?.scrollTo({ left: position.x, top: position.y, behavior: 'instant' }); pendingScrollRef.current = null }
+  }, [zoom])
+  useEffect(() => {
+    const scroll = scrollRef.current
+    if (!scroll) return
+    const wheel = (event: WheelEvent) => {
+      // Plain wheel scrolls normally; Ctrl/Meta wheel remains the browser's gesture.
+      if (!event.altKey || event.ctrlKey || event.metaKey || dragRef.current || panRef.current) return
+      event.preventDefault()
+      const rect = scroll.getBoundingClientRect()
+      changeZoom(zoomRef.current * Math.exp(-Math.sign(event.deltaY) * 0.12),
+        { x: event.clientX - rect.left - scroll.clientLeft, y: event.clientY - rect.top - scroll.clientTop })
+    }
+    scroll.addEventListener('wheel', wheel, { passive: false })
+    return () => scroll.removeEventListener('wheel', wheel)
+  }, [zoom, viewport.width, viewport.height])
+  function editingTarget(target: EventTarget) {
+    return target instanceof Element && Boolean(target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])'))
+  }
+  function stopPan() {
+    const pan = panRef.current
+    panRef.current = null; setPanning(false)
+    if (pan && scrollRef.current?.hasPointerCapture(pan.pointerId)) scrollRef.current.releasePointerCapture(pan.pointerId)
+  }
+  function panStart(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || dragRef.current || editingTarget(event.target)) return
+    const target = event.target as Element
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (event.clientX >= rect.left + event.currentTarget.clientWidth || event.clientY >= rect.top + event.currentTarget.clientHeight) return
+    if (!spaceRef.current && target.closest('[data-canvas-id]')) return
+    event.preventDefault(); event.stopPropagation()
+    const scroll = event.currentTarget
+    panRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+      scroll: { x: scroll.scrollLeft, y: scroll.scrollTop } }
+    scroll.setPointerCapture(event.pointerId)
+    scroll.focus({ preventScroll: true }); setPanning(true)
+  }
+  function panMove(event: PointerEvent<HTMLDivElement>) {
+    const pan = panRef.current
+    if (!pan || pan.pointerId !== event.pointerId) return
+    event.preventDefault()
+    const point = pannedCanvasScroll(pan.scroll, { x: event.clientX - pan.x, y: event.clientY - pan.y })
+    event.currentTarget.scrollTo({ left: point.x, top: point.y, behavior: 'instant' })
+  }
+  useEffect(() => {
+    const releaseSpace = (event: KeyboardEvent) => { if (event.code === 'Space' || event.key === ' ') { spaceRef.current = false; setSpaceHeld(false) } }
+    const cancel = () => { stopPan(); dragRef.current = null; spaceRef.current = false; setSpaceHeld(false) }
+    const visibility = () => { if (document.hidden) cancel() }
+    window.addEventListener('keyup', releaseSpace)
+    window.addEventListener('blur', cancel)
+    document.addEventListener('visibilitychange', visibility)
+    return () => { window.removeEventListener('keyup', releaseSpace); window.removeEventListener('blur', cancel); document.removeEventListener('visibilitychange', visibility) }
+  }, [])
   function confirmRemoval() {
     if (!removal) return
     if (removal.graph !== graph) { setRemoval(null); setError('流程已更改，请重新选择要删除的卡片。'); return }
@@ -180,15 +279,40 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
       <div className="wg-library-note"><strong>{t("素材与交付")}</strong><p>{t("输入槽为节点提供素材；在节点设置顶部勾选要交付的音频或字幕。")}</p></div>
     </aside>
     <nav className="wg-pane-switch" aria-label={t("编辑区域")}><button type="button" aria-pressed={compactPane === 'canvas'} onClick={() => setCompactPane('canvas')}>{t("流程画布")}</button><button type="button" aria-pressed={compactPane === 'inspector'} onClick={() => setCompactPane('inspector')}>{t("节点设置")}{node ? ` · ${node.id}` : ''}</button></nav>
-    <main className="wg-main"><div className="wg-canvas-toolbar"><div><strong>{t("流程画布")}</strong><span>{graph.nodes.length} {t(" 节点 · ")}{graph.edges.length} {t(" 连线")}</span></div><div className="wg-canvas-actions"><select aria-label={t("定位画布节点")} value="" onChange={event => { const id = event.target.value; if (!id) return; if (!id.startsWith('slot:')) setSelectedId(id); reveal(id) }}><option value="">{t("定位节点…")}</option>{graph.input_slots.map(slot => <option key={`slot:${slot.id}`} value={`slot:${slot.id}`}>{slot.label} · {slot.id}</option>)}{graph.nodes.map(item => <option key={item.id} value={item.id}>{t(GRAPH_CATALOG[item.kind].label)} · {item.id}</option>)}</select><button type="button" onClick={() => { setMoved({}); scrollRef.current?.scrollTo({ left: 0, top: 0 }) }}>{t("整理布局")}</button></div></div>
+    <main className="wg-main"><div className="wg-canvas-toolbar"><div><strong>{t("流程画布")}</strong><span>{graph.nodes.length} {t(" 节点 · ")}{graph.edges.length} {t(" 连线")}</span></div><div className="wg-canvas-actions"><select aria-label={t("定位画布节点")} value="" onChange={event => { const id = event.target.value; if (!id) return; if (!id.startsWith('slot:')) setSelectedId(id); reveal(id) }}><option value="">{t("定位节点…")}</option>{graph.input_slots.map(slot => <option key={`slot:${slot.id}`} value={`slot:${slot.id}`}>{slot.label} · {slot.id}</option>)}{graph.nodes.map(item => <option key={item.id} value={item.id}>{t(GRAPH_CATALOG[item.kind].label)} · {item.id}</option>)}</select><button type="button" onClick={() => { setMoved({}); scrollRef.current?.scrollTo({ left: viewport.width, top: viewport.height }) }}>{t("整理布局")}</button></div></div>
+      <div className="wg-zoom-toolbar" role="group" aria-label={t('画布缩放')}>
+        <button type="button" aria-label={t('缩小画布')} disabled={zoom <= MIN_CANVAS_ZOOM} onClick={() => changeZoom(zoomRef.current / 1.2)}>−</button>
+        <output aria-label={t('当前缩放')}>{Math.round(zoom * 100)}%</output>
+        <button type="button" aria-label={t('放大画布')} disabled={zoom >= MAX_CANVAS_ZOOM} onClick={() => changeZoom(zoomRef.current * 1.2)}>+</button>
+        <button type="button" onClick={fitNodes}>{t('适应全部节点')}</button>
+        <button type="button" onClick={() => changeZoom(1)}>{t('恢复 100%')}</button>
+        <span className="wg-zoom-help" title={t('画布聚焦时用 + / − 缩放，0 恢复，F 适应；Alt + 滚轮缩放；空白处或按住空格拖动平移。')}>{t('Alt + 滚轮缩放；空白处或空格拖动平移')}</span>
+      </div>
       <div className="wg-connect-instruction" role="status">{pendingSource ? <><strong>{t("已选：")}{pendingLabel}</strong><span>{t("点击目标输入完成连线")}</span><button type="button" onClick={() => setPendingSource(null)}>{t("取消")}</button></> : <><i className="wg-port-dot subtitle" /><span>{t("选择输出端口，再选择输入端口；也可在右侧指定来源。")}</span></>}</div>
       {error && <div className="wg-connection-error" role="alert">{t(error)}</div>}
       {removal && <section className="wg-delete-confirm" aria-label={t("确认删除卡片")}>
         <p>{format("删除{0}「{1}」及其关联连线{2}？下游会缺少来源；素材文件和历史任务保持不变。", [t(removal.kind === 'slot' ? '输入槽' : '节点'), removal.id, removal.kind === 'node' ? t('与产出') : ''])}</p>
         <div><button type="button" autoFocus onClick={() => setRemoval(null)}>{t("取消")}</button><button type="button" onClick={confirmRemoval}>{t("确认删除")}</button></div>
       </section>}
-      <div className="wg-canvas-scroll" ref={scrollRef} role="region" aria-label={t("节点画布")} tabIndex={0}>
-        <div className="wg-canvas-stage" ref={stageRef} style={{ width: extent.width, height: extent.height }} onPointerMove={move} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }}>
+      <div className={`wg-canvas-scroll${panning ? ' is-panning' : ''}${spaceHeld ? ' is-space-panning' : ''}`} ref={scrollRef} role="region" aria-label={t("节点画布")} tabIndex={0}
+        title={t('画布聚焦时用 + / − 缩放，0 恢复，F 适应；Alt + 滚轮缩放；空白处或按住空格拖动平移。')}
+        onPointerDownCapture={panStart} onPointerMove={panMove} onPointerUp={stopPan} onPointerCancel={stopPan} onLostPointerCapture={stopPan}
+        onKeyUp={event => { if ((event.code === 'Space' || event.key === ' ') && spaceRef.current) { event.preventDefault(); spaceRef.current = false; setSpaceHeld(false) } }}
+        onKeyDown={event => {
+          if (event.key === 'Escape') { stopPan(); spaceRef.current = false; setSpaceHeld(false) }
+          if ((event.code === 'Space' || event.key === ' ') && !event.ctrlKey && !event.metaKey && !event.altKey && !editingTarget(event.target)) {
+            event.preventDefault(); spaceRef.current = true; setSpaceHeld(true); return
+          }
+          if (event.target !== event.currentTarget || event.ctrlKey || event.metaKey || event.altKey) return
+          if (['+', '=', '-', '0', 'f', 'F'].includes(event.key)) {
+            event.preventDefault()
+            if (event.key === '0') changeZoom(1)
+            else if (event.key.toLowerCase() === 'f') fitNodes()
+            else changeZoom(zoomRef.current * (event.key === '-' ? 1 / 1.2 : 1.2))
+          }
+        }}>
+        <div className="wg-canvas-size" style={{ width: extent.width * zoom + viewport.width * 2, height: extent.height * zoom + viewport.height * 2 }}>
+        <div className="wg-canvas-stage" ref={stageRef} style={{ left: viewport.width, top: viewport.height, width: extent.width, height: extent.height, transform: `scale(${zoom})` }} onPointerMove={move} onPointerUp={() => { dragRef.current = null }} onPointerCancel={() => { dragRef.current = null }}>
           <svg className="wg-connections" width="100%" height="100%" aria-hidden="true"><defs><marker id="wg-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8z" fill="currentColor" /></marker></defs>{lines.map(line => <path key={line.id} className={`wg-line ${line.type}`} d={line.path} markerEnd="url(#wg-arrow)" />)}</svg>
           {graph.input_slots.map(slot => {
             const source: GraphEdge['source'] = { kind: 'slot', slot_id: slot.id }
@@ -214,6 +338,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
           {graph.nodes.map(item => <div className="wg-node-position" data-canvas-id={item.id} key={item.id} style={{ left: positions[item.id]!.x, top: positions[item.id]!.y }}><WorkflowNode node={item} graph={graph} selected={item.id === selectedId} issues={issues.filter(issue => issue.nodeId === item.id).map(issue => issue.message)} pendingSource={pendingSource}
             onSelect={() => setSelectedId(item.id)} onRemove={() => setRemoval({ kind: 'node', id: item.id, graph })} onSource={source => { setPendingSource(source); setError('') }} onTarget={target => { if (pendingSource) connect(target, pendingSource) }} onMoveStart={event => moveStart(item.id, event)} /></div>)}
         </div>
+      </div>
       </div>
       <div className="wg-deliveries"><strong>{templateMode ? t("流水线产出") : t("本次交付")}</strong>{graph.outputs.length ? graph.outputs.map(output => {
         const outputNode = graph.nodes.find(item => item.id === output.node_id)

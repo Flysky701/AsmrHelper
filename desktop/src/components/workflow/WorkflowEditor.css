@@ -183,3 +183,18 @@
 .wg-port { white-space:normal; }
 .wg-port span { min-width:0; overflow-wrap:anywhere; text-align:left; }
 .wg-module-symbol.kind-audio_difference,.wg-module-icon.kind-audio_difference { color:#8b653b; background:#f4ebdf; }
+
+/* Zoom changes only the view; clipped extent avoids unscaled overflow at <100%. */
+.wg-canvas-size { position:relative; overflow:hidden; }
+.wg-canvas-size>.wg-canvas-stage { position:absolute; top:0; left:0; transform-origin:0 0; }
+.wg-zoom-toolbar { display:flex; flex:0 0 auto; align-items:center; flex-wrap:wrap; gap:5px; padding:6px 12px; border-bottom:1px solid var(--wg-line); background:#fafcf9; }
+.wg-zoom-toolbar button { border:1px solid var(--wg-line); border-radius:5px; background:white; color:var(--wg-ink); padding:4px 7px; font-size:12px; }
+.wg-zoom-toolbar output { min-width:44px; text-align:center; font-size:12px; font-variant-numeric:tabular-nums; }
+.wg-zoom-help { font-size:10px; color:var(--wg-muted); }
+.wg-editor.is-condensed .wg-zoom-help { display:none; }
+
+.wg-canvas-scroll { cursor:grab; }
+.wg-canvas-scroll input,.wg-canvas-scroll textarea { cursor:text; }
+.wg-canvas-scroll select { cursor:default; }
+.wg-canvas-scroll.is-space-panning .wg-node-heading,.wg-canvas-scroll.is-space-panning .wg-port { cursor:grab!important; }
+.wg-canvas-scroll.is-panning,.wg-canvas-scroll.is-panning * { cursor:grabbing!important; user-select:none; }

@@ -1,5 +1,13 @@
 /** Application-owned workflow copy. User names and model content stay unchanged. */
 export const workflowMessages: Record<string, string> = {
+  "画布缩放": "Canvas zoom",
+  "缩小画布": "Zoom out",
+  "放大画布": "Zoom in",
+  "当前缩放": "Current zoom",
+  "适应全部节点": "Fit all nodes",
+  "恢复 100%": "Reset 100%",
+  "Alt + 滚轮缩放；空白处或空格拖动平移": "Alt + wheel to zoom; drag empty space or hold Space to pan",
+  "画布聚焦时用 + / − 缩放，0 恢复，F 适应；Alt + 滚轮缩放；空白处或按住空格拖动平移。": "Focus the canvas: + / − to zoom, 0 to reset, F to fit. Alt + wheel zooms; drag empty space or hold Space and drag to pan.",
   "返回{0}": "Return to {0}",
   "尚未选择引擎": "No engine selected",
   "模型目录暂未读取，不能据此判断是否安装。": "The model catalog has not loaded. Installation status is unknown.",
