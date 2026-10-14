@@ -11,6 +11,8 @@ from src.app.services.script_subtitle_service import ScriptSubtitleService
 from src.app.services.artifact_service import ArtifactService
 from src.app.services.task_service import TaskService
 from src.core.tasks import TaskDispatcher
+from src.core.subtitles.script_review import script_fingerprint
+
 
 class _DummyPipeline:
     def __init__(self) -> None:
@@ -52,6 +54,8 @@ def test_run_full_delegates_to_core_pipeline(monkeypatch, tmp_path):
         ScriptSubtitleRequest(
             script_path=str(script_path),
             audio_path=str(audio_path),
+            confirmed_text="hello",
+            fingerprint=script_fingerprint(script_path),
             output_path=str(output_path),
             fmt="vtt",
             use_llm_clean=False,
@@ -79,6 +83,8 @@ def test_run_from_existing_vtt_delegates_to_core_pipeline(monkeypatch, tmp_path)
     output_path = tmp_path / "out" / "result.srt"
     script_path.write_text("hello", encoding="utf-8")
     vtt_path.write_text("WEBVTT\n", encoding="utf-8")
+    audio_path = tmp_path / "audio.wav"
+    audio_path.write_bytes(b"audio")
 
     pipeline = _DummyPipeline()
     _patch_pipeline(monkeypatch, pipeline)
@@ -88,6 +94,10 @@ def test_run_from_existing_vtt_delegates_to_core_pipeline(monkeypatch, tmp_path)
         ScriptSubtitleRequest(
             script_path=str(script_path),
             vtt_path=str(vtt_path),
+            audio_path=str(audio_path),
+            confirmed_text="hello",
+            fingerprint=script_fingerprint(script_path),
+            reference_confirmed=True,
             output_path=str(output_path),
             fmt="srt",
         )
@@ -153,14 +163,18 @@ def test_task_submission_generates_output_and_registers_artifact(monkeypatch, tm
     assert task.stage == "script_to_subtitle"
     artifacts = artifact_service.get_task_artifacts(task.task_id)
     assert len(artifacts.entries) == 1
-    assert artifacts.entries[0].path == str(tmp_path / "script_cleaned.txt")
+    assert Path(artifacts.entries[0].path).name == "script_cleaned.txt"
+    assert Path(artifacts.entries[0].path).parent.parent == tmp_path / ".asmr-script"
     assert artifacts.entries[0].artifact_type == "subtitle.txt"
 
 
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
-        (ScriptSubtitleRequest(script_path="", output_path="out.vtt"), "script_path is required"),
+        (
+            ScriptSubtitleRequest(script_path="", output_path="out.vtt"),
+            "script_path is required",
+        ),
         (
             ScriptSubtitleRequest(script_path="missing.txt", output_path="out.vtt"),
             "script file does not exist",
@@ -278,6 +292,8 @@ def test_value_error_from_core_is_mapped_to_validation_error(monkeypatch, tmp_pa
             ScriptSubtitleRequest(
                 script_path=str(script_path),
                 audio_path=str(audio_path),
+                confirmed_text="hello",
+                fingerprint=script_fingerprint(script_path),
                 output_path=str(tmp_path / "out.vtt"),
             )
         )
@@ -301,6 +317,8 @@ def test_unexpected_core_error_is_mapped_to_execution_error(monkeypatch, tmp_pat
             ScriptSubtitleRequest(
                 script_path=str(script_path),
                 audio_path=str(audio_path),
+                confirmed_text="hello",
+                fingerprint=script_fingerprint(script_path),
                 output_path=str(tmp_path / "out.vtt"),
             )
         )

@@ -18,14 +18,14 @@ class ScriptProcessor:
         boundaries = []  # [(position, title)]
 
         # 匹配第X話/章/幕，支持全角半角、空格
-        for m in re.finditer(r'^[第\s]*([0-9０-９零一二三四五六七八九十百千万]+)[\s\-\.]*[話话章幕回][\s:：]*(.*)$', text, re.MULTILINE):
+        for m in re.finditer(r'^[第 \t]*([0-9０-９零一二三四五六七八九十百千万]+)[ \t\-\.]*[話话章幕回][ \t:：]*(.*)$', text, re.MULTILINE):
             title = (m.group(1) + m.group(2)).strip()
             if not title:
                 title = f"第{m.group(1)}話"
             boundaries.append((m.start(), title))
 
         # Chapter/Scene
-        for m in re.finditer(r'^(Chapter|SCENE|Part)\s*[\.\s]*(\d+)[:\s]*(.*)$', text, re.IGNORECASE | re.MULTILINE):
+        for m in re.finditer(r'^(Chapter|SCENE|Part)[ \t]*[\. \t]*(\d+)[: \t]*(.*)$', text, re.IGNORECASE | re.MULTILINE):
             title = f"{m.group(1)} {m.group(2)}".strip()
             rest = m.group(3).strip()
             if rest:
@@ -256,7 +256,10 @@ class ScriptProcessor:
                 skip_next_line = False
                 continue
 
-            if stripped in ["登場人物", "あらすじ"] or "（以下、台本）" in stripped:
+            if stripped == "（以下、台本）":
+                skip_block = False
+                continue
+            if stripped in ["登場人物", "あらすじ"]:
                 skip_block = True
                 continue
                 
@@ -364,6 +367,7 @@ class ScriptProcessor:
                 current_char = m.group(1)
                 current_raw = [stripped]
                 current_actions = []
+                current_lines = []
                 
                 content = m.group(2).strip()
                 if content:

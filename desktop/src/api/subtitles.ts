@@ -6,6 +6,8 @@ import type {
   SubtitleExportResponse,
   ScriptToSubtitleRequest,
   TaskStatusResponse,
+  ScriptPreview,
+  ScriptReview,
 } from './types'
 
 export const subtitlesApi = {
@@ -17,4 +19,10 @@ export const subtitlesApi = {
 
   createScriptTask: (body: ScriptToSubtitleRequest) =>
     api.post<TaskStatusResponse>('/subtitles/script-to-subtitle/tasks', body),
+
+  previewScript: (body: ScriptToSubtitleRequest) =>
+    api.post<ScriptPreview>('/subtitles/script-preview', body),
+
+  scriptReview: (taskId: string) =>
+    api.get<{ review: ScriptReview | null }>(`/subtitles/script-to-subtitle/tasks/${encodeURIComponent(taskId)}/review`),
 }

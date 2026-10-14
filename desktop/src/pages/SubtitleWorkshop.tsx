@@ -1,4 +1,5 @@
 import QuickStartHelp from '@/components/QuickStartHelp'
+import ScriptSubtitleReview from '@/components/ScriptSubtitleReview'
 import { t, useI18n } from '@/i18n'
 import { displayPath } from '@/utils/displayPath'
 import { confirmAction } from '@/utils/confirmAction'
@@ -13,6 +14,8 @@ import type { TaskStatus } from '@/stores/taskStore'
 import type {
   SubtitleSegmentModel,
   ScriptToSubtitleRequest,
+  ScriptPreview,
+  ScriptReview,
 } from '@/api/types'
 
 // ── Tab types ────────────────────────────────────────────
@@ -596,6 +599,11 @@ export default function SubtitleWorkshop() {
   const [activeIdx, setActiveIdx] = useState<number | null>(null)
   const [isDirty, setIsDirty] = useState(false)
   const [editorAudioPath, setEditorAudioPath] = useState('')
+  const [scriptReviewPending, setScriptReviewPending] = useState(false)
+  const [scriptReviewAcknowledged, setScriptReviewAcknowledged] = useState(false)
+  const [scriptDuration, setScriptDuration] = useState<number | null>(null)
+  const [editorScriptReview, setEditorScriptReview] = useState<ScriptReview | null>(null)
+  const [newCue, setNewCue] = useState({ start: '', end: '', text: '' })
   const loadRequestId = useRef(0)
   const { selectFiles } = useFileSelector()
 
@@ -608,12 +616,21 @@ export default function SubtitleWorkshop() {
   const [translateBilingual, setTranslateBilingual] = useState(true)
 
   // Script-to-VTT state
-  const [scriptMode, setScriptMode] = useState<ScriptMode>('text_only')
+  const [scriptMode, setScriptMode] = useState<ScriptMode>('full')
   const [scriptPath, setScriptPath] = useState('')
   const [scriptAudioPath, setScriptAudioPath] = useState('')
   const [vttPath, setVttPath] = useState('')
   const [scriptFmt, setScriptFmt] = useState('vtt')
-  const [useLlmClean, setUseLlmClean] = useState(true)
+  const [useLlmClean, setUseLlmClean] = useState(false)
+  const [useLlmMatch, setUseLlmMatch] = useState(false)
+  const [scriptPreview, setScriptPreview] = useState<ScriptPreview | null>(null)
+  const [scriptText, setScriptText] = useState('')
+  const [scriptConfirmed, setScriptConfirmed] = useState(false)
+  const [referenceConfirmed, setReferenceConfirmed] = useState(false)
+  const [chapterChoices, setChapterChoices] = useState<ScriptPreview['sections']>([])
+  const [scriptTaskId, setScriptTaskId] = useState(() => useTaskStore.getState().tasks.find(task => task.jobType === 'script-to-subtitle' && task.serverTaskId)?.serverTaskId || '')
+  const storedTasks = useTaskStore(state => state.tasks)
+  const previewRequestId = useRef(0)
   const [asrModelSize, setAsrModelSize] = useState('large-v3')
   const [asrLanguage, setAsrLanguage] = useState('ja')
   const [trackIndex, setTrackIndex] = useState<string>('')
@@ -630,6 +647,14 @@ export default function SubtitleWorkshop() {
   const setNavigationGuard = useNavStore((state) => state.setNavigationGuard)
   const addTask = useTaskStore((state) => state.addTask)
   const updateTask = useTaskStore((state) => state.updateTask)
+
+  useEffect(() => {
+    ++previewRequestId.current
+    setScriptPreview(null); setScriptConfirmed(false); setScriptText('')
+  }, [scriptPath, trackIndex, verticalMode, useLlmClean])
+  useEffect(() => { setChapterChoices([]); setTrackIndex('') }, [scriptPath])
+  useEffect(() => { setReferenceConfirmed(false) }, [vttPath, scriptAudioPath, asrLanguage])
+  useEffect(() => { setScriptConfirmed(false) }, [vttPath, scriptAudioPath, asrLanguage, scriptMode])
 
   useLayoutEffect(() => {
     const guard = isDirty
@@ -697,6 +722,10 @@ export default function SubtitleWorkshop() {
       setModifiedIdx(new Set())
       setActiveIdx(null)
       setEditorAudioPath('')
+      setScriptReviewPending(false)
+      setScriptDuration(null)
+      setEditorScriptReview(null)
+      setNewCue({ start: '', end: '', text: '' })
       setIsDirty(false)
       setMessage(`已加载 ${res.segments.length} 条字幕`)
     } catch (err) {
@@ -709,6 +738,10 @@ export default function SubtitleWorkshop() {
 
   const handleExport = async () => {
     if (segments.length === 0) return
+    if (scriptReviewPending && !scriptReviewAcknowledged) {
+      setError(t('请先试听核对未匹配和冲突项，再确认导出。'))
+      return
+    }
     setLoading('export')
     setError('')
     try {
@@ -717,7 +750,16 @@ export default function SubtitleWorkshop() {
         ...seg,
         text: translations[i] || seg.text,
       }))
-      const outPath = filePath.replace(/\.[^.]+$/, `_export.${exportFormat}`)
+      let previousEnd = 0
+      for (const cue of exportSegments) {
+        if (!Number.isFinite(cue.start) || !Number.isFinite(cue.end) || cue.start < previousEnd
+          || cue.start < 0 || cue.end <= cue.start || !cue.text.trim()
+          || (scriptDuration !== null && cue.end > scriptDuration + .001)) {
+          throw new Error(t('字幕时间轴存在空白、倒序、重叠或越界，请先修正。'))
+        }
+        previousEnd = cue.end
+      }
+      const outPath = filePath.replace(/\.[^.]+$/, `_export_${Date.now()}.${exportFormat}`)
       await subtitlesApi.export({
         segments: exportSegments,
         output_path: outPath,
@@ -746,6 +788,7 @@ export default function SubtitleWorkshop() {
       }
     }
     setSegments(normalized)
+    setScriptReviewAcknowledged(false)
     setIsDirty(true)
     setMessage("时间轴已规范化")
   }
@@ -763,6 +806,7 @@ export default function SubtitleWorkshop() {
       setTranslations(updated)
     }
     setModifiedIdx((prev) => new Set(prev).add(idx))
+    setScriptReviewAcknowledged(false)
     setIsDirty(true)
   }
 
@@ -775,7 +819,32 @@ export default function SubtitleWorkshop() {
       return next
     })
     setActiveIdx((current) => current === idx ? null : current !== null && current > idx ? current - 1 : current)
+    setScriptReviewAcknowledged(false)
     setIsDirty(true)
+  }
+
+  const handleTimeEdit = (idx: number, field: 'start' | 'end', value: string) => {
+    setSegments(prev => prev.map((cue, i) => i === idx ? { ...cue, [field]: value === '' ? NaN : Number(value) } : cue))
+    setModifiedIdx(prev => new Set(prev).add(idx))
+    setScriptReviewAcknowledged(false)
+    setIsDirty(true)
+  }
+
+  const handleAddCue = () => {
+    const cue = { start: Number(newCue.start), end: Number(newCue.end), text: newCue.text.trim() }
+    if (!newCue.start.trim() || !newCue.end.trim() || !cue.text || !Number.isFinite(cue.start)
+      || !Number.isFinite(cue.end) || cue.start < 0 || cue.end <= cue.start
+      || (scriptDuration !== null && cue.end > scriptDuration + .001)
+      || segments.some(item => cue.start < item.end && cue.end > item.start)) {
+      setError(t('请输入实际录音的开始、结束秒数和台词，避免重叠或越界。'))
+      return
+    }
+    const ordered = [...segments.map((item, i) => ({ cue: item, translation: translations[i] || '' })),
+      { cue, translation: '' }].sort((a, b) => a.cue.start - b.cue.start)
+    setSegments(ordered.map(item => item.cue)); setTranslations(ordered.map(item => item.translation))
+    setModifiedIdx(new Set(ordered.map((_, i) => i))); setActiveIdx(null)
+    setNewCue({ start: '', end: '', text: '' }); setError('')
+    setScriptReviewAcknowledged(false); setIsDirty(true)
   }
 
   const handlePlaySegment = (seg: SubtitleSegmentModel) => {
@@ -852,14 +921,50 @@ export default function SubtitleWorkshop() {
   }
 
   // ── Script-to-VTT handler ──────────────────────────────
+  const handleScriptPreview = async () => {
+    const requestId = ++previewRequestId.current
+    setLoading('script-preview'); setError('')
+    try {
+      const preview = await subtitlesApi.previewScript({ script_path: scriptPath,
+        track_index: trackIndex ? Number(trackIndex) : null, vertical_mode: verticalMode, use_llm_clean: useLlmClean })
+      if (requestId !== previewRequestId.current) return
+      setScriptPreview(preview); setChapterChoices(preview.sections)
+      setScriptText(preview.clean_text); setScriptConfirmed(false)
+    } catch (e) {
+      if (requestId === previewRequestId.current) setError(String(e))
+    } finally { setLoading('') }
+  }
+
+  const handleScriptDraft = async (cues: SubtitleSegmentModel[], path: string, audio: string, needsReview: boolean, duration: number | null, review: ScriptReview) => {
+    if (isDirty && !await confirmAction(t('载入草稿会替换当前未导出的修改，确定继续吗？'))) return
+    ++loadRequestId.current
+    setSegments(cues.map(cue => ({ start: cue.start, end: cue.end, text: cue.text })))
+    setTranslations(cues.map(() => '')); setModifiedIdx(new Set()); setActiveIdx(null)
+    setFilePath(path); setFileName(path.split(/[/\\]/).pop() || path)
+    setEditorAudioPath(audio); setScriptDuration(duration)
+    setScriptReviewPending(needsReview); setScriptReviewAcknowledged(false)
+    setEditorScriptReview(review); setNewCue({ start: '', end: '', text: '' })
+    setIsDirty(true); setActiveTab('editor')
+    if (audio) audioPlayer.show(audio, t('台本录音'))
+    setMessage(needsReview ? t('已载入录音原文草稿，请按确认台词和录音修正。') : t('已载入匹配字幕，请试听后导出。'))
+  }
+
   const handleScriptToSubtitle = async () => {
     if (!scriptPath) return
+    if (!scriptPreview || !scriptConfirmed || !scriptText.trim()) {
+      setError(t('请先预览、修订并确认台词。'))
+      return
+    }
     if (scriptMode === 'full' && !scriptAudioPath) {
       setError("完整模式需要选择音频文件")
       return
     }
     if (scriptMode === 'existing_vtt' && !vttPath) {
       setError("已有字幕模式需要选择字幕文件")
+      return
+    }
+    if (scriptMode === 'existing_vtt' && (!referenceConfirmed || !scriptAudioPath)) {
+      setError(t('请选择录音，并确认参考字幕是该录音的同语言原文。'))
       return
     }
     setLoading('script')
@@ -869,6 +974,12 @@ export default function SubtitleWorkshop() {
         script_path: scriptPath,
         fmt: scriptFmt,
         use_llm_clean: useLlmClean,
+        confirmed_text: scriptText,
+        fingerprint: scriptPreview.fingerprint,
+        use_llm_match: useLlmMatch,
+        reference_confirmed: referenceConfirmed,
+        asr_language: asrLanguage,
+        track_index: trackIndex ? Number(trackIndex) : null,
       }
       if (scriptMode === 'full') {
         req.audio_path = scriptAudioPath || undefined
@@ -878,6 +989,7 @@ export default function SubtitleWorkshop() {
       }
       if (scriptMode === 'existing_vtt') {
         req.vtt_path = vttPath || undefined
+        req.audio_path = scriptAudioPath || undefined
       }
       req.vertical_mode = verticalMode
       const localTaskId = addTask({
@@ -898,7 +1010,7 @@ export default function SubtitleWorkshop() {
           detail: remote.detail,
         })
         setMessage("台本转字幕任务已提交，可在任务中心查看进度和结果")
-        setPage('task-center')
+        setScriptTaskId(remote.task_id)
       } catch (submitError) {
         updateTask(localTaskId, {
           status: 'failed',
@@ -986,7 +1098,22 @@ export default function SubtitleWorkshop() {
         {/* Editor content */}
         <div className="subtitle-editor-content" style={S.editorContent}>
           {/* Table */}
+          {editorScriptReview && <div style={{ gridColumn: '1 / -1', padding: '8px 16px', maxHeight: 180, overflowY: 'auto' }}>
+            <details><summary>{t('确认台词与待核对项')}</summary>
+              <ol>{editorScriptReview.script_lines.map((line, i) => <li key={i}>{line}</li>)}</ol>
+              {editorScriptReview.unmatched.map(item => <p key={item.script_idx}>{t('未匹配')} {item.script_idx + 1}: {item.text}</p>)}
+              {editorScriptReview.extra_asr.map(item => <p key={item.asr_idx}>{t('额外录音片段')} {item.start.toFixed(2)}–{item.end.toFixed(2)} {item.text}</p>)}
+              {editorScriptReview.conflicts.map((item, i) => <p key={i}>{item}</p>)}
+            </details>
+            {scriptReviewPending && <label><input type="checkbox" checked={scriptReviewAcknowledged} onChange={e => setScriptReviewAcknowledged(e.target.checked)} />{t('已试听并修正待核对项，按实际录音内容导出。')}</label>}
+          </div>}
           <div className="subtitle-editor-table" style={S.editorTable}>
+            {!!filePath && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <input type="number" min="0" step="0.001" aria-label={t('新增字幕开始秒数')} placeholder={t('开始（秒）')} value={newCue.start} onChange={e => setNewCue(prev => ({ ...prev, start: e.target.value }))} style={{ ...S.formInput, width: 115 }} />
+              <input type="number" min="0" step="0.001" aria-label={t('新增字幕结束秒数')} placeholder={t('结束（秒）')} value={newCue.end} onChange={e => setNewCue(prev => ({ ...prev, end: e.target.value }))} style={{ ...S.formInput, width: 115 }} />
+              <input aria-label={t('新增字幕台词')} placeholder={t('实际录音台词')} value={newCue.text} onChange={e => setNewCue(prev => ({ ...prev, text: e.target.value }))} style={{ ...S.formInput, flex: 1 }} />
+              <button style={S.btn} onClick={handleAddCue}>{t('插入字幕')}</button>
+            </div>}
             {segments.length === 0 ? (
               <div style={S.editorEmpty}>
                 <svg width="48" height="48" fill="none" stroke="currentColor" strokeWidth="1" viewBox="0 0 48 48" style={{ opacity: 0.3 }}>
@@ -1015,7 +1142,8 @@ export default function SubtitleWorkshop() {
                   >
                     <div style={S.segIdx}>{i + 1}</div>
                     <div style={S.segTime}>
-                      {formatTime(seg.start)}<br />{formatTime(seg.end)}
+                      <input type="number" min="0" step="0.001" aria-label={`${t('开始（秒）')} ${i + 1}`} title={formatTime(seg.start)} value={Number.isFinite(seg.start) ? seg.start : ''} onChange={e => handleTimeEdit(i, 'start', e.target.value)} style={{ ...S.formInput, width: '100%', padding: '3px 4px' }} />
+                      <input type="number" min="0" step="0.001" aria-label={`${t('结束（秒）')} ${i + 1}`} title={formatTime(seg.end)} value={Number.isFinite(seg.end) ? seg.end : ''} onChange={e => handleTimeEdit(i, 'end', e.target.value)} style={{ ...S.formInput, width: '100%', padding: '3px 4px' }} />
                     </div>
                     <div
                       style={S.segCell}
@@ -1261,8 +1389,8 @@ export default function SubtitleWorkshop() {
                 <div style={S.modeCardIcon(scriptMode === 'text_only')}>
                   <Icon.Text />
                 </div>
-                <div style={S.modeCardTitle(scriptMode === 'text_only')}>{t("纯文本模式")}</div>
-                <div style={S.modeCardDesc}>{t("台本清洗后生成字幕，无精确时间轴。")}</div>
+                <div style={S.modeCardTitle(scriptMode === 'text_only')}>{t("整理台词")}</div>
+                <div style={S.modeCardDesc}>{t("整理并确认台词，输出 TXT，不生成时间轴。")}</div>
               </div>
               <div
                 style={S.modeCard(scriptMode === 'full')}
@@ -1272,7 +1400,7 @@ export default function SubtitleWorkshop() {
                   <Icon.Audio />
                 </div>
                 <div style={S.modeCardTitle(scriptMode === 'full')}>{t("音频对齐模式")}</div>
-                <div style={S.modeCardDesc}>{t("根据音频识别与台本对齐，生成时间轴。")}</div>
+                <div style={S.modeCardDesc}>{t("用录音时间锚点匹配确认台词；冲突先核对。")}</div>
               </div>
               <div
                 style={S.modeCard(scriptMode === 'existing_vtt')}
@@ -1281,8 +1409,8 @@ export default function SubtitleWorkshop() {
                 <div style={S.modeCardIcon(scriptMode === 'existing_vtt')}>
                   <Icon.Vtt />
                 </div>
-                <div style={S.modeCardTitle(scriptMode === 'existing_vtt')}>{t("VTT 重对齐模式")}</div>
-                <div style={S.modeCardDesc}>{t("用台本校对、清洗已有 VTT 字幕。")}</div>
+                <div style={S.modeCardTitle(scriptMode === 'existing_vtt')}>{t("复用原文字幕")}</div>
+                <div style={S.modeCardDesc}>{t("同录音原文 VTT/SRT 提供锚点，跳过识别。")}</div>
               </div>
             </div>
           </div>
@@ -1325,7 +1453,7 @@ export default function SubtitleWorkshop() {
               </div>
 
               {/* Audio file (mode: full) */}
-              {scriptMode === 'full' && (
+              {scriptMode !== 'text_only' && (
                 <div style={S.panel}>
                   <div style={S.panelHeader}>
                     <Icon.Audio /> {t("音频文件")}</div>
@@ -1357,17 +1485,6 @@ export default function SubtitleWorkshop() {
                             {t("浏览")}</button>
                         </div>
                       </div>
-                      <div style={S.formField}>
-                        <label style={S.formLabel}>{t("音轨索引")}</label>
-                        <select style={S.formInput} value={trackIndex} onChange={(e) => setTrackIndex(e.target.value)}>
-                          <option value="">{t("自动检测")}</option>
-                          <option value="0">Track 0</option>
-                          <option value="1">Track 1</option>
-                          <option value="2">Track 2</option>
-                          <option value="3">Track 3</option>
-                        </select>
-                        <div style={S.formHint}>{t("多音轨文件选择要处理的音轨")}</div>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -1377,7 +1494,7 @@ export default function SubtitleWorkshop() {
               {scriptMode === 'existing_vtt' && (
                 <div style={S.panel}>
                   <div style={S.panelHeader}>
-                    <Icon.Vtt /> {t("已有 VTT 文件")}</div>
+                    <Icon.Vtt /> {t("已有原文字幕")}</div>
                   <div style={S.panelBody}>
                     <div style={S.formGrid}>
                       <div style={S.formField}>
@@ -1387,14 +1504,14 @@ export default function SubtitleWorkshop() {
                             style={{ ...S.formInput, flex: 1 }}
                             value={vttPath}
                             onChange={(e) => setVttPath(e.target.value)}
-                            placeholder={t("选择 VTT 文件")}
+                              placeholder={t("选择原文 VTT/SRT 文件")}
                           />
                           <button
                             style={{ ...S.btn, ...S.btnSm }}
                             onClick={async () => {
                               const files = await selectFiles({
                                 multiple: false,
-                                filters: [FILE_FILTERS.vtt],
+                                filters: [{ name: '原文字幕', extensions: ['vtt', 'srt'] }],
                                 browserPrompt: t("请输入 VTT 文件所在目录的完整路径："),
                               })
                               if (files.length > 0) setVttPath(files[0]!)
@@ -1403,6 +1520,7 @@ export default function SubtitleWorkshop() {
                             {t("浏览")}</button>
                         </div>
                       </div>
+                      <label><input type="checkbox" checked={referenceConfirmed} onChange={e => setReferenceConfirmed(e.target.checked)} />{t('这是同一录音的同语言原文字幕（不是译文）。')}</label>
                     </div>
                   </div>
                 </div>
@@ -1418,14 +1536,14 @@ export default function SubtitleWorkshop() {
                 <div style={S.panelBody}>
                   <div style={S.formGrid}>
                     <div className="subtitle-two-col-form" style={S.twoColForm}>
-                      <div style={S.formField}>
+                      {scriptMode !== 'text_only' && <div style={S.formField}>
                         <label style={S.formLabel}>{t("输出格式")}</label>
                         <select style={S.formInput} value={scriptFmt} onChange={(e) => setScriptFmt(e.target.value)}>
                           <option value="vtt">WebVTT (.vtt)</option>
                           <option value="srt">SRT (.srt)</option>
                           <option value="lrc">LRC (.lrc)</option>
                         </select>
-                      </div>
+                      </div>}
                       {scriptMode === 'full' && (
                         <div style={S.formField}>
                           <label style={S.formLabel}>{t("ASR 模型")}</label>
@@ -1439,7 +1557,7 @@ export default function SubtitleWorkshop() {
                       )}
                     </div>
                     <div className="subtitle-two-col-form" style={S.twoColForm}>
-                      {scriptMode === 'full' && (
+                      {scriptMode !== 'text_only' && (
                         <div style={S.formField}>
                           <label style={S.formLabel}>{t("音频语言")}</label>
                           <select style={S.formInput} value={asrLanguage} onChange={(e) => setAsrLanguage(e.target.value)}>
@@ -1458,6 +1576,14 @@ export default function SubtitleWorkshop() {
                         </select>
                       </div>
                     </div>
+                    <div style={S.formField}>
+                      <label style={S.formLabel}>{t('台本章节')}</label>
+                      <select style={S.formInput} value={trackIndex} onChange={e => setTrackIndex(e.target.value)}>
+                        <option value="">{t('全部章节')}</option>
+                        {chapterChoices.map(chapter => <option key={chapter.index} value={chapter.index}>{chapter.index + 1}. {chapter.title}</option>)}
+                      </select>
+                      <div style={S.formHint}>{t('预览后按检测到的台本章节选择，不是音频轨道。')}</div>
+                    </div>
                     <label style={S.checkboxField}>
                       <input
                         type="checkbox"
@@ -1466,6 +1592,8 @@ export default function SubtitleWorkshop() {
                       />
                       <span>{t("启用 LLM 文本清洗")}</span>
                     </label>
+                    {scriptMode !== 'text_only' && <label style={S.checkboxField}><input type="checkbox" checked={useLlmMatch} onChange={e => setUseLlmMatch(e.target.checked)} /><span>{t('LLM 辅助匹配（发送确认稿与识别文本）')}</span></label>}
+                    <div style={S.formHint}>{t('默认本地匹配；不确定或漏读的台词不会估时插入。LLM 使用已配置的外部服务。')}</div>
                   </div>
                 </div>
               </div>
@@ -1475,23 +1603,38 @@ export default function SubtitleWorkshop() {
                 <button
                   style={{ ...S.btn, ...S.btnPrimary, padding: '10px 24px' }}
                   onClick={handleScriptToSubtitle}
-                  disabled={!scriptPath || !!loading}
+                  disabled={!scriptPath || !scriptConfirmed || !!loading}
                 >
                   <Icon.Start /> {loading === 'script' ? t("转换中...") : t("开始转换")}
                 </button>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                   {t("转换将在后台执行，可在任务中心查看进度")}</span>
               </div>
+              <button style={S.btn} onClick={() => setPage('task-center')}>{t('查看任务中心')}</button>
             </div>
 
             {/* Right: result + help */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={S.panel}>
-                <div style={S.panelHeader}>
-                  <Icon.Check /> {t("转换结果")}</div>
-                <div style={{ ...S.panelBody, color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 24 }}>
-                  {t("提交后将在任务中心显示阶段、错误和输出文件")}</div>
+                <div style={S.panelHeader}>{t('确认台词')}</div>
+                <div style={S.panelBody}>
+                  <button style={S.btn} disabled={!scriptPath || !!loading} onClick={() => void handleScriptPreview()}>{t('预览台词')}</button>
+                  {scriptPreview && <>
+                    <details><summary>{t('原始台本')}</summary><pre style={{ whiteSpace: 'pre-wrap', maxHeight: 180, overflow: 'auto' }}>{scriptPreview.raw_text}</pre></details>
+                    <label style={S.formLabel}>{t('可修订台词，每行一个匹配单元')}</label>
+                    <textarea style={{ ...S.formInput, width: '100%', minHeight: 200 }} value={scriptText} onChange={e => { setScriptText(e.target.value); setScriptConfirmed(false) }} />
+                    <details open><summary>{t('排除的动作说明（朗读内容请恢复到台词）')}</summary>{scriptPreview.actions.length ? <ul>{scriptPreview.actions.map((action, i) => <li key={i}>{action}</li>)}</ul> : <p>{t('未检测到括号动作说明')}</p>}</details>
+                    <label><input type="checkbox" checked={scriptConfirmed} onChange={e => setScriptConfirmed(e.target.checked)} />{t('已核对台词与动作，台词语言与录音一致。')}</label>
+                  </>}
+                </div>
               </div>
+              <label style={S.formLabel}>{t('核对已有台本任务')}
+                <select style={S.formInput} value={scriptTaskId} onChange={e => setScriptTaskId(e.target.value)}>
+                  <option value="">{t('选择任务')}</option>
+                  {storedTasks.filter(task => task.jobType === 'script-to-subtitle' && task.serverTaskId).map(task => <option key={task.id} value={task.serverTaskId}>{task.sourceName} · {task.serverTaskId}</option>)}
+                </select>
+              </label>
+              <ScriptSubtitleReview taskId={scriptTaskId} onEdit={(...args) => void handleScriptDraft(...args)} />
 
               {/* Mode help */}
               <div style={S.panel}>

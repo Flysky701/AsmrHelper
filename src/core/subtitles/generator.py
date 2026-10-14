@@ -703,7 +703,7 @@ class SubtitleGenerator:
                 ms = int(entry["start"] * 1000)
                 m = ms // 60000
                 s = (ms % 60000) // 1000
-                cs = ms % 1000
+                cs = (ms % 1000) // 10
                 ts = f"[{m:02d}:{s:02d}.{cs:02d}]"
                 lines.append(f"{ts}{entry['text']}")
             content = "\n".join(lines)

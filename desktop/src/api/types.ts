@@ -375,6 +375,33 @@ export interface ScriptToSubtitleRequest {
   track_index?: number | null
   vertical_mode?: string
   debug_dir?: string | null
+  confirmed_text?: string | null
+  fingerprint?: string | null
+  use_llm_match?: boolean
+  reference_confirmed?: boolean
+}
+
+export interface ScriptPreview {
+  raw_text: string
+  clean_text: string
+  actions: string[]
+  sections: { index: number; title: string }[]
+  fingerprint: string
+}
+
+export interface ScriptReview {
+  complete: boolean
+  script_lines: string[]
+  entries: (SubtitleSegmentModel & { script_idx: number })[]
+  asr_segments: SubtitleSegmentModel[]
+  draft_entries?: SubtitleSegmentModel[]
+  unmatched: { script_idx: number; text: string }[]
+  extra_asr: (SubtitleSegmentModel & { asr_idx: number })[]
+  conflicts: string[]
+  audio_path?: string | null
+  output_path: string
+  duration?: number | null
+  timestamp_source: string
 }
 
 // ── Resources ──────────────────────────────────────────

@@ -99,6 +99,8 @@ class SubtitleService:
         fmt: str | None = None,
     ) -> str:
         try:
+            from src.core.subtitles.script_review import validate_timed_entries
+            validate_timed_entries(self.to_timestamp_entries(document))
             return self._domain.export_document(document, output_path=output_path, fmt=fmt)
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc
