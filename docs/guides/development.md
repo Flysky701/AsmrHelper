@@ -1,5 +1,16 @@
 # 开发与验证
 
+## 2026-10-14 Fly-PC 接手
+
+本次工作保留在 `codex/cloud-tts-extension-20261013`，工作树为 `E:\Projects\AsmrHelper-worktrees\cloud-tts-extension-20261013`。没有合并 master、推进版本或发布。帮助与云端 TTS 速查提交为 `f5f623b04e1d23c6b65401682a9475c2965c804d`；台本修复提交为 `47d6fd1129e8a8871bf957e20ef511c77b2ca6f5`。本节另随接手提交保存，最新提交以该分支 `git rev-parse HEAD` 和 `git ls-remote origin refs/heads/codex/cloud-tts-extension-20261013` 一致为准。
+
+- 启动当前测试工作树：双击这里的 `RUNGUI.bat`；`RUNGUI.bat --build-staged` 离线增量构建备用预览，`RUNGUI.bat --check` 检查当前源码与回执。运行中的窗口保留；新版准备好后正常关闭旧窗口再打开入口，不强杀进程。
+- 实测：完整 Python 套件 **1179 通过、1 跳过**；全部桌面 Node 测试 **85 通过**；相关 Ruff、TypeScript、Vite 和 Cargo 离线原生构建通过。Python 测试使用隔离数据/状态/临时目录及当前源码的 `PYTHONPATH`；临时离线 runner 阻断外部网络。启动环境回归也使用独立数据目录，不读写真实用户配置。禁用 pytest 缓存插件产生的 `cache_dir` 提醒不影响结果。
+- 台本入口：**工具 → 字幕工坊 → 台本转字幕**。默认对应录音与原文台本，预览修订确认后匹配；核对报告可重开，编辑器可试听、改时间与手工插句。未匹配内容不估时插入。纯台本只整理 TXT；参考 SRT/VTT 必须为同录音、同语言原文。LLM 默认关闭，主动开启才发送文本。
+- 仍待验收：短段真实录音、角色/动作/章节、漏读/重复/额外台词、源文件/录音变化后重确认、历史草稿重开和重试不覆盖。未用真实模型或云端 API 验证听感、识别质量与超长录音性能。
+- 限制：当前复用 ASR 字幕片段时间，**不是逐字强制对齐**；本地保守匹配遇识别差异需人工核对。ASR 只使用已安装 Faster-Whisper 权重；时长读取不支持的录音格式先转 WAV。长行需分句，复杂长录音仍需分章/人工检查。新确认稿提交新任务，旧任务重试沿用其原配置。TTS 台本流水线、多角色与空间效果未加入本轮。
+- 可恢复清理：旧 `desktop/src-tauri/target/release/asmr-helper-local.exe`、同名 `.build.json` 和 `.d` 已送系统回收站，均核对内容哈希和原位置；随后该输出槽可重建。任务临时目录 `C:\Users\Fly\Documents\Codex\2026-10-14\task-3\check-data\pytest-temp`（2768 个合成测试文件，约 128 MB）也已回收并核对恢复元数据。逐项原路径、回收位置与哈希留在任务目录 `cleanup-manifest.json`；回收站没有清空。模型、配置、素材、依赖及其他分支成果保留。
+
 ## 日常桌面入口
 
 原生构建优先使用完整的项目内 Node、Cargo 和 LLVM MinGW；项目工具集不完整时使用 PATH 中已安装的 Node 和 Cargo，沿用本机 Rust 工具链及缓存。两种方式均锁定依赖并离线构建，不自动安装工具；使用 MSVC 工具链的 PC 需已有对应 Visual Studio C++ 构建工具。
