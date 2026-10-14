@@ -6,6 +6,7 @@ import QwenReferenceMode from '@/components/QwenReferenceMode'
 import SpeechConnectionManager from '@/components/SpeechConnectionManager'
 import { defaultSpeechConnection } from '@/domain/speechConnections'
 import FishVoicePicker from '@/components/FishVoicePicker'
+import QuickStartHelp from '@/components/QuickStartHelp'
 import FishClonePanel from './FishClonePanel'
 import { SpeechCleanupButton, LegacySpeechData, deleteSpeechData } from './SpeechCleanup'
 import { speechOptionsIssue, speechCapabilities, speechLanguageSupported } from '@/domain/speechAdvancedOptions'
@@ -357,7 +358,7 @@ export default function VoiceLab() {
 
 
   return <div className="speech-lab">
-    <header><div className="page-heading"><div className="page-heading__copy"><h1 className="page-title">{t("音色库")}</h1><p className="page-description">{t("制作并保存声音，工作台选择预设即可使用。")}</p></div><div className="page-heading__actions"><button disabled={!!busy || referenceBusy} onClick={() => void run('刷新', refresh)}>{t("刷新")}</button></div></div>
+    <header><div className="page-heading"><div className="page-heading__copy"><div className="page-title-row"><h1 className="page-title">{t("音色库")}</h1><QuickStartHelp topic={tab === 1 ? 'presets' : tab === 2 ? 'audition' : tab === 0 ? 'references' : 'fish-clone'} /></div><p className="page-description">{t("制作并保存声音，工作台选择预设即可使用。")}</p></div><div className="page-heading__actions"><button disabled={!!busy || referenceBusy} onClick={() => void run('刷新', refresh)}>{t("刷新")}</button></div></div>
       <nav className="tabs" role="tablist" aria-label={t("声音管理")}>{[{ id: 1, title: t('音色预设') }, { id: 0, title: t('参考素材') }, { id: 2, title: t('试听与记录') }, { id: 3, title: t('Fish 远程克隆') }].map(({ title, id: index }) => <button key={title} disabled={!!busy} role="tab" aria-selected={tab === index} onClick={() => (() => { document.querySelectorAll<HTMLAudioElement>('.speech-lab audio').forEach(player => player.pause()); setTab(index) })()}>{t(title)}</button>)}</nav>
     </header>
     <main>{error && <div role="alert" className="notice error">{t(error)}</div>}{notice && <div role="status" className="notice">{t(notice)}</div>}{busy && <p role="status" className="muted">{t(busy)}…</p>}

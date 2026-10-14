@@ -5,8 +5,10 @@ import { workflowMessages } from './locales/workflow'
 import { voiceMessages } from './locales/voices'
 import { operationMessages } from './locales/operations'
 import { sharedMessages } from './locales/shared'
+import { helpMessages } from './locales/help'
 
 export const messages: Record<string, string> = {
+  ...helpMessages,
   ...en,
   ...audioMessages,
   ...workflowMessages,

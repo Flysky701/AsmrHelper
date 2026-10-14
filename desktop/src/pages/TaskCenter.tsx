@@ -1,3 +1,4 @@
+import QuickStartHelp from '@/components/QuickStartHelp'
 import { t, format as formatMessage, useI18n } from '@/i18n'
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { tasksApi } from '@/api/tasks'
@@ -406,7 +407,7 @@ export default function TaskCenter() {
   return <div className={`task-center-page ${mobileDetail ? 'detail-open' : ''}`}>
     {/* Refresh restarts the existing serial poller; its cleanup discards older in-flight responses. */}
     <TaskStatusPolling key={pollGeneration} enabled={taskCenterView === 'tasks'} />
-    <header className="tc-page-header page-heading"><div className="page-heading__copy"><h1 className="page-title">{t("任务中心")}</h1></div>
+    <header className="tc-page-header page-heading"><div className="page-heading__copy"><div className="page-title-row"><h1 className="page-title">{t("任务中心")}</h1><QuickStartHelp topic={taskCenterView === 'batches' ? 'batches' : 'tasks'} /></div></div>
       <div className="tc-page-actions page-heading__actions"><button type="button" className="tc-action" aria-pressed={taskCenterView === 'tasks'} onClick={() => setTaskCenterView('tasks')}>{t("任务记录")}</button>
         <button type="button" className="tc-action" aria-pressed={taskCenterView === 'batches'} onClick={() => setTaskCenterView('batches')}>{t("批次管理")}</button>
         {taskCenterView === 'tasks' && <button type="button" className="tc-icon-button" aria-label={t("刷新任务状态")} onClick={() => setPollGeneration(value => value + 1)}><TaskSymbol name="refresh" /></button>}</div>

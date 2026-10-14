@@ -1,3 +1,4 @@
+import QuickStartHelp from '@/components/QuickStartHelp'
 import { t, format, useI18n } from '@/i18n'
 import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useRef, useState } from 'react'
@@ -218,7 +219,7 @@ export default function Settings() {
       </nav>
     </aside>
     <main className="settings-main" aria-label={t("设置内容")}>
-      <header className="settings-header page-heading"><div className="page-heading__copy"><h2 className="panel-title">{category === 'appearance' ? t("外观与语言") : category === 'presets' ? t("预设管理") : t("文件与缓存")}</h2><p className="settings-description page-description">{category === 'appearance' ? t("即时生效，自动保存到此设备。") : category === 'presets' ? t("工作台共用的流水线，集中查看与维护。") : t("留空沿用工作区默认位置。")}</p></div>
+      <header className="settings-header page-heading"><div className="page-heading__copy"><div className="page-title-row"><h2 className="panel-title">{category === 'appearance' ? t("外观与语言") : category === 'presets' ? t("预设管理") : t("文件与缓存")}</h2><QuickStartHelp topic={category === 'appearance' ? 'appearance' : category === 'paths' ? 'paths' : catalogTab === 'active' ? 'preset-catalog' : 'preset-templates'} /></div><p className="settings-description page-description">{category === 'appearance' ? t("即时生效，自动保存到此设备。") : category === 'presets' ? t("工作台共用的流水线，集中查看与维护。") : t("留空沿用工作区默认位置。")}</p></div>
         <div className="settings-header-actions page-heading__actions">{category === 'presets' ? <><button className="settings-button quiet" disabled={catalogBusy} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadBuiltinTemplates()]) }}><Icon kind="refresh" />{t("刷新")}</button><button className="settings-button primary" disabled={catalogBusy} onClick={() => void openEditor()}><Icon kind="plus" />{t("新建流水线")}</button></> : category === 'paths' ? <button className="settings-button quiet" disabled={busy || pathsLoading} onClick={() => void loadPaths()}><Icon kind="refresh" />{t("重新读取")}</button> : null}</div>
       </header>
       <div className="settings-body">

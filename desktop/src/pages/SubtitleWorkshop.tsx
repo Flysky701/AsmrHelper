@@ -1,3 +1,4 @@
+import QuickStartHelp from '@/components/QuickStartHelp'
 import { t, useI18n } from '@/i18n'
 import { displayPath } from '@/utils/displayPath'
 import { confirmAction } from '@/utils/confirmAction'
@@ -922,7 +923,7 @@ export default function SubtitleWorkshop() {
   // ── Render ─────────────────────────────────────────────
   return (
     <div className="subtitle-workshop" style={S.container}>
-      <header className="page-heading subtitle-page-heading"><h1 className="page-title">{t("字幕工坊")}</h1></header>
+      <header className="page-heading subtitle-page-heading"><div className="page-title-row"><h1 className="page-title">{t("字幕工坊")}</h1><QuickStartHelp topic={activeTab === 'editor' ? 'subtitle-editor' : activeTab === 'translate' ? 'subtitle-translate' : scriptMode === 'text_only' ? 'script-text' : scriptMode === 'full' ? 'script-audio' : 'script-vtt'} /></div></header>
       {/* Status message */}
       {(message || error) && (
         <div className="subtitle-status-message" style={{

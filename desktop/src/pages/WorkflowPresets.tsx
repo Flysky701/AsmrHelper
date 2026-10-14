@@ -1,3 +1,4 @@
+import QuickStartHelp from '@/components/QuickStartHelp'
 import { t, format, useI18n } from '@/i18n'
 import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useRef, useState } from 'react'
@@ -138,7 +139,7 @@ export default function WorkflowPresets() {
 
   return <div className="workflow-presets">
     <header className="wfp-header page-heading">
-      <div className="page-heading__copy"><h1 className="page-title">{editor ? editor.preset ? t("编辑流水线") : t("新建流水线") : t("流水线编辑器")}</h1>
+      <div className="page-heading__copy"><div className="page-title-row"><h1 className="page-title">{editor ? editor.preset ? t("编辑流水线") : t("新建流水线") : t("流水线编辑器")}</h1><QuickStartHelp topic={'workflow'} /></div>
         <p className="wfp-description page-description">{t("编辑处理步骤，保存后在工作台运行。")}</p></div>
       <div className="wfp-actions page-heading__actions">
         {editor?.preset && !editor.preset.builtin && <button type="button" className="wfp-button" disabled={busy || !!saveReason} title={saveReason ? t(saveReason) : undefined} onClick={() => void save('copy')}>{t("另存为新预设")}</button>}

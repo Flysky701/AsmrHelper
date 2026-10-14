@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { modelsApi } from '@/api/models'
 import { resourcesApi } from '@/api/resources'
 import ExternalServices from '@/components/ExternalServices'
+import QuickStartHelp from '@/components/QuickStartHelp'
 import ModelWeightRemoval from '@/components/ModelWeightRemoval'
 import type { ModelSummaryResponse, ModelStatusResponse, ResourceStatusResponse } from '@/api/types'
 import { useNavStore } from '@/stores/navStore'
@@ -69,11 +70,12 @@ export default function EnginesResources() {
   useI18n()
   const view = useNavStore(state => state.enginesView)
   const setView = useNavStore(state => state.setEnginesView)
+  const [localCategory, setLocalCategory] = useState<CategoryTab>('asr')
 
   return (
     <div className="engines-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <header style={{ padding: '24px 24px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div className="page-heading" style={{ marginBottom: 14 }}><h1 className="page-title">{t("引擎与资源")}</h1></div>
+        <div className="page-heading" style={{ marginBottom: 14 }}><div className="page-title-row"><h1 className="page-title">{t("引擎与资源")}</h1><QuickStartHelp topic={view === 'external' ? 'connections' : `local-${localCategory}`} /></div></div>
         <div role="tablist" aria-label={t("资源类型")} style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {([{ id: 'local', label: t("本地模型") }, { id: 'external', label: t("外部服务") }] as const).map(tab => (
             <button key={tab.id} id={`engines-tab-${tab.id}`} role="tab" aria-selected={view === tab.id}
@@ -87,7 +89,7 @@ export default function EnginesResources() {
         </div>
       </header>
       <div role="tabpanel" id="engines-panel-local" aria-labelledby="engines-tab-local" hidden={view !== 'local'} style={{ flex: 1, minHeight: 0 }}>
-        <LocalResources />
+        <LocalResources onCategory={setLocalCategory} />
       </div>
       <div role="tabpanel" id="engines-panel-external" aria-labelledby="engines-tab-external" hidden={view !== 'external'} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 24 }}>
         <ExternalServices />
@@ -96,7 +98,7 @@ export default function EnginesResources() {
   )
 }
 
-function LocalResources() {
+function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) => void }) {
   useI18n()
   const setPage = useNavStore((state) => state.setPage)
   const addTask = useTaskStore((state) => state.addTask)
@@ -107,6 +109,7 @@ function LocalResources() {
   const [loading, setLoading] = useState(true)
   const [statusLoading, setStatusLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<CategoryTab>('asr')
+  useEffect(() => { onCategory(activeTab) }, [activeTab, onCategory])
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [installing, setInstalling] = useState<Record<string, { active: boolean; message?: string; progress?: number }>>({})
   const [error, setError] = useState('')

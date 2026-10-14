@@ -1,3 +1,4 @@
+import QuickStartHelp from '@/components/QuickStartHelp'
 import { t, useI18n } from '@/i18n'
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
@@ -200,7 +201,7 @@ export default function AudioTools() {
   return (
     <div className="audio-tools-page" style={{ height: '100%', overflow: 'auto', padding: 24 }}>
       <header className="page-heading" style={{ marginBottom: 20 }}>
-        <div className="page-heading__copy"><h1 className="page-title">{t("音频工具")}</h1>
+        <div className="page-heading__copy"><div className="page-title-row"><h1 className="page-title">{t("音频工具")}</h1><QuickStartHelp topic={({'tool.separate': 'audio-separate', 'tool.convert': 'audio-convert', 'tool.split': 'audio-split', 'tool.translate_subtitle': 'audio-translate', 'tool.volume_preview': 'audio-volume'} as const)[selectedTool]} /></div>
           <p className="page-description">{t("单项音频处理，进度和结果见任务中心。")}</p>
         </div>
       </header>
