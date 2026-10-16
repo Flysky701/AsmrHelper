@@ -36,7 +36,7 @@ export default function QueueGroupRow({ row, index, graph, presetLabel, busy, di
   return <>
     <div className={`queue-row queue-grid state-${state}`} data-group-id={group.id}>
       <input type="checkbox" aria-label={formatMessage("选择 {0}", [group.label])} checked={editable && group.selected} disabled={busy || !editable} title={lockReason} onChange={event => materials.patchQueueGroup(group.id, { selected: event.target.checked })} />
-      <div className="queue-group-cell"><span className="queue-group-number">{String(index + 1).padStart(2, '0')}</span><div><button className="queue-group-title" type="button" title={group.label} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{group.label}</button><small>{paths.length} {t("个文件")}{editable ? t(" · 素材目录") : t(" · 暂时锁定")}</small></div></div>
+      <div className="queue-group-cell"><span className="queue-group-number">{String(index + 1).padStart(2, '0')}</span><div><button className="queue-group-title" type="button" title={group.label} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{group.label}</button><small>{paths.length} {t("个文件")}{editable ? '' : t(" · 暂时锁定")}</small></div></div>
       <div className="queue-input-cell">{paths.slice(0, 3).map(path => {
         const item = items.find(item => inputPathKey(item.path) === inputPathKey(path)), subtitle = /\.(srt|vtt|lrc)$/i.test(path)
         const binding = Object.values(bindings).find(binding => inputPathKey(binding.path) === inputPathKey(path))
@@ -56,7 +56,7 @@ export default function QueueGroupRow({ row, index, graph, presetLabel, busy, di
     </div>
     {expanded ? <div className="queue-group-detail" aria-label={formatMessage("{0} 输入与配对", [group.label])}>
       <div className="queue-detail-heading"><strong>{t("当前素材与配对")}</strong><button type="button" onClick={() => setExpanded(false)}>{t("收起")}</button></div>
-      {!editable ? <p className="queue-warning">{lockReason}{t("执行详情与产物请到任务中心查看。")}</p> : null}
+      {!editable && lockReason ? <p className="queue-warning">{lockReason}</p> : null}
       <>
         <div className="queue-detail-actions"><label>{t("组名")}<input value={group.label} disabled={busy || !editable} maxLength={100} onChange={event => materials.patchQueueGroup(group.id, { label: event.target.value })} /></label><button type="button" disabled={busy || !editable} onClick={() => materials.patchQueueGroup(group.id, { excluded: !group.excluded })}>{group.excluded ? t("恢复此组") : t("排除此组")}</button><button type="button" disabled={busy || !editable} onClick={() => materials.duplicateQueueGroup(group.id)}>{t("复制为新组")}</button><button type="button" disabled={busy || !editable || discovering} onClick={() => recheck(group.materialPaths)}>{t("重新检查文件")}</button></div>
         <div className="queue-material-list">{group.materialPaths.map(path => <div key={path}><span title={displayPath(path)}>{displayPath(path)}</span><button type="button" disabled={busy || !editable} onClick={() => removeMaterial(path)}>{t("从组排除")}</button></div>)}</div>

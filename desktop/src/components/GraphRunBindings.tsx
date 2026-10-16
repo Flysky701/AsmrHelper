@@ -92,7 +92,7 @@ export default function GraphRunBindings({ graph, bindings, items, onChange, dis
             {candidates.map(item => <option key={item.path} value={item.path}>{item.name} — {displayPath(item.path)}</option>)}
           </select>
         </label>
-        {selected && slot.type === 'subtitle' ? knownLanguage(detected) ? <p className="graph-workbench-muted">{t("字幕语言：")}{t(LANGUAGES.find(language => language.value === detected)?.label || '')}{t("（文件信息）")}</p> : <>
+        {selected && slot.type === 'subtitle' ? knownLanguage(detected) ? <p className="graph-workbench-muted">{t("字幕语言：")}{t(LANGUAGES.find(language => language.value === detected)?.label || '')}</p> : <>
           <label>{t("字幕实际语言 ")}<select aria-label={format("{0} · 字幕语言", [slot.label])} value={binding?.language ?? ''} onChange={event => patch({ language: (event.target.value || null) as GraphLanguage | null, language_confirmed: false })}>
               <option value="">{t("请核实实际语言")}</option>{LANGUAGES.map(language => <option key={language.value} value={language.value}>{t(language.label)}</option>)}
             </select>

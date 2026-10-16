@@ -1,8 +1,8 @@
-.appearance-settings { max-width: 880px; display: grid; gap: 20px; padding-bottom: 16px; }
-.appearance-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-panel); }
+.appearance-settings { max-width: 880px; display: grid; gap: 18px; padding-bottom: 16px; }
+.appearance-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px 24px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-panel); }
 .appearance-card h3 { font-size: var(--text-section); font-weight: 600; line-height: 1.5; }
-.appearance-card p { color: var(--muted-strong); font-size: var(--text-help); line-height: 1.7; margin-top: 6px; }
-.appearance-card select { font: inherit; color: var(--fg); background: white; border: 1px solid var(--border-strong); padding: 9px 12px; border-radius: var(--radius); min-width: 150px; }
+.appearance-card p { color: var(--muted-strong); font-size: var(--text-help); line-height: 1.6; margin-top: 4px; }
+.appearance-card select { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border-strong, var(--border)); padding: 8px 12px; border-radius: var(--radius-sm); min-width: 150px; }
 .appearance-card--background { display: grid; grid-template-columns: minmax(0,1fr); justify-content: stretch; align-items: stretch; gap: 18px; }
 .appearance-preview { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; min-height: 180px; background: radial-gradient(ellipse at top right,#a9d8dd,transparent),linear-gradient(135deg,#ddeff2,#eff4f6); background-size: cover; background-position: center; }
 .appearance-preview__veil { position: absolute; inset: 0; background: #f5f8fa; }

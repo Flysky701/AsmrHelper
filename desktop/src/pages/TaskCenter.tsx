@@ -413,17 +413,18 @@ export default function TaskCenter() {
         {taskCenterView === 'tasks' && <button type="button" className="tc-icon-button" aria-label={t("刷新任务状态")} onClick={() => setPollGeneration(value => value + 1)}><TaskSymbol name="refresh" /></button>}</div>
     </header>
     {taskCenterView === 'batches' ? <BatchRunsPanel /> : <>
-      <div className="tc-category-toolbar"><label>{t("任务分类")}<select aria-label={t("任务分类")} value={category} onChange={event => { selectTask(null); setCategory(event.target.value as TaskCategory); setMobileDetail(false) }}>
-        {TASK_CATEGORIES.map(item => <option key={item.id} value={item.id}>{t(item.label)} · {tasks.filter(task => taskCategory(task.jobType) === item.id).length}</option>)}</select></label>
-        <details className="tc-bulk-actions"><summary>{t("批量操作")}</summary><div><button type="button" disabled={!retryableFailedTasks.length} onClick={() => void handleRetryFailedTasks()}>{t("重试本类失败任务 (")}{retryableFailedTasks.length})</button><button type="button" disabled={!runningTasks.length} onClick={() => void handleCancelRunningTasks()}>{t("取消本类运行任务 (")}{runningTasks.length})</button></div></details>
-      </div>
-      <div className="tc-toolbar"><nav className="tc-filters" aria-label={t("任务状态筛选")}>{TASK_STATUS_GROUPS.map(tab => <button key={tab.value} type="button" aria-pressed={filter.group === tab.value} onClick={() => setFilter(tab.value)}>
-        {t(tab.label)}<small>{statusScope.filter(task => taskMatchesStatusGroup(task.status, tab.value)).length}</small></button>)}</nav>
+      <div className="tc-toolbar">
+        <label className="tc-category-select">{t("任务分类")}<select aria-label={t("任务分类")} value={category} onChange={event => { selectTask(null); setCategory(event.target.value as TaskCategory); setMobileDetail(false) }}>
+          {TASK_CATEGORIES.map(item => <option key={item.id} value={item.id}>{t(item.label)} · {tasks.filter(task => taskCategory(task.jobType) === item.id).length}</option>)}</select></label>
+        <nav className="tc-filters" aria-label={t("任务状态筛选")}>{TASK_STATUS_GROUPS.map(tab => <button key={tab.value} type="button" aria-pressed={filter.group === tab.value} onClick={() => setFilter(tab.value)}>
+          {t(tab.label)}<small>{statusScope.filter(task => taskMatchesStatusGroup(task.status, tab.value)).length}</small></button>)}</nav>
         <details className="tc-status-detail"><summary>{t("精确状态")}{filter.exact !== 'all' && ` · ${t(TASK_STATUS_OPTIONS.find(option => option.value === filter.exact)?.label || '')}`}</summary>
           <label>{t("状态")}<select aria-label={t("精确任务状态")} value={filter.exact} onChange={event => setExactStatus(event.target.value as TaskStatus | 'all')}>
             <option value="all">{t("本组全部状态")}</option>{TASK_STATUS_OPTIONS.filter(option => taskMatchesStatusGroup(option.value, filter.group))
               .map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}</select></label></details>
-        <label className="tc-search"><TaskSymbol name="search" /><input aria-label={t("搜索任务名称或 ID")} placeholder={t("搜索任务名称或 ID")} value={query} onChange={event => setQuery(event.target.value)} /></label></div>
+        <label className="tc-search"><TaskSymbol name="search" /><input aria-label={t("搜索任务名称或 ID")} placeholder={t("搜索任务名称或 ID")} value={query} onChange={event => setQuery(event.target.value)} /></label>
+        <details className="tc-bulk-actions"><summary>{t("批量操作")}</summary><div><button type="button" disabled={!retryableFailedTasks.length} onClick={() => void handleRetryFailedTasks()}>{t("重试本类失败任务 (")}{retryableFailedTasks.length})</button><button type="button" disabled={!runningTasks.length} onClick={() => void handleCancelRunningTasks()}>{t("取消本类运行任务 (")}{runningTasks.length})</button></div></details>
+      </div>
       {batchError && <p className="tc-refresh-error" role="status">{t(batchError)}</p>}
       <div className="tc-split"><section className="tc-list" aria-label={t("任务与批次列表")}>
         <div className="tc-selection-tools"><label><input type="checkbox" aria-label={t("选择当前筛选内可删除任务")}
@@ -432,7 +433,6 @@ export default function TaskCenter() {
           <span>{t("已选")}{checkedIds.length}{hiddenCheckedCount > 0 ? formatMessage("（筛选外 {0}）", [hiddenCheckedCount]) : ''}</span>
           <button type="button" className="tc-action" disabled={!checkedIds.length} onClick={() => openDeletion(checkedIds)}>{t("删除所选…")}</button>
           {!!checkedIds.length && <button type="button" className="tc-text-action" onClick={() => setCheckedTaskIds([])}>{t("清空选择")}</button>}
-          {visibleSelectionTooLarge && <span>{t("每次最多选择 500 项，请缩小筛选或清空已有选择。")}</span>}
         </div>
         <div className="tc-table-heading"><span>{t("任务 / 批次")}</span><span>{t("状态")}</span><span>{t("开始时间")}</span></div>
         <div className="tc-list-scroll">{groupedBatches.map(({ batch, children }) => {
@@ -447,7 +447,7 @@ export default function TaskCenter() {
         })}
           {!!standalone.length && <div className="tc-section-label">{batchError ? t("任务（批次关联暂不可用）") : batchLoaded ? t("独立任务") : t("任务（正在读取批次关联）")}</div>}{standalone.map(task => row(task))}
           {!filteredTasks.length && <div className="tc-empty"><strong>{t("没有匹配的任务")}</strong><p>{t("尝试其他名称、ID 或状态。")}</p><button type="button" onClick={() => { setQuery(''); setFilter('all') }}>{t("清除筛选")}</button></div>}
-        </div><footer className="tc-list-footer"><span>{t("显示")}{filteredTasks.length} {t("项任务 ·")}{groupedBatches.length} {t("个批次")}</span><span>{t("本地时间")}</span></footer>
+        </div>
       </section>
       <aside className="tc-detail" aria-label={t("所选任务详情")} data-selected-task={selectedTask?.serverTaskId || selectedTask?.id}>
         {selectedTask ? <TaskCenterDetails key={selectedTask.id} task={selectedTask} execution={selectedExecution} events={taskLogs}

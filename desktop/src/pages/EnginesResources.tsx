@@ -71,25 +71,45 @@ export default function EnginesResources() {
   const view = useNavStore(state => state.enginesView)
   const setView = useNavStore(state => state.setEnginesView)
   const [localCategory, setLocalCategory] = useState<CategoryTab>('asr')
+  const refreshRef = useRef<(() => void) | null>(null)
+  const [refreshDisabled, setRefreshDisabled] = useState(false)
 
   return (
     <div className="engines-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <header style={{ padding: '24px 24px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+      <header style={{ padding: '20px 24px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <div className="page-heading" style={{ marginBottom: 14 }}><div className="page-title-row"><h1 className="page-title">{t("引擎与资源")}</h1><QuickStartHelp topic={view === 'external' ? 'connections' : `local-${localCategory}`} /></div></div>
-        <div role="tablist" aria-label={t("资源类型")} style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {([{ id: 'local', label: t("本地模型") }, { id: 'external', label: t("外部服务") }] as const).map(tab => (
-            <button key={tab.id} id={`engines-tab-${tab.id}`} role="tab" aria-selected={view === tab.id}
-              aria-controls={`engines-panel-${tab.id}`} onClick={() => setView(tab.id)}
-              style={{ padding: '9px 20px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer',
-                background: view === tab.id ? 'var(--accent)' : 'var(--surface)',
-                color: view === tab.id ? 'white' : 'var(--muted)', fontWeight: 600 }}>
-              {tab.label}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div role="tablist" aria-label={t("资源类型")} style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {([{ id: 'local', label: t("本地模型") }, { id: 'external', label: t("外部服务") }] as const).map(tab => (
+              <button key={tab.id} id={`engines-tab-${tab.id}`} role="tab" aria-selected={view === tab.id}
+                aria-controls={`engines-panel-${tab.id}`} onClick={() => setView(tab.id)}
+                style={{ padding: '8px 18px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', cursor: 'pointer',
+                  background: view === tab.id ? 'var(--accent)' : 'var(--surface)',
+                  color: view === tab.id ? 'white' : 'var(--muted)', fontWeight: 600 }}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {view === 'local' && (
+            <button
+              type="button"
+              onClick={() => refreshRef.current?.()}
+              disabled={refreshDisabled}
+              style={{
+                ...actionStyle,
+                fontWeight: 500,
+                padding: '7px 14px',
+                cursor: refreshDisabled ? 'not-allowed' : 'pointer',
+                opacity: refreshDisabled ? 0.6 : 1,
+              }}
+            >
+              {t("刷新状态")}
             </button>
-          ))}
+          )}
         </div>
       </header>
       <div role="tabpanel" id="engines-panel-local" aria-labelledby="engines-tab-local" hidden={view !== 'local'} style={{ flex: 1, minHeight: 0 }}>
-        <LocalResources onCategory={setLocalCategory} />
+        <LocalResources onCategory={setLocalCategory} refreshRef={refreshRef} onBusyChange={setRefreshDisabled} />
       </div>
       <div role="tabpanel" id="engines-panel-external" aria-labelledby="engines-tab-external" hidden={view !== 'external'} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 24 }}>
         <ExternalServices />
@@ -98,7 +118,15 @@ export default function EnginesResources() {
   )
 }
 
-function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) => void }) {
+function LocalResources({
+  onCategory,
+  refreshRef,
+  onBusyChange,
+}: {
+  onCategory: (category: CategoryTab) => void
+  refreshRef: React.MutableRefObject<(() => void) | null>
+  onBusyChange: (busy: boolean) => void
+}) {
   useI18n()
   const setPage = useNavStore((state) => state.setPage)
   const addTask = useTaskStore((state) => state.addTask)
@@ -119,7 +147,7 @@ function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) =>
   const [sourceMessage, setSourceMessage] = useState('')
   const loadRequestId = useRef(0)
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => { onBusyChange(loading || statusLoading) }, [loading, statusLoading, onBusyChange])
 
   const loadData = async (preserveError = false) => {
     const requestId = ++loadRequestId.current
@@ -157,6 +185,9 @@ function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) =>
       if (requestId === loadRequestId.current) setStatusLoading(false)
     }
   }
+
+  refreshRef.current = () => { void loadData() }
+  useEffect(() => { void loadData() }, [])
 
   const handleInstall = async (model: ModelSummaryResponse, operation: 'runtime' | 'download') => {
     const modelId = model.model_id
@@ -304,40 +335,24 @@ function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) =>
   const tabGroups = getTabModels(activeTab)
 
   return (
-    <div className="engines-page" style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%', overflow: 'hidden' }}>
-      {/* Action bar */}
-      <div className="engines-action-bar" style={{
-        background: 'var(--surface)', borderBottom: '1px solid var(--border)',
-        padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '12px',
-      }}>
-        <button onClick={() => void loadData()} disabled={loading || statusLoading} style={{
-          fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', fontWeight: 500, padding: '7px 14px',
-          borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-          color: 'var(--fg)', cursor: loading || statusLoading ? 'not-allowed' : 'pointer',
-          opacity: loading || statusLoading ? 0.6 : 1,
-          display: 'inline-flex', alignItems: 'center', gap: '6px',
-        }}>
-          {t("刷新状态")}</button>
-      </div>
-
+    <div className="engines-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Content */}
-      <div className="engines-content" style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div className="engines-content" style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
         {error && (
           <div className="engines-message" style={{
             padding: '10px 14px',
             color: 'var(--danger)',
             background: 'rgba(239,68,68,0.06)',
             border: '1px solid rgba(239,68,68,0.18)',
-            borderRadius: '6px',
+            borderRadius: 'var(--radius-sm)',
             fontSize: 'var(--text-help)',
           }}>
             {t(error)}
           </div>
         )}
 
-        <section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>
-          <h2 className="section-title" style={{ marginBottom: 8 }}>{t("使用已有模型")}</h2>
-          <p style={{ fontSize: 13, color: 'var(--muted)' }}>{t("引用已有模型或缓存目录，不复制文件；解除引用保留原文件。")}</p>
+        <section style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-card)', padding: 16 }}>
+          <h2 className="section-title" style={{ marginBottom: 6 }}>{t("使用已有模型")}</h2>
           <div className="engines-source-actions">
             <input aria-label={t("已有模型目录或缓存目录")} value={sourcePath} onChange={e => setSourcePath(e.target.value)} placeholder={t("例如 D:\\AI\\Models")} style={{ ...actionStyle, cursor: 'text' }} />
             <button style={actionStyle} disabled={sourceBusy} onClick={async () => {
@@ -347,7 +362,7 @@ function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) =>
             <button style={actionStyle} disabled={sourceBusy || !sourcePath.trim()} onClick={() => void handleSource(false)}>{t("引用此目录")}</button>
             <button style={actionStyle} disabled={sourceBusy} onClick={() => void handleSource(true)}>{t("扫描并引用缓存")}</button>
           </div>
-          {sourceMessage && <p role="status" style={{ fontSize: 13 }}>{t(sourceMessage)}</p>}
+          {sourceMessage && <p role="status" style={{ fontSize: 13, marginTop: 8 }}>{t(sourceMessage)}</p>}
           {sourceRoots.map(path => <div key={path} className="engines-source-root">
             <span>{displayPath(path)}</span>
             <button style={actionStyle} disabled={sourceBusy} onClick={() => void unlinkSource(path)}>{t("解除引用（保留文件）")}</button>
@@ -358,10 +373,10 @@ function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) =>
         <div>
           <h2 className="section-title" style={{ marginBottom: 12 }}>
             {t("工作目录")}</h2>
-          <div className="engines-runtime-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+          <div className="engines-runtime-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
             {resources.map(res => (
               <div className="engines-runtime-card" key={res.name} style={{
-                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px', minWidth: 0,
+                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-card)', padding: '14px 16px', minWidth: 0,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                   <div style={{
@@ -375,7 +390,7 @@ function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) =>
                 </div>
                 <div
                   title={typeof res.metadata.path === 'string' ? displayPath(res.metadata.path) : undefined}
-                  style={{ fontSize: 'var(--text-help)', lineHeight: 1.6, color: 'var(--muted)', overflowWrap: 'anywhere', userSelect: 'text' }}
+                  style={{ fontSize: 'var(--text-help)', lineHeight: 1.5, color: 'var(--muted)', overflowWrap: 'anywhere', userSelect: 'text' }}
                 >
                   {typeof res.metadata.path === 'string' ? displayPath(res.metadata.path) : t("路径未提供")}
                 </div>
@@ -391,13 +406,11 @@ function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) =>
         <div>
           <h2 className="section-title" style={{ marginBottom: 12 }}>
             {t("模型管理")}</h2>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-            {t("安装环境可能联网下载或替换依赖；模型权重需单独下载。")}</p>
 
           {/* Category tabs */}
           <div className="engines-category-tabs" style={{
             display: 'flex', gap: '2px', background: 'var(--bg)', border: '1px solid var(--border)',
-            borderRadius: '8px', padding: '3px', marginBottom: '16px',
+            borderRadius: 'var(--radius-sm)', padding: '3px', marginBottom: '16px',
           }}>
             {(Object.keys(CATEGORY_LABELS) as CategoryTab[]).filter(tab => tab !== 'llm' || counts.llm > 0).map(tab => (
               <button
@@ -433,7 +446,7 @@ function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) =>
               const catBg = catColor?.bg ?? 'var(--bg)'
               return (
                 <div key={groupKey} style={{
-                  background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px',
+                  background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-card)',
                   marginBottom: '12px', overflow: 'hidden',
                 }}>
                   {/* Group header */}
@@ -506,22 +519,19 @@ function LocalResources({ onCategory }: { onCategory: (category: CategoryTab) =>
                         return (
                           <div className="engines-model-row" key={model.model_id} style={{
                             display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)',
-                            padding: '10px 14px', borderBottom: '1px solid var(--border)', alignItems: 'start',
+                            padding: '12px 16px', borderBottom: '1px solid var(--border)', alignItems: 'start',
                             fontSize: 'var(--text-control)', gap: '8px',
                           }}>
                             <div className="engines-model-info">
-                              <div style={{ fontWeight: 500 }}>{model.display_name}{model.install_strategy === 'package' && <small style={{ display: 'block', fontWeight: 400, marginTop: 6 }}>{t("可引用本地 HF / PyTorch 权重")}</small>}</div>
-                              <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                              <div style={{ fontWeight: 500 }}>{model.display_name}</div>
+                              <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '2px' }}>
                                 {model.backend || model.family_id || model.kind}
                                 {model.estimated_size_mb ? ` · ${formatEstimatedSize(model.estimated_size_mb)}` : ''}
                               </div>
-                              {status && <div style={{ fontSize: 11, marginTop: 6, overflowWrap: 'anywhere' }}>
+                              {status && <div style={{ fontSize: 11.5, marginTop: 6, overflowWrap: 'anywhere' }}>
                                 <details className="engines-status-details"><summary>{t("状态明细")}</summary><p>{t("权重：")}{status.status === 'unknown' ? t("待确认") : status.weights_ready ? t("文件完整") : t("缺失或不完整")} {t("· 环境：")}{status.status === 'unknown' ? t("待确认") : status.runtime_ready ? t("依赖检查通过") : t("未就绪")} {t("· 推理：尚未验证")}</p></details>
                                 <div className="engines-model-location">
-                                  {status.path ? <details className="model-path">
-                                    <summary title={status.path}>{t("位置：")}{status.path}</summary>
-                                    <p>{status.path}</p>
-                                  </details> : <span>{t("位置：未找到")}</span>}
+                                  {status.path ? <span className="model-path" title={status.path}>{t("位置：")}{status.path}</span> : <span>{t("位置：未找到")}</span>}
                                 </div>
                               </div>}
                               {status?.issues?.length ? (

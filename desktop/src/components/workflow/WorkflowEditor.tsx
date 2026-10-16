@@ -264,7 +264,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
     if (binding) onBindingsChange({ ...bindings, [slotId]: { ...binding, ...patch } })
   }
   return <div ref={editorRef} className={`wg-editor${editorWidth < 960 ? ' is-condensed' : ''}${editorWidth < 720 ? ' is-compact' : ''}${editorWidth < 540 ? ' is-small' : ''} show-${compactPane}${narrow ? ' has-narrow-canvas' : ''}`} onKeyDown={event => { if (event.key === 'Escape') { setPendingSource(null); setRemoval(null); setError('') } }}>
-    <aside className="wg-library" aria-label={t("模块库")} tabIndex={0}><div className="wg-panel-heading"><span>{t("模块库")}</span><small>{GRAPH_ADDABLE_NODE_KINDS.length} {t(" 项能力")}</small></div><p className="wg-hint">{t("点击添加，可重复使用。")}</p>
+    <aside className="wg-library" aria-label={t("模块库")} tabIndex={0}><div className="wg-panel-heading"><span>{t("模块库")}</span><small>{GRAPH_ADDABLE_NODE_KINDS.length} {t(" 项能力")}</small></div>
       <div className="wg-library-list">{GRAPH_ADDABLE_NODE_KINDS.map(kind => <button type="button" key={kind} onClick={() => {
         const added = createNode(kind, graph)
         revealRef.current = added.id; setCompactPane('canvas')
@@ -276,7 +276,6 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
         revealRef.current = `slot:${type}_${index}`; setCompactPane('canvas')
         onChange({ ...graph, input_slots: [...graph.input_slots, { id: `${type}_${index}`, type, label: `${type === 'audio' ? '音频' : '字幕'}输入 ${index}` }] })
       }}>+ {type === 'audio' ? t("音频槽") : t("字幕槽")}</button>)}</div>
-      <div className="wg-library-note"><strong>{t("素材与交付")}</strong><p>{t("输入槽为节点提供素材；在节点设置顶部勾选要交付的音频或字幕。")}</p></div>
     </aside>
     <nav className="wg-pane-switch" aria-label={t("编辑区域")}><button type="button" aria-pressed={compactPane === 'canvas'} onClick={() => setCompactPane('canvas')}>{t("流程画布")}</button><button type="button" aria-pressed={compactPane === 'inspector'} onClick={() => setCompactPane('inspector')}>{t("节点设置")}{node ? ` · ${node.id}` : ''}</button></nav>
     <main className="wg-main"><div className="wg-canvas-toolbar"><div><strong>{t("流程画布")}</strong><span>{graph.nodes.length} {t(" 节点 · ")}{graph.edges.length} {t(" 连线")}</span></div><div className="wg-canvas-actions"><select aria-label={t("定位画布节点")} value="" onChange={event => { const id = event.target.value; if (!id) return; if (!id.startsWith('slot:')) setSelectedId(id); reveal(id) }}><option value="">{t("定位节点…")}</option>{graph.input_slots.map(slot => <option key={`slot:${slot.id}`} value={`slot:${slot.id}`}>{slot.label} · {slot.id}</option>)}{graph.nodes.map(item => <option key={item.id} value={item.id}>{t(GRAPH_CATALOG[item.kind].label)} · {item.id}</option>)}</select><button type="button" onClick={() => { setMoved({}); scrollRef.current?.scrollTo({ left: viewport.width, top: viewport.height }) }}>{t("整理布局")}</button></div></div>
@@ -288,7 +287,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
         <button type="button" onClick={() => changeZoom(1)}>{t('恢复 100%')}</button>
         <span className="wg-zoom-help" title={t('画布聚焦时用 + / − 缩放，0 恢复，F 适应；Alt + 滚轮缩放；空白处或按住空格拖动平移。')}>{t('Alt + 滚轮缩放；空白处或空格拖动平移')}</span>
       </div>
-      <div className="wg-connect-instruction" role="status">{pendingSource ? <><strong>{t("已选：")}{pendingLabel}</strong><span>{t("点击目标输入完成连线")}</span><button type="button" onClick={() => setPendingSource(null)}>{t("取消")}</button></> : <><i className="wg-port-dot subtitle" /><span>{t("选择输出端口，再选择输入端口；也可在右侧指定来源。")}</span></>}</div>
+      {pendingSource && <div className="wg-connect-instruction" role="status"><strong>{t("已选：")}{pendingLabel}</strong><span>{t("点击目标输入完成连线")}</span><button type="button" onClick={() => setPendingSource(null)}>{t("取消")}</button></div>}
       {error && <div className="wg-connection-error" role="alert">{t(error)}</div>}
       {removal && <section className="wg-delete-confirm" aria-label={t("确认删除卡片")}>
         <p>{format("删除{0}「{1}」及其关联连线{2}？下游会缺少来源；素材文件和历史任务保持不变。", [t(removal.kind === 'slot' ? '输入槽' : '节点'), removal.id, removal.kind === 'node' ? t('与产出') : ''])}</p>
@@ -344,7 +343,7 @@ export default function WorkflowEditor({ graph, bindings, materials, issues, onC
         const outputNode = graph.nodes.find(item => item.id === output.node_id)
         return <span key={`${output.node_id}:${output.port}`}>{output.label || `${outputNode ? t(GRAPH_CATALOG[outputNode.kind].label) : t("节点已移除")} · ${output.node_id}`}</span>
       }) : <span className="wg-warning">{t("尚未选择产出")}</span>}</div>
-      <details className="wg-problems" open={allIssues.length > 0}><summary>{allIssues.length ? format("{0} 项需要补充", [allIssues.length]) : templateMode ? t("结构检查通过") : t("结构与素材已连接")}<span>{templateMode ? t("保存模板不运行任务；素材与环境在工作台检查") : t("仅检查图与素材，不代表引擎已就绪")}</span></summary>{allIssues.map((issue, index) => <p key={index}>{t(issue)}</p>)}</details>
+      <details className="wg-problems" open={allIssues.length > 0}><summary>{allIssues.length ? format("{0} 项需要补充", [allIssues.length]) : templateMode ? t("结构检查通过") : t("结构与素材已连接")}</summary>{allIssues.map((issue, index) => <p key={index}>{t(issue)}</p>)}</details>
     </main>
     <WorkflowInspector graph={graph} node={node} issues={issues.filter(issue => issue.nodeId === selectedId).map(issue => issue.message)} onNodeChange={updated => onChange(updateNode(graph, updated))} onConnect={connect} renderParameters={renderParameters} onOutput={(id, port, selected) => {
       const outputs = graph.outputs.filter(output => output.node_id !== id || output.port !== port)

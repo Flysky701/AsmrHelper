@@ -73,7 +73,7 @@ export default function FishClonePanel({ active, assets, connections, onSaved }:
       <div className="fish-clone-submit"><button className="primary" disabled={!connection || !asset?.confirmed || !asset.transcript.trim() || !draft.title.trim() || submitted} onClick={() => void run(async () => {
         const result = await submission.current.submit(draft)
         update(result); setNotice('已提交，状态：' + (stateNames[result.state] || result.state) + '。')
-      })}>{busy ? t('处理中…') : submitted ? t('本次已提交') : t('上传片段并创建音色')}</button><span className="muted">{t("只创建音色，不自动试音。")}</span></div>
+      })}>{busy ? t('处理中…') : submitted ? t('本次已提交') : t('上传片段并创建音色')}</button></div>
       <div className="row spread"><h3>{t("创建结果")}</h3><button onClick={() => void run(load)}>{t("刷新记录")}</button></div>
       <p className="muted">{t("结果未知请先到 Fish 核查，勿重复创建。删除本地记录不删除云端音色或录音。")}</p>
       {items.map(item => <div className="item" key={item.id}>

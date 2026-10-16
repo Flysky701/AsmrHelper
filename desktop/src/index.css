@@ -5,16 +5,27 @@
 .app-shell.has-custom-background::before,
 .app-shell.has-custom-background::after { content: ''; position: absolute; inset: 0; pointer-events: none; z-index: -1; }
 .app-shell.has-custom-background::before { background: var(--app-background) center / cover no-repeat; }
-.app-shell.has-custom-background::after { background: #f5f8fa; opacity: var(--app-overlay, .78); }
-.has-custom-background .queue-workbench,.has-custom-background .settings-page { background: transparent; }
-.has-custom-background .settings-sidebar { background: rgba(247,250,251,.88); }
-.has-custom-background .queue-page-heading,.has-custom-background .queue-action-bar,
-.has-custom-background .queue-parameter-panel { background: rgba(255,255,255,.95); }
-.has-custom-background .queue-section { background: rgba(255,255,255,.96); }
+.app-shell.has-custom-background::after { background: #f6f8fa; opacity: var(--app-overlay, .80); backdrop-filter: blur(2px); }
+.has-custom-background .queue-workbench,
+.has-custom-background .settings-page,
+.has-custom-background .tc-page,
+.has-custom-background .speech-lab,
+.has-custom-background .engines-page,
+.has-custom-background .audio-tools-page,
+.has-custom-background .wfp-page { background: transparent; }
+.has-custom-background .settings-sidebar { background: rgba(248, 250, 252, .88); backdrop-filter: blur(8px); }
+.has-custom-background .queue-page-heading,
+.has-custom-background .queue-action-bar,
+.has-custom-background .queue-parameter-panel,
+.has-custom-background .subtitle-page-heading { background: rgba(255, 255, 255, .92); backdrop-filter: blur(10px); }
+.has-custom-background .queue-section { background: rgba(255, 255, 255, .94); }
 .has-custom-background .queue-preset-toolbar > label,
-.has-custom-background .queue-flow-summary,.has-custom-background .queue-parameter-summary,
-.has-custom-background .queue-destination,.has-custom-background .queue-quick-start,
-.has-custom-background .queue-draft-notice,.has-custom-background .queue-legacy { color: #30434e; }
+.has-custom-background .queue-flow-summary,
+.has-custom-background .queue-parameter-summary,
+.has-custom-background .queue-destination,
+.has-custom-background .queue-quick-start,
+.has-custom-background .queue-draft-notice,
+.has-custom-background .queue-legacy { color: #30434e; }
 .has-custom-background .queue-quick-start > summary { color: #30434e; }
 html[lang=en] .queue-workbench.is-dragging::after { content: 'Drop to import audio or subtitles'; }
 
@@ -27,57 +38,63 @@ html[lang=en] .queue-workbench.is-dragging::after { content: 'Drop to import aud
 
 /* ============================================
    Modern Minimal Design System - ASMR Helper
-   Direction: Linear / Vercel
+   Direction: Linear / Vercel / Fluid Desktop
    ============================================ */
 
 :root {
-  --bg: oklch(98.5% 0.006 220);
-  --surface: rgba(255, 255, 255, 0.92);
-  --panel-muted: oklch(96.9% 0.012 220);
-  --fg: oklch(24% 0.022 235);
-  --muted: oklch(54% 0.018 240);
-  --muted-strong: oklch(38% 0.02 238);
-  --border: oklch(90% 0.01 235);
-  --border-strong: oklch(82% 0.015 235);
-  --accent: oklch(52% 0.11 219);
-  --accent-hover: oklch(47% 0.11 219);
-  --accent-soft: oklch(94% 0.03 222);
-  --accent-ghost-border: oklch(86% 0.03 222);
+  --bg: oklch(98.2% 0.005 225);
+  --surface: rgba(255, 255, 255, 0.96);
+  --surface-elevated: #ffffff;
+  --panel-muted: oklch(96.4% 0.008 225);
+  --fg: oklch(23% 0.02 238);
+  --muted: oklch(52% 0.016 240);
+  --muted-strong: oklch(37% 0.018 238);
+  --border: oklch(90.5% 0.009 235);
+  --border-strong: oklch(83% 0.014 235);
+  --accent: oklch(53% 0.115 218);
+  --accent-hover: oklch(47% 0.115 218);
+  --accent-soft: oklch(94.5% 0.026 220);
+  --accent-ghost-border: oklch(85% 0.032 220);
 
   /* Semantic */
-  --success: oklch(52% 0.11 155);
-  --success-soft: oklch(94% 0.03 155);
-  --warning: oklch(63% 0.12 84);
-  --warning-soft: oklch(95% 0.03 84);
-  --error: oklch(56% 0.16 27);
-  --error-soft: oklch(95% 0.03 27);
+  --success: oklch(53% 0.115 155);
+  --success-soft: oklch(94.5% 0.028 155);
+  --warning: oklch(62% 0.12 82);
+  --warning-soft: oklch(95.5% 0.028 82);
+  --error: oklch(55% 0.16 26);
+  --error-soft: oklch(95.5% 0.026 26);
 
-  /* Radius */
-  --radius: 8px;
-  --radius-sm: 6px;
-  --radius-button: 10px;
-  --radius-card: 16px;
-  --radius-tag: 4px;
+  /* Unified Radius Scale */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-button: 8px;
+  --radius-card: 12px;
+  --radius-lg: 14px;
+  --radius-tag: 6px;
 
-  /* Effects */
-  --shadow-panel: 0 10px 26px oklch(28% 0.03 240 / 0.06);
-  --shadow-float: 0 8px 20px oklch(40% 0.04 230 / 0.12);
+  /* Effects & Transitions */
+  --shadow-xs: 0 1px 2px oklch(25% 0.02 240 / 0.04);
+  --shadow-sm: 0 2px 8px oklch(25% 0.025 240 / 0.05);
+  --shadow-panel: 0 6px 20px oklch(26% 0.025 240 / 0.06);
+  --shadow-float: 0 10px 28px oklch(30% 0.035 235 / 0.12);
+  --ease-fluid: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* Shared reading hierarchy; dense graph ports and table metadata stay local. */
-  --text-page: 26px;
-  --text-panel: 20px;
-  --text-section: 16px;
-  --text-body: 14px;
+  /* Shared reading hierarchy */
+  --text-page: 21px;
+  --text-panel: 17px;
+  --text-section: 14px;
+  --text-body: 13.5px;
   --text-control: 13px;
   --text-help: 12px;
-  --text-compact: 11px;
-  --line-heading: 1.3;
-  --line-body: 1.6;
+  --text-compact: 11.5px;
+  --line-heading: 1.32;
+  --line-body: 1.55;
 
   /* Typography */
-  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Microsoft YaHei', system-ui, sans-serif;
-  --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Microsoft YaHei', system-ui, sans-serif;
-  --font-mono:    'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-body:    'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Cascadia Code', 'SF Mono', Consolas, ui-monospace, monospace;
 }
 
 * {
@@ -88,17 +105,25 @@ html[lang=en] .queue-workbench.is-dragging::after { content: 'Drop to import aud
 
 body {
   font-family: var(--font-body);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--text-body);
+  line-height: var(--line-body);
   color: var(--fg);
   background:
-    radial-gradient(circle at top left, oklch(95.5% 0.025 215) 0, transparent 34%),
-    radial-gradient(circle at top right, oklch(96.2% 0.024 190) 0, transparent 26%),
-    linear-gradient(180deg, oklch(99.1% 0.006 220) 0%, oklch(98.2% 0.008 220) 100%);
+    radial-gradient(circle at top left, oklch(96.2% 0.018 218) 0, transparent 38%),
+    radial-gradient(circle at top right, oklch(96.8% 0.016 195) 0, transparent 30%),
+    linear-gradient(180deg, oklch(98.8% 0.005 225) 0%, oklch(97.8% 0.007 225) 100%);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.006em;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  transition: border-color 0.15s var(--ease-fluid), background-color 0.15s var(--ease-fluid), color 0.15s var(--ease-fluid), box-shadow 0.15s var(--ease-fluid);
 }
 
 html,
@@ -411,8 +436,8 @@ body {
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -420,23 +445,24 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: oklch(80% 0.014 230);
+  background: oklch(82% 0.012 230 / 0.75);
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(72% 0.018 230);
+  background: oklch(70% 0.016 230);
 }
 
 /* Page headings share a hierarchy without changing canvas or table typography. */
-.page-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.page-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
 .page-heading__copy { min-width: 0; flex: 1 1 200px; }
-.page-title, .page-heading .page-title { margin: 0; font-family: var(--font-body); font-size: var(--text-page); font-weight: 700; line-height: var(--line-heading); letter-spacing: 0; overflow-wrap: anywhere; }
-.page-heading .page-description { margin: 6px 0 0; max-width: 72ch; color: var(--muted); font-size: var(--text-help); font-weight: 400; line-height: var(--line-body); overflow-wrap: anywhere; }
+.page-title, .page-heading .page-title { margin: 0; font-family: var(--font-display); font-size: var(--text-page); font-weight: 650; line-height: var(--line-heading); letter-spacing: -0.015em; overflow-wrap: anywhere; }
+.page-heading .page-description { margin: 4px 0 0; max-width: 68ch; color: var(--muted); font-size: var(--text-help); font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
 .page-heading__actions { display: flex; flex: 0 1 auto; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px; }
 .section-title { margin: 0; font-size: var(--text-section); font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .panel-title { margin: 0; font-size: var(--text-panel); font-weight: 650; line-height: var(--line-heading); overflow-wrap: anywhere; }
-.subtitle-page-heading { flex: none; padding: 24px 24px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.subtitle-page-heading { flex: none; padding: 14px 22px; background: var(--surface); border-bottom: 1px solid var(--border); }
 .engines-page > header { flex: none; }
 .engines-page button, .audio-tools-page button { font-family: var(--font-body); font-size: var(--text-control); line-height: 1.5; }
-@media (max-width: 600px) { .subtitle-page-heading { padding: 16px; } }
+@media (max-width: 600px) { .subtitle-page-heading { padding: 12px 16px; } }
+

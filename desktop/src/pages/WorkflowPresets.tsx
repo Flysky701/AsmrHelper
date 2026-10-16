@@ -139,8 +139,7 @@ export default function WorkflowPresets() {
 
   return <div className="workflow-presets">
     <header className="wfp-header page-heading">
-      <div className="page-heading__copy"><div className="page-title-row"><h1 className="page-title">{editor ? editor.preset ? t("编辑流水线") : t("新建流水线") : t("流水线编辑器")}</h1><QuickStartHelp topic={'workflow'} /></div>
-        <p className="wfp-description page-description">{t("编辑处理步骤，保存后在工作台运行。")}</p></div>
+      <div className="page-heading__copy"><div className="page-title-row"><h1 className="page-title">{editor ? editor.preset ? t("编辑流水线") : t("新建流水线") : t("流水线编辑器")}</h1><QuickStartHelp topic={'workflow'} /></div></div>
       <div className="wfp-actions page-heading__actions">
         {editor?.preset && !editor.preset.builtin && <button type="button" className="wfp-button" disabled={busy || !!saveReason} title={saveReason ? t(saveReason) : undefined} onClick={() => void save('copy')}>{t("另存为新预设")}</button>}
         {editor && <button type="button" className="wfp-button is-primary" disabled={busy || !!saveReason} title={saveReason ? t(saveReason) : undefined} aria-describedby={saveReason ? 'wfp-save-reason' : undefined} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving && !deletingId && !addingTemplateId ? t("正在保存…") : editor.preset?.builtin ? t("保存副本并返回") : t("保存并返回")}</button>}
@@ -158,7 +157,7 @@ export default function WorkflowPresets() {
       <div className="wfp-archive-anchor">
         <button type="button" className="wfp-button" aria-expanded={templatesOpen} aria-controls="wfp-archive-panel" onClick={() => setTemplatesOpen(value => !value)}>{t("添加内置模板")}{templatesLoading ? ' …' : ` · ${builtinTemplates.length}`}</button>
         {templatesOpen && <section id="wfp-archive-panel" className="wfp-archive-panel" aria-label={t("添加内置模板")} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setTemplatesOpen(false) } }}>
-          <header><div><strong>{t("添加内置模板")}</strong><p>{t("每次添加都会新建独立预设。")}</p></div><div className="wfp-archive-header-actions"><button type="button" className="wfp-button" disabled={busy || templatesLoading} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadBuiltinTemplates()]) }}>{t("刷新目录")}</button><button type="button" className="wfp-archive-close" aria-label={t("收起添加内置模板")} onClick={() => setTemplatesOpen(false)}>×</button></div></header>
+          <header><div><strong>{t("添加内置模板")}</strong></div><div className="wfp-archive-header-actions"><button type="button" className="wfp-button" disabled={busy || templatesLoading} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadBuiltinTemplates()]) }}>{t("刷新目录")}</button><button type="button" className="wfp-archive-close" aria-label={t("收起添加内置模板")} onClick={() => setTemplatesOpen(false)}>×</button></div></header>
           {templateNotice && <p className="wfp-archive-feedback" role="status">{t(templateNotice)}</p>}
           <div className="wfp-archive-scroll" role="region" aria-label={t("内置模板列表")} tabIndex={0}>
             {templatesLoading && <p className="wfp-archive-message" role="status">{t("正在读取内置模板…")}</p>}
@@ -172,7 +171,6 @@ export default function WorkflowPresets() {
           </div>
         </section>}
       </div>
-      {selected?.builtin && <span className="wfp-catalog-hint">{t("修改内置结构时需另存副本。")}</span>}
     </section>
     {(catalogError || catalogNotice || notice || error || saveReason) && <div className="wfp-alerts">
       {catalogError && <div className="wfp-alert" role="alert">{t("目录读取失败：")}{t(catalogError)} <button type="button" disabled={catalogLoading || busy} onClick={() => void workflow.loadCatalog()}>{t("重试")}</button></div>}

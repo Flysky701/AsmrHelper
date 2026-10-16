@@ -144,7 +144,7 @@ const S = {
   },
   tableHeader: {
     display: 'grid',
-    gridTemplateColumns: '50px 80px 1fr 1fr 60px',
+    gridTemplateColumns: '50px 104px 1fr 1fr 60px',
     gap: 8,
     padding: '8px 12px',
     fontSize: 11,
@@ -160,7 +160,7 @@ const S = {
   },
   segmentRow: (active: boolean, modified: boolean) => ({
     display: 'grid',
-    gridTemplateColumns: '50px 80px 1fr 1fr 60px',
+    gridTemplateColumns: '50px 104px 1fr 1fr 60px',
     gap: 8,
     padding: '8px 12px',
     borderRadius: 6,
@@ -181,7 +181,9 @@ const S = {
     fontFamily: 'var(--font-mono)',
     fontSize: 11,
     color: 'var(--muted)',
-    paddingTop: 4,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 4,
     lineHeight: 1.5,
   },
   segCell: {
@@ -267,13 +269,13 @@ const S = {
     overflowY: 'auto' as const,
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: 24,
+    gap: 20,
     flex: 1,
   },
   twoColLayout: {
     display: 'grid',
-    gridTemplateColumns: '1fr 320px',
-    gap: 24,
+    gridTemplateColumns: 'minmax(0, 1.1fr) minmax(320px, 0.9fr)',
+    gap: 20,
     alignItems: 'start',
   },
 
@@ -349,16 +351,15 @@ const S = {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
     gap: 12,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   modeCard: (active: boolean) => ({
-    background: 'var(--surface)',
+    background: active ? 'oklch(98% 0.005 255)' : 'var(--surface)',
     border: active ? '1px solid var(--accent)' : '1px solid var(--border)',
     borderRadius: 8,
     padding: 16,
     cursor: 'pointer' as const,
     transition: 'border-color 0.12s, background 0.12s',
-    background2: active ? 'oklch(98% 0.005 255)' : 'transparent',
   }),
   modeCardIcon: (active: boolean) => ({
     width: 36,
@@ -1064,7 +1065,6 @@ export default function SubtitleWorkshop() {
       <div className="subtitle-editor-workspace" style={S.editorWorkspace(activeTab === 'editor')}>
         {/* Toolbar */}
         <div className="subtitle-toolbar" style={S.toolbar}>
-          <h2 className="subtitle-toolbar-title" style={S.toolbarTitle}>{t("字幕编辑")}</h2>
           <button style={S.btn} onClick={handleLoadSubtitle} disabled={!!loading}>
             <Icon.Download /> {t("加载字幕")}</button>
           <button style={S.btn} onClick={handleSelectAudio}>
@@ -1098,14 +1098,14 @@ export default function SubtitleWorkshop() {
         {/* Editor content */}
         <div className="subtitle-editor-content" style={S.editorContent}>
           {/* Table */}
-          {editorScriptReview && <div style={{ gridColumn: '1 / -1', padding: '8px 16px', maxHeight: 180, overflowY: 'auto' }}>
-            <details><summary>{t('确认台词与待核对项')}</summary>
-              <ol>{editorScriptReview.script_lines.map((line, i) => <li key={i}>{line}</li>)}</ol>
+          {editorScriptReview && <div style={{ gridColumn: '1 / -1', padding: '10px 20px', maxHeight: 180, overflowY: 'auto', borderBottom: '1px solid var(--border)', background: 'var(--panel-muted)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <details><summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>{t('确认台词与待核对项')}</summary>
+              <ol style={{ marginTop: 8, paddingLeft: 20 }}>{editorScriptReview.script_lines.map((line, i) => <li key={i}>{line}</li>)}</ol>
               {editorScriptReview.unmatched.map(item => <p key={item.script_idx}>{t('未匹配')} {item.script_idx + 1}: {item.text}</p>)}
               {editorScriptReview.extra_asr.map(item => <p key={item.asr_idx}>{t('额外录音片段')} {item.start.toFixed(2)}–{item.end.toFixed(2)} {item.text}</p>)}
               {editorScriptReview.conflicts.map((item, i) => <p key={i}>{item}</p>)}
             </details>
-            {scriptReviewPending && <label><input type="checkbox" checked={scriptReviewAcknowledged} onChange={e => setScriptReviewAcknowledged(e.target.checked)} />{t('已试听并修正待核对项，按实际录音内容导出。')}</label>}
+            {scriptReviewPending && <label style={S.checkboxField}><input type="checkbox" checked={scriptReviewAcknowledged} onChange={e => setScriptReviewAcknowledged(e.target.checked)} /><span>{t('已试听并修正待核对项，按实际录音内容导出。')}</span></label>}
           </div>}
           <div className="subtitle-editor-table" style={S.editorTable}>
             {!!filePath && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -1120,7 +1120,7 @@ export default function SubtitleWorkshop() {
                   <rect x="8" y="12" width="32" height="24" rx="4" />
                   <path d="M16 20h16M16 26h10" />
                 </svg>
-                <p>{t("点击\"加载字幕\"按钮选择字幕文件")}<br />{t("支持 SRT、VTT、LRC 格式")}</p>
+                <p style={{ textAlign: 'center', lineHeight: 1.6 }}>{t("点击\"加载字幕\"按钮选择字幕文件")}<br /><span style={{ fontSize: 12 }}>{t("支持 SRT、VTT、LRC 格式")}</span></p>
                 <button style={{ ...S.btn, ...S.btnPrimary }} onClick={handleLoadSubtitle} disabled={!!loading}>
                   <Icon.Download /> {t("加载字幕")}</button>
               </div>
@@ -1142,8 +1142,8 @@ export default function SubtitleWorkshop() {
                   >
                     <div style={S.segIdx}>{i + 1}</div>
                     <div style={S.segTime}>
-                      <input type="number" min="0" step="0.001" aria-label={`${t('开始（秒）')} ${i + 1}`} title={formatTime(seg.start)} value={Number.isFinite(seg.start) ? seg.start : ''} onChange={e => handleTimeEdit(i, 'start', e.target.value)} style={{ ...S.formInput, width: '100%', padding: '3px 4px' }} />
-                      <input type="number" min="0" step="0.001" aria-label={`${t('结束（秒）')} ${i + 1}`} title={formatTime(seg.end)} value={Number.isFinite(seg.end) ? seg.end : ''} onChange={e => handleTimeEdit(i, 'end', e.target.value)} style={{ ...S.formInput, width: '100%', padding: '3px 4px' }} />
+                      <input type="number" min="0" step="0.001" aria-label={`${t('开始（秒）')} ${i + 1}`} title={formatTime(seg.start)} value={Number.isFinite(seg.start) ? seg.start : ''} onChange={e => handleTimeEdit(i, 'start', e.target.value)} style={{ ...S.formInput, width: '100%', padding: '3px 6px', fontSize: 12 }} />
+                      <input type="number" min="0" step="0.001" aria-label={`${t('结束（秒）')} ${i + 1}`} title={formatTime(seg.end)} value={Number.isFinite(seg.end) ? seg.end : ''} onChange={e => handleTimeEdit(i, 'end', e.target.value)} style={{ ...S.formInput, width: '100%', padding: '3px 6px', fontSize: 12 }} />
                     </div>
                     <div
                       style={S.segCell}
@@ -1185,16 +1185,15 @@ export default function SubtitleWorkshop() {
           {/* Sidebar */}
           <div className="subtitle-editor-sidebar" style={S.editorSidebar}>
             <div>
-              <div style={S.sidebarSectionTitle}>{t("文件信息")}</div>
-              <div style={S.infoRow}><span style={S.infoLabel}>{t("文件")}</span><span style={S.infoValue}>{fileName || '—'}</span></div>
-              <div style={S.infoRow}><span style={S.infoLabel}>{t("格式")}</span><span style={S.infoValue}>{filePath ? filePath.split('.').pop()?.toUpperCase() : '—'}</span></div>
-              <div style={S.infoRow}><span style={S.infoLabel}>{t("条目数")}</span><span style={S.infoValue}>{segments.length}</span></div>
-              {segments.length > 0 && (
-                <div style={S.infoRow}>
-                  <span style={S.infoLabel}>{t("时长")}</span>
-                  <span style={S.infoValue}>{formatDuration(segments[segments.length - 1]!.end)}</span>
-                </div>
-              )}
+              <div style={S.sidebarSectionTitle}>{t("编辑概览")}</div>
+              <div style={S.infoRow}>
+                <span style={S.infoLabel}>{t("总时长")}</span>
+                <span style={S.infoValue}>{segments.length > 0 ? formatDuration(segments[segments.length - 1]!.end) : '—'}</span>
+              </div>
+              <div style={S.infoRow}>
+                <span style={S.infoLabel}>{t("已修改")}</span>
+                <span style={{ ...S.infoValue, color: modifiedIdx.size > 0 ? 'var(--accent)' : 'var(--muted)' }}>{modifiedIdx.size}</span>
+              </div>
             </div>
 
             {segments.length > 0 && (
@@ -1212,10 +1211,6 @@ export default function SubtitleWorkshop() {
                     {translations.filter((t) => !t).length}
                   </span>
                 </div>
-                <div style={S.infoRow}>
-                  <span style={S.infoLabel}>{t("已修改")}</span>
-                  <span style={{ ...S.infoValue, color: 'var(--accent)' }}>{modifiedIdx.size}</span>
-                </div>
                 {/* Progress bar */}
                 <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden', marginTop: 8 }}>
                   <div style={{
@@ -1231,14 +1226,11 @@ export default function SubtitleWorkshop() {
 
             {segments.length > 0 && (
               <div>
-                <div style={S.sidebarSectionTitle}>{t("快捷操作")}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <button
-                    style={{ ...S.btn, ...S.btnSm, justifyContent: 'center', width: '100%' }}
-                    onClick={() => switchTab('translate')}
-                  >
-                    {t("翻译未翻译条目 →")}</button>
-                </div>
+                <button
+                  style={{ ...S.btn, ...S.btnSm, justifyContent: 'center', width: '100%' }}
+                  onClick={() => switchTab('translate')}
+                >
+                  {t("翻译未翻译条目 →")}</button>
               </div>
             )}
           </div>
@@ -1248,127 +1240,105 @@ export default function SubtitleWorkshop() {
       {/* ── Workspace 2: Translate ──────────────────────── */}
       <div style={S.workspace(activeTab === 'translate')}>
         <div className="subtitle-scroll-workspace" style={S.scrollWorkspace}>
-          <div className="subtitle-two-col-layout" style={S.twoColLayout}>
-            {/* Left: config */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* File selection */}
-              <div style={S.panel}>
-                <div style={S.panelHeader}>
-                  <Icon.File /> {t("输入文件")}</div>
-                <div style={S.panelBody}>
-                  <div style={S.formGrid}>
-                    <div style={S.formField}>
-                      <label style={S.formLabel}>{t("字幕文件路径")}</label>
-                      <div className="subtitle-file-input" style={S.fileInput}>
-                        <input
-                          style={{ ...S.formInput, flex: 1 }}
-                          value={translatePath}
-                          onChange={(e) => setTranslatePath(e.target.value)}
-                          placeholder={t("选择字幕文件 (.srt / .vtt / .lrc)")}
-                        />
-                        <button
-                          style={{ ...S.btn, ...S.btnSm }}
-                          onClick={async () => {
-                            const files = await selectFiles({
-                              multiple: false,
-                              filters: [FILE_FILTERS.subtitle],
-                              browserPrompt: t("请输入字幕文件所在目录的完整路径："),
-                            })
-                            if (files.length > 0) setTranslatePath(files[0]!)
-                          }}
-                        >
-                          {t("浏览")}</button>
-                      </div>
-                      <div style={S.formHint}>{t("支持 SRT、VTT、LRC 格式")}</div>
-                    </div>
-                    <div style={S.formField}>
-                      <label style={S.formLabel}>{t("输出路径（可选）")}</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 760, width: '100%' }}>
+            {/* File selection */}
+            <div style={S.panel}>
+              <div style={S.panelHeader}>
+                <Icon.File /> {t("输入文件")}</div>
+              <div style={S.panelBody}>
+                <div style={S.formGrid}>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>{t("字幕文件路径")}</label>
+                    <div className="subtitle-file-input" style={S.fileInput}>
                       <input
-                        style={S.formInput}
-                        value={translateOutput}
-                        onChange={(e) => setTranslateOutput(e.target.value)}
-                        placeholder={t("留空则自动生成 _zh 后缀文件")}
+                        style={{ ...S.formInput, flex: 1 }}
+                        value={translatePath}
+                        onChange={(e) => setTranslatePath(e.target.value)}
+                        placeholder={t("选择字幕文件 (.srt / .vtt / .lrc)")}
                       />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Translation config */}
-              <div style={S.panel}>
-                <div style={S.panelHeader}>
-                  <Icon.Arrow /> {t("翻译配置")}</div>
-                <div style={S.panelBody}>
-                  <div style={S.formGrid}>
-                    <div style={S.formField}>
-                      <label style={S.formLabel}>{t("翻译服务")}</label>
-                      <select
-                        style={S.formInput}
-                        value={translateProvider}
-                        onChange={(e) => setTranslateProvider(e.target.value)}
+                      <button
+                        style={{ ...S.btn, ...S.btnSm }}
+                        onClick={async () => {
+                          const files = await selectFiles({
+                            multiple: false,
+                            filters: [FILE_FILTERS.subtitle],
+                            browserPrompt: t("请输入字幕文件所在目录的完整路径："),
+                          })
+                          if (files.length > 0) setTranslatePath(files[0]!)
+                        }}
                       >
-                        <option value="deepseek">DeepSeek</option>
-                        <option value="openai">OpenAI</option>
-                      </select>
+                        {t("浏览")}</button>
                     </div>
-                    <div className="subtitle-two-col-form" style={S.twoColForm}>
-                      <div style={S.formField}>
-                        <label style={S.formLabel}>{t("源语言")}</label>
-                        <select style={S.formInput} value={translateSrcLang} onChange={(e) => setTranslateSrcLang(e.target.value)}>
-                          <option value="ja">{t("日语 (ja)")}</option>
-                          <option value="en">{t("英语 (en)")}</option>
-                          <option value="zh">{t("中文 (zh)")}</option>
-                        </select>
-                      </div>
-                      <div style={S.formField}>
-                        <label style={S.formLabel}>{t("目标语言")}</label>
-                        <select style={S.formInput} value={translateTgtLang} onChange={(e) => setTranslateTgtLang(e.target.value)}>
-                          <option value="zh">{t("中文 (zh)")}</option>
-                          <option value="en">{t("英语 (en)")}</option>
-                          <option value="ja">{t("日语 (ja)")}</option>
-                        </select>
-                      </div>
-                    </div>
-                    <label style={S.checkboxField}>
-                      <input
-                        type="checkbox"
-                        checked={translateBilingual}
-                        onChange={(e) => setTranslateBilingual(e.target.checked)}
-                      />
-                      <span>{t("生成双语字幕（原文 + 译文）")}</span>
-                    </label>
+                  </div>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>{t("输出路径（可选）")}</label>
+                    <input
+                      style={S.formInput}
+                      value={translateOutput}
+                      onChange={(e) => setTranslateOutput(e.target.value)}
+                      placeholder={t("留空则自动生成 _zh 后缀文件")}
+                    />
                   </div>
                 </div>
               </div>
-
-              {/* Execute */}
-              <div className="subtitle-execute-row" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <button
-                  style={{ ...S.btn, ...S.btnPrimary, padding: '10px 24px' }}
-                  onClick={handleTranslate}
-                  disabled={!translatePath || !!loading}
-                >
-                  <Icon.Arrow /> {loading === 'translate' ? t("翻译中...") : t("开始翻译")}
-                </button>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {t("翻译将作为后台任务执行，可在任务中心查看进度")}</span>
-              </div>
-
             </div>
 
-            {/* Right: help */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={S.panel}>
-                <div style={S.panelHeader}>
-                  <Icon.Info /> {t("说明")}</div>
-                <div style={{ ...S.panelBody, ...S.helpText }}>
-                  <p style={{ marginBottom: 12 }}>{t("选择字幕、服务和语言后开始翻译，进度与结果见任务中心。")}</p>
-                  <ul style={{ paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <li>{t("使用所选 LLM 服务及其凭据。")}</li>
-                    <li>{t("双语模式在每条原文下方添加译文。")}</li>
-                  </ul>
+            {/* Translation config */}
+            <div style={S.panel}>
+              <div style={S.panelHeader}>
+                <Icon.Arrow /> {t("翻译配置")}</div>
+              <div style={S.panelBody}>
+                <div style={S.formGrid}>
+                  <div style={S.formField}>
+                    <label style={S.formLabel}>{t("翻译服务")}</label>
+                    <select
+                      style={S.formInput}
+                      value={translateProvider}
+                      onChange={(e) => setTranslateProvider(e.target.value)}
+                    >
+                      <option value="deepseek">DeepSeek</option>
+                      <option value="openai">OpenAI</option>
+                    </select>
+                  </div>
+                  <div className="subtitle-two-col-form" style={S.twoColForm}>
+                    <div style={S.formField}>
+                      <label style={S.formLabel}>{t("源语言")}</label>
+                      <select style={S.formInput} value={translateSrcLang} onChange={(e) => setTranslateSrcLang(e.target.value)}>
+                        <option value="ja">{t("日语 (ja)")}</option>
+                        <option value="en">{t("英语 (en)")}</option>
+                        <option value="zh">{t("中文 (zh)")}</option>
+                      </select>
+                    </div>
+                    <div style={S.formField}>
+                      <label style={S.formLabel}>{t("目标语言")}</label>
+                      <select style={S.formInput} value={translateTgtLang} onChange={(e) => setTranslateTgtLang(e.target.value)}>
+                        <option value="zh">{t("中文 (zh)")}</option>
+                        <option value="en">{t("英语 (en)")}</option>
+                        <option value="ja">{t("日语 (ja)")}</option>
+                      </select>
+                    </div>
+                  </div>
+                  <label style={S.checkboxField}>
+                    <input
+                      type="checkbox"
+                      checked={translateBilingual}
+                      onChange={(e) => setTranslateBilingual(e.target.checked)}
+                    />
+                    <span>{t("生成双语字幕（原文 + 译文）")}</span>
+                  </label>
                 </div>
               </div>
+            </div>
+
+            {/* Execute */}
+            <div className="subtitle-execute-row" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <button
+                style={{ ...S.btn, ...S.btnPrimary, padding: '10px 24px' }}
+                onClick={handleTranslate}
+                disabled={!translatePath || !!loading}
+              >
+                <Icon.Arrow /> {loading === 'translate' ? t("翻译中...") : t("开始翻译")}
+              </button>
             </div>
           </div>
         </div>
@@ -1378,40 +1348,36 @@ export default function SubtitleWorkshop() {
       <div style={S.workspace(activeTab === 'script')}>
         <div className="subtitle-scroll-workspace" style={S.scrollWorkspace}>
           {/* Mode selector */}
-          <div>
-            <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 'var(--text-section)', fontWeight: 600, marginBottom: 12 }}>
-              {t("台本转字幕")}</h2>
-            <div className="subtitle-mode-selector" style={S.modeSelector}>
-              <div
-                style={S.modeCard(scriptMode === 'text_only')}
-                onClick={() => setScriptMode('text_only')}
-              >
-                <div style={S.modeCardIcon(scriptMode === 'text_only')}>
-                  <Icon.Text />
-                </div>
-                <div style={S.modeCardTitle(scriptMode === 'text_only')}>{t("整理台词")}</div>
-                <div style={S.modeCardDesc}>{t("整理并确认台词，输出 TXT，不生成时间轴。")}</div>
+          <div className="subtitle-mode-selector" style={S.modeSelector}>
+            <div
+              style={S.modeCard(scriptMode === 'text_only')}
+              onClick={() => setScriptMode('text_only')}
+            >
+              <div style={S.modeCardIcon(scriptMode === 'text_only')}>
+                <Icon.Text />
               </div>
-              <div
-                style={S.modeCard(scriptMode === 'full')}
-                onClick={() => setScriptMode('full')}
-              >
-                <div style={S.modeCardIcon(scriptMode === 'full')}>
-                  <Icon.Audio />
-                </div>
-                <div style={S.modeCardTitle(scriptMode === 'full')}>{t("音频对齐模式")}</div>
-                <div style={S.modeCardDesc}>{t("用录音时间锚点匹配确认台词；冲突先核对。")}</div>
+              <div style={S.modeCardTitle(scriptMode === 'text_only')}>{t("整理台词")}</div>
+              <div style={S.modeCardDesc}>{t("整理并确认台词，输出 TXT，不生成时间轴。")}</div>
+            </div>
+            <div
+              style={S.modeCard(scriptMode === 'full')}
+              onClick={() => setScriptMode('full')}
+            >
+              <div style={S.modeCardIcon(scriptMode === 'full')}>
+                <Icon.Audio />
               </div>
-              <div
-                style={S.modeCard(scriptMode === 'existing_vtt')}
-                onClick={() => setScriptMode('existing_vtt')}
-              >
-                <div style={S.modeCardIcon(scriptMode === 'existing_vtt')}>
-                  <Icon.Vtt />
-                </div>
-                <div style={S.modeCardTitle(scriptMode === 'existing_vtt')}>{t("复用原文字幕")}</div>
-                <div style={S.modeCardDesc}>{t("同录音原文 VTT/SRT 提供锚点，跳过识别。")}</div>
+              <div style={S.modeCardTitle(scriptMode === 'full')}>{t("音频对齐模式")}</div>
+              <div style={S.modeCardDesc}>{t("用录音时间锚点匹配确认台词；冲突先核对。")}</div>
+            </div>
+            <div
+              style={S.modeCard(scriptMode === 'existing_vtt')}
+              onClick={() => setScriptMode('existing_vtt')}
+            >
+              <div style={S.modeCardIcon(scriptMode === 'existing_vtt')}>
+                <Icon.Vtt />
               </div>
+              <div style={S.modeCardTitle(scriptMode === 'existing_vtt')}>{t("复用原文字幕")}</div>
+              <div style={S.modeCardDesc}>{t("同录音原文 VTT/SRT 提供锚点，跳过识别。")}</div>
             </div>
           </div>
 
@@ -1446,7 +1412,6 @@ export default function SubtitleWorkshop() {
                         >
                           {t("浏览")}</button>
                       </div>
-                      <div style={S.formHint}>{t("支持 PDF 和纯文本格式")}</div>
                     </div>
                   </div>
                 </div>
@@ -1504,7 +1469,7 @@ export default function SubtitleWorkshop() {
                             style={{ ...S.formInput, flex: 1 }}
                             value={vttPath}
                             onChange={(e) => setVttPath(e.target.value)}
-                              placeholder={t("选择原文 VTT/SRT 文件")}
+                            placeholder={t("选择原文 VTT/SRT 文件")}
                           />
                           <button
                             style={{ ...S.btn, ...S.btnSm }}
@@ -1520,7 +1485,7 @@ export default function SubtitleWorkshop() {
                             {t("浏览")}</button>
                         </div>
                       </div>
-                      <label><input type="checkbox" checked={referenceConfirmed} onChange={e => setReferenceConfirmed(e.target.checked)} />{t('这是同一录音的同语言原文字幕（不是译文）。')}</label>
+                      <label style={S.checkboxField}><input type="checkbox" checked={referenceConfirmed} onChange={e => setReferenceConfirmed(e.target.checked)} /><span>{t('这是同一录音的同语言原文字幕（不是译文）。')}</span></label>
                     </div>
                   </div>
                 </div>
@@ -1607,48 +1572,37 @@ export default function SubtitleWorkshop() {
                 >
                   <Icon.Start /> {loading === 'script' ? t("转换中...") : t("开始转换")}
                 </button>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {t("转换将在后台执行，可在任务中心查看进度")}</span>
+                <button style={S.btn} onClick={() => setPage('task-center')}>{t('查看任务中心')}</button>
               </div>
-              <button style={S.btn} onClick={() => setPage('task-center')}>{t('查看任务中心')}</button>
             </div>
 
-            {/* Right: result + help */}
+            {/* Right: result + review */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={S.panel}>
                 <div style={S.panelHeader}>{t('确认台词')}</div>
-                <div style={S.panelBody}>
-                  <button style={S.btn} disabled={!scriptPath || !!loading} onClick={() => void handleScriptPreview()}>{t('预览台词')}</button>
+                <div style={{ ...S.panelBody, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div>
+                    <button style={S.btn} disabled={!scriptPath || !!loading} onClick={() => void handleScriptPreview()}>{t('预览台词')}</button>
+                  </div>
                   {scriptPreview && <>
-                    <details><summary>{t('原始台本')}</summary><pre style={{ whiteSpace: 'pre-wrap', maxHeight: 180, overflow: 'auto' }}>{scriptPreview.raw_text}</pre></details>
-                    <label style={S.formLabel}>{t('可修订台词，每行一个匹配单元')}</label>
-                    <textarea style={{ ...S.formInput, width: '100%', minHeight: 200 }} value={scriptText} onChange={e => { setScriptText(e.target.value); setScriptConfirmed(false) }} />
-                    <details open><summary>{t('排除的动作说明（朗读内容请恢复到台词）')}</summary>{scriptPreview.actions.length ? <ul>{scriptPreview.actions.map((action, i) => <li key={i}>{action}</li>)}</ul> : <p>{t('未检测到括号动作说明')}</p>}</details>
-                    <label><input type="checkbox" checked={scriptConfirmed} onChange={e => setScriptConfirmed(e.target.checked)} />{t('已核对台词与动作，台词语言与录音一致。')}</label>
+                    <details><summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>{t('原始台本')}</summary><pre style={{ whiteSpace: 'pre-wrap', maxHeight: 180, overflow: 'auto', marginTop: 8, padding: 10, background: 'var(--bg)', borderRadius: 6, fontSize: 12 }}>{scriptPreview.raw_text}</pre></details>
+                    <div style={S.formField}>
+                      <label style={S.formLabel}>{t('可修订台词，每行一个匹配单元')}</label>
+                      <textarea style={{ ...S.formInput, width: '100%', minHeight: 200 }} value={scriptText} onChange={e => { setScriptText(e.target.value); setScriptConfirmed(false) }} />
+                    </div>
+                    <details open><summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>{t('排除的动作说明（朗读内容请恢复到台词）')}</summary>{scriptPreview.actions.length ? <ul style={{ marginTop: 6, paddingLeft: 20, fontSize: 12 }}>{scriptPreview.actions.map((action, i) => <li key={i}>{action}</li>)}</ul> : <p style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>{t('未检测到括号动作说明')}</p>}</details>
+                    <label style={S.checkboxField}><input type="checkbox" checked={scriptConfirmed} onChange={e => setScriptConfirmed(e.target.checked)} /><span>{t('已核对台词与动作，台词语言与录音一致。')}</span></label>
                   </>}
                 </div>
               </div>
-              <label style={S.formLabel}>{t('核对已有台本任务')}
+              <div style={S.formField}>
+                <label style={S.formLabel}>{t('核对已有台本任务')}</label>
                 <select style={S.formInput} value={scriptTaskId} onChange={e => setScriptTaskId(e.target.value)}>
                   <option value="">{t('选择任务')}</option>
                   {storedTasks.filter(task => task.jobType === 'script-to-subtitle' && task.serverTaskId).map(task => <option key={task.id} value={task.serverTaskId}>{task.sourceName} · {task.serverTaskId}</option>)}
                 </select>
-              </label>
-              <ScriptSubtitleReview taskId={scriptTaskId} onEdit={(...args) => void handleScriptDraft(...args)} />
-
-              {/* Mode help */}
-              <div style={S.panel}>
-                <div style={S.panelHeader}>
-                  <Icon.Info /> {t("模式说明")}</div>
-                <div style={{ ...S.panelBody, ...S.helpText }}>
-                  <p style={{ marginBottom: 8 }}>
-                    <strong style={{ color: 'var(--fg)' }}>{t("仅有台本")}</strong>{t("：选择纯文本模式。")}</p>
-                  <p style={{ marginBottom: 8 }}>
-                    <strong style={{ color: 'var(--fg)' }}>{t("需要时间轴")}</strong>{t("：提供音频并选择音频对齐。")}</p>
-                  <p>
-                    <strong style={{ color: 'var(--fg)' }}>{t("已有 VTT")}</strong>{t("：选择 VTT 重对齐。")}</p>
-                </div>
               </div>
+              <ScriptSubtitleReview taskId={scriptTaskId} onEdit={(...args) => void handleScriptDraft(...args)} />
             </div>
           </div>
         </div>

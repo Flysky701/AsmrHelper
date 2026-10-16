@@ -320,13 +320,15 @@ export default function BatchRunsPanel() {
       <style>{BATCH_RUNS_PANEL_STYLES}</style>
 
       <section className="batch-runs-history" style={SURFACE_STYLE}>
-        <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid var(--border)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{t("批次历史")}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{visibleBatches.length} {t("个批次")}</div>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>{t("批次历史")}</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{visibleBatches.length} {t("个批次")}</span>
+            </div>
+            <button type="button" style={{ ...BUTTON_STYLE, minHeight: 32, padding: '0 10px' }} disabled={actionBusy || loadingHistory} onClick={() => void loadHistory()}>{t("刷新历史")}</button>
           </div>
-          <button type="button" style={{ ...BUTTON_STYLE, marginTop: 8 }} disabled={actionBusy || loadingHistory} onClick={() => void loadHistory()}>{t("刷新历史")}</button>
-          {(notice || actionError) && <p role="status" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{actionError || notice}</p>}
+          {(notice || actionError) && <p role="status" style={{ fontSize: 12, marginTop: 8, overflowWrap: 'anywhere' }}>{actionError || notice}</p>}
         </div>
 
         {historyError ? (
@@ -361,7 +363,7 @@ export default function BatchRunsPanel() {
                   minWidth: 0,
                   padding: '12px 13px',
                   border: selected ? '1px solid var(--accent)' : '1px solid var(--border)',
-                  borderRadius: 'var(--radius-card)',
+                  borderRadius: 'var(--radius-sm)',
                   background: selected ? 'var(--accent-soft)' : 'var(--surface)',
                   color: 'var(--fg)',
                   textAlign: 'left',
@@ -373,14 +375,14 @@ export default function BatchRunsPanel() {
                   <span style={{ minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {batch.name}
                   </span>
-                  <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: stateColor(batch.state) }}>
+                  <span style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 700, color: stateColor(batch.state) }}>
                     {t(STATE_LABELS[batch.state] || batch.state)}
                   </span>
                 </div>
                 <div style={{ marginTop: 7, height: 5, borderRadius: 999, background: 'var(--panel-muted)', overflow: 'hidden' }}>
                   <div style={{ width: `${progressPercent(batch.progress)}%`, height: '100%', background: stateColor(batch.state) }} />
                 </div>
-                <div style={{ marginTop: 7, display: 'flex', justifyContent: 'space-between', gap: 10, color: 'var(--muted)', fontSize: 10 }}>
+                <div style={{ marginTop: 7, display: 'flex', justifyContent: 'space-between', gap: 10, color: 'var(--muted)', fontSize: 11.5 }}>
                   <span>{formatDateTime(batch.created_at)}</span>
                   <span>{batch.completed_count + batch.skipped_count}/{Math.max(0, batch.total_count - (batch.history_deleted_count ?? 0))}{batch.history_deleted_count ? formatMessage(" · 历史已删除 {0}", [batch.history_deleted_count]) : ''}</span>
                 </div>

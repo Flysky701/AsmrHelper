@@ -22,7 +22,7 @@ function confidenceLabel(item: ReferenceCandidate) {
   const meta = item.recognition_metadata
   const source = meta?.provider ? ' (' + meta.provider + ')' : ''
   if (item.asr_confidence == null || !Number.isFinite(item.asr_confidence)) return format('未提供置信度{0}', [source])
-  return format('台词识别分数{0} · {1}：{2}；{3}', [source, meta?.confidence_kind || t('引擎原始分数'), item.asr_confidence.toFixed(4), meta?.confidence_note || t('未经校准，不能跨引擎比较')])
+  return format('台词识别分数{0} · {1}', [source, item.asr_confidence.toFixed(2)])
 }
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause)
 
@@ -186,16 +186,18 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
   }
 
   return <div className="reference-library">
-    <SpeechCleanupButton kind="staging" itemId="all" label={t("清理无引用暂存")} disabled={!!busy || !!source || !!preview} onChanged={refresh} />
-    {(source || preview) && <button type="button" disabled={!!busy} onClick={async () => {
-      const session = useReferenceSessionStore.getState()
-      if (session.clipSubmitting || [session.analysisTask, session.clipTask].some(task => task && !['completed', 'failed', 'cancelled', 'skipped'].includes(task.state))) {
-        setError('请先等待或取消当前识别任务，再结束编辑。'); return
-      }
-      if (!await confirmAction(t('结束当前录音编辑并放弃尚未保存的草稿？已保存录音和原文件保持不变。'))) return
-      audio.current?.pause()
-      useReferenceSessionStore.setState(useReferenceSessionStore.getInitialState())
-    }}>{t("结束编辑并重置草稿")}</button>}
+    <div className="reference-toolbar">
+      <SpeechCleanupButton kind="staging" itemId="all" label={t("清理无引用暂存")} disabled={!!busy || !!source || !!preview} onChanged={refresh} />
+      {(source || preview) && <button type="button" disabled={!!busy} onClick={async () => {
+        const session = useReferenceSessionStore.getState()
+        if (session.clipSubmitting || [session.analysisTask, session.clipTask].some(task => task && !['completed', 'failed', 'cancelled', 'skipped'].includes(task.state))) {
+          setError('请先等待或取消当前识别任务，再结束编辑。'); return
+        }
+        if (!await confirmAction(t('结束当前录音编辑并放弃尚未保存的草稿？已保存录音和原文件保持不变。'))) return
+        audio.current?.pause()
+        useReferenceSessionStore.setState(useReferenceSessionStore.getInitialState())
+      }}>{t("结束编辑并重置草稿")}</button>}
+    </div>
     <input ref={fileInput} hidden type="file" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,.wma" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) upload(file) }} />
     <input ref={subtitleInput} hidden type="file" accept=".srt,.vtt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run('读取字幕', async () => {
       if (file.size > 5 * 1024 * 1024) throw new Error('字幕文件不能超过 5 MiB')
@@ -228,8 +230,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
         {source && view !== 'saved' && <div className="reference-workspace">
           <section className="panel reference-editor">
             <div className="row spread"><h2>{t("编辑录音")}<span className="reference-optional">· {dirty ? t('未保存') : t('已保存')}</span></h2><button onClick={() => void chooseFile()}>{t("更换文件")}</button></div>
-            <details className="reference-source"><summary><span>{source.path.split(/[\\/]/).pop() || draft.name || t('未命名录音')}</span></summary><p>{source.path.split(/[\\/]/).pop() || draft.name}</p></details>
-            <p className="reference-duration">{t("原音")}{time(source.duration)} {t("· 已选")}{Math.max(0, draft.end - draft.start).toFixed(2)} {t("秒")}</p>
+            <p className="reference-duration"><strong>{source.path.split(/[\\/]/).pop() || draft.name || t('未命名录音')}</strong> · {t("原音")}{time(source.duration)} {t("· 已选")}{Math.max(0, draft.end - draft.start).toFixed(2)} {t("秒")}</p>
             <svg className="waveform reference-waveform" viewBox="0 0 800 100" preserveAspectRatio="none" role="img" aria-label={t("录音波形，可拖动两端调整选区")} onPointerDown={event => {
               if (busy) return
               const bounds = event.currentTarget.getBoundingClientRect(); const point = (event.clientX - bounds.left) / bounds.width * source.duration
@@ -255,11 +256,11 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
             }}>{playing ? t('Ⅱ 暂停') : '▶ ' + (playbackMode === 'whole' ? t('继续整段') : playbackMode === 'segment' ? t('继续片段') : t('播放选段'))}</button><button onClick={() => play(0, source.duration, true)}>{t("试听整段")}</button><label><input type="checkbox" checked={loop} disabled={playbackMode === 'whole' && playing} onChange={event => setLoop(event.target.checked)} /> {t("循环选段")}</label><span className="reference-playhead">{time(position)} / {time(source.duration)}</span><span className="muted" role="status">{playbackMode === 'whole' ? t('整段试听') : playbackMode === 'segment' ? t('片段试听') : t('选段播放')}</span></div>
             <label className="reference-seek"><span className="muted">{t("播放位置")}</span><input aria-label={t("播放位置")} type="range" min={selection.current?.start ?? draft.start} max={selection.current?.end ?? draft.end} step="0.01" disabled={!valid} value={Math.max(selection.current?.start ?? draft.start, Math.min(selection.current?.end ?? draft.end, position))} onChange={event => { if (audio.current) { audio.current.currentTime = Number(event.target.value); setPosition(Number(event.target.value)) } }} /></label>
             {!valid && <p className="error" role="alert">{t("起点须小于终点，且时间须在录音范围内。")}</p>}
-            {<><div className="reference-range">{(['start', 'end'] as const).map(key => <label className="field" key={key}>{key === 'start' ? t('起点') : t('终点')}{t("（秒）")}<input type="number" step=".01" min="0" max={source.duration} value={Number(draft[key].toFixed(2))} onChange={event => change({ [key]: Number(event.target.value) })} /></label>)}<button onClick={() => change({ start: 0, end: source.duration })}>{t("使用整段")}</button></div><p className="muted">{t("拖动选区两端，或填写精确时间。选用片段后仍可微调。")}</p></>}
+            <div className="reference-range">{(['start', 'end'] as const).map(key => <label className="field" key={key}>{key === 'start' ? t('起点') : t('终点')}{t("（秒）")}<input type="number" step=".01" min="0" max={source.duration} value={Number(draft[key].toFixed(2))} onChange={event => change({ [key]: Number(event.target.value) })} /></label>)}<button onClick={() => change({ start: 0, end: source.duration })}>{t("使用整段")}</button></div>
           </section>
             <section className="panel reference-information"><div className="reference-metadata"><label className="field">{t("录音名称")}<input value={draft.name} placeholder={t("例如：晚安独白 · 片段 01")} onChange={event => change({ name: event.target.value })} /></label><label className="field">{t("录音语言")}<select value={draft.language} onChange={event => change({ language: event.target.value })}>{Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}{!languages[draft.language] && <option value={draft.language}>{draft.language}</option>}</select></label></div>
-              <div className="row spread"><h3>{t("录音原文")}<span className="reference-optional">{t("可选")}</span></h3><button onClick={() => subtitleInput.current?.click()}>{t("从 SRT / VTT 选取")}</button></div><p className="muted">{t("填写选段中实际说出的原文；译文仅供辅助查看。")}</p>
-              <textarea aria-label={t("录音原文")} rows={4} value={draft.transcript} placeholder={t("可以先留空。部分克隆引擎会在创建音色时要求补充原文。")} onChange={event => change({ transcript: event.target.value })} />
+              <div className="row spread"><h3>{t("录音原文")}<span className="reference-optional">{t("可选")}</span></h3><button onClick={() => subtitleInput.current?.click()}>{t("从 SRT / VTT 选取")}</button></div>
+              <textarea aria-label={t("录音原文")} rows={4} value={draft.transcript} placeholder={t("填写选段中实际说出的原文；部分克隆引擎在创建音色时要求补充原文。")} onChange={event => change({ transcript: event.target.value })} />
               <ClipTranscription key={source.id} path={source.path} start={draft.start} end={draft.end} language={draft.language} transcript={draft.transcript} valid={valid} onResult={transcript => change({ transcript, confirmed: false })} />
 
             </section>
@@ -270,7 +271,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
               {loadedSubtitle && <div className="row"><span className="muted">{t("优先使用：")}{loadedSubtitle.name}</span><button onClick={() => { setLoadedSubtitle(null); setSegments([]) }}>{t("移除字幕")}</button></div>}
               <label className="reference-language"><input type="checkbox" checked={recognizeText} disabled={analyzing} onChange={event => setRecognizeText(event.target.checked)} /> {t("无可用字幕时运行 ASR（可能耗时数分钟）")}</label>
               <label className="reference-language">{t("录音语言")}<select aria-label={t("分析语言")} value={draft.language} onChange={event => change({ language: event.target.value })}>{Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}</select><span className="muted">{t("不确定时可自动识别")}</span></label>
-              {analysisTask && <div className="reference-analysis-status" role="status"><div className="row spread"><span>{t(analysisLabel)}</span>{analyzing && <button onClick={() => void run('取消分析', async () => { setAnalysisTask(await tasksApi.cancel(analysisTask.task_id)) })}>{t("取消分析")}</button>}</div>{analyzing && <progress max={1} value={analysisTask.progress} aria-label={t("片段分析进度")} />}<p className="muted">{analyzing ? format("阶段进度 {0}% · ", [Math.round(analysisTask.progress * 100)]) : ''}{format("已用时 {0} 分 {1} 秒", [Math.floor(elapsed / 60), elapsed % 60])}</p>{analyzing && <p className="muted">{t("可继续编辑；取消将在当前阶段结束后生效。")}</p>}</div>}
+              {analysisTask && <div className="reference-analysis-status" role="status"><div className="row spread"><span>{t(analysisLabel)}</span>{analyzing && <button onClick={() => void run('取消分析', async () => { setAnalysisTask(await tasksApi.cancel(analysisTask.task_id)) })}>{t("取消分析")}</button>}</div>{analyzing && <progress max={1} value={analysisTask.progress} aria-label={t("片段分析进度")} />}<p className="muted">{analyzing ? format("阶段进度 {0}% · ", [Math.round(analysisTask.progress * 100)]) : ''}{format("已用时 {0} 分 {1} 秒", [Math.floor(elapsed / 60), elapsed % 60])}</p></div>}
               {analysisSource && <p className="muted">{t(analysisSource)}</p>}
               {analysisWarnings.map((warning, index) => <p className="notice" key={index}>{warning}</p>)}
               {analysisError && <div className="notice error" role="alert">{t(analysisError)}<p>{t("你仍可以手动选段并保存。")}</p></div>}
@@ -298,8 +299,7 @@ export default function ReferenceLibrary({ assets, refresh, onUse, onBusy, activ
               <label className="field">{t("备注")}<span className="reference-optional">{t("可选")}</span><input value={draft.notes} placeholder={t("记录来源、发声特点，方便以后查找")} onChange={event => change({ notes: event.target.value })} /></label>
             </details>
             <div className="reference-footer">
-              <label className="reference-confirm"><input type="checkbox" disabled={!draft.transcript.trim()} checked={draft.confirmed} onChange={event => change({ confirmed: event.target.checked })} /> {t("我已试听，确认原文与当前片段一致")}</label>
-<div className="row spread"><span>{t("保存为独立录音，保留来源音频。")}</span><button className="primary" disabled={!valid || !processingValid || !draft.name.trim()} onClick={() => void save()}>{t("保存到声音库")}</button></div></div>
+              <div className="row spread"><label className="reference-confirm"><input type="checkbox" disabled={!draft.transcript.trim()} checked={draft.confirmed} onChange={event => change({ confirmed: event.target.checked })} /> {t("我已试听，确认原文与当前片段一致")}</label><button className="primary" disabled={!valid || !processingValid || !draft.name.trim()} onClick={() => void save()}>{t("保存到声音库")}</button></div></div>
         </div>}
         {view === 'saved' && stored && <section className="panel reference-saved">
           <span className="reference-eyebrow">{t("已保存的参考录音")}</span><div className="row spread"><h2>{stored.name || t('未命名录音')}</h2><span className="pill">{stored.archived ? t('旧版保留项') : t('已入库')}</span></div>

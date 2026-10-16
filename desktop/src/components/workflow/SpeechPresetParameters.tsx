@@ -92,7 +92,6 @@ export default function SpeechPresetParameters({ node, onChange, requestChange, 
       <Field label={t("合成目标语言")}><select value={node.target_lang ?? ''} onChange={event => onChange({ ...node, target_lang: event.target.value as GraphNode['target_lang'] })}>
         <option value="" disabled>{t("选择语言")}</option>{Object.entries(languages).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
       </select></Field>
-      {caps.language_control === 'automatic' && <p className="graph-param-note">{t('目标语言用于新台词，服务按文本自动识别语言。')}</p>}
       {selected && !speechLanguageSupported(provider, selected.mode, selected.model, node.target_lang ?? '') && <p role="alert">{t('当前模型不支持所选目标语言，请重新选择。')}</p>}
       {selected && !speechLanguageMatches(selected.language, node.target_lang ?? '') && <p role="alert">{t("音色与目标语言不匹配，请选择适合的音色或修改目标语言。")}</p>}
     </>}

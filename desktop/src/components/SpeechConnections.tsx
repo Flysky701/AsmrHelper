@@ -93,7 +93,6 @@ export default function SpeechConnections() {
       <button className="external-service-button" disabled={loading || !!busy || !providers.length} onClick={() => edit()}>{t("添加服务")}</button>
     </div>
     <div className="external-service-body">
-      <p className="external-service-muted">{t("配置音色使用的外部服务。")}</p>
       {notice && <div className="external-service-notice" role="status">{t(notice)}</div>}
       {loading ? <p className="external-service-muted">{t("加载语音服务中…")}</p> : error ? <div role="alert"><p>{t(error)}</p><button className="external-service-button" onClick={() => void load()}>{t("重新加载")}</button></div> : <>
         {external.map(connection => <div className="external-service-card" key={connection.id}>
@@ -101,8 +100,7 @@ export default function SpeechConnections() {
             <button className="external-service-button" title={t("检查地址与凭据是否齐备，不验证服务可达性或发起合成")} disabled={!!busy} onClick={() => void check(connection)}>{t("检查配置")}</button>
             <button className="external-service-button" disabled={!!busy} aria-expanded={editor?.id === connection.id} onClick={() => edit(connection)}>{t("编辑")}</button>
           </div></div>
-          <p className="external-service-muted">{providers.find(provider => provider.provider_id === connection.provider_id)?.name} · {{ local: t('本机服务'), lan: t('局域网'), cloud: t('云端') }[connection.deployment]}</p>
-          <p className="external-service-muted">{connection.base_url}</p>
+          <p className="external-service-muted">{providers.find(provider => provider.provider_id === connection.provider_id)?.name} · {{ local: t('本机服务'), lan: t('局域网'), cloud: t('云端') }[connection.deployment]} · {connection.base_url}</p>
           <div className="external-service-muted" role="status">{connection.credential_configured ? t('密钥已配置') : t('未配置密钥')} · {t(checks[connection.id] || '服务可达性未验证')}</div>
         </div>)}
         {!external.length && !editor && <p className="external-service-muted">{t("尚未添加外部语音服务")}</p>}
@@ -117,8 +115,7 @@ export default function SpeechConnections() {
         {editor.provider_id !== 'fish_audio' && <label className="external-service-field">{t("运行位置")}<select value={editor.deployment} onChange={event => setEditor({ ...editor, deployment: event.target.value as SpeechConnection['deployment'] })}><option value="cloud">{t("云端")}</option><option value="lan">{t("局域网")}</option><option value="local">{t("本机服务")}</option></select></label>}
         <label className="external-service-field">{t("API 地址")}<input value={editor.base_url || ''} onChange={event => setEditor({ ...editor, base_url: event.target.value })} placeholder={t("填写服务商文档中的 API 基础地址")} /></label>
         <label className="external-service-field">{t("API 密钥")}<input type="password" autoComplete="off" value={editor.api_key} onChange={event => setEditor({ ...editor, api_key: event.target.value })} placeholder={editor.credential_configured ? t('已配置；留空保持此连接的密钥') : t('输入 API 密钥')} /></label>
-        {editor.id && <p className="external-service-muted">{t("更换 API 地址时需重新填写密钥。")}</p>}
-        <div className="external-service-actions" style={{ marginTop: 20 }}><button className="external-service-button external-service-primary" onClick={() => void save()}>{t(busy || '保存服务')}</button><button className="external-service-button" onClick={async () => { if (await canDiscard()) setEditor(null) }}>{t("取消")}</button></div>
+        <div className="external-service-actions" style={{ marginTop: 16 }}><button className="external-service-button external-service-primary" onClick={() => void save()}>{t(busy || '保存服务')}</button><button className="external-service-button" onClick={async () => { if (await canDiscard()) setEditor(null) }}>{t("取消")}</button></div>
       </fieldset>}
     </div>
   </section>

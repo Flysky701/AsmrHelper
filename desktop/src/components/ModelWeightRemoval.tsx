@@ -42,11 +42,7 @@ export default function ModelWeightRemoval({ modelId, onChanged }: { modelId: st
         </span>
       </div>
       <p className="model-removal-target">{modelId}</p>
-      {preview.path && <details className="model-path">
-        <summary title={preview.path}>{t("目录：")}{preview.path}</summary>
-        <p>{preview.path}</p>
-      </details>}
-      <p className="model-removal-impact">{t("仅删除应用管理权重，保留运行环境。删除不可恢复。")}</p>
+      {preview.path && <p className="model-removal-target" title={preview.path}>{t("目录：")}{preview.path}</p>}
       {noInventory && <p className="model-removal-empty">{t("未生成删除清单，请先处理下方问题。")}</p>}
       {blocked && <div className="model-removal-reasons">
         <p>{preview.blockers[0]}</p>

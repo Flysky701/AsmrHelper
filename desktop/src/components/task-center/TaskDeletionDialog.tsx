@@ -89,16 +89,16 @@ export default function TaskDeletionDialog({ taskIds, onDeleted, onClose }: {
       <button type="button" className="tc-action" disabled={executing} onClick={onClose} aria-label={t("关闭删除面板")}>{t("关闭")}</button></header>
     <div className="tc-delete-body">
       {!result && <>
-        <p>{t("本次选择")}<strong>{taskIds.length}</strong> {t("项任务。只处理以下所选记录，不删除整个批次；运行中或待处理的任务不可删除。")}</p>
+        <p>{t("本次选择")} <strong>{taskIds.length}</strong> {t("项任务（仅处理所选记录，不删除整个批次）。")}</p>
         <fieldset disabled={executing}><legend>{t("删除方式")}</legend>{(Object.keys(modes) as TaskDeletionMode[]).map(value =>
           <label key={value}><input type="radio" name="task-deletion-mode" value={value} checked={mode === value}
             onChange={() => { setPreview(null); setMode(value) }} /><span>{t(modes[value])}</span></label>)}</fieldset>
-        <p className="tc-delete-note">{mode === 'history_only' ? t("保留所有文件，仅移除历史记录和关联记录。") : t("仅删除预览中明确标为“将删除”的独占附带文件；输入素材、音色库引用、共享或未登记文件以及目录均保留，不会清空整个任务目录。")}</p>
+        <p className="tc-delete-note">{mode === 'history_only' ? t("保留所有文件，仅移除历史记录。") : t("仅删除标为“将删除”的独占附带文件；输入素材、音色库引用与共享文件均保留。")}</p>
         {loading && <p role="status">{t("正在检查所选任务与文件…")}</p>}
         {current && !loading && <>
           <p className="tc-delete-summary">{t("可删除")}{current.summary.eligible_count} {t("项 · 不可删除")}{current.summary.blocked_count} {t("项")}<br />
             {t("将删除")}{current.summary.delete_file_count} {t("个文件（")}{bytes(current.summary.delete_bytes)}{t("）· 保留")}{current.summary.retain_file_count} {t("个文件")}</p>
-          <p>{t("批次范围：")}{batchIds.length ? formatMessage("{0} 个批次中的所选任务", [batchIds.length]) : t("无关联批次")}。<br />{batchIds.map(id => <code key={id}>{id} </code>)}</p>
+          {batchIds.length > 0 && <p>{t("批次范围：")}{formatMessage("{0} 个批次中的所选任务", [batchIds.length])}（{batchIds.map(id => <code key={id}>{id} </code>)}）</p>}
           {current.tasks.map(task => <details key={task.task_id} open={!task.eligible} className="tc-delete-item">
             <summary><code>{task.task_id}</code> · {task.eligible ? t("可删除") : t("不可删除")} · {task.files.length} {t("个关联文件")}</summary>
             <p>{t("批次：")}{task.batch_ids.join('、') || t("无")}{task.reason ? ` · ${task.reason}` : ''}</p>
@@ -106,9 +106,9 @@ export default function TaskDeletionDialog({ taskIds, onDeleted, onClose }: {
               <strong>{file.action === 'delete' ? t("将删除") : t("保留")}</strong><code>{displayPath(file.path)}</code>
               {file.reason && <span>{file.reason}</span>}</li>)}</ul> : <p>{t("没有关联文件。")}</p>}
           </details>)}
-          {!current.can_execute && <p className="tc-delete-error" role="alert">{t("本次选择含不可删除的任务，请关闭面板并调整选择；不会取消或跳过这些任务后继续删除。")}</p>}
+          {!current.can_execute && <p className="tc-delete-error" role="alert">{t("所选任务含不可删除项，请关闭面板并调整选择。")}</p>}
           {expired && <p className="tc-delete-error" role="alert">{t("预览已过期，请重新预览。")}</p>}
-          <p className="tc-delete-note">{t("确认后不可在应用内撤销。预览有效至")}{new Date(current.expires_at).toLocaleTimeString()}。</p>
+          <p className="tc-delete-note">{t("预览有效至")} {new Date(current.expires_at).toLocaleTimeString()}。</p>
         </>}
       </>}
       {result && <>

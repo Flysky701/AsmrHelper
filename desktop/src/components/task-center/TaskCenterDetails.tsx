@@ -112,11 +112,11 @@ export default function TaskCenterDetails({ task, execution, events, batchName, 
       {item.label}{item.count !== undefined && <small>{item.count}</small>}</button>)}</nav>
     <div className="tc-detail-scroll">
       {tab === 'nodes' && <>
-        <div className="tc-node-summary"><div><strong>{execution ? t("本次运行的节点") : t(stage)}</strong><span>{execution ? t("以提交时的流程为准") : t(task.message || '') || t("等待状态回传")}</span></div>
+        <div className="tc-node-summary"><div><strong>{execution ? t("本次运行的节点") : t(stage)}</strong>{!execution && <span>{t(task.message || '') || t("等待状态回传")}</span>}</div>
           {execution ? <b data-testid="completed-nodes">{t(execution.summary)}</b> : <b>{Math.max(0, Math.min(100, task.progress))}%</b>}</div>
         {execution && <p className="tc-current-stage">{t("当前阶段：")}{t(stage)}</p>}
         {!execution && <div className="tc-progress" role="progressbar" aria-label={t("执行进度")} aria-valuenow={Math.max(0, Math.min(100, task.progress))} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }} /></div>}
-        {execution && !execution.steps.length && <div className="tc-empty"><span className="tc-empty-glyph">◇</span><strong>{t("这条记录没有可用的节点快照")}</strong><p>{t("可查看任务状态、已有产物和事件。")}<br />{t("不补充未记录的流程阶段。")}</p></div>}
+        {execution && !execution.steps.length && <div className="tc-empty"><span className="tc-empty-glyph">◇</span><strong>{t("这条记录没有可用的节点快照")}</strong><p>{t("可查看任务状态、已有产物和事件。")}</p></div>}
         {execution?.steps.some(step => step.state === 'unknown') && <p className="tc-evidence-note">{t("部分节点缺少完成证据，状态保留为未知；已有片段不代表节点完成。")}</p>}
         {!!execution?.steps.length && <div className="tc-nodes">{execution.steps.map((step, index) => {
           const node = graph?.nodes.find(item => item.id === step.id)
@@ -147,7 +147,7 @@ export default function TaskCenterDetails({ task, execution, events, batchName, 
       {tab === 'artifacts' && <>
         <p className="tc-artifact-notice">{groups.map(group => `${t(groupLabels[group.id])} ${group.total}`).join(' · ')}<span>{t("中间片段不代表流程完成；缺少节点标记时，只归属到当前任务。")}</span></p>
         {(task.artifacts?.warnings ?? []).map((warning, index) => <p className="tc-evidence-note" key={index}>{t(warning)}</p>)}
-        {!shownArtifacts.length && <div className="tc-empty"><span className="tc-empty-glyph">▱</span><strong>{nodeId ? t("此节点暂无产物") : t("此任务暂无产物")}</strong><p>{t("生成后会在这里列出，不展示其他任务的文件。")}</p></div>}
+        {!shownArtifacts.length && <div className="tc-empty"><span className="tc-empty-glyph">▱</span><strong>{nodeId ? t("此节点暂无产物") : t("此任务暂无产物")}</strong></div>}
         {groups.filter(group => group.items.length).map(group => <section key={group.id} className="tc-artifacts" aria-label={t(groupLabels[group.id])}><h3>{t(groupLabels[group.id])} <small>{group.items.length}</small></h3>{group.items.map(artifact => <article key={artifact.artifactId} data-artifact-task={taskId}>
           <div className="tc-artifact-icon">{artifact.type.startsWith('audio.') ? '♫' : '≡'}</div>
           <div><strong>{artifact.label || artifact.type}</strong><p><code>{artifactNodeId(artifact) || t("节点未记录")}</code><span>{artifact.type}</span></p><small>{taskId}</small><AudioProcessingDetails metadata={artifact.metadata} /></div>
@@ -162,7 +162,7 @@ export default function TaskCenterDetails({ task, execution, events, batchName, 
           <footer><code>{taskId}</code><span>{errorNodeId || t("节点未记录")}</span></footer><p>{task.finishedAt ? formatMessage("失败于 {0}", [dateTime(task.finishedAt)]) : t("失败时间未记录")}</p>
           <button type="button" onClick={() => { setNodeId(errorNodeId || null); setTab('events') }}>{t("查看关联事件")}</button>
           {task.status === 'failed' && (task.error?.action === 'settings' || errorCode === 'PROVIDER_EXECUTION_FAILED') && <div className="tc-error-help"><p>{t("任务已经实际尝试执行。请验证服务连接或检查配置，然后再重试。")}</p><button type="button" onClick={onConfigure}>{t("配置外部服务")}</button></div>}
-        </div>{recovery}</> : <div className="tc-empty"><span className="tc-empty-glyph">○</span><strong>{t("没有错误记录")}</strong><p>{t("仅展示当前任务已报告的错误。")}</p></div>)}
+        </div>{recovery}</> : <div className="tc-empty"><span className="tc-empty-glyph">○</span><strong>{t("没有错误记录")}</strong></div>)}
       {tab === 'events' && <>
         <div className="tc-log-controls">{(['info', 'warn', 'error'] as const).map((level, index) => <button type="button" key={level} aria-pressed={levelFilter.includes(level)} onClick={() => onToggleLevel(level)}>{[t("信息"), t("警告"), t("错误")][index]}</button>)}<button type="button" onClick={onClearLogs} disabled={!events.length}>{t("清空全部日志")}</button></div>
         {shownEvents.length ? <ol className="tc-events">{shownEvents.map(event => <li key={event.id} data-event-task={event.serverTaskId || taskId}><time title={dateTime(event.timestamp)}>{clock(event.timestamp)}</time><span className={`tc-event-dot ${event.level}`} /><div><strong>{t(event.content)}</strong><p><code>{event.stage || t("任务")}</code><span>{event.eventType || t("界面消息")}</span></p>{event.detail && <p className="tc-event-detail">{event.detail}</p>}<small>{event.serverTaskId || taskId}{event.sequence !== undefined ? ` · #${event.sequence}` : ''}</small></div></li>)}</ol>
@@ -170,6 +170,6 @@ export default function TaskCenterDetails({ task, execution, events, batchName, 
       </>}
       {tab === 'params' && <div className="tc-params"><p>{t("本次提交的参数快照")}</p><dl>{Object.entries(task.params).map(([key, value]) => <div key={key}><dt>{t(paramLabels[key] || key)}</dt><dd><pre>{formatValue(value)}</pre></dd></div>)}</dl>{!Object.keys(task.params).length && <div className="tc-empty">{t("没有已记录的参数。")}</div>}</div>}
     </div>
-    <footer className="tc-detail-footer"><span>{t("创建于")}{dateTime(task.createdAt)}</span><span>{t("切换查看不会改变任务")}</span></footer>
+    <footer className="tc-detail-footer"><span>{t("创建于")}{dateTime(task.createdAt)}</span></footer>
   </>
 }

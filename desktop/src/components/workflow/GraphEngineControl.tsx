@@ -86,10 +86,9 @@ export default function GraphEngineControl({ provider, model, category, choices,
           </dl>}
           {!local && !connectionRequired && <p>{t("无需密钥，使用时需联网。")}</p>}
           <button type="button" disabled={checking || !!connectionIssue || unavailable || !checkConfiguration && (!local || !installModel)} onClick={() => void check()}>{checking ? t("正在检查…") : checkConfiguration ? t("检查当前连接配置") : t("检查当前模型环境")}</button>
-          <p className="graph-param-note">{t("检查不下载模型或生成内容；连接检查仅核对配置。")}</p>
         </section>
         {configuration && <section><h3>{t("连接与当前节点覆盖")}</h3>{configuration}</section>}
-        <section><h3>{local || !connectionRequired ? t("模型与运行环境") : t("外部服务")}</h3><p>{local ? t("安装模型、配置运行环境。") : !connectionRequired ? t("查看引擎要求，无需新建连接。") : t("管理服务地址、凭据与默认连接。")}</p><button type="button" onClick={() => openManagement(!local && connectionRequired)}>{local || !connectionRequired ? t("前往模型与运行环境管理") : t("前往外部服务设置")}</button>
+        <section><h3>{local || !connectionRequired ? t("模型与运行环境") : t("外部服务")}</h3><button type="button" onClick={() => openManagement(!local && connectionRequired)}>{local || !connectionRequired ? t("前往模型与运行环境管理") : t("前往外部服务设置")}</button>
           {category === 'tts' && local && <button type="button" onClick={() => useNavStore.getState().setPage('voice-lab')}>{t("前往音色页编辑本机连接")}</button>}
         </section><button type="button" onClick={refresh}>{t("刷新目录与连接信息")}</button>
       </div>

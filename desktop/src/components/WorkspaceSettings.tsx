@@ -51,11 +51,9 @@ export default function WorkspaceSettings({ disabled, onBusy }: { disabled: bool
         <p className="settings-workspace-path" data-testid="pending-workspace">{displayPath(workspace.pending)}</p>
       </div>}
     </>}
-    <p className="settings-workspace-description">{t('保存配置、任务和音色，也是模型、运行环境与缓存的默认位置。')}</p>
     {workspace && <>
       {workspace.fixed_by_environment ? <p className="settings-workspace-help">{t('工作目录由启动环境固定，需调整启动环境后重启。')}</p> : <div className="settings-workspace-actions">
         <button type="button" className="settings-button" disabled={busy || disabled} onClick={() => void choose()}>{t(busy ? '处理中…' : '更改工作目录')}</button>
-        <span className="settings-workspace-help">{t('下次启动生效')}</span>
         {workspace.pending && <button type="button" className="settings-button primary" disabled={busy || disabled} onClick={() => void restart()}>{t('重启并切换')}</button>}
       </div>}
     </>}

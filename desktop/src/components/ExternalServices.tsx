@@ -223,12 +223,13 @@ export default function ExternalServices() {
     {message && <div className="external-service-notice" role="status">{t(message)}</div>}
     {removal && <section className="external-service-notice" aria-label={t("翻译连接删除影响")}>
       <h3>{t("删除「")}{removal.name}」</h3>
-      <p>{t("删除本地连接记录及独有凭据，不删除文件或云端账号；历史快照保留。无法撤销。")}</p>
       {removal.active && <p role="alert">{t("此连接当前已启用，请先在列表中启用另一条连接。")}</p>}
       {!!removal.references.length && <><p>{t("请为以下工作流更换连接，并等待活动任务或批次结束。")}</p><ul>{removal.references.map(item =>
         <li key={`${item.kind}:${item.id}`}>{({ workflow: t("工作流"), task: t("活动任务"), batch: t("活动批次") })[item.kind]}：{item.name}</li>)}</ul></>}
-      <button className="external-service-button" disabled={saving || !removal.can_remove} onClick={() => void changeRemoval()}>{t("确认删除")}</button>
-      <button className="external-service-button" disabled={saving} onClick={() => setRemoval(null)}>{t("取消")}</button>
+      <div className="external-service-actions" style={{ marginTop: 10, justifyContent: 'flex-start' }}>
+        <button className="external-service-button" disabled={saving || !removal.can_remove} onClick={() => void changeRemoval()}>{t("确认删除")}</button>
+        <button className="external-service-button" disabled={saving} onClick={() => setRemoval(null)}>{t("取消")}</button>
+      </div>
     </section>}
     {(['llm'] as const).map(kind => <section className="external-service-section" key={kind}>
       <div className="external-service-heading">
@@ -266,28 +267,31 @@ export default function ExternalServices() {
     <style>{`
       .external-services { max-width: 1040px; min-width: 0; }
       .external-services * { box-sizing: border-box; }
-      .external-service-section { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 20px; overflow: hidden; }
-      .external-service-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 18px 20px; background: var(--panel-muted); border-bottom: 1px solid var(--border); }
+      .external-service-section { border: 1px solid var(--border); border-radius: var(--radius-lg, 12px); background: var(--surface); margin-bottom: 16px; overflow: hidden; box-shadow: var(--shadow-sm); }
+      .external-service-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 18px; background: var(--panel-muted); border-bottom: 1px solid var(--border); }
       .external-service-heading h2 { flex: 1; font-size: var(--text-section); margin: 0; font-weight: 600; line-height: 1.4; }
-      .external-service-tag, .external-service-active { color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 4px 8px; font-size: var(--text-help); font-weight: 600; }
-      .external-service-body { padding: 16px 20px; }
-      .external-service-card { padding: 16px; border: 1px solid var(--border); border-radius: 9px; margin-bottom: 12px; min-width: 0; }
+      .external-service-tag, .external-service-active { color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 3px 8px; font-size: var(--text-help); font-weight: 600; }
+      .external-service-body { padding: 14px 18px; }
+      .external-service-card { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-md, 9px); margin-bottom: 10px; min-width: 0; background: var(--surface); }
       .external-service-card:last-child { margin-bottom: 0; }
       .external-service-card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-      .external-service-card-heading h3 { flex: 1 1 160px; min-width: 0; font-size: var(--text-section); font-weight: 600; line-height: 1.4; margin: 0; overflow-wrap: anywhere; }
+      .external-service-card-heading h3 { flex: 1 1 160px; min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.4; margin: 0; overflow-wrap: anywhere; }
       .external-service-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
-      .external-service-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
-      .external-service-muted { color: var(--muted); font-size: var(--text-help); line-height: 1.7; overflow-wrap: anywhere; }
-      .external-service-editor { border: 0; border-top: 1px solid var(--border); margin: 18px 0 0; padding: 20px 0 0; min-width: 0; }
-      .external-service-editor > .external-service-card-heading { justify-content: space-between; margin-bottom: 20px; }
-      .external-service-field { display: grid; min-width: 0; max-width: 680px; gap: 6px; font-size: var(--text-control); margin-bottom: 16px; }
-      .external-service-field input, .external-service-field select, .external-service-field textarea { width: 100%; min-width: 0; font: inherit; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); }
-      .external-service-button { font: inherit; font-size: var(--text-control); min-height: 36px; max-width: 100%; padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; }
+      .external-service-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+      .external-service-muted { color: var(--muted); font-size: var(--text-help); line-height: 1.55; margin: 4px 0 0; overflow-wrap: anywhere; }
+      .external-service-editor { border: 0; border-top: 1px solid var(--border); margin: 14px 0 0; padding: 16px 0 0; min-width: 0; }
+      .external-service-editor > .external-service-card-heading { justify-content: space-between; margin-bottom: 14px; }
+      .external-service-field { display: grid; min-width: 0; max-width: 680px; gap: 6px; font-size: var(--text-control); margin-bottom: 12px; }
+      .external-service-field input, .external-service-field select, .external-service-field textarea { width: 100%; min-width: 0; font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); background: var(--surface); color: var(--fg); }
+      .external-service-button { font: inherit; font-size: 12.5px; min-height: 32px; max-width: 100%; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); background: var(--surface); color: var(--fg); cursor: pointer; transition: background var(--duration-fast); }
+      .external-service-button:hover:not(:disabled) { background: var(--panel-muted); }
       .external-service-button:disabled { opacity: .6; cursor: default; }
       .external-service-primary { background: var(--accent); border-color: var(--accent); color: white; }
-      .external-service-editor summary { cursor: pointer; font-size: var(--text-help); color: var(--muted); }
-      .external-service-notice { padding: 12px 16px; background: var(--panel-muted); border-radius: 8px; margin-bottom: 16px; font-size: var(--text-control); overflow-wrap: anywhere; }
-      @media (max-width: 600px) { .external-service-heading { flex-wrap: wrap; padding: 14px; } .external-service-body { padding: 12px; } .external-service-heading h2 { font-size: var(--text-section); } }
+      .external-service-primary:hover:not(:disabled) { background: var(--accent-hover, var(--accent)); }
+      .external-service-editor summary, .external-service-body > details > summary { cursor: pointer; font-size: var(--text-help); color: var(--muted); margin-top: 8px; }
+      .external-service-notice { padding: 10px 14px; background: var(--panel-muted); border: 1px solid var(--border); border-radius: var(--radius-md, 8px); margin-bottom: 14px; font-size: var(--text-control); overflow-wrap: anywhere; }
+      .external-service-notice h3 { margin: 0 0 6px; font-size: 14px; }
+      @media (max-width: 600px) { .external-service-heading { flex-wrap: wrap; padding: 12px 14px; } .external-service-body { padding: 12px 14px; } .external-service-heading h2 { font-size: var(--text-section); } }
     `}</style>
   </div>
 }

@@ -202,7 +202,6 @@ export default function AudioTools() {
     <div className="audio-tools-page" style={{ height: '100%', overflow: 'auto', padding: 24 }}>
       <header className="page-heading" style={{ marginBottom: 20 }}>
         <div className="page-heading__copy"><div className="page-title-row"><h1 className="page-title">{t("音频工具")}</h1><QuickStartHelp topic={({'tool.separate': 'audio-separate', 'tool.convert': 'audio-convert', 'tool.split': 'audio-split', 'tool.translate_subtitle': 'audio-translate', 'tool.volume_preview': 'audio-volume'} as const)[selectedTool]} /></div>
-          <p className="page-description">{t("单项音频处理，进度和结果见任务中心。")}</p>
         </div>
       </header>
 
@@ -212,7 +211,7 @@ export default function AudioTools() {
         </div>
       ) : null}
 
-      <div className="audio-tools-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 360px) minmax(0, 1fr)', gap: 20 }}>
+      <div className="audio-tools-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) minmax(0, 1fr)', gap: 20 }}>
         <section style={{ ...surface, padding: 16, alignSelf: 'start' }}>
           <h2 className="section-title" style={{ marginBottom: 12 }}>{t("选择工具")}</h2>
           <div style={{ display: 'grid', gap: 8 }}>
@@ -234,7 +233,7 @@ export default function AudioTools() {
                     padding: '12px 14px',
                     textAlign: 'left',
                     border: active ? '1px solid var(--accent)' : '1px solid var(--border)',
-                    borderRadius: 'var(--radius-button)',
+                    borderRadius: 'var(--radius-sm)',
                     background: active ? 'var(--accent-soft)' : 'var(--surface)',
                     color: 'var(--fg)',
                     cursor: available ? 'pointer' : 'not-allowed',
@@ -251,18 +250,15 @@ export default function AudioTools() {
 
         <section style={{ ...surface, padding: 20 }}>
           <div className="audio-tools-panel-header" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-            <div>
-              <h2 className="panel-title">{t(selected.label)}</h2>
-              <div style={{ marginTop: 4, fontSize: 'var(--text-help)', color: 'var(--muted)' }}>{selected.id}</div>
-            </div>
-            <button type="button" onClick={chooseInput} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>
+            <h2 className="panel-title" style={{ margin: 0 }}>{t(selected.label)}</h2>
+            <button type="button" onClick={chooseInput} style={{ ...inputStyle, width: 'auto', cursor: 'pointer', fontWeight: 500 }}>
               {t("选择")}{selected.input === 'subtitle' ? t("字幕") : t("音频")}
             </button>
           </div>
 
-          <div className="audio-tools-path" style={{ marginTop: 18, padding: '12px 14px', background: 'var(--panel-muted)', borderRadius: 'var(--radius-sm)', wordBreak: 'break-all' }}>
-            <div style={{ fontSize: 'var(--text-help)', color: 'var(--muted)' }}>{t("输入文件")}</div>
-            <div style={{ marginTop: 5, fontSize: 'var(--text-control)' }}>{inputPath || t("尚未选择")}</div>
+          <div className="audio-tools-path" style={{ marginTop: 16, padding: '10px 14px', background: 'var(--panel-muted)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'baseline', gap: 10, wordBreak: 'break-all' }}>
+            <span style={{ fontSize: 'var(--text-help)', color: 'var(--muted)', flexShrink: 0 }}>{t("输入文件")}</span>
+            <span style={{ fontSize: 'var(--text-control)', color: inputPath ? 'var(--fg)' : 'var(--muted)' }}>{inputPath || t("尚未选择")}</span>
           </div>
 
           <div className="audio-tools-form-grid" style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
@@ -313,7 +309,7 @@ export default function AudioTools() {
                 minHeight: 40,
                 padding: '0 18px',
                 border: '1px solid var(--accent)',
-                borderRadius: 'var(--radius-button)',
+                borderRadius: 'var(--radius-sm)',
                 background: 'var(--accent)',
                 color: 'white',
                 fontWeight: 700,
@@ -333,6 +329,15 @@ export default function AudioTools() {
         .audio-tools-layout > *,
         .audio-tools-form-grid > * {
           min-width: 0;
+        }
+
+        .audio-tools-form-grid label {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          font-size: 13px;
+          font-weight: 500;
+          color: var(--fg);
         }
 
         .audio-tools-message,
