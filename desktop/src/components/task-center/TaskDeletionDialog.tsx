@@ -108,6 +108,7 @@ export default function TaskDeletionDialog({ taskIds, onDeleted, onClose }: {
           </details>)}
           {!current.can_execute && <p className="tc-delete-error" role="alert">{t("所选任务含不可删除项，请关闭面板并调整选择。")}</p>}
           {expired && <p className="tc-delete-error" role="alert">{t("预览已过期，请重新预览。")}</p>}
+          {mode === 'history_and_files' && current.summary.delete_file_count > 0 && <p className="tc-delete-note">{t("同时删除文件，无法恢复")}</p>}
           <p className="tc-delete-note">{t("预览有效至")} {new Date(current.expires_at).toLocaleTimeString()}。</p>
         </>}
       </>}

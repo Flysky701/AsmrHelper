@@ -501,6 +501,7 @@ export const operationMessages: Record<string, string> = {
   "切换查看不会改变任务": "Viewing another task does not change it",
   "仅删除历史": "Delete history only",
   "删除历史及附带文件": "Delete history and attached files",
+  "同时删除文件，无法恢复": "Files will also be deleted and cannot be recovered.",
   "已删除": "Deleted",
   "未删除": "Not deleted",
   "删除失败": "Deletion failed",
