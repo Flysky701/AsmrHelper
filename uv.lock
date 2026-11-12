@@ -231,6 +231,11 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+anime-whisper = [
+    { name = "torch" },
+    { name = "transformers", version = "4.57.3", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-asmr-helper-qwen3'" },
+    { name = "transformers", version = "4.57.6", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-11-asmr-helper-qwen-asr' or extra != 'extra-11-asmr-helper-qwen3'" },
+]
 audio = [
     { name = "demucs" },
     { name = "faster-whisper" },
@@ -296,17 +301,19 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11.0" },
     { name = "soundfile", specifier = ">=0.12.0" },
     { name = "soundfile", marker = "extra == 'voxcpm2'", specifier = ">=0.12.0" },
+    { name = "torch", marker = "extra == 'anime-whisper'", specifier = ">=2.4.0" },
     { name = "torch", marker = "extra == 'audio'", specifier = ">=2.4.0" },
     { name = "torch", marker = "extra == 'funasr'", specifier = ">=2.4.0" },
     { name = "torch", marker = "extra == 'voxcpm2'", specifier = "==2.10.0" },
     { name = "torchaudio", marker = "extra == 'funasr'", specifier = ">=2.4.0" },
     { name = "torchaudio", marker = "extra == 'voxcpm2'", specifier = "==2.10.0" },
     { name = "torchcodec", marker = "extra == 'voxcpm2'", specifier = ">=0.10.0,<0.11.0" },
+    { name = "transformers", marker = "extra == 'anime-whisper'", specifier = ">=4.57.3,<5.0.0" },
     { name = "transformers", marker = "extra == 'funasr'", specifier = ">=4.52.0,<5.0.0" },
     { name = "uvicorn", specifier = ">=0.34.0" },
     { name = "voxcpm", marker = "extra == 'voxcpm2'", specifier = ">=2.0.0" },
 ]
-provides-extras = ["audio", "qwen3", "funasr", "qwen-asr", "voxcpm2", "dev"]
+provides-extras = ["audio", "qwen3", "funasr", "qwen-asr", "anime-whisper", "voxcpm2", "dev"]
 
 [[package]]
 name = "attrs"

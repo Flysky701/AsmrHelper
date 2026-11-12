@@ -66,6 +66,10 @@ funasr = [
 qwen_asr = [
     "qwen-asr",
 ]
+anime_whisper = [
+    "torch>=2.4.0",
+    "transformers>=4.57.3,<5.0.0",
+]
 voxcpm2 = [
     "voxcpm>=2.0.0",
     "soundfile>=0.12.0",
