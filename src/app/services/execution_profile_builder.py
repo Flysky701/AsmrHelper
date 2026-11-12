@@ -99,6 +99,8 @@ class ExecutionProfileBuilder:
                 return "fun_asr"
             if model.startswith("qwen3-asr-"):
                 return "qwen3_asr"
+            if model == "anime-whisper":
+                return "anime_whisper"
         if category == "tts":
             return "edge"
         if category == "llm":

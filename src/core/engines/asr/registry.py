@@ -49,6 +49,7 @@ class AsrRegistry:
             "qwen3_asr",
             factory=self._make_qwen3_asr,
         )
+        self.register("anime_whisper", factory=self._make_anime_whisper)
 
     def register(
         self,
@@ -139,6 +140,12 @@ class AsrRegistry:
         from .qwen3_asr import Qwen3AsrRecognizer
 
         return Qwen3AsrRecognizer(**kwargs)
+
+    @staticmethod
+    def _make_anime_whisper(**kwargs: Any) -> Any:
+        from .anime_whisper import AnimeWhisperRecognizer
+
+        return AnimeWhisperRecognizer(**kwargs)
 
 
 def get_asr_registry() -> AsrRegistry:

@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.core.runtime.profiles import RuntimeProfileResolver  # noqa: E402
 
-PROFILES = ("main", "qwen_asr", "fun_asr", "qwen_tts", "voxcpm2")
+PROFILES = ("main", "qwen_asr", "fun_asr", "qwen_tts", "voxcpm2", "anime_whisper")
 
 
 def has_torch(python: Path) -> bool:

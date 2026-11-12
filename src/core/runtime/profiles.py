@@ -43,8 +43,9 @@ class RuntimeProfileResolver:
         "qwen_asr": "qwen_asr",
         "fun_asr": "funasr",
         "voxcpm2": "voxcpm2",
+        "anime_whisper": "anime_whisper",
     }
-    _CUDA_TORCH_PROFILES = {"main", "qwen_asr", "fun_asr", "qwen_tts", "voxcpm2"}
+    _CUDA_TORCH_PROFILES = {"main", "qwen_asr", "fun_asr", "qwen_tts", "voxcpm2", "anime_whisper"}
     # Measured Qwen cold imports take just over 30s; keep a hard, bounded budget.
     _ASR_IMPORT_TIMEOUT = 45
     _MODULE_PROBE_REVISION = 2
@@ -58,6 +59,7 @@ class RuntimeProfileResolver:
         "qwen_asr": "qwen_asr",
         "fun_asr": "fun_asr",
         "voxcpm2": "voxcpm2",
+        "anime_whisper": "anime_whisper",
     }
 
     def __init__(self, project_root: Path | None = None) -> None:
@@ -272,6 +274,9 @@ class RuntimeProfileResolver:
             "    if name == 'funasr':\n"
             "        from funasr import AutoModel\n"
             "        return AutoModel is not None\n"
+            f"    if name == 'transformers' and {profile.id == 'anime_whisper'!r}:\n"
+            "        from transformers import pipeline\n"
+            "        return pipeline is not None\n"
             "    return bool(importlib.import_module(name))\n"
             "result = {}\n"
             "for name in modules:\n"

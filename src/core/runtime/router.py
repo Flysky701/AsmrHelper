@@ -26,6 +26,7 @@ class RuntimeRouter:
     _ASR_PROFILES = {
         "fun_asr": "fun_asr",
         "qwen3_asr": "qwen_asr",
+        "anime_whisper": "anime_whisper",
     }
 
     def __init__(
