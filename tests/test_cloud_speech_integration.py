@@ -15,7 +15,7 @@ from src.core.speech.compiler import compile_recipe
 from src.core.speech.providers import ProviderError
 from src.core.speech.store import SpeechStore, build_plan
 from test_cloud_speech_transport import install_transport, wav_bytes
-from test_pipeline_stage_recovery import setup as recovery_setup, run, next_plan
+from test_pipeline_stage_recovery import setup as recovery_setup, run, next_plan  # noqa: F401
 from test_speech_recovery import speech_plan
 
 
@@ -156,7 +156,7 @@ def test_mixed_request_snapshot_rejected_before_credentials_or_network(cloud, mo
 
 
 @pytest.mark.parametrize("provider,model,mode,voice,options", CASES, ids=[case[0] for case in CASES])
-def test_audited_completed_stage_reuses_without_resynthesis(recovery_setup, provider, model, mode, voice, options):
+def test_audited_completed_stage_reuses_without_resynthesis(recovery_setup, provider, model, mode, voice, options):  # noqa: F811
     store, plan = recovery_setup
     snapshot = speech_plan(plan, provider=provider, model=model, mode=mode, kind=mode, value=voice)
     snapshot["recipe"]["provider_options"].update(options)

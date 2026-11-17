@@ -77,7 +77,7 @@ def main():
     # This private copy is application-managed; leave the uv source distribution untouched.
     (output / "python" / "Lib" / "EXTERNALLY-MANAGED").unlink(missing_ok=True)
     app = output / "app"
-    tracked = subprocess.check_output(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "src"], cwd=ROOT).decode("utf-8").split("\0")
+    tracked = subprocess.check_output(["git", "ls-files", "--cached", "-z", "src"], cwd=ROOT).decode("utf-8").split("\0")
     for name in tracked:
         if name.endswith(".py"):
             copy_file(ROOT / name, app / name)
