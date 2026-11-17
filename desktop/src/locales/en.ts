@@ -103,4 +103,5 @@ export const en: Record<string, string> = {
   '管理本地引擎、模型与外部服务': 'Manage local engines, models and external services', '调整应用配置与运行偏好': 'Adjust application settings and preferences',
   '主导航': 'Main navigation', '流水线与任务': 'Workflows & tasks', '工具与资源': 'Tools & resources',
   '暂停': 'Pause', '播放': 'Play', '播放进度': 'Playback position', '音量': 'Volume', '关闭播放器': 'Close player',
+  '待审草稿': 'Draft Gate',
 }
