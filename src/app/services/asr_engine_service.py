@@ -62,13 +62,27 @@ class AsrEngineService:
 
         merged_common = dict(common_options or {})
         merged_common.setdefault("language", language)
+        clean_provider_options = dict(provider_options or {})
+        remote_meta: dict[str, Any] = {}
+        for remote_key in ("remote_worker_url", "remote_worker_token", "remote_worker_timeout"):
+            if remote_key in clean_provider_options:
+                val = clean_provider_options.pop(remote_key)
+                if val is not None:
+                    remote_meta[remote_key] = val
+            if remote_key in merged_common:
+                val = merged_common.pop(remote_key)
+                if val is not None and remote_key not in remote_meta:
+                    remote_meta[remote_key] = val
+
         profile = self._profile_builder.build(
             category="asr",
             provider=provider,
             model=model,
             common_options=merged_common,
-            provider_options=provider_options,
+            provider_options=clean_provider_options,
         )
+        if remote_meta:
+            profile.update(remote_meta)
 
         try:
             document = self._runtime.transcribe_file(

@@ -29,6 +29,16 @@ models:
     preferred_runtime: python_package_local
     install_modes: [single, family_all]
     default_install_mode: single
+    download_sources:
+      - type: modelscope
+        repo_id: Systran/faster-whisper-tiny
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Systran/faster-whisper-tiny
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Systran/faster-whisper-tiny
+        endpoint: https://huggingface.co
 
   - id: faster-whisper-base
     kind: local
@@ -61,6 +71,16 @@ models:
     preferred_runtime: python_package_local
     install_modes: [single, family_all]
     default_install_mode: single
+    download_sources:
+      - type: modelscope
+        repo_id: Systran/faster-whisper-base
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Systran/faster-whisper-base
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Systran/faster-whisper-base
+        endpoint: https://huggingface.co
 
   - id: faster-whisper-small
     kind: local
@@ -92,6 +112,16 @@ models:
     preferred_runtime: python_package_local
     install_modes: [single, family_all]
     default_install_mode: single
+    download_sources:
+      - type: modelscope
+        repo_id: Systran/faster-whisper-small
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Systran/faster-whisper-small
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Systran/faster-whisper-small
+        endpoint: https://huggingface.co
 
   - id: faster-whisper-medium
     kind: local
@@ -123,6 +153,16 @@ models:
     preferred_runtime: python_package_local
     install_modes: [single, family_all]
     default_install_mode: single
+    download_sources:
+      - type: modelscope
+        repo_id: Systran/faster-whisper-medium
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Systran/faster-whisper-medium
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Systran/faster-whisper-medium
+        endpoint: https://huggingface.co
 
   - id: faster-whisper-large-v3
     kind: local
@@ -154,6 +194,16 @@ models:
     preferred_runtime: python_package_local
     install_modes: [single, family_all]
     default_install_mode: single
+    download_sources:
+      - type: modelscope
+        repo_id: Systran/faster-whisper-large-v3
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Systran/faster-whisper-large-v3
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Systran/faster-whisper-large-v3
+        endpoint: https://huggingface.co
 
   - id: fun-asr-nano-2512
     kind: local
@@ -191,6 +241,16 @@ models:
     auto_install_dependencies: true
     allow_remote_code: true
     required_assets: [fun-asr-fsmn-vad]
+    download_sources:
+      - type: modelscope
+        repo_id: FunAudioLLM/Fun-ASR-Nano-2512
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: FunAudioLLM/Fun-ASR-Nano-2512
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: FunAudioLLM/Fun-ASR-Nano-2512
+        endpoint: https://huggingface.co
 
   - id: fun-asr-mlt-nano-2512
     kind: local
@@ -227,6 +287,16 @@ models:
     auto_install_dependencies: true
     allow_remote_code: true
     required_assets: [fun-asr-fsmn-vad]
+    download_sources:
+      - type: modelscope
+        repo_id: FunAudioLLM/Fun-ASR-MLT-Nano-2512
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: FunAudioLLM/Fun-ASR-MLT-Nano-2512
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: FunAudioLLM/Fun-ASR-MLT-Nano-2512
+        endpoint: https://huggingface.co
 
   - id: fun-asr-fsmn-vad
     is_auxiliary: true
@@ -259,6 +329,16 @@ models:
     install_modes: [single]
     default_install_mode: single
     auto_install_dependencies: true
+    download_sources:
+      - type: modelscope
+        repo_id: iic/speech_fsmn_vad_zh-cn-16k-common-pytorch
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: funasr/fsmn-vad
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: funasr/fsmn-vad
+        endpoint: https://huggingface.co
 
   - id: qwen3-asr-0.6b
     kind: local
@@ -297,6 +377,16 @@ models:
     default_install_mode: single
     auto_install_dependencies: true
     required_assets: [qwen3-forced-aligner-0.6b]
+    download_sources:
+      - type: modelscope
+        repo_id: Qwen/Qwen3-ASR-0.6B
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Qwen/Qwen3-ASR-0.6B
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Qwen/Qwen3-ASR-0.6B
+        endpoint: https://huggingface.co
 
   - id: qwen3-asr-1.7b
     kind: local
@@ -336,6 +426,16 @@ models:
     default_install_mode: single
     auto_install_dependencies: true
     required_assets: [qwen3-forced-aligner-0.6b]
+    download_sources:
+      - type: modelscope
+        repo_id: Qwen/Qwen3-ASR-1.7B
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Qwen/Qwen3-ASR-1.7B
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Qwen/Qwen3-ASR-1.7B
+        endpoint: https://huggingface.co
 
   - id: qwen3-forced-aligner-0.6b
     kind: local
@@ -371,6 +471,16 @@ models:
     install_modes: [single]
     default_install_mode: single
     auto_install_dependencies: true
+    download_sources:
+      - type: modelscope
+        repo_id: Qwen/Qwen3-ForcedAligner-0.6B
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Qwen/Qwen3-ForcedAligner-0.6B
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Qwen/Qwen3-ForcedAligner-0.6B
+        endpoint: https://huggingface.co
 
   - id: anime-whisper
     kind: local
@@ -408,6 +518,13 @@ models:
     install_modes: [single]
     default_install_mode: single
     auto_install_dependencies: true
+    download_sources:
+      - type: hf-mirror
+        repo_id: litagin/anime-whisper
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: litagin/anime-whisper
+        endpoint: https://huggingface.co
 
   - id: qwen3-custom-voice
     kind: local
@@ -444,6 +561,16 @@ models:
     install_modes: [single, family_all]
     default_install_mode: single
     auto_install_dependencies: true
+    download_sources:
+      - type: modelscope
+        repo_id: Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+        endpoint: https://huggingface.co
 
   - id: qwen3-voice-design
     kind: local
@@ -481,6 +608,16 @@ models:
     install_modes: [single, family_all]
     default_install_mode: single
     auto_install_dependencies: true
+    download_sources:
+      - type: modelscope
+        repo_id: Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+        endpoint: https://huggingface.co
 
   - id: qwen3-base
     kind: local
@@ -517,6 +654,16 @@ models:
     install_modes: [single, family_all]
     default_install_mode: single
     auto_install_dependencies: true
+    download_sources:
+      - type: modelscope
+        repo_id: Qwen/Qwen3-TTS-12Hz-1.7B-Base
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: Qwen/Qwen3-TTS-12Hz-1.7B-Base
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: Qwen/Qwen3-TTS-12Hz-1.7B-Base
+        endpoint: https://huggingface.co
 
   - id: voxcpm2
     kind: local
@@ -550,6 +697,16 @@ models:
     min_cuda: "12.0"
     install_modes: [single]
     default_install_mode: single
+    download_sources:
+      - type: modelscope
+        repo_id: OpenBMB/VoxCPM2
+        endpoint: https://www.modelscope.cn
+      - type: hf-mirror
+        repo_id: openbmb/VoxCPM2
+        endpoint: https://hf-mirror.com
+      - type: huggingface
+        repo_id: openbmb/VoxCPM2
+        endpoint: https://huggingface.co
 
   - id: demucs-htdemucs
     kind: local
@@ -578,6 +735,9 @@ models:
       min: "3.10"
       max: "3.13"
     preferred_runtime: python_package_local
+    download_sources:
+      - type: http
+        endpoint: https://dl.fbaipublicfiles.com/demucs/hybrid_transformer
 
   - id: deepseek
     kind: cloud

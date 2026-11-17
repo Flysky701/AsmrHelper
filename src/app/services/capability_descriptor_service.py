@@ -481,6 +481,12 @@ class CapabilityDescriptorService:
                     _option("batch_size", "integer", default=1, min_value=1, max_value=16),
                     _option("no_repeat_ngram_size", "integer", default=0, min_value=0, max_value=10),
                     _option("repetition_penalty", "number", default=1.0, min_value=1.0, max_value=2.0),
+                    _option("vad_slicing", "boolean", required=False,
+                            description="Enable pre-ASR acoustic VAD slicing for long ASMR tracks"),
+                    _option("vad_filter", "boolean", required=False,
+                            description="Alias for pre-ASR acoustic VAD slicing"),
+                    _option("vad_options", "object", required=False,
+                            description="Optional parameters forwarded to slice_speech_regions"),
                 ],
                 "supports": {
                     "language_hint": True,
