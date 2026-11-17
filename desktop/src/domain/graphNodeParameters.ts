@@ -1,8 +1,8 @@
 import type { CapabilityDescriptorResponse, CapabilityOptionResponse } from '@/api/types'
 import type { Delivery, ReferenceAsset, SpeechConnection, SpeechProvider, SpeechRecipe, VoiceVariant } from '@/api/speech'
-import { GRAPH_MIX_OUTPUT_LENGTHS } from './workflowGraph'
-import type { GraphMixOutputLength, GraphNode } from './workflowGraph'
-import { speechLanguageMatches, speechOptionsIssue } from './speechAdvancedOptions'
+import { GRAPH_MIX_OUTPUT_LENGTHS, GRAPH_MAX_MIX_TRACKS, graphMixTracks, isMultitrackMix } from './workflowGraph'
+import type { GraphMixOutputLength, GraphMixTrack, GraphNode } from './workflowGraph'
+import { speechLanguageMatches, speechOptionsIssue, speechCapabilities, speechLanguageSupported } from './speechAdvancedOptions'
 import { effectiveSpeechRecipe, speechOverrideIssue } from './speechPresetConsumption'
 import type { SpeechOverrides } from '@/api/speech'
 
@@ -91,7 +91,8 @@ export function graphSpeechIssue(node: GraphNode, provider: SpeechProvider | und
   if (!implicit && !connections.some(item => item.id === ref && item.provider_id === node.provider)) return '音色连接已缺失或不匹配，请在音色库处理；原配置已保留。'
   if (mode.voice_sources?.required && !source.variant.value.trim()) return mode.voice_sources.description || '请补齐声音来源。'
   if (mode.voice_sources?.presets.length && !mode.voice_sources.allow_custom && !mode.voice_sources.presets.some(item => item.id === source.variant.value)) return '声音不在此引擎允许的预设列表中，请重新选择。'
-  const capabilities = mode.capabilities ?? provider.capabilities
+  if (!speechLanguageSupported(provider, source.mode, node.model, node.target_lang ?? '')) return '当前模型不支持所选目标语言，请重新选择。'
+  const capabilities = speechCapabilities(provider, source.mode, node.model)
   const delivery = capabilities.delivery as Record<string, { support?: string }> | undefined
   if (source.default_delivery && source.default_delivery !== 'normal' && delivery?.[source.default_delivery]?.support !== 'direct' && source.variant.style !== source.default_delivery) return '当前模式不支持所选默认演绎，请选择自然或匹配风格的参考录音。'
   const emotion = capabilities.emotion as { support?: string } | undefined
@@ -100,7 +101,7 @@ export function graphSpeechIssue(node: GraphNode, provider: SpeechProvider | und
   if (source.variant.kind === 'reference') {
     const asset = assets.find(item => item.id === source.variant.value && !item.archived)
     if (!asset) return '请选择声音库中可用的参考录音。'
-    const requirement = (mode.capabilities?.reference ?? provider.capabilities.reference) as { transcript_required?: boolean } | undefined
+    const requirement = capabilities.reference as { transcript_required?: boolean } | undefined
     const needsText = requirement?.transcript_required || provider.provider_id === 'qwen3'
     const optional = provider.provider_id === 'qwen3' && source.provider_options.x_vector_only_mode === true
     if (needsText && !optional && (!asset.transcript.trim() || asset.confirmed !== true)) return '当前参考克隆需要已核对的录音原文；Qwen 可显式启用“仅使用声音特征”。'
@@ -120,12 +121,32 @@ export const graphMixOutputLengthOptions: { value: GraphMixOutputLength; label: 
 
 /** Old templates inherit main; invalid saved values remain visible for correction. */
 export function graphMixOutputLength(node: GraphNode): GraphMixOutputLength | null {
-  return node.options.output_length === undefined ? 'main'
+  return node.options.output_length === undefined ? isMultitrackMix(node) ? 'longest' : 'main'
     : GRAPH_MIX_OUTPUT_LENGTHS.find(value => value === node.options.output_length) ?? null
 }
 
+export function updateGraphMixTrack(node: GraphNode, id: string, patch: Partial<Omit<GraphMixTrack, 'id'>>): GraphNode {
+  return { ...node, options: { ...node.options, tracks: graphMixTracks(node).map(track => track.id === id ? { ...track, ...patch } : track) } }
+}
+export function addGraphMixTrack(node: GraphNode): GraphNode {
+  const tracks = graphMixTracks(node)
+  if (!isMultitrackMix(node) || tracks.length >= GRAPH_MAX_MIX_TRACKS) return node
+  // Monotonic among the current IDs: deleting a middle track never renumbers its neighbours.
+  let sequence = Math.max(0, ...tracks.map(track => {
+    const value = /^track_\d+$/i.test(track.id) ? Number(track.id.slice(6)) : 0
+    return Number.isSafeInteger(value) && value < Number.MAX_SAFE_INTEGER ? value : 0
+  })) + 1
+  const ids = new Set(tracks.map(track => track.id.toLowerCase()))
+  while (ids.has(`track_${sequence}`)) sequence++
+  return { ...node, options: { ...node.options, tracks: [...tracks, { id: `track_${sequence}`, gain: 1, offset_ms: 0, muted: false }] } }
+}
+export function removeGraphMixTrack(node: GraphNode, id: string): GraphNode {
+  const tracks = graphMixTracks(node)
+  return tracks.length <= 1 ? node : { ...node, options: { ...node.options, tracks: tracks.filter(track => track.id !== id) } }
+}
+
 export function graphNodeHasAdvancedParameters(node: GraphNode): boolean {
-  return !['align', 'export'].includes(node.kind)
+  return !['align', 'export'].includes(node.kind) && !isMultitrackMix(node)
 }
 
 export function editableGraphOptions(fields: CapabilityOptionResponse[]): CapabilityOptionResponse[] {

@@ -1,275 +1,323 @@
-"""
-ScriptToSubtitlePipeline — 台本转字幕完整流水线
+"""Script preparation and matching; never synthesize recording timestamps."""
 
-流程：
-  clean_script: 台本(PDF/TXT) → 清洗后的 TXT（regex 粗洗 + LLM 精洗）
-  asr_recognize: MP3 → ASR VTT（已实现，复用 ASRRecognizer）
-  llm_align: 清洗 TXT + ASR VTT → LLM 智能重排对齐 → 最终 VTT
-"""
+from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
-
-from src.core.subtitles.generator import SubtitleGenerator
 from src.core.subtitles.script_tool import ScriptToSubtitleTool
+from src.core.subtitles.script_processor import ScriptProcessor
+from src.core.subtitles.script_review import (
+    ScriptReviewRequired,
+    script_fingerprint,
+    validate_timed_entries,
+    write_new_text,
+    subtitle_content,
+)
 
 
 class ScriptToSubtitlePipeline:
-    """台本(PDF/TXT) → 完整字幕 流水线"""
+    def preview(
+        self,
+        script_path,
+        *,
+        track_index=None,
+        vertical_mode="auto",
+        use_llm_clean=False,
+    ):
+        raw = ScriptToSubtitleTool.load_script(script_path, vertical_mode=vertical_mode)
+        sections = ScriptProcessor.detect_scripts(raw)
+        if track_index is not None:
+            if type(track_index) is not int or not 0 <= track_index < len(sections):
+                raise ValueError("台本章节索引超出范围，请重新选择章节")
+            selected = sections[track_index]["text"]
+        else:
+            selected = raw
+        actions = ScriptProcessor.extract_stage_descriptions(selected)[1]
+        from src.core.subtitles.generator import SubtitleGenerator
 
-    @staticmethod
-    def _save_debug(debug_dir: Path, stage: str, filename: str, content: str) -> None:
-        """保存调试中间文件"""
-        stage_dir = debug_dir / stage
-        stage_dir.mkdir(parents=True, exist_ok=True)
-        (stage_dir / filename).write_text(content, encoding="utf-8")
+        actions.extend(SubtitleGenerator.extract_action_descriptions(selected))
+        # Lenticular brackets are removed by the cleaner as well.
+        import re
 
-    @staticmethod
-    def _save_debug_json(debug_dir: Path, stage: str, filename: str, data: Any) -> None:
-        """保存调试中间文件（JSON 格式）"""
-        stage_dir = debug_dir / stage
-        stage_dir.mkdir(parents=True, exist_ok=True)
-        (stage_dir / filename).write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        actions.extend(
+            {"text": m.group(), "type": "bracket"}
+            for m in re.finditer(r"【[^】]*】", selected)
         )
+        cleaner = (
+            ScriptToSubtitleTool.clean_script_with_llm
+            if use_llm_clean
+            else ScriptToSubtitleTool.clean_script
+        )
+        cleaned = cleaner(selected)
+        if not raw.strip():
+            raise ValueError("未提取到文字，请检查PDF文字层或台本格式")
+        return {
+            "raw_text": selected,
+            "clean_text": cleaned,
+            "actions": list(dict.fromkeys(a["text"] for a in actions)),
+            "sections": [{"index": s["index"], "title": s["title"]} for s in sections],
+            "fingerprint": script_fingerprint(script_path),
+        }
+
+    def _prepare(
+        self,
+        script_path,
+        *,
+        confirmed_text=None,
+        fingerprint=None,
+        track_index=None,
+        vertical_mode="auto",
+        use_llm_clean=False,
+    ):
+        if fingerprint and script_fingerprint(script_path) != fingerprint:
+            raise ValueError("台本文件已改变，请重新预览并确认台词")
+        preview = self.preview(
+            script_path,
+            track_index=track_index,
+            vertical_mode=vertical_mode,
+            use_llm_clean=use_llm_clean if confirmed_text is None else False,
+        )
+        text = preview["clean_text"] if confirmed_text is None else confirmed_text
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("确认后的台词为空")
+        return text
+
+    @staticmethod
+    def _transcribe(audio_path, model_size, language):
+        from src.core.engines.asr.service import AsrEngineRuntime
+        from src.core.resources.model_reference import resolve_model_reference
+
+        model_path = Path(resolve_model_reference(f"faster-whisper-{model_size}"))
+        if not model_path.is_dir() or not (model_path / "model.bin").is_file():
+            raise ValueError(
+                "请先在模型管理中安装所选 Faster-Whisper 模型；不会自动下载"
+            )
+        document = AsrEngineRuntime().transcribe_file(
+            input_path=str(audio_path),
+            output_path=None,
+            profile={
+                "provider": "faster_whisper",
+                "model": str(model_path),
+                "common_options": {"language": language},
+                "provider_options": {"preserve_segments": True, "vad_filter": False},
+            },
+        )
+        if any(
+            s.recognition_metadata.get("timestamp_source")
+            in {"missing", "estimated", "proportional", "synthetic"}
+            for s in document.segments
+        ):
+            raise ValueError("识别结果包含缺失或估算时间，请重新识别或人工核对")
+        return [
+            {"start": s.start, "end": s.end, "text": s.text} for s in document.segments
+        ]
+
+    def _match_and_save(
+        self,
+        text,
+        anchors,
+        output_path,
+        fmt,
+        cb,
+        *,
+        inputs=(),
+        duration=None,
+        use_llm_match=False,
+        audio_path=None,
+        language="ja",
+    ):
+        from src.core.engines.llm.script_cleaner import LLMProcessor
+
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        report = {
+            "version": 1,
+            "complete": False,
+            "script_lines": lines,
+            "entries": [],
+            "asr_segments": anchors,
+            "unmatched": [],
+            "extra_asr": [],
+            "conflicts": [],
+            "audio_path": str(audio_path) if audio_path else None,
+            "output_path": str(output_path),
+            "language": language,
+            "duration": duration,
+            "timestamp_source": "transcript_segments",
+        }
+        review_path = str(Path(output_path).with_suffix(".review.json"))
+        self.review_path = review_path
+        cb("llm_align", 0, "正在核实录音时间锚点并匹配台词")
+        try:
+            validate_timed_entries(anchors, duration=duration)
+            processor = LLMProcessor(
+                allow_llm=use_llm_match,
+                progress_callback=lambda n, total: cb(
+                    "llm_align", int(n / total * 80), f"匹配第 {n + 1}/{total} 批"
+                ),
+            )
+            entries = processor.align_and_reorder(lines, anchors)
+            report.update(processor.review)
+            validate_timed_entries(entries, duration=duration)
+        except ScriptReviewRequired as exc:
+            report.update(exc.review)
+            report["draft_entries"] = anchors
+            write_new_text(
+                review_path,
+                json.dumps(report, ensure_ascii=False, indent=2),
+                inputs=inputs,
+            )
+            raise
+        except Exception as exc:
+            report["conflicts"].append(str(exc))
+            write_new_text(
+                review_path,
+                json.dumps(report, ensure_ascii=False, indent=2),
+                inputs=inputs,
+            )
+            raise
+        write_new_text(
+            review_path, json.dumps(report, ensure_ascii=False, indent=2), inputs=inputs
+        )
+        write_new_text(output_path, subtitle_content(entries, fmt), inputs=inputs)
+        cb("llm_align", 100, f"已生成 {len(entries)} 段录音时间轴字幕，仍需试听核对")
+        return str(output_path)
 
     def run(
         self,
-        script_path: Union[str, Path],
-        audio_path: Union[str, Path],
-        output_path: Union[str, Path],
-        fmt: str = "vtt",
-        use_llm_clean: bool = True,
-        asr_model_size: str = "large-v3",
-        asr_language: str = "ja",
-        track_index: Optional[int] = None,
-        vertical_mode: str = "auto",
-        progress_callback: Optional[Callable[[str, int, str], None]] = None,
-        debug_dir: Optional[Union[str, Path]] = None,
-    ) -> str:
-        """
-        完整流程：台本 + 音频 → 字幕文件。
+        script_path,
+        audio_path,
+        output_path,
+        fmt="vtt",
+        use_llm_clean=False,
+        asr_model_size="large-v3",
+        asr_language="ja",
+        track_index=None,
+        vertical_mode="auto",
+        progress_callback=None,
+        debug_dir=None,
+        confirmed_text=None,
+        fingerprint=None,
+        use_llm_match=False,
+    ):
+        cb = progress_callback or (lambda *args: None)
+        cb("clean_script", 0, "正在准备确认稿")
+        text = self._prepare(
+            script_path,
+            confirmed_text=confirmed_text,
+            fingerprint=fingerprint,
+            track_index=track_index,
+            vertical_mode=vertical_mode,
+            use_llm_clean=use_llm_clean,
+        )
+        cb("clean_script", 100, "台词已准备")
+        cb("asr_recognize", 0, "正在识别录音")
+        # Probe duration using the existing libsndfile helper; unsupported formats fail visibly.
+        from src.core.subtitles.translation_reuse import audio_duration
 
-        Args:
-            script_path: 台本文件路径（PDF 或 TXT）
-            audio_path: MP3/WAV 音频路径
-            output_path: 输出字幕文件路径
-            fmt: 输出格式 ("vtt" / "srt" / "lrc")
-            use_llm_clean: 是否使用 LLM 辅助清洗
-            asr_model_size: ASR 模型大小
-            asr_language: ASR 语言
-            track_index: 指定处理的 Track 索引（从 0 开始）
-            vertical_mode: PDF 竖排处理模式 ("auto" / "horizontal" / "vertical")
-            progress_callback: 进度回调 fn(stage, percent, message)
-            debug_dir: 调试输出目录（可选，设置后保存各阶段中间文件）
-
-        Returns:
-            输出文件路径
-        """
-        cb = progress_callback or (lambda *a: None)
-        dbg = Path(debug_dir) if debug_dir else None
-
-        # ---- Stage 1: clean_script - 台本 → 清洗 TXT ----
-        cb("clean_script", 0, "正在加载台本文件...")
-        raw_text = ScriptToSubtitleTool.load_script(script_path, vertical_mode=vertical_mode)
-        if dbg:
-            self._save_debug(dbg, "stage1_extract", "01_raw_text.txt", raw_text)
-
-        # ---- 多 Track 检测 ----
-        from src.core.subtitles.script_processor import ScriptProcessor
-        sections = ScriptProcessor.detect_scripts(raw_text)
-        if len(sections) > 1:
-            if track_index is not None and 0 <= track_index < len(sections):
-                raw_text = sections[track_index]["text"]
-                cb("clean_script", 15, f"检测到 {len(sections)} 个 Track，使用 Track {track_index + 1}: {sections[track_index]['title']}")
-            else:
-                titles = ", ".join(s["title"] for s in sections)
-                cb("clean_script", 15, f"检测到 {len(sections)} 个 Track ({titles})，处理全部")
-
-        cb("clean_script", 30, "正在清洗台本...")
-        if use_llm_clean:
-            clean_text = ScriptToSubtitleTool.clean_script_with_llm(raw_text, debug_dir=dbg)
-        else:
-            clean_text = ScriptToSubtitleTool.clean_script(raw_text)
-        if dbg:
-            self._save_debug(dbg, "stage1_clean", "02_clean_text.txt", clean_text)
-
-        cb("clean_script", 100, f"台本清洗完成，共 {len(clean_text.splitlines())} 行台词")
-
-        # ---- Stage 2: asr_recognize - 音频 → ASR ----
-        cb("asr_recognize", 0, "正在语音识别...")
-        from src.core.engines.asr import get_asr_registry
-        asr = get_asr_registry().get(
-            "faster_whisper",
-            model_size=asr_model_size,
+        duration = audio_duration(str(audio_path))
+        if duration is None:
+            raise ValueError("无法核实录音时长，请先在音频工具中转为WAV")
+        anchors = self._transcribe(audio_path, asr_model_size, asr_language)
+        cb("asr_recognize", 100, f"识别返回 {len(anchors)} 个片段")
+        return self._match_and_save(
+            text,
+            anchors,
+            output_path,
+            fmt,
+            cb,
+            inputs=(script_path, audio_path),
+            duration=duration,
+            use_llm_match=use_llm_match,
+            audio_path=audio_path,
             language=asr_language,
         )
-        asr_results = asr.recognize(
-            str(audio_path),
-            progress_callback=lambda cur, dur, n: cb("asr_recognize", int(cur / dur * 100) if dur > 0 else 0, f"已识别 {n} 段 ({cur:.1f}s/{dur:.1f}s)"),
-        )
-        cb("asr_recognize", 100, f"语音识别完成，共 {len(asr_results)} 个片段")
-        if dbg:
-            self._save_debug_json(dbg, "stage2_asr", "03_asr_results.json", asr_results)
-
-        # ---- Stage 3: llm_align - LLM 对齐 ----
-        cb("llm_align", 0, "正在 LLM 智能对齐...")
-        entries = ScriptToSubtitleTool.align_with_llm(clean_text, asr_results, debug_dir=dbg)
-        cb("llm_align", 80, f"对齐完成，共 {len(entries)} 条字幕")
-        if dbg:
-            self._save_debug_json(dbg, "stage3_align", "04_aligned_entries.json", entries)
-
-        # ---- 保存 ----
-        SubtitleGenerator.save(entries, str(output_path), fmt=fmt)
-        if dbg:
-            final_content = Path(output_path).read_text(encoding="utf-8")
-            self._save_debug(dbg, "stage4_output", f"final.{fmt}", final_content)
-        cb("llm_align", 100, f"已保存到 {output_path}")
-
-        return str(output_path)
 
     def run_from_existing_vtt(
         self,
-        script_path: Union[str, Path],
-        vtt_path: Union[str, Path],
-        output_path: Union[str, Path],
-        fmt: str = "vtt",
-        use_llm_clean: bool = True,
-        track_index: Optional[int] = None,
-        vertical_mode: str = "auto",
-        progress_callback: Optional[Callable[[str, int, str], None]] = None,
-        debug_dir: Optional[Union[str, Path]] = None,
-    ) -> str:
-        """
-        已有 ASR 字幕的情况（跳过 asr_recognize）。
+        script_path,
+        vtt_path,
+        output_path,
+        fmt="vtt",
+        use_llm_clean=False,
+        track_index=None,
+        vertical_mode="auto",
+        progress_callback=None,
+        debug_dir=None,
+        confirmed_text=None,
+        fingerprint=None,
+        use_llm_match=False,
+        audio_path=None,
+        asr_language="ja",
+    ):
+        from src.core.subtitles.service import SubtitleDomainService
 
-        适用场景：之前已经跑过 ASR，现在只需要用台本修正字幕。
+        cb = progress_callback or (lambda *args: None)
+        cb("clean_script", 0, "正在准备确认稿")
+        text = self._prepare(
+            script_path,
+            confirmed_text=confirmed_text,
+            fingerprint=fingerprint,
+            track_index=track_index,
+            vertical_mode=vertical_mode,
+            use_llm_clean=use_llm_clean,
+        )
+        cb("clean_script", 100, "台词已准备")
+        if Path(vtt_path).suffix.lower() not in {".vtt", ".srt"}:
+            raise ValueError("参考字幕需要VTT或SRT；LRC没有可信的结束时间")
+        content = Path(vtt_path).read_text(encoding="utf-8")
+        document = SubtitleDomainService().parse_text(
+            content, Path(vtt_path).suffix[1:]
+        )
+        if sum("-->" in line for line in content.splitlines()) != len(
+            document.segments
+        ):
+            raise ValueError("参考字幕包含无法解析或空白的片段，请先修正")
+        anchors = [
+            {"start": s.start, "end": s.end, "text": s.text} for s in document.segments
+        ]
+        duration = None
+        if audio_path:
+            from src.core.subtitles.translation_reuse import audio_duration
 
-        Args:
-            script_path: 台本文件路径（PDF 或 TXT）
-            vtt_path: 已有的 ASR 字幕路径（VTT/SRT/LRC）
-            output_path: 输出路径
-            fmt: 输出格式
-            use_llm_clean: 是否使用 LLM 辅助清洗
-            track_index: 指定处理的 Track 索引（从 0 开始）。当台本包含多个 Track 时，
-                         传入此参数仅处理对应 Track 的台词。None 表示处理全部。
-            vertical_mode: PDF 竖排处理模式 ("auto" / "horizontal" / "vertical")
-            progress_callback: 进度回调
-            debug_dir: 调试输出目录（可选）
-
-        Returns:
-            输出文件路径
-        """
-        cb = progress_callback or (lambda *a: None)
-        dbg = Path(debug_dir) if debug_dir else None
-
-        # ---- clean_script: 台本 → 清洗 TXT ----
-        cb("clean_script", 0, "正在加载台本文件...")
-        raw_text = ScriptToSubtitleTool.load_script(script_path, vertical_mode=vertical_mode)
-        if dbg:
-            self._save_debug(dbg, "stage1_extract", "01_raw_text.txt", raw_text)
-
-        # ---- 多 Track 检测 ----
-        from src.core.subtitles.script_processor import ScriptProcessor
-        sections = ScriptProcessor.detect_scripts(raw_text)
-        if len(sections) > 1:
-            if track_index is not None and 0 <= track_index < len(sections):
-                raw_text = sections[track_index]["text"]
-                cb("clean_script", 15, f"检测到 {len(sections)} 个 Track，使用 Track {track_index + 1}: {sections[track_index]['title']}")
-            else:
-                titles = ", ".join(s["title"] for s in sections)
-                cb("clean_script", 15, f"检测到 {len(sections)} 个 Track ({titles})，处理全部")
-
-        cb("clean_script", 30, "正在清洗台本...")
-        if use_llm_clean:
-            clean_text = ScriptToSubtitleTool.clean_script_with_llm(raw_text, debug_dir=dbg)
-        else:
-            clean_text = ScriptToSubtitleTool.clean_script(raw_text)
-        if dbg:
-            self._save_debug(dbg, "stage1_clean", "02_clean_text.txt", clean_text)
-
-        cb("clean_script", 100, f"台本清洗完成，共 {len(clean_text.splitlines())} 行台词")
-
-        # ---- 加载已有字幕 ----
-        cb("llm_align", 0, "正在加载已有字幕...")
-        from src.core.subtitles import load_subtitle_with_timestamps
-        asr_results = load_subtitle_with_timestamps(str(vtt_path))
-        cb("llm_align", 20, f"已加载 {len(asr_results)} 个字幕片段")
-        if dbg:
-            self._save_debug_json(dbg, "stage2_asr", "03_asr_results.json", asr_results)
-
-        # ---- llm_align: LLM 对齐 ----
-        cb("llm_align", 30, "正在 LLM 智能对齐...")
-        entries = ScriptToSubtitleTool.align_with_llm(clean_text, asr_results, debug_dir=dbg)
-        cb("llm_align", 80, f"对齐完成，共 {len(entries)} 条字幕")
-        if dbg:
-            self._save_debug_json(dbg, "stage3_align", "04_aligned_entries.json", entries)
-
-        # ---- 保存 ----
-        SubtitleGenerator.save(entries, str(output_path), fmt=fmt)
-        if dbg:
-            final_content = Path(output_path).read_text(encoding="utf-8")
-            self._save_debug(dbg, "stage4_output", f"final.{fmt}", final_content)
-        cb("llm_align", 100, f"已保存到 {output_path}")
-
-        return str(output_path)
+            duration = audio_duration(str(audio_path))
+            if duration is None:
+                raise ValueError("无法核实录音时长")
+        return self._match_and_save(
+            text,
+            anchors,
+            output_path,
+            fmt,
+            cb,
+            inputs=(script_path, vtt_path, audio_path),
+            duration=duration,
+            use_llm_match=use_llm_match,
+            audio_path=audio_path,
+            language=asr_language,
+        )
 
     def run_text_only(
         self,
-        script_path: Union[str, Path],
-        output_path: Optional[Union[str, Path]] = None,
-        use_llm_clean: bool = True,
-        track_index: Optional[int] = None,
-        vertical_mode: str = "auto",
-        progress_callback: Optional[Callable[[str, int, str], None]] = None,
-        debug_dir: Optional[Union[str, Path]] = None,
-    ) -> str:
-        """
-        仅 clean_script：台本 → 清洗后的纯文本（不做 ASR 和对齐）。
-
-        Args:
-            script_path: 台本文件路径（PDF 或 TXT）
-            output_path: 输出 TXT 路径（可选）
-            use_llm_clean: 是否使用 LLM 辅助清洗
-            track_index: 指定处理的 Track 索引（从 0 开始）
-            vertical_mode: PDF 竖排处理模式 ("auto" / "horizontal" / "vertical")
-            progress_callback: 进度回调
-            debug_dir: 调试输出目录（可选）
-
-        Returns:
-            清洗后的文本
-        """
-        cb = progress_callback or (lambda *a: None)
-        dbg = Path(debug_dir) if debug_dir else None
-
-        cb("clean_script", 0, "正在加载台本文件...")
-        raw_text = ScriptToSubtitleTool.load_script(script_path, vertical_mode=vertical_mode)
-        if dbg:
-            self._save_debug(dbg, "stage1_extract", "01_raw_text.txt", raw_text)
-
-        # ---- 多 Track 检测 ----
-        from src.core.subtitles.script_processor import ScriptProcessor
-        sections = ScriptProcessor.detect_scripts(raw_text)
-        if len(sections) > 1:
-            if track_index is not None and 0 <= track_index < len(sections):
-                raw_text = sections[track_index]["text"]
-                cb("clean_script", 15, f"检测到 {len(sections)} 个 Track，使用 Track {track_index + 1}: {sections[track_index]['title']}")
-            else:
-                titles = ", ".join(s["title"] for s in sections)
-                cb("clean_script", 15, f"检测到 {len(sections)} 个 Track ({titles})，处理全部")
-
-        cb("clean_script", 30, "正在清洗台本...")
-        if use_llm_clean:
-            clean_text = ScriptToSubtitleTool.clean_script_with_llm(raw_text, debug_dir=dbg)
-        else:
-            clean_text = ScriptToSubtitleTool.clean_script(raw_text)
-        if dbg:
-            self._save_debug(dbg, "stage1_clean", "02_clean_text.txt", clean_text)
-
-        cb("clean_script", 100, f"台本清洗完成，共 {len(clean_text.splitlines())} 行台词")
-
+        script_path,
+        output_path=None,
+        use_llm_clean=False,
+        track_index=None,
+        vertical_mode="auto",
+        progress_callback=None,
+        debug_dir=None,
+        confirmed_text=None,
+        fingerprint=None,
+    ):
+        cb = progress_callback or (lambda *args: None)
+        cb("clean_script", 0, "正在整理台词")
+        text = self._prepare(
+            script_path,
+            confirmed_text=confirmed_text,
+            fingerprint=fingerprint,
+            track_index=track_index,
+            vertical_mode=vertical_mode,
+            use_llm_clean=use_llm_clean,
+        )
         if output_path:
-            Path(output_path).write_text(clean_text, encoding="utf-8")
-
-        return clean_text
+            write_new_text(output_path, text, inputs=(script_path,))
+        cb("clean_script", 100, "已整理台词（无时间轴）")
+        return text

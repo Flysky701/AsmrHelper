@@ -1,5 +1,5 @@
 /** Graph V2 is the only execution authority. Runtime material bindings are separate. */
-export const GRAPH_NODE_KINDS = ['separate', 'asr', 'align', 'translate', 'tts', 'mix', 'export', 'audio_export'] as const
+export const GRAPH_NODE_KINDS = ['separate', 'asr', 'align', 'translate', 'tts', 'mix', 'audio_difference', 'export', 'audio_export'] as const
 /** Legacy kinds stay readable; the library offers only useful processing steps. */
 export const GRAPH_ADDABLE_NODE_KINDS = GRAPH_NODE_KINDS.filter(kind => kind !== 'audio_export')
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number]
@@ -7,6 +7,8 @@ export type GraphLanguage = 'ja' | 'zh' | 'en'
 export type GraphPortType = 'audio' | 'subtitle'
 export const GRAPH_MIX_OUTPUT_LENGTHS = ['main', 'longest'] as const
 export type GraphMixOutputLength = (typeof GRAPH_MIX_OUTPUT_LENGTHS)[number]
+export interface GraphMixTrack { id: string; gain?: number; offset_ms?: number; muted?: boolean }
+export const GRAPH_MAX_MIX_TRACKS = 32
 export interface GraphNode {
   id: string
   kind: GraphNodeKind
@@ -57,13 +59,16 @@ export const GRAPH_CATALOG: Record<GraphNodeKind, GraphCapability> = {
   translate: { label: '字幕翻译', inputs: { subtitle: 'subtitle' }, outputs: { subtitle: 'subtitle' } },
   tts: { label: '语音合成', inputs: { subtitle: 'subtitle' }, outputs: { audio: 'audio' } },
   mix: { label: '混音', inputs: { audio: 'audio', speech: 'audio' }, outputs: { audio: 'audio' } },
+  audio_difference: { label: '音频差分', inputs: { reference: 'audio', mixed: 'audio' }, outputs: { audio: 'audio' } },
   export: { label: '字幕格式转换', inputs: { subtitle: 'subtitle' }, outputs: { subtitle: 'subtitle' } },
   audio_export: { label: '音频导出', inputs: { audio: 'audio' }, outputs: { audio: 'audio' } },
 }
 export const GRAPH_OPTION_KEYS: Record<GraphNodeKind, readonly string[] | null> = {
   separate: ['mode'], asr: null, align: [], translate: null,
   tts: ['speech_recipe_id', 'speech_overrides', 'speech_source', 'voice', 'speed'],
-  mix: ['original_volume', 'tts_volume_ratio', 'tts_delay_ms', 'output_length'], export: ['subtitle_format'], audio_export: [],
+  mix: ['original_volume', 'tts_volume_ratio', 'tts_delay_ms', 'output_length', 'tracks'],
+  audio_difference: ['alignment', 'offset_ms', 'match_gain', 'gain_left', 'gain_right', 'calibration_start', 'calibration_end', 'max_shift_seconds'],
+  export: ['subtitle_format'], audio_export: [],
 }
 const languages = new Set(['ja', 'zh', 'en'])
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
@@ -75,6 +80,19 @@ const forbidden = new Set([
 ])
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** Presence of tracks selects the new mode; malformed saved values never become legacy defaults. */
+export function isMultitrackMix(node: GraphNode): boolean { return node.kind === 'mix' && 'tracks' in node.options }
+export function graphMixTracks(node: GraphNode): GraphMixTrack[] {
+  return Array.isArray(node.options.tracks) ? node.options.tracks.filter((track): track is GraphMixTrack => record(track) && typeof track.id === 'string') : []
+}
+export function graphNodeInputs(node: GraphNode): Record<string, GraphPortType> {
+  return isMultitrackMix(node) ? Object.fromEntries(graphMixTracks(node).map(track => [track.id, 'audio' as const])) : GRAPH_CATALOG[node.kind].inputs
+}
+export function graphInputLabel(node: GraphNode, port: string): string {
+  if (isMultitrackMix(node)) return `音轨 · ${port}`
+  return ({ audio: '音频', speech: '叠加音轨', subtitle: '字幕', reference: '基准音频（无附加音效）', mixed: '含附加音效音频' } as Record<string, string>)[port] || port
 }
 function portableIssue(value: unknown, depth = 0): boolean {
   if (depth > 16) return true
@@ -136,14 +154,41 @@ export function validateGraph(graph: GraphDefinition): GraphIssue[] {
     const allowed = GRAPH_OPTION_KEYS[node.kind]
     if (allowed && record(node.options) && Object.keys(node.options).some(key => !allowed.includes(key))) add('unsupported_option', '节点包含当前能力不会执行的参数', node.id)
     if (!['asr', 'translate'].includes(node.kind) && record(node.provider_options) && Object.keys(node.provider_options).length) add('unsupported_option', '该节点不接收顶层 provider_options', node.id)
-    const fixed = ({ separate: 'demucs', align: 'qwen3_forced_aligner', mix: 'ffmpeg', export: 'ffmpeg', audio_export: 'local' } as Partial<Record<GraphNodeKind, string>>)[node.kind]
+    const fixed = ({ separate: 'demucs', align: 'qwen3_forced_aligner', mix: 'ffmpeg', audio_difference: 'local', export: 'ffmpeg', audio_export: 'local' } as Partial<Record<GraphNodeKind, string>>)[node.kind]
     if (fixed && node.provider !== fixed) add('unsupported_provider', `该能力当前仅接线 ${fixed}`, node.id)
     if (node.kind === 'align' && ![null, 'default', 'qwen3-forced-aligner-0.6b'].includes(node.model)) add('unsupported_model', '校准仅支持 qwen3-forced-aligner-0.6b', node.id)
-    if (['mix', 'export', 'audio_export'].includes(node.kind) && ![null, 'default'].includes(node.model)) add('unsupported_model', '该节点不使用模型', node.id)
+    if (['mix', 'audio_difference', 'export', 'audio_export'].includes(node.kind) && ![null, 'default'].includes(node.model)) add('unsupported_model', '该节点不使用模型', node.id)
     if (node.kind === 'separate' && record(node.options) && (node.options.mode ?? 'vocals') !== 'vocals') add('unsupported_option', '分离节点当前仅提供人声轨', node.id)
     if (node.kind === 'mix' && record(node.options)) for (const [key, value] of Object.entries(node.options)) {
       if (['original_volume', 'tts_volume_ratio', 'tts_delay_ms'].includes(key) && (typeof value !== 'number' || !Number.isFinite(value) || key !== 'tts_delay_ms' && value < 0)) add('invalid_option', '混音参数必须是有效数值，音量不能为负数', node.id)
       if (key === 'output_length' && !GRAPH_MIX_OUTPUT_LENGTHS.some(option => option === value)) add('invalid_option', '混音输出时长仅支持 main 或 longest', node.id)
+    }
+    if (node.kind === 'mix' && record(node.options) && isMultitrackMix(node)) {
+      const tracks = node.options.tracks
+      if (!Array.isArray(tracks) || tracks.length < 1 || tracks.length > GRAPH_MAX_MIX_TRACKS) add('invalid_option', '混音需要 1–32 条音轨', node.id)
+      else {
+        const ids = new Set<string>()
+        for (const track of tracks) {
+          if (!record(track) || typeof track.id !== 'string' || !identifier.test(track.id) || ids.has(track.id.toLowerCase())) { add('invalid_option', '音轨 ID 无效或重复', node.id); continue }
+          ids.add(track.id.toLowerCase())
+          if (Object.keys(track).some(key => !['id', 'gain', 'offset_ms', 'muted'].includes(key))
+            || track.gain !== undefined && (typeof track.gain !== 'number' || !Number.isFinite(track.gain) || track.gain < 0)
+            || track.offset_ms !== undefined && (typeof track.offset_ms !== 'number' || !Number.isFinite(track.offset_ms))
+            || track.muted !== undefined && typeof track.muted !== 'boolean') add('invalid_option', '音轨音量须为非负有限数，偏移须为有限数，静音须为布尔值', node.id, track.id)
+        }
+      }
+      if (['original_volume', 'tts_volume_ratio', 'tts_delay_ms'].some(key => key in node.options)) add('invalid_option', '多轨混音不能同时使用旧双轨参数', node.id)
+    }
+    if (node.kind === 'audio_difference' && record(node.options)) {
+      const options = node.options
+      if (options.alignment !== undefined && options.alignment !== 'manual' && options.alignment !== 'auto') add('invalid_option', '差分对齐方式须为 manual 或 auto', node.id)
+      if (options.match_gain !== undefined && typeof options.match_gain !== 'boolean') add('invalid_option', '增益匹配须为布尔值', node.id)
+      for (const key of ['offset_ms', 'gain_left', 'gain_right', 'calibration_start', 'calibration_end', 'max_shift_seconds']) {
+        const value = options[key]
+        if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value)
+          || ['calibration_start', 'calibration_end'].includes(key) && value < 0 || key === 'max_shift_seconds' && (value < .01 || value > 30))) add('invalid_option', '差分参数须为有效数值，校准时间不能为负，搜索范围为 0.01–30 秒', node.id)
+      }
+      if (typeof options.calibration_end === 'number' && options.calibration_end <= Number(options.calibration_start ?? 0)) add('invalid_option', '校准结束时间须晚于开始时间', node.id)
     }
     if (node.kind === 'export' && record(node.options) && !['srt', 'vtt', 'lrc'].includes(String(node.options.subtitle_format ?? 'srt'))) add('invalid_format', '字幕导出仅支持 SRT、VTT、LRC', node.id)
   }
@@ -161,7 +206,7 @@ export function validateGraph(graph: GraphDefinition): GraphIssue[] {
         || Object.keys(edge).some(key => !['source', 'target'].includes(key))) { add('invalid_edge', '连线格式无效'); continue }
     const node = nodes.get(edge.target.node_id), port = edge.target.port
     if (!node || Object.keys(edge.target).some(key => !['node_id', 'port'].includes(key))) { add('unknown_target', '连线目标不存在'); continue }
-    const expected = GRAPH_CATALOG[node.kind].inputs[port]
+    const expected = graphNodeInputs(node)[port]
     if (!expected) { add('unknown_port', '节点没有该输入端口', node.id, port); continue }
     const target = `${node.id}:${port}`
     if (connected.has(target)) add('multiple_sources', '每个输入端口只能绑定一个来源', node.id, port)
@@ -175,7 +220,7 @@ export function validateGraph(graph: GraphDefinition): GraphIssue[] {
     if (!actual) add('unknown_source', '连线来源节点、素材槽或端口不存在', node.id, port)
     else if (actual !== expected) add('type_mismatch', `该端口需要 ${expected}，来源为 ${actual}`, node.id, port)
   }
-  for (const node of graph.nodes) for (const port of Object.keys(GRAPH_CATALOG[node.kind].inputs)) {
+  for (const node of graph.nodes) for (const port of Object.keys(graphNodeInputs(node))) {
     if (!connected.has(`${node.id}:${port}`)) add('missing_input', '请选择素材槽或明确的上游产物', node.id, port)
   }
   const outputs = new Set<string>()

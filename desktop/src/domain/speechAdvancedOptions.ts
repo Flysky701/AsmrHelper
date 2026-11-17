@@ -1,8 +1,9 @@
-import type { SpeechProvider } from '@/api/speech'
+import type { OptionSchema, SpeechProvider } from '@/api/speech'
 
 export function availableSpeechOptions(provider: SpeechProvider | undefined, mode: string, model = '') {
-  return Object.entries(provider?.options_schema.properties || {}).filter(([key, field]) => key !== 'schema_version' && field.const === undefined
+  return Object.entries(provider?.options_schema.properties || {}).map(([key, field]): [string, OptionSchema] => [key, { ...field, ...field.model_overrides?.[model] }]).filter(([key, field]) => key !== 'schema_version' && field.const === undefined
     && (!field.applies_to_modes || field.applies_to_modes.includes(mode))
+    && (!field.applies_to_models || field.applies_to_models.includes(model))
     && !(provider?.provider_id === 'fish_audio' && model === 's1' && key === 'style_description'))
 }
 
@@ -38,4 +39,19 @@ export function speechOptionsIssue(provider: SpeechProvider | undefined, mode: s
 export function speechLanguageMatches(saved: string, target: string): boolean {
   const base = (value: string) => value.toLowerCase().replace('_', '-').split('-')[0]
   return !saved || saved === 'auto' || base(saved) === base(target)
+}
+
+/** Missing model metadata keeps older provider descriptors compatible. */
+export function speechCapabilities(provider: SpeechProvider | undefined, mode: string, model: string): Record<string, unknown> {
+  const selected = provider?.modes.find(item => item.id === mode)
+  return selected?.model_capabilities?.[model] ?? selected?.capabilities ?? provider?.capabilities ?? {}
+}
+
+export function speechLanguageSupported(provider: SpeechProvider | undefined, mode: string, model: string, language: string): boolean {
+  const languages = speechCapabilities(provider, mode, model).languages
+  return !language || language === 'auto' || !Array.isArray(languages) || languages.includes(language)
+}
+
+export function speechProviderBaseUrl(provider: SpeechProvider | undefined): string {
+  return provider?.default_base_url ?? (provider?.provider_id === 'fish_audio' ? 'https://api.fish.audio/v1' : '')
 }

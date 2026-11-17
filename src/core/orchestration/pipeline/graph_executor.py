@@ -151,11 +151,14 @@ class GraphExecutor:
             suffix = Path(value.path).suffix.lower().lstrip(".")
             artifact_type = f"subtitle.{suffix}" if value.kind == "subtitle" else {
                 "separate": "audio.vocals", "tts": "audio.tts", "mix": "audio.mix", "audio_export": "audio.export",
+                "audio_difference": "audio.difference",
             }[kind]
             metadata = {key: deepcopy(item) for key, item in value.metadata.items()
                         if key in {"language", "duration", "timeline_id", "pair_confirmed",
                                    "sample_rate", "channels", "output_length", "tts_delay_ms",
-                                   "delay_behavior"}}
+                                   "delay_behavior", "tracks", "track_count", "peak_before", "safety_gain",
+                                   "offset_samples", "offset_ms", "gains", "coverage_start", "coverage_end",
+                                   "uncaptured_seconds", "correlation", "warnings", "analysis_seconds"}}
             metadata.update(node_id=node_id, port=port)
             results["workflow_outputs"].append({
                 "node_id": node_id, "port": port, "stage": kind, "type": artifact_type,

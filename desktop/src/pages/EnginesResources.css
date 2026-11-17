@@ -32,13 +32,8 @@
   .engines-model-status { justify-content: flex-start; max-width: none; }
 }
 .engines-model-location { display: flex; align-items: baseline; gap: 10px; margin-top: 4px; color: var(--muted); }
-.engines-model-location .model-path { flex: 1; min-width: 0; }
+.engines-model-location .model-path { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: text; }
 .engines-model-ownership { flex-shrink: 0; }
-.model-path summary { display: block; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.model-path summary::before { content: '▸ '; }
-.model-path[open] summary::before { content: '▾ '; }
-.model-path p { margin: 6px 0 0; overflow-wrap: anywhere; user-select: text; }
-.model-path[open] p { padding: 8px 10px; background: var(--bg); border-radius: 6px; }
 .model-removal-trigger,
 .model-removal-footer button {
   font: inherit;

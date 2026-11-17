@@ -23,7 +23,7 @@ FINGERPRINT_VERSION = 1
 def source_fingerprint() -> str:
     """Hash executable inputs, never user configuration, models, caches or Git."""
     files = set()
-    for relative in ("src", "desktop/src", "desktop/public", "desktop/src-tauri/src",
+    for relative in ("src", "desktop/src", "desktop/public", "docs/guides", "docs/examples", "desktop/src-tauri/src",
                      "desktop/src-tauri/capabilities", "desktop/src-tauri/icons",
                      ".cargo", "desktop/.cargo", "desktop/src-tauri/.cargo"):
         directory = ROOT / relative
@@ -31,7 +31,7 @@ def source_fingerprint() -> str:
             files.update(path for path in directory.rglob("*") if path.is_file()
                          and "__pycache__" not in path.parts and path.suffix not in {".pyc", ".pyo"})
     for relative in ("scripts/desktop_local.py", "scripts/desktop_backend.py", "RUNGUI.bat", "GUIRun.bat", "run.bat",
-                     "pyproject.toml", "uv.lock", "config/models.yaml", "desktop/index.html", "desktop/package.json", "desktop/package-lock.json",
+                     "pyproject.toml", "uv.lock", "config/models.yaml", "docs/cloud-tts-extension.md", "desktop/index.html", "desktop/package.json", "desktop/package-lock.json",
                      "desktop/tsconfig.json", "desktop/tsconfig.node.json", "desktop/vite.config.ts",
                      "desktop/postcss.config.js", "desktop/tailwind.config.js", "desktop/src-tauri/build.rs",
                      "desktop/src-tauri/Cargo.toml", "desktop/src-tauri/Cargo.lock", "desktop/src-tauri/tauri.conf.json"):

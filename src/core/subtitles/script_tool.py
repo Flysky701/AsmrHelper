@@ -12,7 +12,7 @@ from typing import List, Dict, Any, Optional, Union
 from src.core.subtitles.generator import SubtitleGenerator
 from src.core.subtitles.script_processor import ScriptProcessor
 
-LENTICULAR_BRACKET_PATTERN = re.compile(r'【[^】]*】')
+LENTICULAR_BRACKET_PATTERN = re.compile(r"【[^】]*】")
 
 
 class ScriptToSubtitleTool:
@@ -39,7 +39,9 @@ class ScriptToSubtitleTool:
 
         suffix = path.suffix.lower()
         if suffix == ".pdf":
-            text, _ = SubtitleGenerator._extract_pdf_text_with_pages(str(path), vertical_mode=vertical_mode)
+            text, _ = SubtitleGenerator._extract_pdf_text_with_pages(
+                str(path), vertical_mode=vertical_mode
+            )
             return text
         elif suffix == ".txt":
             return path.read_text(encoding="utf-8")
@@ -78,7 +80,7 @@ class ScriptToSubtitleTool:
         # Step 2: 过滤动作描述（括号内容、星号包围等）
         if filter_actions and action_mode != "keep":
             text = SubtitleGenerator.filter_stage_directions(text, mode=action_mode)
-            text = LENTICULAR_BRACKET_PATTERN.sub('', text)
+            text = LENTICULAR_BRACKET_PATTERN.sub("", text)
 
         # Step 3: 提取结构化台词
         dialogue_entries = ScriptProcessor.extract_dialogue(text)
@@ -122,33 +124,35 @@ class ScriptToSubtitleTool:
         if options is None:
             options = {}
 
-        # ASR 结果为空或无效时，回退到按字符数均匀分配时间轴
+        # Recording alignment requires real anchors; estimation belongs to an explicit draft tool.
         if not asr_results:
-            return SubtitleGenerator.generate_from_text(
-                text=clean_text,
-                total_duration=total_duration,
-                fmt=options.get("fmt", "srt"),
-                lang=options.get("lang", "zh"),
-                filter_actions=options.get("filter_actions", True),
-                action_mode=options.get("action_mode", "remove"),
-            )
+            raise ValueError("没有可信的ASR时间锚点，不能生成录音字幕")
 
-        return SubtitleGenerator.align_text_with_asr(
-            user_text=clean_text,
-            asr_results=asr_results,
-            total_duration=total_duration,
-            fmt=options.get("fmt", "srt"),
-            lang=options.get("lang", "zh"),
-            filter_actions=options.get("filter_actions", True),
-            action_mode=options.get("action_mode", "remove"),
-            return_alignment_info=options.get("return_alignment_info", False),
+        from src.core.engines.llm.script_cleaner import LLMProcessor
+        from src.core.subtitles.script_review import validate_timed_entries
+
+        validate_timed_entries(
+            asr_results, duration=total_duration if total_duration > 0 else None
         )
+        entries = LLMProcessor(allow_llm=False).align_and_reorder(
+            [line.strip() for line in clean_text.splitlines() if line.strip()],
+            asr_results,
+        )
+        if options.get("return_alignment_info"):
+            for entry in entries:
+                entry["_align"] = {
+                    "asr_indices": entry["asr_indices"],
+                    "method": "transcript_segments",
+                }
+        return entries
 
     # ------------------------------------------------------------------ #
     # 4. 导出字幕文件
     # ------------------------------------------------------------------ #
     @staticmethod
-    def save(entries: List[Dict[str, Any]], output_path: Union[str, Path], fmt: str = "srt") -> None:
+    def save(
+        entries: List[Dict[str, Any]], output_path: Union[str, Path], fmt: str = "srt"
+    ) -> None:
         """
         将字幕条目保存为文件。
 
@@ -157,7 +161,9 @@ class ScriptToSubtitleTool:
             output_path: 输出文件路径
             fmt: 输出格式 (srt/vtt/lrc)
         """
-        SubtitleGenerator.save(entries, str(output_path), fmt=fmt)
+        from .script_review import subtitle_content, write_new_text
+
+        write_new_text(output_path, subtitle_content(entries, fmt))
 
     # ------------------------------------------------------------------ #
     # 5. LLM 增强方法
@@ -184,11 +190,13 @@ class ScriptToSubtitleTool:
         rough_text = ScriptToSubtitleTool.clean_script(raw_text, options)
         if debug_dir:
             from pathlib import Path as P
+
             dbg = P(debug_dir) if not isinstance(debug_dir, Path) else debug_dir
             dbg.mkdir(parents=True, exist_ok=True)
             (dbg / "01_rough_clean.txt").write_text(rough_text, encoding="utf-8")
         try:
             from src.core.engines.llm.script_cleaner import LLMProcessor
+
             processor = LLMProcessor()
             result = processor.clean_script(rough_text, debug_dir=debug_dir)
             if debug_dir:
@@ -220,8 +228,9 @@ class ScriptToSubtitleTool:
             字幕条目列表 [{"start": float, "end": float, "text": str}, ...]
         """
         from src.core.engines.llm.script_cleaner import LLMProcessor
+
         processor = LLMProcessor(debug_dir=debug_dir)
-        script_lines = [line.strip() for line in clean_text.split('\n') if line.strip()]
+        script_lines = [line.strip() for line in clean_text.split("\n") if line.strip()]
         entries = processor.align_and_reorder(script_lines, asr_results)
         if output_path:
             SubtitleGenerator.save(entries, str(output_path), fmt=fmt)
@@ -256,7 +265,9 @@ class ScriptToSubtitleTool:
         """
         raw_text = cls.load_script(source)
         clean_text = cls.clean_script(raw_text, options)
-        entries = cls.align_with_asr(clean_text, asr_results or [], total_duration, options)
+        entries = cls.align_with_asr(
+            clean_text, asr_results or [], total_duration, options
+        )
 
         if output_path:
             cls.save(entries, output_path, fmt=fmt)

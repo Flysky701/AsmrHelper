@@ -1,5 +1,5 @@
 import type { ReferenceAsset, SpeechMode, SpeechProvider, SpeechRecipe, VoiceVariant } from '@/api/speech'
-import { availableSpeechOptions, speechOptionsIssue } from './speechAdvancedOptions'
+import { availableSpeechOptions, speechOptionsIssue, speechCapabilities, speechLanguageSupported } from './speechAdvancedOptions'
 
 export function blankSpeechRecipe(): SpeechRecipe {
   return { id: '', revision: 0, name: '', voice_id: '', provider_id: '', model: '', mode: '', connection_ref: '',
@@ -22,7 +22,7 @@ function optionsFor(recipe: SpeechRecipe, provider: SpeechProvider | undefined, 
 }
 
 function applySelection(recipe: SpeechRecipe, provider: SpeechProvider | undefined, mode: SpeechMode | undefined, model: string, variant: VoiceVariant): SpeechRecipe {
-  const capabilities = mode?.capabilities || provider?.capabilities || {}
+  const capabilities = speechCapabilities(provider, mode?.id || '', model)
   const delivery = (capabilities.delivery || {}) as Record<string, { support?: string }>
   const emotion = capabilities.emotion as { support?: string } | undefined
   const pause = capabilities.pause as { support?: string } | undefined
@@ -84,5 +84,6 @@ export function speechRecipeCapabilityIssue(recipe: SpeechRecipe, provider: Spee
   if (!mode.variant_kinds.includes(recipe.variant.kind)) return '当前声音来源与生成方式不兼容，请重新选择生成方式。'
   if (!recipe.model.trim()) return '请选择模型。'
   if (mode.models.length && !mode.models.includes(recipe.model)) return '当前模型不支持所选生成方式，请选择列表中的兼容模型。'
+  if (!speechLanguageSupported(provider, recipe.mode, recipe.model, recipe.language)) return '当前模型不支持所选目标语言，请重新选择。'
   return ''
 }

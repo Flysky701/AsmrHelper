@@ -422,6 +422,14 @@ class ResourceService:
         issues = []
         snapshots = prepared["_graph_runtime"]["node_snapshots"]
         for node in prepared["graph"]["nodes"]:
+            from src.core.orchestration.pipeline.graph_audio import local_audio_node
+            if local_audio_node(node):
+                ready, detail = self._check_ffmpeg_runtime()
+                if not ready:
+                    issues.append(self._issue(stage=node["id"], category="input", provider="local",
+                        model=None, code="FFMPEG_NOT_READY", requirement="ffmpeg",
+                        message=detail, action="settings"))
+                continue
             if node["kind"] == "audio_export":
                 # Materials and graph options were already checked. A byte copy
                 # requires no model inventory, engine connection or FFmpeg.

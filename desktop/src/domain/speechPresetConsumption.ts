@@ -1,10 +1,11 @@
 import type { SpeechOverrides, SpeechProvider, SpeechRecipe } from '@/api/speech'
 import type { GraphNode } from './workflowGraph'
-import { availableSpeechOptions, speechOptionsIssue } from './speechAdvancedOptions'
+import { availableSpeechOptions, speechOptionsIssue, speechCapabilities } from './speechAdvancedOptions'
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 export function runtimeSpeechOptions(provider: SpeechProvider | undefined, recipe: SpeechRecipe) {
-  const names = provider?.modes.find(mode => mode.id === recipe.mode)?.runtime_options ?? []
+  const mode = provider?.modes.find(item => item.id === recipe.mode)
+  const names = mode?.model_runtime_options?.[recipe.model] ?? mode?.runtime_options ?? []
   return availableSpeechOptions(provider, recipe.mode, recipe.model).filter(([key]) => names.includes(key)
     && !(provider?.provider_id === 'fish_audio' && recipe.model === 's1' && key === 'tag_density'))
 }
@@ -14,7 +15,7 @@ export function speechOverrideIssue(provider: SpeechProvider | undefined, recipe
   if (!record(value) || Object.keys(value).some(key => !['provider_options', 'default_delivery', 'default_emotion', 'default_pause_ms'].includes(key))) return '本次微调含未知字段，原数据已保留，请在音色库处理。'
   const options = value.provider_options === undefined ? {} : value.provider_options
   if (!record(options) || Object.keys(options).some(key => !runtimeSpeechOptions(provider, recipe).some(([name]) => name === key))) return '存在当前音色不支持的微调，原数据已保留。'
-  const caps = provider?.modes.find(mode => mode.id === recipe.mode)?.capabilities ?? provider?.capabilities
+  const caps = speechCapabilities(provider, recipe.mode, recipe.model)
   const delivery = caps?.delivery as Record<string, { support?: string }> | undefined
   const emotion = caps?.emotion as { support?: string } | undefined
   const pause = caps?.pause as { support?: string } | undefined

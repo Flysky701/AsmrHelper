@@ -62,10 +62,12 @@ export interface SpeechTake { id: string; task_id: string; experiment_id: string
 export interface SpeechExperiment { id: string; name: string; plan_id: string; takes?: SpeechTake[]; kind?: string; task_id?: string }
 export interface TakeSelection { experiment_id: string; segment_id: string; take_id: string }
 export interface SpeechAssembly { id: string; experiment_id: string; revision?: number; audio?: Record<string, unknown>; status?: string }
-export interface OptionSchema { type?: string; title?: string; description?: string; enum?: (string | number)[]; default?: unknown; minimum?: number; maximum?: number; maxLength?: number; const?: unknown; applies_to_modes?: string[] }
+export interface OptionSchema { type?: string; title?: string; description?: string; enum?: (string | number)[]; default?: unknown; minimum?: number; maximum?: number; maxLength?: number; const?: unknown; applies_to_modes?: string[]; applies_to_models?: string[]; model_overrides?: Record<string, Partial<OptionSchema>> }
 export interface SpeechMode {
   id: string
   runtime_options?: string[]
+  model_runtime_options?: Record<string, string[]>
+  model_capabilities?: Record<string, Record<string, unknown>>
   variant_kinds: VariantKind[]
   models: string[]
   capabilities?: Record<string, unknown>
@@ -78,7 +80,7 @@ export interface SpeechMode {
     description: string
   }
 }
-export interface SpeechProvider { provider_id: string; name: string; remote: boolean; version: string; connection_required: boolean; modes: SpeechMode[]; options_schema: { properties: Record<string, OptionSchema> }; capabilities: Record<string, unknown> }
+export interface SpeechProvider { default_base_url?: string; provider_id: string; name: string; remote: boolean; version: string; connection_required: boolean; modes: SpeechMode[]; options_schema: { properties: Record<string, OptionSchema> }; capabilities: Record<string, unknown> }
 export interface SpeechLibrary { voices: SpeechVoice[]; recipes: SpeechRecipe[]; assets: ReferenceAsset[]; experiments: SpeechExperiment[]; takes: SpeechTake[]; plans: SpeechPlan[]; selections: TakeSelection[]; assemblies: SpeechAssembly[]; connections: SpeechConnection[] }
 export interface Waveform { id?: string; duration: number; peaks: number[] }
 

@@ -37,13 +37,15 @@ export function newGraphNode(kind: GraphNodeKind, graph: GraphDefinition): Graph
   const defaults: Record<GraphNodeKind, [string, string | null]> = {
     separate: ['demucs', 'htdemucs'], asr: ['faster_whisper', 'faster-whisper-base'],
     align: ['qwen3_forced_aligner', 'qwen3-forced-aligner-0.6b'], translate: ['deepseek', null],
-    tts: ['speech', null], mix: ['ffmpeg', null], export: ['ffmpeg', null], audio_export: ['local', null],
+    tts: ['speech', null], mix: ['ffmpeg', null], audio_difference: ['local', null], export: ['ffmpeg', null], audio_export: ['local', null],
   }
   const [provider, model] = defaults[kind]
   return { id, kind, provider, model,
     source_lang: ['asr', 'align', 'translate'].includes(kind) ? 'ja' : null,
     target_lang: ['translate', 'tts'].includes(kind) ? 'zh' : null,
-    options: kind === 'export' ? { subtitle_format: 'srt' } : {}, provider_options: {} }
+    options: kind === 'export' ? { subtitle_format: 'srt' }
+      : kind === 'mix' ? { tracks: [{ id: 'track_1', gain: 1, offset_ms: 0, muted: false }, { id: 'track_2', gain: 1, offset_ms: 0, muted: false }], output_length: 'longest' }
+        : kind === 'audio_difference' ? { alignment: 'manual', offset_ms: 0, match_gain: false, gain_left: 1, gain_right: 1, calibration_start: 0, max_shift_seconds: 5 } : {}, provider_options: {} }
 }
 
 export function buildGraphRunRequest(graph: GraphDefinition, bindings: GraphBindings, inputPaths: string[], outputDirectory?: string): GraphPipelineRunRequest {

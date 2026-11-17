@@ -715,6 +715,16 @@ class SpeechService:
         return self.assemble(experiment["id"], output_path=output_path, timeline=timeline, reference_duration=reference_duration)
 
     def run_requests(self, requests, snapshot, *, task_id, experiment_id, plan_id, cancel_check=lambda: False, progress=None, media_root=None):
+        recipe, connection = snapshot["recipe"], snapshot["connection"]
+        if (not connection.get("id") or recipe.get("connection_ref") != connection["id"]
+                or recipe.get("provider_id") != connection.get("provider_id")
+                or any(request.get("connection_ref") != connection["id"]
+                       or request.get("provider_id") != recipe.get("provider_id")
+                       or request.get("model") != recipe.get("model")
+                       or request.get("recipe_id") != recipe.get("id")
+                       or request.get("recipe_revision") != recipe.get("revision")
+                       for request in requests)):
+            raise ValueError("语音请求与固定配方或连接快照不一致，请建立新任务")
         context = self.connection_context(snapshot["connection"])
         context["assets"] = deepcopy(snapshot["assets"])
         outputs = []

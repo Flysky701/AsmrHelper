@@ -6,7 +6,8 @@ import math
 import re
 from typing import Any
 
-from .graph_catalog import GRAPH_CATALOG, GRAPH_LANGUAGES, GRAPH_OPTION_KEYS, GRAPH_PORT_TYPES
+from .graph_catalog import GRAPH_CATALOG, GRAPH_LANGUAGES, GRAPH_OPTION_KEYS, GRAPH_PORT_TYPES, input_ports
+from .graph_audio_options import validate_audio_options
 from .graph_models import GraphExecutionPlan, GraphValidationError
 
 
@@ -139,12 +140,12 @@ def validate_graph(graph: Any, *, template: bool = False) -> dict[str, Any]:
                 add("unsupported_option", "节点包含当前能力不会执行的参数", node_id)
             if kind not in {"asr", "translate"} and provider_options:
                 add("unsupported_option", "该节点不接收顶层 provider_options；配音参数请放在 speech_source 中", node_id)
-            fixed_provider = {"separate": "demucs", "align": "qwen3_forced_aligner", "mix": "ffmpeg", "export": "ffmpeg", "audio_export": "local"}.get(kind)
+            fixed_provider = {"separate": "demucs", "align": "qwen3_forced_aligner", "mix": "ffmpeg", "export": "ffmpeg", "audio_export": "local", "audio_difference": "local"}.get(kind)
             if fixed_provider and provider != fixed_provider:
                 add("unsupported_provider", f"该能力当前仅接线 {fixed_provider}", node_id)
             if kind == "align" and model not in (None, "default", "qwen3-forced-aligner-0.6b"):
                 add("unsupported_model", "时间轴校准当前仅接线 qwen3-forced-aligner-0.6b", node_id)
-            if kind in {"mix", "export", "audio_export"} and model not in (None, "default"):
+            if kind in {"mix", "export", "audio_export", "audio_difference"} and model not in (None, "default"):
                 add("unsupported_model", "该节点不使用模型，请清空模型字段", node_id)
             if kind == "separate" and isinstance(options, dict) and options.get("mode", "vocals") != "vocals":
                 add("unsupported_option", "分离节点当前仅提供人声轨输出", node_id)
@@ -156,6 +157,7 @@ def validate_graph(graph: Any, *, template: bool = False) -> dict[str, Any]:
                             type(value) not in (float, int) or not math.isfinite(value)
                             or key != "tts_delay_ms" and value < 0):
                         add("invalid_option", f"{key} 必须是有效数值，音量不能为负数", node_id)
+        validate_audio_options(node, add)
         if kind == "export" and isinstance(node.get("options"), dict) and node["options"].get("subtitle_format", "srt") not in ("srt", "vtt", "lrc"):
             add("invalid_format", "字幕导出仅支持 SRT、VTT、LRC", node_id)
     for slot in result["input_slots"]:
@@ -190,7 +192,7 @@ def validate_graph(graph: Any, *, template: bool = False) -> dict[str, Any]:
         if not isinstance(node_id, str) or node_id not in nodes or not isinstance(port, str):
             add("unknown_target", "连线目标节点不存在", node_id)
             continue
-        required_type = GRAPH_CATALOG[nodes[node_id]["kind"]]["inputs"].get(port)
+        required_type = input_ports(nodes[node_id]).get(port)
         if required_type is None:
             add("unknown_port", "节点没有该输入端口", node_id, port)
             continue
@@ -211,7 +213,7 @@ def validate_graph(graph: Any, *, template: bool = False) -> dict[str, Any]:
         elif provided_type != required_type:
             add("type_mismatch", f"该端口需要 {required_type}，来源为 {provided_type}", node_id, port)
     for node_id, node in nodes.items():
-        for port in GRAPH_CATALOG[node["kind"]]["inputs"]:
+        for port in input_ports(node):
             if (node_id, port) not in connected:
                 add("missing_input", "请选择素材槽或明确的上游产物", node_id, port)
     seen_outputs = set()

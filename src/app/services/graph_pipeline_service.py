@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.core.orchestration.pipeline.graph_validation import build_graph_plan
+from src.core.orchestration.pipeline.graph_catalog import is_multitrack
+from src.core.orchestration.pipeline.graph_audio import local_audio_node
 from src.core.orchestration.pipeline.models import PipelineExecutionContext
 from src.core.orchestration.pipeline.planner import build_execution_plan
 from src.core.orchestration.pipeline.workflow import subtitle_material
@@ -191,13 +193,17 @@ def _check_material_facts(graph: dict, values: dict) -> None:
             raise ValueError(f"节点 {node_id} 缺少匹配源语言的字幕")
         if node["kind"] == "tts" and language != node.get("target_lang"):
             raise ValueError(f"节点 {node_id} 缺少目标语言字幕，请自行连接翻译或更换素材")
-        if node["kind"] in {"align", "mix"}:
+        if node["kind"] in {"align", "mix"} and not is_multitrack(node):
             audio = incoming["audio"]
             other = incoming["subtitle" if node["kind"] == "align" else "speech"]
             if (not audio.get("timeline_id") or audio.get("timeline_id") != other.get("timeline_id")
                     or audio.get("pair_confirmed") is not True or other.get("pair_confirmed") is not True):
                 raise ValueError(f"节点 {node_id} 的素材尚未确认属于同一录音和时间轴")
-        source_port = "audio" if node["kind"] in {"separate", "asr", "mix", "audio_export"} else "subtitle"
+        if is_multitrack(node):
+            facts[node_id] = {"timeline_id": f"mix-node:{node_id}", "pair_confirmed": True}
+            continue
+        source_port = ("mixed" if node["kind"] == "audio_difference" else
+                       "audio" if node["kind"] in {"separate", "asr", "mix", "audio_export"} else "subtitle")
         facts[node_id] = deepcopy(incoming[source_port])
         if node["kind"] == "asr":
             facts[node_id]["language"] = node["source_lang"]
@@ -225,12 +231,16 @@ def freeze_graph_speech(profile: dict) -> dict:
         language = snapshot["recipe"].get("language", "auto")
         if language not in ("auto", node.get("target_lang")):
             raise ValueError(f"节点 {node['id']} 的声音规则语言与目标字幕不一致")
+        # Resolving 'auto' can select a language outside a model's capability.
+        # Reject it during submission, before a remote request can be charged.
+        from src.core.speech.providers import get_provider
+        get_provider(snapshot["recipe"]["provider_id"]).validate(snapshot["recipe"], snapshot.get("assets", {}))
         snapshots[node["id"]] = snapshot
     return result
 
 
 def make_node_plan(node: dict, *, task_id: str, output_dir: str, snapshots: dict):
-    if node["kind"] == "audio_export":
+    if node["kind"] == "audio_export" or local_audio_node(node):
         # This graph-only operation copies a validated audio value; it has no
         # legacy engine plan, model, connection or implicit upstream stages.
         return None

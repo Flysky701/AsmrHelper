@@ -12,6 +12,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Optional loopback proxy for isolated frontend previews on a different port.
+    // Production API routing and backend CORS policy remain unchanged.
+    proxy: process.env.ASMR_PREVIEW_BACKEND ? {
+      '/api/v1': { target: process.env.ASMR_PREVIEW_BACKEND, changeOrigin: true },
+    } : undefined,
     watch: {
       // Cargo continuously writes PDB and object files here during `tauri dev`.
       // Watching those files on Windows can terminate Vite with EBUSY.

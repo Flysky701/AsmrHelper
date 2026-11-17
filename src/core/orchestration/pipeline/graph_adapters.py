@@ -115,6 +115,9 @@ class GraphStageRunner:
         self.audio_inspector = audio_inspector or _inspect_audio
 
     def run(self, node, inputs, plan, directory, *, cancel_event=None):
+        from .graph_audio import local_audio_node, run_audio_node
+        if local_audio_node(node):
+            return run_audio_node(node, inputs, directory, cancel_event)
         kind = node["kind"]
         audio, speech, subtitle = (inputs.get(port) for port in ("audio", "speech", "subtitle"))
         for value in (audio, speech):

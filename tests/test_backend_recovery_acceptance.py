@@ -268,8 +268,10 @@ def test_worker_abnormal_exit_is_reported_and_exchange_files_are_cleaned(
     assert list(exchange_dir.iterdir()) == []
 
 
-def test_verify_env_script_resolves_project_when_started_outside_repository(tmp_path):
+def test_verify_env_script_resolves_project_when_started_outside_repository(tmp_path, monkeypatch):
     project_root = Path(__file__).resolve().parents[1]
+    data_root = tmp_path / "isolated-data"
+    monkeypatch.setenv("ASMR_HELPER_DATA_DIR", str(data_root))
     result = subprocess.run(
         [sys.executable, str(project_root / "scripts" / "verify_env.py")],
         cwd=tmp_path,
@@ -282,5 +284,5 @@ def test_verify_env_script_resolves_project_when_started_outside_repository(tmp_
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert str(project_root / "config" / "config.json") in result.stdout
+    assert str(data_root / "config" / "config.json") in result.stdout
     assert "Startup environment is ready." in result.stdout
