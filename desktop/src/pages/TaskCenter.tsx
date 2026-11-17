@@ -7,6 +7,7 @@ import { apiUrl } from '@/api/client'
 import { confirmAction } from '@/utils/confirmAction'
 import type { BatchRunResponse, TaskStatusResponse } from '@/api/types'
 import BatchRunsPanel from '@/components/tasks/BatchRunsPanel'
+import DraftReviewPanel from '@/components/tasks/DraftReviewPanel'
 import TaskRecoveryAction from '@/components/tasks/TaskRecoveryAction'
 import TaskCenterDetails, { TaskStatusLabel, TaskSymbol } from '@/components/task-center/TaskCenterDetails'
 import TaskDeletionDialog from '@/components/task-center/TaskDeletionDialog'
@@ -83,10 +84,30 @@ function jobTypeLabel(jobType: JobType) {
   return labels[jobType] ?? jobType
 }
 
+type TaskCenterTab = 'tasks' | 'batches' | 'drafts'
+
 export default function TaskCenter() {
   useI18n()
-  const taskCenterView = useNavStore(state => state.taskCenterView)
-  const setTaskCenterView = useNavStore(state => state.setTaskCenterView)
+  const navTaskCenterView = useNavStore(state => state.taskCenterView) as TaskCenterTab
+  const setNavTaskCenterView = useNavStore(state => state.setTaskCenterView)
+  const [draftsTabActive, setDraftsTabActive] = useState(() => navTaskCenterView === 'drafts')
+  useEffect(() => {
+    setDraftsTabActive(navTaskCenterView === 'drafts')
+  }, [navTaskCenterView])
+  useEffect(() => useNavStore.subscribe((state, prev) => {
+    if ((state.activePage === 'task-center' && prev.activePage !== 'task-center') || state.taskCenterView !== prev.taskCenterView) {
+      setDraftsTabActive((state.taskCenterView as TaskCenterTab) === 'drafts')
+    }
+  }), [])
+  const taskCenterView: TaskCenterTab = draftsTabActive ? 'drafts' : navTaskCenterView
+  const setTaskCenterView = (view: TaskCenterTab) => {
+    if (view === 'drafts') {
+      setDraftsTabActive(true)
+    } else {
+      setDraftsTabActive(false)
+      setNavTaskCenterView(view)
+    }
+  }
   const [pollGeneration, setPollGeneration] = useState(0)
   const tasks = useTaskStore(state => state.tasks)
   const selectedTaskId = useTaskStore(state => state.selectedTaskId)
@@ -410,9 +431,10 @@ export default function TaskCenter() {
     <header className="tc-page-header page-heading"><div className="page-heading__copy"><div className="page-title-row"><h1 className="page-title">{t("任务中心")}</h1><QuickStartHelp topic={taskCenterView === 'batches' ? 'batches' : 'tasks'} /></div></div>
       <div className="tc-page-actions page-heading__actions"><button type="button" className="tc-action" aria-pressed={taskCenterView === 'tasks'} onClick={() => setTaskCenterView('tasks')}>{t("任务记录")}</button>
         <button type="button" className="tc-action" aria-pressed={taskCenterView === 'batches'} onClick={() => setTaskCenterView('batches')}>{t("批次管理")}</button>
+        <button type="button" className="tc-action" aria-pressed={taskCenterView === 'drafts'} onClick={() => setTaskCenterView('drafts')}>{t("待审草稿")}</button>
         {taskCenterView === 'tasks' && <button type="button" className="tc-icon-button" aria-label={t("刷新任务状态")} onClick={() => setPollGeneration(value => value + 1)}><TaskSymbol name="refresh" /></button>}</div>
     </header>
-    {taskCenterView === 'batches' ? <BatchRunsPanel /> : <>
+    {taskCenterView === 'batches' ? <BatchRunsPanel /> : taskCenterView === 'drafts' ? <DraftReviewPanel /> : <>
       <div className="tc-toolbar">
         <label className="tc-category-select">{t("任务分类")}<select aria-label={t("任务分类")} value={category} onChange={event => { selectTask(null); setCategory(event.target.value as TaskCategory); setMobileDetail(false) }}>
           {TASK_CATEGORIES.map(item => <option key={item.id} value={item.id}>{t(item.label)} · {tasks.filter(task => taskCategory(task.jobType) === item.id).length}</option>)}</select></label>
