@@ -191,6 +191,7 @@ def materialize_audio_bytes_to_path(
     target_path: str | Path,
     *,
     stage: str = "audio",
+    wav_subtype: str | None = None,
 ) -> tuple[int, float]:
     """Decode lossless FLAC/WAV bytes and write to `target_path` matching its extension."""
     if not audio_bytes:
@@ -214,16 +215,28 @@ def materialize_audio_bytes_to_path(
             stage=stage,
         ) from exc
 
+    if info.frames <= 0 or sr <= 0 or not np.isfinite(samples).all():
+        raise ComputeRemoteError(
+            code=ComputeErrorCode.AUDIO_DECODE_ERROR,
+            message="Returned audio payload has empty or non-finite samples",
+            retryable=False,
+            stage=stage,
+        )
+
     ext = dest.suffix.lower()
     if ext == ".flac" and audio_bytes.startswith(b"fLaC"):
         dest.write_bytes(audio_bytes)
-    elif ext == ".wav" and audio_bytes.startswith(b"RIFF"):
+    elif ext == ".wav" and audio_bytes.startswith(b"RIFF") and wav_subtype is None:
         dest.write_bytes(audio_bytes)
     elif ext == ".flac":
         subtype = "PCM_16" if info.subtype == "PCM_16" else "PCM_24"
         sf.write(str(dest), samples, sr, format="FLAC", subtype=subtype)
     else:
-        subtype = info.subtype if info.subtype in {"PCM_16", "PCM_24", "FLOAT"} else "PCM_24"
+        subtype = (
+            wav_subtype
+            if wav_subtype is not None
+            else (info.subtype if info.subtype in {"PCM_16", "PCM_24", "FLOAT"} else "PCM_24")
+        )
         sf.write(str(dest), samples, sr, format="WAV", subtype=subtype)
 
     duration = float(len(samples) / sr) if sr > 0 else 0.0
@@ -923,7 +936,9 @@ class WorkerHandlers:
                     inference_timesteps=int(batch_opts.get("inference_timesteps", 10)),
                     load_denoiser=False,
                     device_map=request.device,
-                    reference_wav_path=resolved_refs.get("default"),
+                    reference_wav_path=(
+                        resolved_refs.get("default") or next(iter(resolved_refs.values()), None)
+                    ),
                 )
 
             results: list[TtsBatchItemResult] = []

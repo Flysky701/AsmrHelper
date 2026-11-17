@@ -222,13 +222,15 @@ class RemoteHttpTransport:
             if self.api_key and "Authorization" not in self._client.headers:
                 self._client.headers["Authorization"] = f"Bearer {self.api_key}"
         else:
-            self._client = httpx.Client(
-                base_url=self.base_url,
-                headers=headers,
-                timeout=self.timeout,
-                transport=transport,
-                follow_redirects=True,
-            )
+            client_kwargs: dict[str, Any] = {
+                "base_url": self.base_url,
+                "headers": headers,
+                "timeout": self.timeout,
+                "follow_redirects": True,
+            }
+            if transport is not None:
+                client_kwargs["transport"] = transport
+            self._client = httpx.Client(**client_kwargs)
 
     def _url(self, route: str) -> str:
         if self._client.base_url and str(self._client.base_url).strip():
@@ -567,7 +569,12 @@ class ComputeClient:
         )
 
     @classmethod
-    def from_env(cls, *, timeout: float = 600.0) -> ComputeClient | None:
+    def from_env(
+        cls,
+        *,
+        timeout: float | None = None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> ComputeClient | None:
         """Create a remote `ComputeClient` when `ASMR_HELPER_REMOTE_WORKER_URL` is set."""
         remote_url = (os.getenv("ASMR_HELPER_REMOTE_WORKER_URL") or "").strip()
         if not remote_url:
@@ -577,7 +584,18 @@ class ComputeClient:
             or os.getenv("ASMR_WORKER_TOKEN")
             or ""
         ).strip() or None
-        return cls.from_remote(base_url=remote_url, api_key=token, timeout=timeout)
+        raw_timeout = (os.getenv("ASMR_HELPER_REMOTE_WORKER_TIMEOUT") or "").strip()
+        effective_timeout = (
+            float(timeout)
+            if timeout is not None
+            else (float(raw_timeout) if raw_timeout else 600.0)
+        )
+        return cls.from_remote(
+            base_url=remote_url,
+            api_key=token,
+            timeout=effective_timeout,
+            transport=transport,
+        )
 
     def capabilities(self) -> WorkerCapabilities:
         return self.transport.capabilities()
