@@ -683,7 +683,19 @@ class SpeechService:
         return str(target)
 
     @_reference_file_operation
-    def synthesize_timeline(self, snapshot, segments, output_path, task_id, cancel_check=lambda: False, reference_duration=0):
+    def synthesize_timeline(
+        self,
+        snapshot,
+        segments,
+        output_path,
+        task_id,
+        cancel_check=lambda: False,
+        reference_duration=0,
+        *,
+        binaural_source_path: str | Path | None = None,
+        borrow_silence_slack: bool = False,
+        max_atempo: float | None = None,
+    ):
         """Formal dubbing uses the identical compiler/runner as laboratory takes."""
         text = "".join(s["text"] for s in segments)
         plan = build_plan(text)
@@ -700,9 +712,24 @@ class SpeechService:
         plan = self.store.create("plans", plan)
         experiment_id = uuid4().hex
         media_root = Path(output_path).resolve().parent / "speech" / experiment_id
-        experiment = self.store.create("experiments", {"id": experiment_id, "name": f"正式配音 {task_id}", "plan_id": plan["id"],
-            "task_id": task_id, "kind": "formal", "media_root": str(media_root),
-            "snapshot": snapshot, "timeline": timeline, "reference_duration": reference_duration})
+        experiment_record = {
+            "id": experiment_id,
+            "name": f"正式配音 {task_id}",
+            "plan_id": plan["id"],
+            "task_id": task_id,
+            "kind": "formal",
+            "media_root": str(media_root),
+            "snapshot": snapshot,
+            "timeline": timeline,
+            "reference_duration": reference_duration,
+        }
+        if binaural_source_path is not None:
+            experiment_record["binaural_source_path"] = str(Path(binaural_source_path))
+        if borrow_silence_slack:
+            experiment_record["borrow_silence_slack"] = True
+        if max_atempo is not None:
+            experiment_record["max_atempo"] = float(max_atempo)
+        experiment = self.store.create("experiments", experiment_record)
         requests = compile_recipe(snapshot["recipe"], plan, snapshot["assets"])
         if requests[0]["compiler_version"] != snapshot["compiler_version"]:
             raise ValueError("编译器版本已改变，请重新提交任务")
@@ -712,7 +739,15 @@ class SpeechService:
             plan_id=plan["id"], cancel_check=cancel_check, media_root=media_root)
         for take in takes:
             self.select({"experiment_id": experiment["id"], "segment_id": take["segment_id"], "take_id": take["id"]})
-        return self.assemble(experiment["id"], output_path=output_path, timeline=timeline, reference_duration=reference_duration)
+        return self.assemble(
+            experiment["id"],
+            output_path=output_path,
+            timeline=timeline,
+            reference_duration=reference_duration,
+            binaural_source_path=binaural_source_path,
+            borrow_silence_slack=borrow_silence_slack,
+            max_atempo=max_atempo,
+        )
 
     def run_requests(self, requests, snapshot, *, task_id, experiment_id, plan_id, cancel_check=lambda: False, progress=None, media_root=None):
         recipe, connection = snapshot["recipe"], snapshot["connection"]
@@ -849,7 +884,7 @@ class SpeechService:
         return self.store.update("experiments", experiment_id, {"mix_context": {
             "source_path": str(source), "source_sha256": digest.hexdigest(), **mix_options}})
 
-    def _align_take(self, take, slot_duration, *, media_root=None):
+    def _align_take(self, take, slot_duration, *, media_root=None, max_atempo: float | None = None):
         """Derived duration-fit audio; raw takes remain immutable and reusable."""
         import soundfile as sf
         import subprocess
@@ -857,10 +892,20 @@ class SpeechService:
         duration = sf.info(take["audio_path"]).duration
         if slot_duration <= 0:
             raise ValueError("台词停顿超过字幕时段，请调整演绎方案")
-        ratio = max(1.0, duration / slot_duration)
+        required_ratio = max(1.0, duration / slot_duration)
+        if max_atempo is not None:
+            if not math.isfinite(max_atempo) or max_atempo < 1.0:
+                raise ValueError("max_atempo 必须大于等于 1.0")
+            ratio = min(required_ratio, float(max_atempo))
+        else:
+            ratio = required_ratio
         if ratio == 1:
             return take["audio_path"], ratio
-        key = hashlib.sha256(f"{take['id']}:{slot_duration:.9f}:atempo-v1".encode()).hexdigest()
+        if max_atempo is not None and ratio < required_ratio:
+            key_src = f"{take['id']}:{slot_duration:.9f}:max={ratio:.9f}:atempo-v1"
+        else:
+            key_src = f"{take['id']}:{slot_duration:.9f}:atempo-v1"
+        key = hashlib.sha256(key_src.encode()).hexdigest()
         target = Path(media_root if media_root is not None else self.store.root) / "aligned" / (key + ".wav")
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -882,7 +927,17 @@ class SpeechService:
         return str(target), ratio
 
     @_reference_file_operation
-    def assemble(self, experiment_id, *, output_path=None, timeline=None, reference_duration=0):
+    def assemble(
+        self,
+        experiment_id,
+        *,
+        output_path=None,
+        timeline=None,
+        reference_duration=0,
+        binaural_source_path: str | Path | None = None,
+        borrow_silence_slack: bool = False,
+        max_atempo: float | None = None,
+    ):
         import numpy as np
         import soundfile as sf
         from scipy.signal import resample_poly
@@ -891,32 +946,140 @@ class SpeechService:
         media_root = self._experiment_media_root(experiment)
         timeline = timeline if timeline is not None else experiment.get("timeline")
         reference_duration = reference_duration or experiment.get("reference_duration", 0)
+        binaural_source_path = (
+            binaural_source_path
+            if binaural_source_path is not None
+            else experiment.get("binaural_source_path")
+        )
+        borrow_silence_slack = bool(
+            borrow_silence_slack or experiment.get("borrow_silence_slack", False)
+        )
+        max_atempo = max_atempo if max_atempo is not None else experiment.get("max_atempo")
+
         plan = self.store.get("plans", experiment["plan_id"])
         selected = {s["segment_id"]: self.store.get("takes", s["take_id"]) for s in experiment["selections"]}
-        rate, cursor, chunks, processing = 44100, 0, [], []
+        ordered_takes = []
         for segment in plan["segments"]:
             take = selected.get(segment["id"])
             if take is None:
                 raise ValueError("请先为每句台词选择真实候选")
+            ordered_takes.append((segment, take))
+
+        stereo_mode = False
+        binaural_path: Path | None = None
+        if binaural_source_path is not None:
+            binaural_path = Path(binaural_source_path)
+            source_info = sf.info(str(binaural_path))
+            if source_info.channels == 2:
+                stereo_mode = True
+                take_rates = [
+                    int(take.get("audio", {}).get("sample_rate") or sf.info(take["audio_path"]).samplerate)
+                    for _, take in ordered_takes
+                ]
+                rate = max([44100, int(source_info.samplerate), *take_rates])
+            else:
+                rate = 44100
+        else:
+            rate = 44100
+
+        slot_plans = None
+        if timeline and borrow_silence_slack and ordered_takes:
+            from src.mixer.binaural import plan_cue_slots
+
+            cue_items = []
+            take_durations = []
+            for segment, take in ordered_takes:
+                pause_ms = take["compiled_request"].get("pause_ms", 0)
+                natural_slot = timeline[segment["id"]]["end"] - timeline[segment["id"]]["start"] - (pause_ms / 1000)
+                if natural_slot <= 0:
+                    raise ValueError("台词停顿超过字幕时段，请调整演绎方案")
+                cue_items.append(
+                    {
+                        "segment_id": segment["id"],
+                        "start_time": timeline[segment["id"]]["start"],
+                        "end_time": timeline[segment["id"]]["end"],
+                        "pause_ms": pause_ms,
+                    }
+                )
+                take_durations.append(float(sf.info(take["audio_path"]).duration))
+            slot_plans = plan_cue_slots(
+                cue_items,
+                take_durations,
+                reference_duration=reference_duration or None,
+                max_atempo=max_atempo if max_atempo is not None else 1.35,
+                cap_atempo=(max_atempo is not None),
+            )
+
+        if stereo_mode:
+            from src.mixer.binaural import estimate_cue_panning, pan_mono_to_stereo
+
+        cursor, chunks, processing = 0, [], []
+        for idx, (segment, take) in enumerate(ordered_takes):
             pause = take["compiled_request"].get("pause_ms", 0) / 1000
-            aligned_path, ratio = self._align_take(take, timeline[segment["id"]]["end"] - timeline[segment["id"]]["start"] - pause, media_root=media_root) if timeline else (take["audio_path"], 1)
+            if timeline:
+                slot_dur = (
+                    slot_plans[idx]["effective_slot"]
+                    if slot_plans is not None
+                    else (timeline[segment["id"]]["end"] - timeline[segment["id"]]["start"] - pause)
+                )
+                aligned_path, ratio = self._align_take(
+                    take,
+                    slot_dur,
+                    media_root=media_root,
+                    max_atempo=max_atempo,
+                )
+            else:
+                aligned_path, ratio = (take["audio_path"], 1)
             audio, source_rate = sf.read(aligned_path, dtype="float32", always_2d=True)
             audio = audio.mean(axis=1)
             if source_rate != rate:
                 divisor = gcd(source_rate, rate)
-                audio = resample_poly(audio, rate // divisor, source_rate // divisor)
+                audio = resample_poly(audio, rate // divisor, source_rate // divisor).astype("float32")
             start = round(timeline[segment["id"]]["start"] * rate) if timeline else cursor
-            chunks.append((start, audio))
-            cursor = start + len(audio) + round(pause * rate)
-            processing.append({"segment_id": segment["id"], "take_id": take["id"], "start": start / rate,
-                "duration": len(audio) / rate, "pause_ms": pause * 1000, "operation": "atempo_resample_and_place" if ratio > 1 else "resample_and_place",
-                "time_stretch": ratio, "aligned_path": aligned_path})
+            seg_samples = len(audio)
+            if stereo_mode and binaural_path is not None:
+                cue_start = float(timeline[segment["id"]]["start"]) if timeline else (start / rate)
+                cue_end = float(timeline[segment["id"]]["end"]) if timeline else ((start + seg_samples) / rate)
+                pan = estimate_cue_panning(binaural_path, cue_start, cue_end)
+                placed_audio = pan_mono_to_stereo(audio, pan)
+            else:
+                pan = None
+                placed_audio = audio
+            chunks.append((start, placed_audio))
+            cursor = start + seg_samples + round(pause * rate)
+            proc_entry = {
+                "segment_id": segment["id"],
+                "take_id": take["id"],
+                "start": start / rate,
+                "duration": seg_samples / rate,
+                "pause_ms": pause * 1000,
+                "operation": "atempo_resample_and_place" if ratio > 1 else "resample_and_place",
+                "time_stretch": ratio,
+                "aligned_path": aligned_path,
+            }
+            if pan is not None:
+                proc_entry["pan"] = round(float(pan), 6)
+            if slot_plans is not None:
+                proc_entry["borrowed_seconds"] = round(float(slot_plans[idx]["borrowed_sec"]), 6)
+                proc_entry["over_speed"] = bool(slot_plans[idx]["over_speed"])
+            elif max_atempo is not None and timeline:
+                raw_dur = float(sf.info(take["audio_path"]).duration)
+                natural = timeline[segment["id"]]["end"] - timeline[segment["id"]]["start"] - pause
+                req_ratio = max(1.0, raw_dur / natural)
+                proc_entry["borrowed_seconds"] = 0.0
+                proc_entry["over_speed"] = bool(req_ratio > float(max_atempo) + 1e-9)
+            processing.append(proc_entry)
         length = max([round(reference_duration * rate), cursor, *[start + len(a) for start, a in chunks]])
         if length <= 0:
             raise ValueError("没有可组装音频")
-        mixed = np.zeros(length, dtype="float32")
-        for start, audio in chunks:
-            mixed[start:start + len(audio)] += audio
+        if stereo_mode:
+            mixed = np.zeros((length, 2), dtype="float32")
+            for start, audio in chunks:
+                mixed[start : start + len(audio), :] += audio
+        else:
+            mixed = np.zeros(length, dtype="float32")
+            for start, audio in chunks:
+                mixed[start : start + len(audio)] += audio
         assembly_id = uuid4().hex
         target = media_root / "assemblies" / (assembly_id + ".wav")
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -935,10 +1098,20 @@ class SpeechService:
             mixed_path = target.with_name(assembly_id + "-mix.wav")
             Mixer(original_volume=mix["original_volume"], tts_volume_ratio=mix["tts_volume_ratio"],
                 tts_delay_ms=mix["tts_delay_ms"]).mix(original_path=str(source), tts_path=str(target), output_path=str(mixed_path))
-        assembly = self.store.create("assemblies", {"id": assembly_id, "experiment_id": experiment_id,
-            "selection_ids": [s["id"] for s in experiment["selections"]], "selections": experiment["selections"],
-            "processing": processing, "audio_path": str(target), "mixed_path": str(mixed_path) if mixed_path else None,
-            "sample_rate": rate, "duration": length / rate})
+        assembly_record = {
+            "id": assembly_id,
+            "experiment_id": experiment_id,
+            "selection_ids": [s["id"] for s in experiment["selections"]],
+            "selections": experiment["selections"],
+            "processing": processing,
+            "audio_path": str(target),
+            "mixed_path": str(mixed_path) if mixed_path else None,
+            "sample_rate": rate,
+            "duration": length / rate,
+        }
+        if stereo_mode:
+            assembly_record["channels"] = 2
+        assembly = self.store.create("assemblies", assembly_record)
         if output_path:
             import shutil
             shutil.copyfile(target, output_path)
