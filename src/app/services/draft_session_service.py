@@ -31,6 +31,7 @@ from src.core.subtitles.models import SubtitleDocument, SubtitleSegment as Domai
 from src.core.subtitles.parser import SubtitleParser
 from src.core.subtitles.text_utils import normalize_language_code
 from src.mixer import Mixer
+from src.mixer.binaural import plan_cue_slots
 from src.utils import get_ffmpeg, sanitize_filename
 
 
@@ -336,7 +337,7 @@ def _inspect_subtitle_file(sub_path: Path) -> dict[str, Any]:
     }
 
 
-def _plan_slots_fallback(
+def _plan_cue_slots_for_audit(
     segments: Sequence[Mapping[str, Any]],
     take_durations: Sequence[float],
     *,
@@ -344,74 +345,32 @@ def _plan_slots_fallback(
     guard_sec: float = 0.06,
     max_atempo: float = 1.35,
 ) -> list[dict[str, Any]]:
-    """Compute post-cue silence slack and required atempo per cue."""
+    """Plan post-cue silence slack and required atempo via `src.mixer.binaural.plan_cue_slots`."""
+    timeline = [
+        {
+            "start_time": float(s["start"]),
+            "end_time": max(float(s["start"]) + 0.01, float(s["end"])),
+        }
+        for s in segments
+    ]
+    planned = plan_cue_slots(
+        timeline,
+        [max(0.0, float(d)) for d in take_durations],
+        reference_duration=reference_duration,
+        guard_sec=guard_sec,
+        max_atempo=max_atempo,
+    )
     results: list[dict[str, Any]] = []
-    total = len(segments)
-    for idx, (seg, duration) in enumerate(zip(segments, take_durations, strict=True)):
-        start = float(seg["start"])
-        end = float(seg["end"])
-        natural_slot = max(0.01, end - start)
-        if idx + 1 < total:
-            next_start = float(segments[idx + 1]["start"])
-            available_slack = max(0.0, next_start - guard_sec - end)
-        elif reference_duration is not None and reference_duration > end:
-            available_slack = max(0.0, float(reference_duration) - guard_sec - end)
-        else:
-            available_slack = 0.0
-
-        max_effective_slot = natural_slot + available_slack
-        borrowed_sec = min(available_slack, max(0.0, float(duration) - natural_slot))
-        effective_slot = natural_slot + borrowed_sec if duration > natural_slot else natural_slot
-        required_atempo = max(1.0, float(duration) / max(0.01, max_effective_slot))
-        applied_atempo = min(required_atempo, max_atempo)
+    for item in planned:
+        natural_slot = float(item["natural_slot"])
+        available_slack = float(item["available_slack"])
         results.append(
             {
-                "natural_slot": natural_slot,
-                "available_slack": available_slack,
-                "borrowed_sec": borrowed_sec,
-                "effective_slot": effective_slot if duration <= natural_slot else max_effective_slot,
-                "max_effective_slot": max_effective_slot,
-                "required_atempo": required_atempo,
-                "applied_atempo": applied_atempo,
-                "over_speed": required_atempo > max_atempo,
+                **dict(item),
+                "max_effective_slot": natural_slot + available_slack,
             }
         )
     return results
-
-
-def _plan_cue_slots_compatible(
-    segments: Sequence[Mapping[str, Any]],
-    take_durations: Sequence[float],
-    *,
-    reference_duration: float | None = None,
-    guard_sec: float = 0.06,
-    max_atempo: float = 1.35,
-) -> list[dict[str, Any]]:
-    """Delegate to `src.mixer.binaural.plan_cue_slots` when present, else use identical fallback."""
-    fallback = _plan_slots_fallback(
-        segments,
-        take_durations,
-        reference_duration=reference_duration,
-        guard_sec=guard_sec,
-        max_atempo=max_atempo,
-    )
-    try:
-        from src.mixer.binaural import plan_cue_slots  # type: ignore[import-not-found]
-    except ImportError:
-        return fallback
-
-    timeline = [{"start_time": float(s["start"]), "end_time": float(s["end"])} for s in segments]
-    planned = plan_cue_slots(
-        timeline,
-        list(take_durations),
-        reference_duration=reference_duration,
-        guard_sec=guard_sec,
-        max_atempo=max_atempo,
-    )
-    merged: list[dict[str, Any]] = []
-    for base, item in zip(fallback, planned, strict=True):
-        merged.append({**base, **dict(item)})
-    return merged
 
 
 class DraftSessionService:
@@ -842,7 +801,7 @@ class DraftSessionService:
             estimated_durations.append(units / chars_per_second if units > 0 else 0.0)
 
         slot_plans = (
-            _plan_cue_slots_compatible(
+            _plan_cue_slots_for_audit(
                 segments,
                 estimated_durations,
                 reference_duration=reference_duration,
@@ -1544,13 +1503,18 @@ class DraftSessionService:
                     or primary_track["paired_stems"].get("no_se")
                     or primary_track["path"]
                 )
+                effective_asr_options = dict(asr_options or {})
+                if (
+                    asr_provider == "anime_whisper" or asr_model == "anime-whisper"
+                ) and "vad_slicing" not in effective_asr_options and "vad_filter" not in effective_asr_options:
+                    effective_asr_options["vad_slicing"] = True
                 asr_svc = self._get_asr_service()
                 transcription = asr_svc.transcribe_file(
                     input_path=str(asr_audio_path),
                     provider=asr_provider,
                     model=asr_model,
                     language=source_lang,
-                    provider_options=asr_options,
+                    provider_options=effective_asr_options or None,
                 )
                 segments = [
                     {
@@ -1886,14 +1850,17 @@ class DraftSessionService:
 
         task_id = self._create_managed_task(speech_service, task_type="draft.commit", draft_id=draft_id)
         try:
-            # Inspect optional binaural / slack kwargs supported by SpeechService
+            # Wire binaural stereo panning and silence-slack borrowing into SpeechService
             timeline_sig = inspect.signature(speech_service.synthesize_timeline)
+            has_timeline_var_kw = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in timeline_sig.parameters.values()
+            )
             extra_timeline_kwargs: dict[str, Any] = {}
-            if "binaural_source_path" in timeline_sig.parameters and binaural_source_path:
+            if (has_timeline_var_kw or "binaural_source_path" in timeline_sig.parameters) and binaural_source_path:
                 extra_timeline_kwargs["binaural_source_path"] = binaural_source_path
-            if "borrow_silence_slack" in timeline_sig.parameters:
+            if has_timeline_var_kw or "borrow_silence_slack" in timeline_sig.parameters:
                 extra_timeline_kwargs["borrow_silence_slack"] = True
-            if "max_atempo" in timeline_sig.parameters:
+            if has_timeline_var_kw or "max_atempo" in timeline_sig.parameters:
                 extra_timeline_kwargs["max_atempo"] = max_atempo
 
             has_real_store = isinstance(getattr(speech_service, "store", None), SpeechStore)
@@ -1956,20 +1923,22 @@ class DraftSessionService:
             saved_plan = speech_service.store.create("plans", plan)
             experiment_id = uuid4().hex
             media_root = tts_output_path.resolve().parent / "speech" / experiment_id
-            experiment = speech_service.store.create(
-                "experiments",
-                {
-                    "id": experiment_id,
-                    "name": f"正式配音 {task_id}",
-                    "plan_id": saved_plan["id"],
-                    "task_id": task_id,
-                    "kind": "formal",
-                    "media_root": str(media_root),
-                    "snapshot": snapshot,
-                    "timeline": timeline,
-                    "reference_duration": reference_duration,
-                },
-            )
+            experiment_payload: dict[str, Any] = {
+                "id": experiment_id,
+                "name": f"正式配音 {task_id}",
+                "plan_id": saved_plan["id"],
+                "task_id": task_id,
+                "kind": "formal",
+                "media_root": str(media_root),
+                "snapshot": snapshot,
+                "timeline": timeline,
+                "reference_duration": reference_duration,
+                "borrow_silence_slack": True,
+                "max_atempo": max_atempo,
+            }
+            if binaural_source_path:
+                experiment_payload["binaural_source_path"] = str(binaural_source_path)
+            experiment = speech_service.store.create("experiments", experiment_payload)
             requests = compile_recipe(snapshot["recipe"], saved_plan, snapshot["assets"])
 
             missing_requests: list[dict[str, Any]] = []
@@ -2044,12 +2013,15 @@ class DraftSessionService:
                     }
 
             assemble_sig = inspect.signature(speech_service.assemble)
+            has_assemble_var_kw = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in assemble_sig.parameters.values()
+            )
             extra_assemble_kwargs: dict[str, Any] = {}
-            if "binaural_source_path" in assemble_sig.parameters and binaural_source_path:
+            if (has_assemble_var_kw or "binaural_source_path" in assemble_sig.parameters) and binaural_source_path:
                 extra_assemble_kwargs["binaural_source_path"] = binaural_source_path
-            if "borrow_silence_slack" in assemble_sig.parameters:
+            if has_assemble_var_kw or "borrow_silence_slack" in assemble_sig.parameters:
                 extra_assemble_kwargs["borrow_silence_slack"] = True
-            if "max_atempo" in assemble_sig.parameters:
+            if has_assemble_var_kw or "max_atempo" in assemble_sig.parameters:
                 extra_assemble_kwargs["max_atempo"] = max_atempo
 
             assembly = speech_service.assemble(
@@ -2185,6 +2157,10 @@ class DraftSessionService:
                     "tts_track_path": str(tts_track_path),
                     "mixed_audio_path": str(mixed_path_str),
                     "background_audio_path": bg_audio_path,
+                    "binaural_source_path": str(binaural_ref) if binaural_ref else None,
+                    "borrow_silence_slack": True,
+                    "channels": assembly.get("channels"),
+                    "processing": assembly.get("processing"),
                     "assembly_id": assembly.get("id"),
                     "reused_take_count": reused_count,
                     "synthesized_take_count": synthesized_count,

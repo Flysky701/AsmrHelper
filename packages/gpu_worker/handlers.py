@@ -630,6 +630,11 @@ class WorkerHandlers:
             recognize_kwargs.update(preserve_segments=True, min_segment_duration=0.0)
         if provider == "faster_whisper" and "vad_filter" in provider_options:
             recognize_kwargs["vad_filter"] = bool(provider_options["vad_filter"])
+        if provider == "anime_whisper":
+            if provider_options.get("vad_slicing") is not None:
+                recognize_kwargs["vad_slicing"] = bool(provider_options["vad_slicing"])
+            elif provider_options.get("vad_filter") is not None:
+                recognize_kwargs["vad_filter"] = bool(provider_options["vad_filter"])
 
         with self.lease_manager.lease(lease_key, _load_recognizer, family="asr") as recognizer:
             entries = recognizer.recognize(str(src_audio), None, **recognize_kwargs)

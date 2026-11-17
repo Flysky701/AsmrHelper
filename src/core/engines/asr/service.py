@@ -97,7 +97,18 @@ class AsrEngineRuntime:
         provider_options = dict(profile.get("provider_options", {}))
         provider = str(profile.get("provider", "faster_whisper"))
 
-        if self._runtime_router and self._runtime_router.asr_profile(provider):
+        router_has_remote = (
+            self._runtime_router.has_remote_worker({"profile": profile})
+            if self._runtime_router is not None and hasattr(self._runtime_router, "has_remote_worker")
+            else bool(
+                profile.get("remote_worker_url")
+                or provider_options.get("remote_worker_url")
+                or common_options.get("remote_worker_url")
+            )
+        )
+        if self._runtime_router and (
+            self._runtime_router.asr_profile(provider) or router_has_remote
+        ):
             result = self._runtime_router.transcribe_file(
                 {
                     "input_path": str(source_path),
@@ -124,6 +135,11 @@ class AsrEngineRuntime:
             # Keeping it out of the registry key lets a quiet-audio retry reuse
             # the already loaded Faster-Whisper model.
             recognize_kwargs["vad_filter"] = bool(provider_options["vad_filter"])
+        if provider == "anime_whisper":
+            if provider_options.get("vad_slicing") is not None:
+                recognize_kwargs["vad_slicing"] = bool(provider_options["vad_slicing"])
+            elif provider_options.get("vad_filter") is not None:
+                recognize_kwargs["vad_filter"] = bool(provider_options["vad_filter"])
         entries = recognizer.recognize(
             str(source_path),
             output_path,
@@ -246,8 +262,14 @@ class AsrEngineRuntime:
             return kwargs
 
         if provider == "anime_whisper":
-            for key in ("device", "batch_size", "no_repeat_ngram_size", "repetition_penalty"):
-                if key in provider_options:
+            for key in (
+                "device",
+                "batch_size",
+                "no_repeat_ngram_size",
+                "repetition_penalty",
+                "vad_options",
+            ):
+                if key in provider_options and provider_options[key] is not None:
                     kwargs[key] = provider_options[key]
             return kwargs
 
