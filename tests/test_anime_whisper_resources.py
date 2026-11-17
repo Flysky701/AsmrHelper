@@ -38,7 +38,7 @@ def test_anime_download_progress_verify_skip_and_owned_removal(model, tmp_path, 
     def download(cmd, env, timeout, progress, **kwargs):
         downloads.append(cmd)
         assert "repo_id='litagin/anime-whisper'" in cmd[-1]
-        assert str(model.managed_install_dir()) in cmd[-1]
+        assert repr(str(model.managed_install_dir())) in cmd[-1]
         assert env["HF_ENDPOINT"] == "https://hf-mirror.example"
         assert timeout == 3600
         put_weights(model, model.managed_install_dir())
