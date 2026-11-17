@@ -1,7 +1,46 @@
 presets:
+- id: starter_edge_chinese_v1
+  label: 演示预设 · 中文配音
+  description: 中文字幕生成晓晓配音；无需下载模型或 API 密钥，需要联网。
+  version: 2
+  graph:
+    version: 2
+    nodes:
+    - id: tts
+      kind: tts
+      provider: edge
+      model: edge-tts
+      source_lang: null
+      target_lang: zh
+      options:
+        speech_source:
+          mode: builtin
+          connection_ref: engine-default-edge
+          provider_options:
+            schema_version: 1
+            speed: 1
+      provider_options: {}
+    edges:
+    - source:
+        kind: slot
+        slot_id: subtitle_1
+      target:
+        node_id: tts
+        port: subtitle
+    input_slots:
+    - id: subtitle_1
+      type: subtitle
+      label: 中文字幕
+      language: zh
+    outputs:
+    - node_id: tts
+      port: audio
+      label: 中文配音
+  revision: 1
+  builtin: true
 - id: custom_07458dd97f9e467eb6aef34d499923a5
   label: ASMR正常流程
-  description: 无字幕输入， 正常流程
+  description: 音频翻译配音并混音。
   version: 2
   graph:
     version: 2
@@ -137,7 +176,7 @@ presets:
   builtin: true
 - id: custom_964998d159ec4c30a5cc6bf44b76caeb
   label: TTS配音
-  description: 输入希望语言字幕与原音频， 进行混音
+  description: 字幕配音并与原音频混音。
   version: 2
   graph:
     version: 2

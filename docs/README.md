@@ -4,6 +4,7 @@
 
 ## 安装与使用
 
+- [中文快速上手：第一份配音](guides/quick-start.md)
 - [安装、运行、数据与备份](guides/installation.md)
 - [工作台](guides/workbench.md)
 - [节点流水线与图契约](guides/workflow-graph-v2.md)
@@ -25,3 +26,5 @@
 - [现有格式的兼容边界](contracts/compatibility.md)
 
 工作台以 V2 图为执行依据；V1 请求及历史数据的兼容并不代表桌面仍使用固定全流程。HTTP 字段以 [Pydantic schema](../src/api/http/schemas/) 为准，运行实例可通过 `/docs` 或 `/openapi.json` 查看接口定义。模型资源以 [模型目录](../config/models.yaml) 为准，实际可运行性还取决于本机依赖和服务权限。
+
+- [Windows 1.0.0 待验收与 beta 兼容](windows-release-1.0-acceptance.md)

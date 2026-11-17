@@ -18,8 +18,8 @@ function load(path) {
 const { createWorkflowStore, presetDeleteConfirmation } = load('../src/stores/workflowStore.ts')
 const graph = { version: 2, nodes: [], edges: [], input_slots: [], outputs: [] }
 const builtin = { id: 'shipped', label: 'Template', description: '', revision: 1, builtin: true, version: 2, graph }
-function fixture() {
-  let items = [structuredClone(builtin)], sequence = 0
+function fixture(initial = [builtin]) {
+  let items = structuredClone(initial), sequence = 0
   const calls = [], data = new Map()
   const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) }
   const client = {
@@ -33,6 +33,58 @@ function fixture() {
   }
   return { store: createWorkflowStore(client, storage), reopen: () => createWorkflowStore(client, storage), calls }
 }
+
+const starter = { ...builtin, id: 'starter_edge_chinese_v1', label: '中文配音演示', graph: {
+  version: 2, nodes: [{ id: 'tts', kind: 'tts', provider: 'edge', model: 'edge-tts', target_lang: 'zh', options: {}, provider_options: {} }],
+  edges: [{ source: { kind: 'slot', slot_id: 'subtitle' }, target: { node_id: 'tts', port: 'subtitle' } }],
+  input_slots: [{ id: 'subtitle', type: 'subtitle', label: '中文字幕', language: 'zh' }],
+  outputs: [{ node_id: 'tts', port: 'audio' }],
+} }
+
+test('blank workbench selects only the starter once and deletion survives restart', async () => {
+  const f = fixture([starter, builtin]), s = f.store.getState()
+  await s.loadCatalog()
+  assert.equal(f.store.getState().selectedPreset.id, starter.id)
+  assert.deepEqual(f.store.getState().runtimeGraph, starter.graph)
+  await s.loadCatalog()
+  const restarted = f.reopen(); await restarted.getState().loadCatalog()
+  assert.deepEqual(restarted.getState().catalog.map(item => item.id), [starter.id, builtin.id])
+  assert.equal(restarted.getState().selectedPreset.id, starter.id)
+  assert.deepEqual(f.calls, [])
+  assert.equal(await restarted.getState().deleteCatalogPreset(starter), 'deleted')
+  const afterDelete = f.reopen(); await afterDelete.getState().loadCatalog()
+  assert.equal(afterDelete.getState().selectedPreset, null)
+  assert.deepEqual(afterDelete.getState().runtimeGraph, starter.graph)
+  assert.deepEqual(afterDelete.getState().catalog.map(item => item.id), [builtin.id])
+})
+
+test('starter never replaces saved selection, parameters, bindings or drafts', async () => {
+  const scenarios = [
+    store => { store.getState().selectPreset(builtin); store.setState({ runtimeGraph: starter.graph }) },
+    store => store.setState({ runtimeGraph: starter.graph }),
+    store => store.getState().setBinding('subtitle', { path: 'my.zh.srt' }),
+    store => { store.getState().openEditor(null, 'workbench'); store.getState().updateEditor({ label: 'My draft' }) },
+    store => store.setState({ recoveryDraft: { unknown: 'preserve' } }),
+    store => store.setState({ recoveryDraft: false }),
+  ]
+  for (const prepare of scenarios) {
+    const f = fixture([starter, builtin]); prepare(f.store)
+    const { selectedPreset, runtimeGraph, bindings, editor, recoveryDraft } = f.store.getState()
+    await f.store.getState().loadCatalog()
+    const after = f.store.getState()
+    assert.deepEqual({ selectedPreset: after.selectedPreset, runtimeGraph: after.runtimeGraph,
+      bindings: after.bindings, editor: after.editor, recoveryDraft: after.recoveryDraft },
+    { selectedPreset, runtimeGraph, bindings, editor, recoveryDraft })
+  }
+})
+
+test('absence of starter never selects a model flow or a custom preset with its ID', async () => {
+  for (const items of [[builtin], [{ ...starter, builtin: false }, builtin]]) {
+    const f = fixture(items); await f.store.getState().loadCatalog()
+    assert.equal(f.store.getState().selectedPreset, null)
+    assert.equal(f.store.getState().runtimeGraph, null)
+  }
+})
 
 test('deleting a built-in preserves draft and bindings without a restore collection', async () => {
   const f = fixture(), s = f.store.getState()

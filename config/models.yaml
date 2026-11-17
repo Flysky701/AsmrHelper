@@ -372,6 +372,43 @@ models:
     default_install_mode: single
     auto_install_dependencies: true
 
+  - id: anime-whisper
+    kind: local
+    category: asr
+    provider: anime_whisper
+    family_id: anime_whisper
+    dependency_group: anime_whisper
+    required_python_extras: [anime_whisper]
+    required_runtime_packages: ["torch>=2.4.0", "transformers>=4.57.3,<5.0.0", "numpy>=1.24.0", "imageio-ffmpeg>=0.4.0"]
+    display_name: Anime Whisper (experimental)
+    description: Optional Japanese ASR via Transformers; native segment timestamps need real-audio validation.
+    estimated_size_mb: 3030
+    install_root: models
+    install_path: anime-whisper
+    required_files:
+      - model.safetensors
+      - config.json
+      - generation_config.json
+      - preprocessor_config.json
+      - tokenizer_config.json
+      - special_tokens_map.json
+      - added_tokens.json
+      - vocab.json
+      - merges.txt
+      - normalizer.json
+    required_dirs: []
+    supports_install: true
+    supports_remove: true
+    install_strategy: huggingface_snapshot
+    upstream_name: litagin/anime-whisper
+    runtime_profile: anime_whisper
+    supported_os: [windows, linux]
+    supported_python: {min: "3.11", max: "3.12"}
+    preferred_runtime: python_package_local
+    install_modes: [single]
+    default_install_mode: single
+    auto_install_dependencies: true
+
   - id: qwen3-custom-voice
     kind: local
     category: tts

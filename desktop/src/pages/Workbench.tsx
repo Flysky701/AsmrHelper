@@ -6,6 +6,7 @@ import { inputsApi } from '@/api/inputs'
 import type { GraphPresetItem, PresetItem } from '@/api/types'
 import { usedGraphSlots } from '@/components/GraphRunBindings'
 import QueueGroupRow, { queueOutputLabel } from '@/components/tasks/QueueGroupRow'
+import QuickStartHelp from '@/components/QuickStartHelp'
 import GraphNodeParameters from '@/components/workflow/GraphNodeParameters'
 import { graphNodeHasAdvancedParameters } from '@/domain/graphNodeParameters'
 import { groupEditable, groupIssues, type QueueSubmission } from '@/domain/queueGroups'
@@ -221,6 +222,7 @@ export default function Workbench() {
   return <div className={`queue-workbench${panelOpen ? ' panel-open' : ''}${dragOver ? ' is-dragging' : ''}`} onDragOver={event => { event.preventDefault(); if (!busy && !discovering) setDragOver(true) }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOver(false) }} onDrop={event => void drop(event)}>
     <header className="queue-page-heading page-heading"><div className="page-heading__copy"><h1 className="page-title">工作台</h1></div><div className="page-heading__actions"><button type="button" onClick={() => useNavStore.getState().openTaskCenter('batches')}>任务中心 ↗</button></div></header>
     <div className="queue-body"><div className="queue-pane">
+      <QuickStartHelp />
       <div className="queue-preset-toolbar"><label>流水线预设<select aria-label="已保存的流水线" value={selectedPreset?.id ?? ''} disabled={busy || workflow.catalogLoading} onChange={event => changePreset(event.target.value)}>
         <option value="">{workflow.catalogLoading ? '正在加载流水线…' : presets.length ? '请选择流水线' : '暂无已保存流水线'}</option>{selectedPreset && !presets.some(preset => preset.id === selectedPreset.id) ? <option value={selectedPreset.id}>{selectedPreset.label}（等待目录核对）</option> : null}{presets.map(preset => <option key={preset.id} value={preset.id}>{preset.label}{preset.builtin ? ' · 内置' : ''}</option>)}</select></label>
         <button type="button" className="queue-adjust" disabled={!graph} aria-expanded={panelOpen} onClick={() => setPanelOpen(value => !value)}>☷ 调整参数{dirty ? <span className="queue-count" aria-label={`${overrideCount} 个节点有临时覆盖`}>{overrideCount}</span> : null}</button>

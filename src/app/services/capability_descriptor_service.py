@@ -466,6 +466,33 @@ class CapabilityDescriptorService:
                 },
             },
             {
+                "category": "asr",
+                "provider": "anime_whisper",
+                "display_name": "Anime Whisper (experimental)",
+                "kind": "local",
+                "supported_models": ["anime-whisper"],
+                "default_model": "anime-whisper",
+                "common_option_schema": [
+                    _option("language", "string", default="ja", enum=["ja"]),
+                ],
+                "provider_option_schema": [
+                    _option("device", "string", default="auto",
+                            description="auto, cpu, or a PyTorch CUDA device such as cuda:0"),
+                    _option("batch_size", "integer", default=1, min_value=1, max_value=16),
+                    _option("no_repeat_ngram_size", "integer", default=0, min_value=0, max_value=10),
+                    _option("repetition_penalty", "number", default=1.0, min_value=1.0, max_value=2.0),
+                ],
+                "supports": {
+                    "language_hint": True,
+                    "language_auto_detect": False,
+                    "vad": False,
+                    "segment_timestamps": True,
+                    "word_timestamps": False,
+                    "diarization": False,
+                    "streaming": False,
+                },
+            },
+            {
                 "category": "separator",
                 "provider": "demucs",
                 "display_name": "Demucs",

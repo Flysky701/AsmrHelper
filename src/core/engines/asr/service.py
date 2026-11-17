@@ -245,5 +245,11 @@ class AsrEngineRuntime:
                 kwargs["forced_aligner"] = _resolve_model_name(provider, aligner)
             return kwargs
 
+        if provider == "anime_whisper":
+            for key in ("device", "batch_size", "no_repeat_ngram_size", "repetition_penalty"):
+                if key in provider_options:
+                    kwargs[key] = provider_options[key]
+            return kwargs
+
         kwargs.update(provider_options)
         return kwargs
