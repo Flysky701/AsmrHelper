@@ -1,11 +1,13 @@
 """Explicit speech provider contracts; no voice-profile or configuration fallback."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from copy import deepcopy
 from io import BytesIO
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -409,7 +411,28 @@ class SpeechProvider:
             from src.core.tts import EdgeTTSEngine
             p = request["parameters"]
             speed = p["options"]["speed"]
-            EdgeTTSEngine(voice=p["variant"]["value"], rate=f"{round((speed - 1) * 100):+d}%").synthesize(request["text"], str(output_path))
+            raw_proxy = (
+                context.get("connection", {}).get("proxy")
+                or os.environ.get("HTTPS_PROXY")
+                or os.environ.get("HTTP_PROXY")
+            )
+            proxy = (
+                raw_proxy.strip()
+                if isinstance(raw_proxy, str) and raw_proxy.strip().lower().startswith(("http://", "https://"))
+                else None
+            )
+            edge_kwargs = {"voice": p["variant"]["value"], "rate": f"{round((speed - 1) * 100):+d}%"}
+            if proxy:
+                edge_kwargs["proxy"] = proxy
+            try:
+                EdgeTTSEngine(**edge_kwargs).synthesize(request["text"], str(output_path))
+            except RuntimeError as exc:
+                detail = (
+                    "Edge 在线语音握手被拒绝（HTTP 403）或网络受限，请检查系统网络/HTTP 代理或改用本地/云端音色"
+                    if "WSServerHandshakeError" in str(exc) or "403" in str(exc)
+                    else f"Edge 在线语音请求失败：{exc}"
+                )
+                raise ProviderError("remote_failed", detail, retryable=True) from None
             remote_id = None
         else:
             while not _LOCAL_LOCK.acquire(timeout=.2):
@@ -488,16 +511,23 @@ class SpeechProvider:
             raise ProviderError("invalid_audio", "远端没有返回可解码音频") from None
         return response.headers.get("x-request-id") or response.headers.get("request-id")
 
-    def _local(self, request, output_path, context, cancel_check):
-        from src.config import PROJECT_ROOT
+    def _resolve_local_invocation(self, request, context, verified_assets: dict[str, str] | None = None):
         executable, model_path, resolver = self._local_settings(request["model"], request["mode"], context)
         references = {}
         for aid, digest in request["asset_hashes"].items():
+            if verified_assets is not None and aid in verified_assets:
+                resolved_path = Path(verified_assets[aid])
+                if resolved_path.is_file():
+                    references[aid] = verified_assets[aid]
+                    continue
             asset = context.get("assets", {}).get(aid, {})
             path = Path(asset.get("path", ""))
             if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
                 raise ProviderError("asset_changed", "参考素材缺失或已被修改")
-            references[aid] = str(path.resolve())
+            resolved_str = str(path.resolve())
+            references[aid] = resolved_str
+            if verified_assets is not None:
+                verified_assets[aid] = resolved_str
         request = deepcopy(request)
         # Old frozen requests may contain a device; new reusable options never do.
         device = context.get("device") or request["parameters"]["options"].get("device") or ("cuda:0" if self.provider_id == "qwen3" else "auto")
@@ -508,6 +538,30 @@ class SpeechProvider:
             raise ProviderError("invalid_precision", "不支持的模型精度")
         if self.provider_id == "voxcpm2" and precision != "auto":
             raise ProviderError("unsupported_precision", "VoxCPM2 当前使用模型默认精度，请选择 auto")
+        return executable, model_path, resolver, references, request, device, precision
+
+    @contextmanager
+    def batch_session(self, requests, context: dict):
+        if self.remote or self.provider_id not in {"qwen3", "voxcpm2"} or len(requests) <= 1:
+            yield context
+            return
+        session = _LocalBatchSession(self)
+        scoped_context = dict(context)
+        scoped_context["_local_session"] = session
+        try:
+            yield scoped_context
+        finally:
+            session.close()
+
+    def _local(self, request, output_path, context, cancel_check):
+        session = context.get("_local_session")
+        if session is not None:
+            session.run(request, output_path, context, cancel_check)
+            return
+        from src.config import PROJECT_ROOT
+        executable, model_path, resolver, references, request, device, precision = self._resolve_local_invocation(
+            request, context
+        )
         from src.workspace_paths import temporary_directory
         temp_root = temporary_directory()
         temp_root.mkdir(parents=True, exist_ok=True)
@@ -539,8 +593,153 @@ class SpeechProvider:
                 raise ProviderError("local_failed", "本地语音推理失败，请检查模型、设备与参考素材")
 
     def release(self):
-        # Local workers are scoped to one synthesis; remote clients are context-managed.
+        # Single-shot local workers exit immediately; batch sessions clean up via batch_session().
         return None
+
+
+class _LocalBatchSession:
+    """Keep a single isolated local_worker warm across a multi-cue batch."""
+
+    def __init__(self, provider: SpeechProvider) -> None:
+        self._provider = provider
+        self._temp_dir: tempfile.TemporaryDirectory[str] | None = None
+        self._log_handle = None
+        self._process: subprocess.Popen | None = None
+        self._key: tuple | None = None
+        self._job_counter = 0
+        self._verified_assets: dict[str, str] = {}
+
+    def _ensure_started(self, executable, model_path, resolver, references, request, device, precision, cancel_check) -> Path:
+        key = (str(executable), str(model_path), device, precision)
+        if self._process is not None and self._process.poll() is None and self._key == key and self._temp_dir is not None:
+            return Path(self._temp_dir.name)
+        self.close()
+        from src.config import PROJECT_ROOT
+        from src.workspace_paths import temporary_directory
+
+        temp_root = temporary_directory()
+        temp_root.mkdir(parents=True, exist_ok=True)
+        self._temp_dir = tempfile.TemporaryDirectory(prefix="speech-batch-worker-", dir=temp_root)
+        directory = Path(self._temp_dir.name)
+        ready_path = directory / "ready.json"
+        session_path = directory / "session.json"
+        session_path.write_text(
+            json.dumps(
+                {
+                    "request": request,
+                    "references": references,
+                    "model_path": model_path,
+                    "precision": precision,
+                    "device": device,
+                    "ready_path": str(ready_path),
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        self._log_handle = (directory / "worker.log").open("w", encoding="utf-8")
+        self._process = subprocess.Popen(
+            [str(executable), "-m", "src.core.speech.local_worker", "--session", str(session_path)],
+            cwd=str(PROJECT_ROOT),
+            env=resolver.subprocess_env(),
+            stdin=subprocess.PIPE,
+            stdout=self._log_handle,
+            stderr=self._log_handle,
+            text=True,
+            encoding="utf-8",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        self._key = key
+        deadline = time.monotonic() + 1800
+        try:
+            while not ready_path.is_file():
+                if self._process.poll() is not None:
+                    raise ProviderError("local_failed", "本地语音模型加载失败，请检查模型、设备与显存")
+                _cancel(cancel_check)
+                if time.monotonic() > deadline:
+                    raise ProviderError("local_timeout", "本地模型加载超时")
+                time.sleep(0.05)
+        except BaseException:
+            self.close()
+            raise
+        return directory
+
+    def run(self, request, output_path: Path, context: dict, cancel_check) -> None:
+        executable, model_path, resolver, references, request, device, precision = self._provider._resolve_local_invocation(
+            request, context, verified_assets=self._verified_assets
+        )
+        directory = self._ensure_started(
+            executable, model_path, resolver, references, request, device, precision, cancel_check
+        )
+        assert self._process is not None and self._process.stdin is not None
+        self._job_counter += 1
+        job_path = directory / f"job-{self._job_counter}.json"
+        response_path = directory / f"response-{self._job_counter}.json"
+        job_path.write_text(
+            json.dumps(
+                {
+                    "request": request,
+                    "references": references,
+                    "output_path": str(output_path.resolve()),
+                    "response_path": str(response_path),
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            self._process.stdin.write(f"{job_path}\n")
+            self._process.stdin.flush()
+            deadline = time.monotonic() + 1800
+            while not response_path.is_file():
+                if self._process.poll() is not None:
+                    raise ProviderError("local_failed", "本地语音推理进程异常退出，请检查模型、设备与参考素材")
+                _cancel(cancel_check)
+                if time.monotonic() > deadline:
+                    raise ProviderError("local_timeout", "本地模型执行超时")
+                time.sleep(0.05)
+            result = json.loads(response_path.read_text(encoding="utf-8"))
+            if not result.get("ok"):
+                raise ProviderError("local_failed", "本地语音推理失败，请检查模型、设备与参考素材")
+        except BaseException:
+            if self._process is not None and self._process.poll() is None:
+                self.close()
+            raise
+        finally:
+            job_path.unlink(missing_ok=True)
+            response_path.unlink(missing_ok=True)
+
+    def close(self) -> None:
+        proc, self._process = self._process, None
+        self._key = None
+        if proc is not None:
+            if proc.stdin is not None:
+                try:
+                    if proc.poll() is None:
+                        proc.stdin.write("STOP\n")
+                        proc.stdin.flush()
+                    proc.stdin.close()
+                except OSError:
+                    pass
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+        if self._log_handle is not None:
+            try:
+                self._log_handle.close()
+            except OSError:
+                pass
+            self._log_handle = None
+        if self._temp_dir is not None:
+            try:
+                self._temp_dir.cleanup()
+            except OSError:
+                pass
+            self._temp_dir = None
 
 
 _PROVIDERS = {name: SpeechProvider(name) for name in SCHEMAS}

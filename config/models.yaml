@@ -569,8 +569,8 @@ models:
     install_path: demucs/htdemucs
     required_files: []
     required_dirs: []
-    supports_install: false
-    supports_remove: false
+    supports_install: true
+    supports_remove: true
     install_strategy: package
     runtime_profile: python_package_local
     supported_os: [windows, linux, macos]

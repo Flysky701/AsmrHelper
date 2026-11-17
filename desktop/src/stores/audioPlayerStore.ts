@@ -6,6 +6,7 @@ interface AudioPlayerState {
   title: string
   isPlaying: boolean
   currentTime: number
+  seekVersion: number
   duration: number
   volume: number
   error: string
@@ -26,6 +27,7 @@ export const useAudioPlayerStore = create<AudioPlayerState>((set) => ({
   title: '',
   isPlaying: false,
   currentTime: 0,
+  seekVersion: 0,
   duration: 0,
   volume: 0.8,
   error: '',
@@ -33,7 +35,7 @@ export const useAudioPlayerStore = create<AudioPlayerState>((set) => ({
   show: (src, title) => set({ visible: true, src, title, isPlaying: false, currentTime: 0, duration: 0, error: '' }),
   hide: () => set({ visible: false, src: null, isPlaying: false, error: '' }),
   togglePlay: () => set((s) => ({ isPlaying: !s.isPlaying })),
-  seek: (time) => set({ currentTime: time }),
+  seek: (time) => set((s) => ({ currentTime: time, seekVersion: s.seekVersion + 1 })),
   setVolume: (vol) => set({ volume: Math.max(0, Math.min(1, vol)) }),
   updateTime: (current, duration) => set({ currentTime: current, duration }),
   setPlaying: (playing) => set({ isPlaying: playing }),

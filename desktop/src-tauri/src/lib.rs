@@ -114,17 +114,7 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
                 None => { app.exit(0); return Ok(()); }
             };
             #[cfg(windows)]
-            let backend = match backend::Backend::start(app, &workspace.active) {
-                Ok(value) => value,
-                Err(error) => {
-                    app.dialog()
-                        .message(error.to_string())
-                        .title("ASMR Helper Test - Startup failed")
-                        .kind(tauri_plugin_dialog::MessageDialogKind::Error)
-                        .blocking_show();
-                    return Err(error);
-                }
-            };
+            let backend = backend::Backend::start(app, &workspace.active)?;
             let mut window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -141,8 +131,7 @@ fn initialize_desktop(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::
                 if let Some(ref service) = backend {
                     window = window.initialization_script(service.init_script());
                 }
-                std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", workspace.active.join(".cache/webview2"));
-                window = window.data_directory(workspace.active.join(".cache/webview2"));
+                window = window.data_directory(workspace.active.join(".cache").join("webview2"));
                 app.manage(workspace);
                 app.manage(backend::BackendState::new(backend));
             }

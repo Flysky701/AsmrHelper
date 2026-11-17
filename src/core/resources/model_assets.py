@@ -81,7 +81,7 @@ def complete(entry, path: Path) -> bool:
         return False
     if any(not (path / name).is_dir() for name in entry.required_dirs):
         return False
-    if entry.provider == 'qwen3' and 'speech_tokenizer' in entry.required_dirs:
+    if (entry.provider == 'qwen3' or getattr(entry, 'engine', None) == 'qwen3') and 'speech_tokenizer' in entry.required_dirs:
         if any(not (path / 'speech_tokenizer' / name).is_file() or not (path / 'speech_tokenizer' / name).stat().st_size
                for name in ('config.json', 'model.safetensors')):
             return False

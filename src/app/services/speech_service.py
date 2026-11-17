@@ -725,67 +725,77 @@ class SpeechService:
                        or request.get("recipe_revision") != recipe.get("revision")
                        for request in requests)):
             raise ValueError("语音请求与固定配方或连接快照不一致，请建立新任务")
+        from contextlib import nullcontext
         context = self.connection_context(snapshot["connection"])
         context["assets"] = deepcopy(snapshot["assets"])
         outputs = []
-        for index, request in enumerate(requests):
-            request = deepcopy(request)
-            request["connection_snapshot"] = deepcopy(snapshot["connection"])
-            # Connection revisions and deployment options participate in identity.
-            request["cache_key"] = hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-            request["id"] = request["cache_key"]
-            if cancel_check():
-                raise InterruptedError("已取消，后续台词未生成")
-            provider = get_provider(request["provider_id"])
-            take_id = uuid4().hex
-            output = Path(media_root if media_root is not None else self.store.root) / "audio" / (take_id + ".wav")
-            output.parent.mkdir(parents=True, exist_ok=True)
-            started = time.monotonic()
-            try:
-                connection_id = snapshot["connection"]["id"]
-                with self._lock:
-                    guard = self._connection_locks.setdefault(connection_id, threading.Lock())
-                while not guard.acquire(timeout=.1):
-                    if cancel_check():
-                        raise InterruptedError("排队期间已取消")
-                try:
-                    audio = provider.synthesize(deepcopy(request), output, context, cancel_check)
-                finally:
-                    guard.release()
+        batch_provider = get_provider(recipe["provider_id"]) if len(requests) > 1 else None
+        session_cm = (
+            batch_provider.batch_session(requests, context)
+            if batch_provider is not None
+            and hasattr(batch_provider, "batch_session")
+            and "synthesize" not in vars(batch_provider)
+            else nullcontext(context)
+        )
+        with session_cm as active_context:
+            for index, request in enumerate(requests):
+                request = deepcopy(request)
+                request["connection_snapshot"] = deepcopy(snapshot["connection"])
+                # Connection revisions and deployment options participate in identity.
+                request["cache_key"] = hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                request["id"] = request["cache_key"]
                 if cancel_check():
-                    raise InterruptedError("已取消，不采用未完成候选")
-                import soundfile as sf
-                info = sf.info(output)
-                if info.frames < 1:
-                    raise ValueError("引擎返回空音频")
-                import numpy as np
-                with sf.SoundFile(output) as stream:
-                    decoded_frames = 0
-                    for block in stream.blocks(blocksize=65536, dtype="float32"):
-                        if not np.isfinite(block).all():
-                            raise ValueError("引擎返回无效音频采样")
-                        decoded_frames += len(block)
-                    if decoded_frames != info.frames:
-                        raise ValueError("引擎返回不完整音频")
-                take = self.store.create("takes", {"id": take_id, "task_id": task_id,
-                    "experiment_id": experiment_id, "plan_id": plan_id, "recipe_id": snapshot["recipe"]["id"],
-                    "segment_id": request["segment_id"], "compiled_request": request,
-                    "recipe_snapshot": deepcopy(snapshot["recipe"]), "status": "completed",
-                    "audio_path": str(output), "audio": {**(audio or {}), "duration": info.duration,
-                        "sample_rate": info.samplerate, "channels": info.channels, "format": info.format},
-                    "elapsed_seconds": time.monotonic() - started})
-                outputs.append(take)
-                self.artifacts.register_artifact(task_id=task_id, artifact_type="audio.speech_take",
-                    path=str(output), label=f"台词 {index + 1} 候选", preview_kind="audio", stage="tts",
-                    metadata={"take_id": take_id, "experiment_id": experiment_id})
-            except BaseException:
-                if not any(t["id"] == take_id for t in outputs):
-                    output.unlink(missing_ok=True)
-                raise
-            finally:
-                provider.release()
-            if progress:
-                progress((index + 1) / len(requests), f"已生成 {index + 1}/{len(requests)} 句", stage="tts")
+                    raise InterruptedError("已取消，后续台词未生成")
+                provider = get_provider(request["provider_id"])
+                take_id = uuid4().hex
+                output = Path(media_root if media_root is not None else self.store.root) / "audio" / (take_id + ".wav")
+                output.parent.mkdir(parents=True, exist_ok=True)
+                started = time.monotonic()
+                try:
+                    connection_id = snapshot["connection"]["id"]
+                    with self._lock:
+                        guard = self._connection_locks.setdefault(connection_id, threading.Lock())
+                    while not guard.acquire(timeout=.1):
+                        if cancel_check():
+                            raise InterruptedError("排队期间已取消")
+                    try:
+                        audio = provider.synthesize(deepcopy(request), output, active_context, cancel_check)
+                    finally:
+                        guard.release()
+                    if cancel_check():
+                        raise InterruptedError("已取消，不采用未完成候选")
+                    import soundfile as sf
+                    info = sf.info(output)
+                    if info.frames < 1:
+                        raise ValueError("引擎返回空音频")
+                    import numpy as np
+                    with sf.SoundFile(output) as stream:
+                        decoded_frames = 0
+                        for block in stream.blocks(blocksize=65536, dtype="float32"):
+                            if not np.isfinite(block).all():
+                                raise ValueError("引擎返回无效音频采样")
+                            decoded_frames += len(block)
+                        if decoded_frames != info.frames:
+                            raise ValueError("引擎返回不完整音频")
+                    take = self.store.create("takes", {"id": take_id, "task_id": task_id,
+                        "experiment_id": experiment_id, "plan_id": plan_id, "recipe_id": snapshot["recipe"]["id"],
+                        "segment_id": request["segment_id"], "compiled_request": request,
+                        "recipe_snapshot": deepcopy(snapshot["recipe"]), "status": "completed",
+                        "audio_path": str(output), "audio": {**(audio or {}), "duration": info.duration,
+                            "sample_rate": info.samplerate, "channels": info.channels, "format": info.format},
+                        "elapsed_seconds": time.monotonic() - started})
+                    outputs.append(take)
+                    self.artifacts.register_artifact(task_id=task_id, artifact_type="audio.speech_take",
+                        path=str(output), label=f"台词 {index + 1} 候选", preview_kind="audio", stage="tts",
+                        metadata={"take_id": take_id, "experiment_id": experiment_id})
+                except BaseException:
+                    if not any(t["id"] == take_id for t in outputs):
+                        output.unlink(missing_ok=True)
+                    raise
+                finally:
+                    provider.release()
+                if progress:
+                    progress((index + 1) / len(requests), f"已生成 {index + 1}/{len(requests)} 句", stage="tts")
         return outputs
 
     @_reference_file_operation
