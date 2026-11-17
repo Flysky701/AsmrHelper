@@ -6,6 +6,7 @@
 
 - [中文快速上手：第一份配音](guides/quick-start.md)
 - [安装、运行、数据与备份](guides/installation.md)
+- [AI Agent 协作（MCP / Skill）与 Colab 云端算力指南](guides/agent-and-colab-guide.md)
 - [工作台](guides/workbench.md)
 - [节点流水线与图契约](guides/workflow-graph-v2.md)
 - [声音库、音色规则与试听](guides/voice-lab-v2.md)

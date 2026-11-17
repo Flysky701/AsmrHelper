@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from copy import deepcopy
 from io import BytesIO
+import base64
 import hashlib
 import json
 import math
@@ -13,6 +14,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
@@ -31,6 +33,19 @@ class ProviderError(ValueError):
 def _cancel(check):
     if check and check():
         raise ProviderError("cancelled", "语音生成已取消")
+
+
+def _clean_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _redact_secret(text: str, secret: str | None) -> str:
+    if secret and secret in text:
+        return text.replace(secret, "***")
+    return text
 
 
 def _number(minimum, maximum, default):
@@ -345,6 +360,188 @@ class SpeechProvider:
                 params["reference_transcript"] = str(assets[variant["value"]].get("transcript", ""))
         return params
 
+    def _has_remote_worker(self, context: dict | None) -> bool:
+        if self.provider_id not in {"qwen3", "voxcpm2"}:
+            return False
+        ctx = context if isinstance(context, dict) else {}
+        conn = ctx.get("connection") if isinstance(ctx.get("connection"), dict) else {}
+        if _clean_str(conn.get("deployment")) == "remote_gpu":
+            return True
+        return bool(
+            _clean_str(conn.get("base_url"))
+            or _clean_str(conn.get("remote_worker_url"))
+            or _clean_str(ctx.get("remote_worker_url"))
+            or _clean_str(os.environ.get("ASMR_HELPER_REMOTE_WORKER_URL"))
+        )
+
+    def _resolve_remote_worker_config(
+        self, context: dict | None
+    ) -> tuple[str, str | None, float, Any]:
+        ctx = context if isinstance(context, dict) else {}
+        conn = ctx.get("connection") if isinstance(ctx.get("connection"), dict) else {}
+        url = (
+            _clean_str(conn.get("base_url"))
+            or _clean_str(conn.get("remote_worker_url"))
+            or _clean_str(ctx.get("remote_worker_url"))
+            or _clean_str(os.environ.get("ASMR_HELPER_REMOTE_WORKER_URL"))
+        )
+        if not url:
+            raise ProviderError("connection_missing", "远端 GPU Worker 连接地址缺失")
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ProviderError("connection_missing", "远端 GPU Worker 连接地址格式无效")
+        token = (
+            _clean_str(conn.get("api_key"))
+            or _clean_str(conn.get("remote_worker_token"))
+            or _clean_str(ctx.get("remote_worker_token"))
+            or _clean_str(os.environ.get("ASMR_HELPER_REMOTE_WORKER_TOKEN"))
+            or _clean_str(os.environ.get("ASMR_WORKER_TOKEN"))
+        )
+        raw_timeout = (
+            conn.get("remote_worker_timeout")
+            or ctx.get("remote_worker_timeout")
+            or conn.get("timeout")
+            or _clean_str(os.environ.get("ASMR_HELPER_REMOTE_WORKER_TIMEOUT"))
+        )
+        timeout = float(raw_timeout) if raw_timeout is not None else 600.0
+        transport = (
+            ctx.get("remote_transport")
+            or conn.get("remote_transport")
+            or getattr(self, "_remote_transport", None)
+        )
+        return url.rstrip("/"), token, timeout, transport
+
+    @staticmethod
+    def _map_compute_error_payload(
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+        token: str | None = None,
+    ) -> ProviderError:
+        from packages.protocol.errors import ComputeErrorCode
+
+        safe_msg = _redact_secret(str(message or "未知远端错误"), token)
+        if code in {ComputeErrorCode.AUTH_REQUIRED, ComputeErrorCode.AUTH_INVALID}:
+            return ProviderError("authentication_failed", f"远端 GPU Worker 认证失败：{safe_msg}")
+        if code == ComputeErrorCode.TIMEOUT:
+            return ProviderError(
+                "remote_timeout",
+                f"远端 GPU Worker 响应超时：{safe_msg}",
+                retryable=True,
+                result_unknown=True,
+            )
+        if code == ComputeErrorCode.TRANSPORT_ERROR:
+            return ProviderError(
+                "connection_failed",
+                f"远端 GPU Worker 连接失败：{safe_msg}",
+                retryable=True,
+                result_unknown=True,
+            )
+        if code == ComputeErrorCode.MODEL_NOT_AVAILABLE:
+            return ProviderError("model_unavailable", f"远端 GPU Worker 模型不可用：{safe_msg}")
+        if code == ComputeErrorCode.OOM_ERROR:
+            return ProviderError(
+                "remote_oom", f"远端 GPU Worker 显存不足：{safe_msg}", retryable=True
+            )
+        if code == ComputeErrorCode.LEASE_CONFLICT:
+            return ProviderError(
+                "remote_busy", f"远端 GPU Worker 繁忙：{safe_msg}", retryable=True
+            )
+        if code == ComputeErrorCode.AUDIO_DECODE_ERROR:
+            return ProviderError("invalid_audio", f"远端 GPU Worker 音频编解码失败：{safe_msg}")
+        return ProviderError(
+            "remote_failed",
+            f"远端 GPU Worker 推理失败：{safe_msg}",
+            retryable=bool(retryable),
+        )
+
+    def _probe_remote_worker(self, context: dict) -> dict[str, Any]:
+        from packages.gpu_worker.client import ComputeClient, RemoteHttpTransport
+        from packages.protocol.errors import ComputeErrorCode, ComputeRemoteError
+
+        model = context.get("model")
+        mode = context.get("mode")
+        if mode is not None:
+            mode_desc = next((m for m in self.modes if m["id"] == mode), None)
+            if mode_desc is None:
+                return {
+                    "ready": False,
+                    "reachable": None,
+                    "verified": False,
+                    "code": "invalid_mode",
+                    "detail": "未知引擎模式",
+                }
+            if model is not None and mode_desc["models"] and model not in mode_desc["models"]:
+                return {
+                    "ready": False,
+                    "reachable": None,
+                    "verified": False,
+                    "code": "model_mismatch",
+                    "detail": "模型与所选模式不匹配",
+                }
+
+        try:
+            url, token, timeout, transport = self._resolve_remote_worker_config(context)
+        except ProviderError as exc:
+            return {
+                "ready": False,
+                "reachable": False,
+                "verified": False,
+                "code": exc.code,
+                "detail": str(exc),
+            }
+
+        try:
+            with ComputeClient(
+                RemoteHttpTransport(
+                    base_url=url,
+                    api_key=token,
+                    timeout=min(timeout, 30.0),
+                    transport=transport,
+                )
+            ) as client:
+                caps = client.capabilities()
+        except ComputeRemoteError as exc:
+            mapped = self._map_compute_error_payload(
+                exc.code, exc.payload.message, retryable=exc.retryable, token=token
+            )
+            reachable = exc.code in {ComputeErrorCode.AUTH_REQUIRED, ComputeErrorCode.AUTH_INVALID}
+            return {
+                "ready": False,
+                "reachable": reachable,
+                "verified": False,
+                "code": mapped.code,
+                "detail": str(mapped),
+            }
+
+        if "tts_batch" not in caps.supported_tasks:
+            return {
+                "ready": False,
+                "reachable": True,
+                "verified": False,
+                "code": "model_unavailable",
+                "detail": "远端 GPU Worker 不支持 tts_batch 任务",
+            }
+        return {
+            "ready": True,
+            "reachable": True,
+            "verified": True,
+            "remote_worker_url": url,
+            "device": caps.device,
+            "cuda_available": caps.cuda_available,
+            "vram_total_mb": caps.vram_total_mb,
+            "protocol_version": caps.protocol_version,
+            "detail": f"远端 GPU Worker 已就绪（{caps.device}）",
+        }
+
     def probe(self, context):
         """Readiness only: no generation, downloads, reference uploads or model loading."""
         if self.http:
@@ -355,6 +552,8 @@ class SpeechProvider:
             from importlib.util import find_spec
             ready = find_spec("edge_tts") is not None
             return {"ready": ready, "reachable": None, "verified": False}
+        if self._has_remote_worker(context):
+            return self._probe_remote_worker(context)
         try:
             runtime, model_path, _ = self._local_settings(context.get("model"), context.get("mode"), context)
             return {"ready": True, "reachable": None, "verified": False,
@@ -434,6 +633,9 @@ class SpeechProvider:
                 )
                 raise ProviderError("remote_failed", detail, retryable=True) from None
             remote_id = None
+        elif self._has_remote_worker(context) or context.get("_remote_session") is not None:
+            self._remote_gpu(request, output_path, context, cancel_check)
+            remote_id = None
         else:
             while not _LOCAL_LOCK.acquire(timeout=.2):
                 _cancel(cancel_check)
@@ -511,9 +713,15 @@ class SpeechProvider:
             raise ProviderError("invalid_audio", "远端没有返回可解码音频") from None
         return response.headers.get("x-request-id") or response.headers.get("request-id")
 
-    def _resolve_local_invocation(self, request, context, verified_assets: dict[str, str] | None = None):
-        executable, model_path, resolver = self._local_settings(request["model"], request["mode"], context)
-        references = {}
+    def _verify_invocation_assets_and_params(
+        self,
+        request: dict,
+        context: dict,
+        *,
+        verified_assets: dict[str, str] | None = None,
+        default_device: str,
+    ) -> tuple[dict[str, str], dict, str, str]:
+        references: dict[str, str] = {}
         for aid, digest in request["asset_hashes"].items():
             if verified_assets is not None and aid in verified_assets:
                 resolved_path = Path(verified_assets[aid])
@@ -530,7 +738,7 @@ class SpeechProvider:
                 verified_assets[aid] = resolved_str
         request = deepcopy(request)
         # Old frozen requests may contain a device; new reusable options never do.
-        device = context.get("device") or request["parameters"]["options"].get("device") or ("cuda:0" if self.provider_id == "qwen3" else "auto")
+        device = context.get("device") or request["parameters"]["options"].get("device") or default_device
         if device not in {"auto", "cpu", "cuda:0"}:
             raise ProviderError("invalid_device", "不支持的本地设备")
         precision = context.get("precision") or "auto"
@@ -538,12 +746,182 @@ class SpeechProvider:
             raise ProviderError("invalid_precision", "不支持的模型精度")
         if self.provider_id == "voxcpm2" and precision != "auto":
             raise ProviderError("unsupported_precision", "VoxCPM2 当前使用模型默认精度，请选择 auto")
+        return references, request, device, precision
+
+    def _resolve_local_invocation(self, request, context, verified_assets: dict[str, str] | None = None):
+        executable, model_path, resolver = self._local_settings(request["model"], request["mode"], context)
+        references, request, device, precision = self._verify_invocation_assets_and_params(
+            request,
+            context,
+            verified_assets=verified_assets,
+            default_device="cuda:0" if self.provider_id == "qwen3" else "auto",
+        )
         return executable, model_path, resolver, references, request, device, precision
+
+    def _build_remote_tts_batch_request(
+        self,
+        requests: list[dict],
+        context: dict,
+        *,
+        verified_assets: dict[str, str] | None = None,
+    ):
+        from packages.protocol.compute import TtsBatchRequest, TtsSynthesizeItem
+
+        all_references: dict[str, str] = {}
+        items: list[TtsSynthesizeItem] = []
+        batch_model = ""
+        batch_device = "auto"
+        batch_precision = "auto"
+        asset_cache = verified_assets if verified_assets is not None else {}
+
+        for idx, raw_req in enumerate(requests):
+            if (
+                raw_req.get("provider_id") != self.provider_id
+                or raw_req.get("provider_version") != self.version
+            ):
+                raise ProviderError("version_mismatch", "引擎版本与编译快照不符")
+            refs, req, device, precision = self._verify_invocation_assets_and_params(
+                raw_req,
+                context,
+                verified_assets=asset_cache,
+                default_device="auto",
+            )
+            all_references.update(refs)
+            if idx == 0:
+                batch_model = str(req["model"])
+                batch_device = device
+                batch_precision = precision
+
+            params = req["parameters"]
+            variant = params["variant"]
+            raw_kind = variant["kind"]
+            proto_kind = "preset" if raw_kind == "builtin" else raw_kind
+            speaker = variant["value"] if raw_kind == "builtin" else None
+            ref_id = variant["value"] if raw_kind == "reference" else None
+            item_opts = {
+                k: v
+                for k, v in params["options"].items()
+                if k not in {"schema_version", "device"}
+            }
+            items.append(
+                TtsSynthesizeItem(
+                    item_id=f"item-{idx}",
+                    text=req["text"],
+                    output_path=None,
+                    language=params.get("language", "auto"),
+                    speaker=speaker,
+                    instruction=params.get("instruction", ""),
+                    variant_kind=proto_kind,
+                    variant_value=variant["value"],
+                    reference_id=ref_id,
+                    reference_transcript=params.get("reference_transcript", ""),
+                    options=item_opts,
+                )
+            )
+
+        if len(all_references) == 1:
+            primary_ref = next(iter(all_references.values()))
+            ref_map: dict[str, str] = {}
+        else:
+            primary_ref = None
+            ref_map = dict(all_references)
+
+        return TtsBatchRequest(
+            provider_id=self.provider_id,
+            model=batch_model,
+            device=batch_device,
+            precision=batch_precision,
+            output_format="flac",
+            items=items,
+            reference_audio_path=primary_ref,
+            references=ref_map,
+            options=dict(items[0].options) if items else {},
+        )
+
+    def _materialize_remote_tts_item(
+        self,
+        item_res,
+        output_path: Path,
+        *,
+        token: str | None = None,
+    ) -> None:
+        from packages.gpu_worker.handlers import materialize_audio_bytes_to_path
+        from packages.protocol.errors import ComputeRemoteError
+
+        if not item_res.ok:
+            if item_res.error is not None:
+                raise self._map_compute_error_payload(
+                    item_res.error.code,
+                    item_res.error.message,
+                    retryable=item_res.error.retryable,
+                    token=token,
+                )
+            raise ProviderError("remote_failed", "远端 GPU Worker 单句语音合成失败")
+
+        if not item_res.audio_b64:
+            raise ProviderError("invalid_audio", "远端 GPU Worker 未返回可解码音频数据")
+
+        try:
+            audio_raw = base64.b64decode(item_res.audio_b64, validate=True)
+            materialize_audio_bytes_to_path(
+                audio_raw,
+                output_path,
+                stage="tts_batch",
+                wav_subtype="FLOAT",
+            )
+        except ComputeRemoteError as exc:
+            raise self._map_compute_error_payload(
+                exc.code, exc.payload.message, retryable=exc.retryable, token=token
+            ) from None
+        except Exception:
+            raise ProviderError("invalid_audio", "远端 GPU Worker 返回的音频无法解码") from None
+
+    def _remote_gpu(self, request: dict, output_path: Path, context: dict, cancel_check) -> None:
+        session = context.get("_remote_session")
+        if session is not None:
+            session.run(request, output_path, context, cancel_check)
+            return
+
+        from packages.gpu_worker.client import ComputeClient, RemoteHttpTransport
+        from packages.protocol.errors import ComputeRemoteError
+
+        _cancel(cancel_check)
+        url, token, timeout, transport = self._resolve_remote_worker_config(context)
+        batch_req = self._build_remote_tts_batch_request([request], context)
+        _cancel(cancel_check)
+
+        try:
+            with ComputeClient(
+                RemoteHttpTransport(
+                    base_url=url,
+                    api_key=token,
+                    timeout=timeout,
+                    transport=transport,
+                )
+            ) as client:
+                result = client.tts_batch(batch_req)
+        except ComputeRemoteError as exc:
+            raise self._map_compute_error_payload(
+                exc.code, exc.payload.message, retryable=exc.retryable, token=token
+            ) from None
+
+        if not result.items:
+            raise ProviderError("remote_failed", "远端 GPU Worker 未返回合成结果")
+        self._materialize_remote_tts_item(result.items[0], output_path, token=token)
 
     @contextmanager
     def batch_session(self, requests, context: dict):
         if self.remote or self.provider_id not in {"qwen3", "voxcpm2"} or len(requests) <= 1:
             yield context
+            return
+        if self._has_remote_worker(context):
+            remote_session = _RemoteBatchSession(self, requests)
+            scoped_context = dict(context)
+            scoped_context["_remote_session"] = remote_session
+            try:
+                yield scoped_context
+            finally:
+                remote_session.close()
             return
         session = _LocalBatchSession(self)
         scoped_context = dict(context)
@@ -595,6 +973,117 @@ class SpeechProvider:
     def release(self):
         # Single-shot local workers exit immediately; batch sessions clean up via batch_session().
         return None
+
+
+class _RemoteBatchSession:
+    """Execute multi-cue batch synthesis in a single `/v1/tts/batch` RPC over `ComputeClient`."""
+
+    def __init__(self, provider: SpeechProvider, planned_requests: list[dict]) -> None:
+        self._provider = provider
+        self._planned_requests = [deepcopy(req) for req in planned_requests]
+        self._verified_assets: dict[str, str] = {}
+        self._client = None
+        self._token: str | None = None
+        self._batch_results: dict[str, Any] | None = None
+        self._cursor = 0
+
+    @staticmethod
+    def _matches_planned(planned: dict, actual: dict) -> bool:
+        return all(
+            planned.get(key) == actual.get(key)
+            for key in (
+                "provider_id",
+                "provider_version",
+                "model",
+                "mode",
+                "segment_id",
+                "text",
+                "parameters",
+                "asset_hashes",
+            )
+        )
+
+    def _ensure_client(self, context: dict):
+        if self._client is None:
+            from packages.gpu_worker.client import ComputeClient, RemoteHttpTransport
+
+            url, token, timeout, transport = self._provider._resolve_remote_worker_config(context)
+            self._token = token
+            self._client = ComputeClient(
+                RemoteHttpTransport(
+                    base_url=url,
+                    api_key=token,
+                    timeout=timeout,
+                    transport=transport,
+                )
+            )
+        return self._client
+
+    def run(self, request: dict, output_path: Path, context: dict, cancel_check) -> None:
+        from packages.protocol.errors import ComputeRemoteError
+
+        _cancel(cancel_check)
+        client = self._ensure_client(context)
+
+        if (
+            self._batch_results is None
+            and self._cursor == 0
+            and self._planned_requests
+            and self._matches_planned(self._planned_requests[0], request)
+            and len({req.get("model") for req in self._planned_requests}) == 1
+        ):
+            batch_req = self._provider._build_remote_tts_batch_request(
+                self._planned_requests,
+                context,
+                verified_assets=self._verified_assets,
+            )
+            _cancel(cancel_check)
+            try:
+                res = client.tts_batch(batch_req)
+            except ComputeRemoteError as exc:
+                raise self._provider._map_compute_error_payload(
+                    exc.code, exc.payload.message, retryable=exc.retryable, token=self._token
+                ) from None
+            self._batch_results = {item.item_id: item for item in res.items}
+
+        if (
+            self._batch_results is not None
+            and self._cursor < len(self._planned_requests)
+            and self._matches_planned(self._planned_requests[self._cursor], request)
+        ):
+            item_id = f"item-{self._cursor}"
+            self._cursor += 1
+            item_res = self._batch_results.get(item_id)
+            if item_res is None:
+                raise ProviderError("remote_failed", f"远端 GPU Worker 缺少批次条目结果：{item_id}")
+            self._provider._materialize_remote_tts_item(
+                item_res, output_path, token=self._token
+            )
+            return
+
+        single_req = self._provider._build_remote_tts_batch_request(
+            [request],
+            context,
+            verified_assets=self._verified_assets,
+        )
+        _cancel(cancel_check)
+        try:
+            single_res = client.tts_batch(single_req)
+        except ComputeRemoteError as exc:
+            raise self._provider._map_compute_error_payload(
+                exc.code, exc.payload.message, retryable=exc.retryable, token=self._token
+            ) from None
+        if not single_res.items:
+            raise ProviderError("remote_failed", "远端 GPU Worker 未返回合成结果")
+        self._provider._materialize_remote_tts_item(
+            single_res.items[0], output_path, token=self._token
+        )
+
+    def close(self) -> None:
+        client, self._client = self._client, None
+        self._batch_results = None
+        if client is not None:
+            client.close()
 
 
 class _LocalBatchSession:
