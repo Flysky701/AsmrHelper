@@ -25,6 +25,7 @@ from src.app.services import (
     get_tool_registry,
     get_workspace_service,
 )
+from src.app.services.draft_session_service import get_draft_session_service
 
 
 def pipeline_service():
@@ -112,3 +113,7 @@ def input_catalog_service():
 
 def session_service():
     return get_session_service()
+
+
+def draft_session_service():
+    return get_draft_session_service()

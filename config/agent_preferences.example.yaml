@@ -1,0 +1,55 @@
+# ASMR Producer Agent Preferences (Template)
+# Copy this file to `config/agent_preferences.yaml` (gitignored if customized)
+# so external AI Agents using the `asmr-producer` skill can map your local media
+# folders, translation tone, default voice recipes, and optional Colab GPU tunnel
+# without hardcoding personal rules into `core`.
+
+version: 1
+
+# Local ASMR work search roots (supports fuzzy RJ-code or work-title lookup by the Agent)
+library_roots:
+  - "~/Music/ASMR"
+  - "./workspace/works"
+
+# Default output policy when committing a DraftSession
+output_policy:
+  subfolder: "中文配音成品"
+  export_formats:
+    - "srt"
+    - "lrc"
+  bilingual_subtitles: true
+  enable_dubbing: true
+
+# Translation & speed rewrite preferences
+translation_style:
+  source_lang: "ja"
+  target_lang: "zh"
+  tone: "温柔自然的耳语口语，保留亲昵称呼与呼吸停顿感，避免生硬书面腔或直译长句"
+  chars_per_second: 4.2
+  max_atempo: 1.35
+
+# Default VoiceLab / TTS selection for DraftSession
+voice_preferences:
+  # "preset" uses an existing VoiceLab recipe_id or builtin voice;
+  # "clone" extracts a 6-10s high-SNR reference candidate during Phase 1.
+  mode: "preset"
+  recipe_id: ""
+  provider_id: "edge"
+  model: "edge-tts"
+  voice: "zh-CN-XiaoxiaoNeural"
+  extract_voice_reference: true
+  synthesize_samples: true
+  sample_cue_count: 2
+
+# Optional remote GPU worker (e.g., Cloudflare Quick Tunnel printed by `notebooks/colab_gpu_worker.ipynb`)
+compute:
+  mode: "auto" # "local" | "remote" | "auto"
+  remote_worker_url: ""
+  remote_worker_token_env: "ASMR_HELPER_WORKER_TOKEN"
+
+# Final background + dubbed voice mixing defaults
+mix_defaults:
+  prefer_se_stem: true
+  original_volume: 0.85
+  tts_volume_ratio: 0.65
+  tts_delay_ms: 0.0
