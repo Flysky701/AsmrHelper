@@ -15,6 +15,7 @@ from src.api.http.routes import (
     asr,
     batch_runs,
     capabilities,
+    drafts,
     inputs,
     llm,
     models,
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(artifacts.router, prefix=api_prefix)
     app.include_router(tool_runs.router, prefix=api_prefix)
     app.include_router(speech.router, prefix=api_prefix)
+    app.include_router(drafts.router, prefix=api_prefix)
 
     @app.get("/health")
     def health():
