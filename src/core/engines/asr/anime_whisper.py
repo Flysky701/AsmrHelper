@@ -20,6 +20,9 @@ class AnimeWhisperRecognizer:
         batch_size: int = 1,
         no_repeat_ngram_size: int = 0,
         repetition_penalty: float = 1.0,
+        vad_slicing: bool = False,
+        vad_filter: bool = False,
+        vad_options: dict[str, float] | None = None,
     ) -> None:
         if language != "ja":
             raise ValueError("Anime Whisper currently supports Japanese (ja) only")
@@ -35,6 +38,8 @@ class AnimeWhisperRecognizer:
         self._device = (
             ("cuda:0" if torch.cuda.is_available() else "cpu") if device == "auto" else device
         )
+        self._vad_slicing = bool(vad_slicing or vad_filter)
+        self._vad_options = dict(vad_options or {})
         self._generate_kwargs = {
             "language": "ja",
             "task": "transcribe",
@@ -58,16 +63,77 @@ class AnimeWhisperRecognizer:
             trust_remote_code=False,
         )
 
-    def recognize(self, audio_path: str, output_path: str | None = None) -> list[dict[str, Any]]:
+    @property
+    def vad_slicing(self) -> bool:
+        return self._vad_slicing
+
+    @classmethod
+    def with_vad_slicing(cls, *, model_size: str, **kwargs: Any) -> AnimeWhisperRecognizer:
+        """Construct an AnimeWhisperRecognizer with acoustic pre-ASR VAD slicing enabled."""
+        kwargs["vad_slicing"] = True
+        return cls(model_size=model_size, **kwargs)
+
+    def recognize(
+        self,
+        audio_path: str,
+        output_path: str | None = None,
+        *,
+        vad_slicing: bool | None = None,
+        vad_filter: bool | None = None,
+    ) -> list[dict[str, Any]]:
         audio = self._read_audio(audio_path)
         if not len(audio):
             raise ValueError("Anime Whisper input contains no audio samples")
-        result = self._pipe(
-            {"raw": audio, "sampling_rate": 16000},
-            return_timestamps=True,
-            generate_kwargs=dict(self._generate_kwargs),
-        )
-        segments = self._normalize_segments(result, duration_seconds=len(audio) / 16000)
+
+        if vad_slicing is not None:
+            use_vad = bool(vad_slicing)
+        elif vad_filter is not None:
+            use_vad = bool(vad_filter)
+        else:
+            use_vad = self._vad_slicing
+
+        total_duration = len(audio) / 16000.0
+        if use_vad:
+            from .vad_slicer import slice_speech_regions
+
+            segments: list[dict[str, Any]] = []
+            regions = slice_speech_regions(audio, sample_rate=16000, **self._vad_options)
+            for reg_start, reg_end in regions:
+                start_sample = max(0, min(len(audio), round(reg_start * 16000)))
+                end_sample = max(start_sample, min(len(audio), round(reg_end * 16000)))
+                chunk_audio = audio[start_sample:end_sample]
+                if not len(chunk_audio):
+                    continue
+                offset_sec = start_sample / 16000.0
+                chunk_result = self._pipe(
+                    {"raw": chunk_audio, "sampling_rate": 16000},
+                    return_timestamps=True,
+                    generate_kwargs=dict(self._generate_kwargs),
+                )
+                chunk_segments = self._normalize_segments(
+                    chunk_result,
+                    duration_seconds=len(chunk_audio) / 16000.0,
+                )
+                for item in chunk_segments:
+                    global_start = round(offset_sec + float(item["start"]), 6)
+                    global_end = round(min(total_duration, offset_sec + float(item["end"])), 6)
+                    if global_end > global_start:
+                        segments.append(
+                            {
+                                "start": global_start,
+                                "end": global_end,
+                                "text": item["text"],
+                                "timestamp_source": item["timestamp_source"],
+                            }
+                        )
+        else:
+            result = self._pipe(
+                {"raw": audio, "sampling_rate": 16000},
+                return_timestamps=True,
+                generate_kwargs=dict(self._generate_kwargs),
+            )
+            segments = self._normalize_segments(result, duration_seconds=total_duration)
+
         if output_path:
             from src.core.subtitles import SubtitleDocument, SubtitleExporter, SubtitleSegment
 
@@ -99,27 +165,33 @@ class AnimeWhisperRecognizer:
 
         # Use the project's bundled decoder, not Transformers' bare `ffmpeg`
         # executable lookup. Supplying 16 kHz PCM also avoids torchaudio resampling.
-        decoded = subprocess.run(
-            [
-                get_ffmpeg(),
-                "-nostdin",
-                "-v",
-                "error",
-                "-i",
-                str(Path(audio_path).resolve()),
-                "-f",
-                "f32le",
-                "-acodec",
-                "pcm_f32le",
-                "-ac",
-                "1",
-                "-ar",
-                "16000",
-                "pipe:1",
-            ],
-            capture_output=True,
-            check=False,
-        )
+        try:
+            decoded = subprocess.run(
+                [
+                    get_ffmpeg(),
+                    "-nostdin",
+                    "-v",
+                    "error",
+                    "-i",
+                    str(Path(audio_path).resolve()),
+                    "-f",
+                    "f32le",
+                    "-acodec",
+                    "pcm_f32le",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "16000",
+                    "pipe:1",
+                ],
+                capture_output=True,
+                check=False,
+                timeout=600,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError(
+                f"Anime Whisper audio decode timed out after 600s: {audio_path}"
+            ) from exc
         if decoded.returncode:
             detail = decoded.stderr.decode("utf-8", errors="replace")[-1000:]
             raise ValueError(f"Anime Whisper could not decode audio: {detail}")
