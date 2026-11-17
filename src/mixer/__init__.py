@@ -38,14 +38,31 @@ class Mixer:
         self.tts_delay_ms = tts_delay_ms
 
     def detect_volume(self, audio_path: str) -> float:
-        """检测音频音量"""
-        data, _ = sf.read(audio_path)
-        if data.size == 0 or not np.isfinite(data).all():
+        """检测有声帧有效音量（流式 float32 读取，忽略长静音段稀释）"""
+        total_sq = 0.0
+        total_samples = 0
+        active_sq = 0.0
+        active_samples = 0
+        # 约 -60 dBFS 门限过滤稀疏配音轨的大片纯静音区间
+        gate_sq = 1e-6
+        with sf.SoundFile(audio_path) as stream:
+            for block in stream.blocks(blocksize=65536, dtype="float32", always_2d=True):
+                if not np.isfinite(block).all():
+                    raise ValueError("混音输入音频为空或包含无效采样")
+                sq = np.square(block, dtype=np.float64)
+                total_sq += float(np.sum(sq))
+                total_samples += sq.size
+                frame_energy = np.mean(sq, axis=1)
+                active_mask = frame_energy >= gate_sq
+                if np.any(active_mask):
+                    active_block = sq[active_mask]
+                    active_sq += float(np.sum(active_block))
+                    active_samples += active_block.size
+        if total_samples == 0:
             raise ValueError("混音输入音频为空或包含无效采样")
-        # 使用 RMS 作为统一音量口径，避免峰值检测受随机削波影响
-        if data.dtype == np.float32 or data.dtype == np.float64:
-            return float(np.sqrt(np.mean(np.square(data))))
-        return float(np.sqrt(np.mean(np.square(data.astype(np.float64)))) / 32768)
+        if active_samples > 0:
+            return float(np.sqrt(active_sq / active_samples))
+        return float(np.sqrt(total_sq / total_samples))
 
     def mix(
         self,
@@ -123,9 +140,9 @@ class Mixer:
             acodec = "flac"
             ar = str(info.samplerate)
         else:
-            # 默认 WAV 输出：使用 32-bit float 无损
+            # 默认 WAV 输出：使用 32-bit float 无损，保留原音频采样率（如 48kHz 双耳录音）
             acodec = "pcm_f32le"
-            ar = "44100"
+            ar = str(info.samplerate)
 
         # 构建 ffmpeg 命令
         # 时间零点之前的配音被裁掉；正偏移补前置静音。
@@ -156,12 +173,17 @@ class Mixer:
         elif output_ext == ".flac":
             final_ar = str(info.samplerate)  # FLAC 保持原采样率
 
+        mix_duration = "first" if output_length == "main" else "longest"
+        filter_graph = (
+            f"[0:a]{orig_filter}[orig];[1:a]{tts_filter}[tts];"
+            f"[orig][tts]amix=inputs=2:duration={mix_duration}:normalize=0[mixed]"
+        )
         cmd = [
             get_ffmpeg(),
             "-i", str(original_path),
             "-i", str(tts_path),
             "-filter_complex",
-            f"[0:a]{orig_filter}[orig];[1:a]{tts_filter}[tts];[orig][tts]amix=inputs=2:duration={'first' if output_length == 'main' else 'longest'}[mixed]",
+            filter_graph,
             "-map", "[mixed]",
             "-acodec", acodec,
             "-ar", final_ar,

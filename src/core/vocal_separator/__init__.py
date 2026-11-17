@@ -48,8 +48,19 @@ class VocalSeparator:
 
         # 加载模型
         from src.core.resources.model_assets import complete, load_demucs
-        from src.core.resources.model_catalog import ModelCatalog
-        entry = ModelCatalog().get("demucs-" + model_name)
+        from src.core.resources.model_catalog import ModelCatalog, ModelCatalogError
+        catalog = ModelCatalog()
+        try:
+            entry = catalog.get("demucs-" + model_name)
+        except ModelCatalogError:
+            matched = [
+                item
+                for item in catalog.list_all()
+                if item.provider == "demucs" and model_name in item.capability_models
+            ]
+            if not matched:
+                raise
+            entry = matched[0]
         model_path = entry.resolved_install_dir()
         if not complete(entry, model_path):
             raise RuntimeError("Demucs 权重未准备完整，请先引用已有模型或单独下载权重")

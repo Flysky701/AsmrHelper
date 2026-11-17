@@ -563,8 +563,9 @@ class PipelineExecutor:
                     plan.source_lang, plan.target_lang, plan.input_path)
                 cached = cached_translations(cache_path, timestamped_segments, plan.source_lang, plan.target_lang)
                 translations = [text or cached[i] for i, text in enumerate(translations)]
+            from src.core.engines.llm.translator import has_translatable_text
             pending = [i for i, text in enumerate(translations) if not text
-                       and str(timestamped_segments[i].get("text", "")).strip()]
+                       and has_translatable_text(str(timestamped_segments[i].get("text", "")))]
             reused = sum(bool(text) for text in translations)
             if pending and options.get("reuse_only"):
                 raise ValueError("已有译文无法完整匹配，缺失部分需要有效翻译连接；已停止配音，请检查字幕或配置翻译服务后重新提交")

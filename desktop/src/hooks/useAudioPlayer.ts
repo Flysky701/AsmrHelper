@@ -8,6 +8,7 @@ export function useAudioPlayer() {
   const isPlaying = useAudioPlayerStore((s) => s.isPlaying)
   const volume = useAudioPlayerStore((s) => s.volume)
   const currentTime = useAudioPlayerStore((s) => s.currentTime)
+  const seekVersion = useAudioPlayerStore((s) => s.seekVersion)
   const updateTime = useAudioPlayerStore((s) => s.updateTime)
   const setPlaying = useAudioPlayerStore((s) => s.setPlaying)
   const setError = useAudioPlayerStore((s) => s.setError)
@@ -70,7 +71,14 @@ export function useAudioPlayer() {
     if (audioRef.current) audioRef.current.volume = volume
   }, [volume])
 
-  // Seek from store changes (user dragging slider)
+  // Explicit programmatic seeks (e.g. clicking a subtitle cue < 1.5s away) always apply immediately
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || seekVersion === 0) return
+    audio.currentTime = useAudioPlayerStore.getState().currentTime
+  }, [seekVersion])
+
+  // Seek from external store changes exceeding playback jitter
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return

@@ -63,6 +63,8 @@ html[lang=en] .queue-workbench.is-dragging::after { content: 'Drop to import aud
   --warning-soft: oklch(95.5% 0.028 82);
   --error: oklch(55% 0.16 26);
   --error-soft: oklch(95.5% 0.026 26);
+  --danger: var(--error);
+  --danger-soft: var(--error-soft);
 
   /* Unified Radius Scale */
   --radius-xs: 6px;
