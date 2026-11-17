@@ -1,0 +1,47 @@
+"""Pure Pydantic v2 compute protocol contracts for ASMR Helper."""
+
+from .compute import (
+    DEFAULT_SUPPORTED_TASKS,
+    PROTOCOL_VERSION,
+    AlignmentRequest,
+    AlignmentResult,
+    AlignmentWordItem,
+    AsrRequest,
+    AsrResult,
+    AsrSegmentItem,
+    AudioFormat,
+    LeaseEvictRequest,
+    LeaseEvictResult,
+    SeparationRequest,
+    SeparationResult,
+    TtsBatchItemResult,
+    TtsBatchRequest,
+    TtsBatchResult,
+    TtsSynthesizeItem,
+    WorkerCapabilities,
+)
+from .errors import ComputeErrorCode, ComputeErrorPayload, ComputeRemoteError
+
+__all__ = [
+    "PROTOCOL_VERSION",
+    "DEFAULT_SUPPORTED_TASKS",
+    "AudioFormat",
+    "ComputeErrorCode",
+    "ComputeErrorPayload",
+    "ComputeRemoteError",
+    "WorkerCapabilities",
+    "LeaseEvictRequest",
+    "LeaseEvictResult",
+    "SeparationRequest",
+    "SeparationResult",
+    "AsrRequest",
+    "AsrSegmentItem",
+    "AsrResult",
+    "AlignmentWordItem",
+    "AlignmentRequest",
+    "AlignmentResult",
+    "TtsSynthesizeItem",
+    "TtsBatchRequest",
+    "TtsBatchItemResult",
+    "TtsBatchResult",
+]
