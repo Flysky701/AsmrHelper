@@ -125,3 +125,11 @@ $env:ASMR_HELPER_REMOTE_WORKER_TOKEN = "粘贴输出的随机令牌"
 
 - **Demucs 人声分离**（`SeparatorEngineRuntime`）、**ASR 识别**与**强制时间轴对齐**自动通过无损 `.flac` 压缩上传音频（节省约 60% 隧道上传带宽），并在本机还原目标 `.wav` 分轨与时间轴；
 - **Qwen3-TTS 与 VoxCPM2**：就绪探测（`probe`）直接校验远端 `/v1/capabilities`；批量配音（`SpeechService.run_requests`）在本地先行校验参考音频 SHA256 摘要后，将克隆参考音频无损转码为 `.flac` 单次上传至 `/v1/tts/batch`，并将返回的无损音频解码写入本地 float32 WAV，工作区数据库、草稿状态与最终双声道混音全程安全保留在本机。
+
+## 台本预审、桌面接力与单句重抽
+
+在 `asmr_prepare_draft` 中传入 `script_path` 可将 TXT 或 PDF 台词对到已有原文字幕或 ASR 时间点。设置 `prepare_stems: true` 会优先使用已有分轨，通过差分补齐缺轨，缺少参考轨时调用 Demucs。审稿报告的 `script_alignment` 列出匹配行、未匹配行、录音多出的片段、低置信度锚点和时间冲突。
+
+桌面端和 MCP 使用同一工作区与声音库。自定义数据目录时，两个进程的 `ASMR_HELPER_STATE_DB` 应指向同一个 SQLite 文件，`ASMR_HELPER_VOICE_LAB_DIR` 应指向同一个声音库目录。Agent 交出 `draft_id` 后，可在桌面草稿列表打开对应草稿，试听样音、改词并确认合成。
+
+对已配音的草稿，使用 `asmr_get_draft_audit` 并设置 `include_segments: true` 取得当前修订号与台词 ID。在 `asmr_commit_draft` 中传入该修订号、输出目录和 `regenerate_cue_ids: ["cue-0002"]` 即可只重抽指定句，并重新混音。普通提交会复用内容和声音设置相同的已完成录音；合成中断后，可以按最新修订继续提交。需要逐句恢复的草稿会分句请求远端 GPU，每句返回后即保存。设置 `mix_options.sidechain_ducking: true` 可在配音发声时自动压低背景。

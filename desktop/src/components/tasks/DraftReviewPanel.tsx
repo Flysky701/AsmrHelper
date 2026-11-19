@@ -78,6 +78,7 @@ export function normalizeAuditReport(raw?: Partial<QualityAuditReport> | null): 
     over_speed_cues: Array.isArray(raw?.over_speed_cues) ? [...raw.over_speed_cues] : [],
     summary_counts: { ...summary },
     gate_passed: Boolean(raw?.gate_passed),
+    script_alignment: raw?.script_alignment,
     chars_per_second: typeof raw?.chars_per_second === 'number' && Number.isFinite(raw.chars_per_second)
       ? raw.chars_per_second
       : 4.2,
@@ -647,6 +648,20 @@ export default function DraftReviewPanel({
                   </div>
                 </div>
 
+                {audit.script_alignment && (
+                  <ul className="draft-audit-warnings-list">
+                    {audit.script_alignment.unmatched.map(row => <li key={row.line}>
+                      {formatMessage('台本第 {0} 行未匹配', [row.line])} · {row.text}
+                    </li>)}
+                    {audit.script_alignment.low_confidence.map(row => <li key={row.cue_id}>
+                      {formatMessage('台本第 {0} 行的时间锚点需复核', [row.line])} · {row.cue_id}
+                    </li>)}
+                    {audit.script_alignment.extra_cue_ids.length > 0 && <li>
+                      {t('未匹配台本的录音片段')} · {audit.script_alignment.extra_cue_ids.join(', ')}
+                    </li>}
+                    {audit.script_alignment.conflicts.map((message, i) => <li key={i}>{message}</li>)}
+                  </ul>
+                )}
                 {audit.warnings.length > 0 ? (
                   <ul className="draft-audit-warnings-list">
                     {audit.warnings.map((item, idx) => (

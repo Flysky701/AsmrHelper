@@ -23,7 +23,7 @@ from src.app.errors import (
     ResourceValidationError,
 )
 from src.app.persistence.draft_store import DraftConflictError
-from src.app.services.draft_session_service import DraftSessionService, get_draft_session_service
+from src.app.services.draft_session_service import DraftSessionService
 
 
 # ─── Tool Input Models ────────────────────────────────────────────────────
@@ -54,6 +54,7 @@ class PrepareDraftArgs(BaseModel):
     llm_model: str | None = Field(default=None, description="Optional LLM model identifier.")
     llm_options: dict[str, Any] | None = Field(default=None, description="Optional LLM provider options.")
     voice_plan: dict[str, Any] | None = Field(default=None, description="Optional VoiceLab recipe_id or speech options.")
+    prepare_stems: bool = Field(default=False, description="Prepare vocals and effects using paired stems or source separation.")
     extract_voice_reference: bool = Field(default=False, description="Extract highest-SNR 6-10s clean reference candidate.")
     synthesize_samples: bool = Field(default=False, description="Synthesize 1-2 sample cues before review gate.")
     sample_cue_count: int = Field(default=0, ge=0, le=2, description="Explicit number of sample cues (0..2).")
@@ -100,6 +101,7 @@ class CommitDraftArgs(BaseModel):
     draft_id: str = Field(description="DraftSession identifier to commit.")
     output_dir: str = Field(description="Destination directory for exported subtitles and dubbed audio.")
     export_formats: list[str] = Field(default_factory=lambda: ["srt", "lrc"], description="Subtitle formats to export (srt, vtt, lrc).")
+    regenerate_cue_ids: list[str] = Field(default_factory=list, description="Force new takes only for these cue IDs; all other cues must have cached audio.")
     enable_dubbing: bool = Field(default=True, description="Synthesize TTS timeline and mix final dubbed audio.")
     bilingual: bool = Field(default=True, description="Export bilingual (source + target) subtitles when source text exists.")
     mix_options: dict[str, Any] | None = Field(default=None, description="Optional Mixer options (original_volume, tts_volume_ratio, tts_delay_ms).")
@@ -216,7 +218,9 @@ class McpToolRegistry:
 
     @property
     def draft_service(self) -> DraftSessionService:
-        return self._draft_service if self._draft_service is not None else get_draft_session_service()
+        if self._draft_service is None:
+            self._draft_service = DraftSessionService(standalone=True, speech_service=self._speech_service)
+        return self._draft_service
 
     def _get_speech_service(self) -> Any:
         if self._speech_service is not None:
@@ -297,6 +301,7 @@ class McpToolRegistry:
             llm_model=args.llm_model,
             llm_options=args.llm_options,
             voice_plan=voice_plan or None,
+            prepare_stems=args.prepare_stems,
             extract_voice_reference=args.extract_voice_reference,
             synthesize_samples=args.synthesize_samples,
             sample_cue_count=args.sample_cue_count,
@@ -328,6 +333,7 @@ class McpToolRegistry:
             args.output_dir,
             export_formats=args.export_formats,
             enable_dubbing=args.enable_dubbing,
+            regenerate_cue_ids=args.regenerate_cue_ids,
             bilingual=args.bilingual,
             mix_options=args.mix_options,
             expected_revision=args.expected_revision,

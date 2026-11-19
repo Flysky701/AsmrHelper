@@ -705,8 +705,8 @@ class SpeechService:
             end = cursor + len(segment["text"])
             sid = f"sentence-{index + 1}"
             plan["segments"].append({"id": sid, "start": cursor, "end": end,
-                "delivery": snapshot["recipe"].get("default_delivery", "normal"),
-                "emotion": snapshot["recipe"].get("default_emotion", "neutral"), "pause_ms": snapshot["recipe"].get("default_pause_ms", 0)})
+                "delivery": segment.get("delivery") or snapshot["recipe"].get("default_delivery", "normal"),
+                "emotion": segment.get("emotion") or snapshot["recipe"].get("default_emotion", "neutral"), "pause_ms": snapshot["recipe"].get("default_pause_ms", 0)})
             timeline[sid] = {"start": segment["start_time"], "end": segment["end_time"]}
             cursor = end
         plan = self.store.create("plans", plan)
@@ -749,7 +749,7 @@ class SpeechService:
             max_atempo=max_atempo,
         )
 
-    def run_requests(self, requests, snapshot, *, task_id, experiment_id, plan_id, cancel_check=lambda: False, progress=None, media_root=None):
+    def run_requests(self, requests, snapshot, *, task_id, experiment_id, plan_id, cancel_check=lambda: False, progress=None, media_root=None, on_take=None):
         recipe, connection = snapshot["recipe"], snapshot["connection"]
         if (not connection.get("id") or recipe.get("connection_ref") != connection["id"]
                 or recipe.get("provider_id") != connection.get("provider_id")
@@ -763,6 +763,7 @@ class SpeechService:
         from contextlib import nullcontext
         context = self.connection_context(snapshot["connection"])
         context["assets"] = deepcopy(snapshot["assets"])
+        context["checkpoint_each_take"] = on_take is not None
         outputs = []
         batch_provider = get_provider(recipe["provider_id"]) if len(requests) > 1 else None
         session_cm = (
@@ -829,6 +830,8 @@ class SpeechService:
                     raise
                 finally:
                     provider.release()
+                if on_take is not None:
+                    on_take(take)
                 if progress:
                     progress((index + 1) / len(requests), f"已生成 {index + 1}/{len(requests)} 句", stage="tts")
         return outputs

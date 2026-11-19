@@ -237,7 +237,7 @@ def test_local_cancellation_terminates_isolated_worker(monkeypatch, tmp_path):
             return 0
     def popen(command, **kwargs):
         assert command[0] == "custom-python.exe"
-        assert "src.core.speech.local_worker" in command
+        assert "packages.gpu_worker.cli" in command
         return Process()
     monkeypatch.setattr(providers.subprocess, "Popen", popen)
     def cancelled():
@@ -266,7 +266,7 @@ def test_local_worker_abnormal_exit_reports_error_and_cleans_exchange(monkeypatc
         def poll(self):
             return self.returncode
     def popen(command, **kwargs):
-        assert 'src.core.speech.local_worker' in command
+        assert 'packages.gpu_worker.cli' in command
         request_path = Path(command[-1])
         assert request_path.is_file()
         exchange.append(request_path.parent)

@@ -758,6 +758,51 @@ class SpeechProvider:
         )
         return executable, model_path, resolver, references, request, device, precision
 
+    @staticmethod
+    def _compute_tts_item(req, idx=0, output_path=None):
+        from packages.protocol.compute import TtsSynthesizeItem
+
+        params = req["parameters"]
+        variant = params["variant"]
+        raw_kind = variant["kind"]
+        proto_kind = "preset" if raw_kind == "builtin" else raw_kind
+        speaker = variant["value"] if raw_kind == "builtin" else None
+        ref_id = variant["value"] if raw_kind == "reference" else None
+        item_opts = {
+            k: v
+            for k, v in params["options"].items()
+            if k not in {"schema_version", "device"}
+        }
+        return TtsSynthesizeItem(
+            item_id=f"item-{idx}",
+            text=req["text"],
+            output_path=output_path,
+            language=params.get("language", "auto"),
+            speaker=speaker,
+            instruction=params.get("instruction", ""),
+            variant_kind=proto_kind,
+            variant_value=variant["value"],
+            reference_id=ref_id,
+            reference_transcript=params.get("reference_transcript", ""),
+            options=item_opts,
+        )
+
+    def _local_job(self, request, references, model_path, device, precision, output_path, response_path):
+        from packages.protocol.compute import TtsBatchRequest
+
+        item = self._compute_tts_item(request, output_path=str(output_path.resolve()))
+        batch = TtsBatchRequest(provider_id=self.provider_id, model=str(model_path), device=device,
+                                precision=precision, output_format="wav", items=[item], references=references)
+        return {"task": "tts_batch", "request": batch.model_dump(), "response_path": str(response_path)}
+
+    @staticmethod
+    def _check_local_result(response_path):
+        envelope = json.loads(response_path.read_text(encoding="utf-8"))
+        items = envelope.get("result", {}).get("items", [])
+        if not envelope.get("ok") or len(items) != 1 or not items[0].get("ok"):
+            error = (items[0].get("error") if items else None) or envelope.get("error") or {}
+            raise ProviderError("local_failed", error.get("message") or "本地语音推理失败")
+
     def _build_remote_tts_batch_request(
         self,
         requests: list[dict],
@@ -765,10 +810,10 @@ class SpeechProvider:
         *,
         verified_assets: dict[str, str] | None = None,
     ):
-        from packages.protocol.compute import TtsBatchRequest, TtsSynthesizeItem
+        from packages.protocol.compute import TtsBatchRequest
 
         all_references: dict[str, str] = {}
-        items: list[TtsSynthesizeItem] = []
+        items = []
         batch_model = ""
         batch_device = "auto"
         batch_precision = "auto"
@@ -792,32 +837,7 @@ class SpeechProvider:
                 batch_device = device
                 batch_precision = precision
 
-            params = req["parameters"]
-            variant = params["variant"]
-            raw_kind = variant["kind"]
-            proto_kind = "preset" if raw_kind == "builtin" else raw_kind
-            speaker = variant["value"] if raw_kind == "builtin" else None
-            ref_id = variant["value"] if raw_kind == "reference" else None
-            item_opts = {
-                k: v
-                for k, v in params["options"].items()
-                if k not in {"schema_version", "device"}
-            }
-            items.append(
-                TtsSynthesizeItem(
-                    item_id=f"item-{idx}",
-                    text=req["text"],
-                    output_path=None,
-                    language=params.get("language", "auto"),
-                    speaker=speaker,
-                    instruction=params.get("instruction", ""),
-                    variant_kind=proto_kind,
-                    variant_value=variant["value"],
-                    reference_id=ref_id,
-                    reference_transcript=params.get("reference_transcript", ""),
-                    options=item_opts,
-                )
-            )
+            items.append(self._compute_tts_item(req, idx))
 
         if len(all_references) == 1:
             primary_ref = next(iter(all_references.values()))
@@ -946,10 +966,10 @@ class SpeechProvider:
         with tempfile.TemporaryDirectory(prefix="speech-worker-", dir=temp_root) as directory:
             input_path = Path(directory) / "request.json"
             response_path = Path(directory) / "response.json"
-            input_path.write_text(json.dumps({"request": request, "references": references, "model_path": model_path,
-                "precision": precision, "device": device, "output_path": str(output_path.resolve()), "response_path": str(response_path)}, ensure_ascii=False), encoding="utf-8")
+            job = self._local_job(request, references, model_path, device, precision, output_path, response_path)
+            input_path.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
             with (Path(directory) / "worker.log").open("w", encoding="utf-8") as log:
-                process = subprocess.Popen([str(executable), "-m", "src.core.speech.local_worker", str(input_path)],
+                process = subprocess.Popen([str(executable), "-m", "packages.gpu_worker.cli", "--once", str(input_path)],
                     cwd=str(PROJECT_ROOT), env=resolver.subprocess_env(), stdout=log, stderr=log,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 try:
@@ -969,6 +989,8 @@ class SpeechProvider:
                             process.wait()
             if process.returncode != 0 or not response_path.is_file():
                 raise ProviderError("local_failed", "本地语音推理失败，请检查模型、设备与参考素材")
+
+            self._check_local_result(response_path)
 
     def release(self):
         # Single-shot local workers exit immediately; batch sessions clean up via batch_session().
@@ -1027,6 +1049,7 @@ class _RemoteBatchSession:
 
         if (
             self._batch_results is None
+            and not context.get("checkpoint_each_take")
             and self._cursor == 0
             and self._planned_requests
             and self._matches_planned(self._planned_requests[0], request)
@@ -1087,7 +1110,7 @@ class _RemoteBatchSession:
 
 
 class _LocalBatchSession:
-    """Keep a single isolated local_worker warm across a multi-cue batch."""
+    """Keep one isolated gpu-worker warm across a multi-cue batch."""
 
     def __init__(self, provider: SpeechProvider) -> None:
         self._provider = provider
@@ -1098,7 +1121,7 @@ class _LocalBatchSession:
         self._job_counter = 0
         self._verified_assets: dict[str, str] = {}
 
-    def _ensure_started(self, executable, model_path, resolver, references, request, device, precision, cancel_check) -> Path:
+    def _ensure_started(self, executable, model_path, resolver, device, precision, cancel_check) -> Path:
         key = (str(executable), str(model_path), device, precision)
         if self._process is not None and self._process.poll() is None and self._key == key and self._temp_dir is not None:
             return Path(self._temp_dir.name)
@@ -1111,24 +1134,9 @@ class _LocalBatchSession:
         self._temp_dir = tempfile.TemporaryDirectory(prefix="speech-batch-worker-", dir=temp_root)
         directory = Path(self._temp_dir.name)
         ready_path = directory / "ready.json"
-        session_path = directory / "session.json"
-        session_path.write_text(
-            json.dumps(
-                {
-                    "request": request,
-                    "references": references,
-                    "model_path": model_path,
-                    "precision": precision,
-                    "device": device,
-                    "ready_path": str(ready_path),
-                },
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
         self._log_handle = (directory / "worker.log").open("w", encoding="utf-8")
         self._process = subprocess.Popen(
-            [str(executable), "-m", "src.core.speech.local_worker", "--session", str(session_path)],
+            [str(executable), "-m", "packages.gpu_worker.cli", "--session", str(ready_path)],
             cwd=str(PROJECT_ROOT),
             env=resolver.subprocess_env(),
             stdin=subprocess.PIPE,
@@ -1158,24 +1166,14 @@ class _LocalBatchSession:
             request, context, verified_assets=self._verified_assets
         )
         directory = self._ensure_started(
-            executable, model_path, resolver, references, request, device, precision, cancel_check
+            executable, model_path, resolver, device, precision, cancel_check
         )
         assert self._process is not None and self._process.stdin is not None
         self._job_counter += 1
         job_path = directory / f"job-{self._job_counter}.json"
         response_path = directory / f"response-{self._job_counter}.json"
-        job_path.write_text(
-            json.dumps(
-                {
-                    "request": request,
-                    "references": references,
-                    "output_path": str(output_path.resolve()),
-                    "response_path": str(response_path),
-                },
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
+        job = self._provider._local_job(request, references, model_path, device, precision, output_path, response_path)
+        job_path.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
         try:
             self._process.stdin.write(f"{job_path}\n")
             self._process.stdin.flush()
@@ -1187,9 +1185,7 @@ class _LocalBatchSession:
                 if time.monotonic() > deadline:
                     raise ProviderError("local_timeout", "本地模型执行超时")
                 time.sleep(0.05)
-            result = json.loads(response_path.read_text(encoding="utf-8"))
-            if not result.get("ok"):
-                raise ProviderError("local_failed", "本地语音推理失败，请检查模型、设备与参考素材")
+            self._provider._check_local_result(response_path)
         except BaseException:
             if self._process is not None and self._process.poll() is None:
                 self.close()

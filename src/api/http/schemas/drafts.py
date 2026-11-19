@@ -5,6 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel, Field
+from packages.protocol.drafts import DraftSession, QualityAuditReport
+
+
+class DraftSessionResponse(DraftSession):
+    """Public REST model for a persisted draft."""
+
+
+class QualityAuditReportResponse(QualityAuditReport):
+    """Public REST model for a draft audit."""
 
 
 class InspectWorkRequest(BaseModel):
@@ -39,6 +48,7 @@ class PrepareDraftRequest(BaseModel):
     llm_model: str | None = None
     llm_options: dict[str, Any] | None = None
     voice_plan: dict[str, Any] | None = None
+    prepare_stems: bool = False
     extract_voice_reference: bool = False
     synthesize_samples: bool = False
     sample_cue_count: int = Field(default=0, ge=0, le=2)
@@ -68,41 +78,11 @@ class PatchDraftRequest(BaseModel):
 class CommitDraftRequest(BaseModel):
     output_dir: str
     export_formats: list[str] = Field(default_factory=lambda: ["srt", "lrc"])
+    regenerate_cue_ids: list[str] = Field(default_factory=list, description="Force new takes only for these cue IDs; all other cues must have cached audio.")
     enable_dubbing: bool = True
     bilingual: bool = True
     mix_options: dict[str, Any] | None = None
     expected_revision: int | None = None
-
-
-class QualityAuditReportResponse(BaseModel):
-    draft_id: str | None = None
-    state: str | None = None
-    revision: int | None = None
-    untranslated_indices: list[int] = Field(default_factory=list)
-    japanese_residue_indices: list[int] = Field(default_factory=list)
-    empty_or_symbol_indices: list[int] = Field(default_factory=list)
-    over_speed_cues: list[dict[str, Any]] = Field(default_factory=list)
-    summary_counts: dict[str, int] = Field(default_factory=dict)
-    gate_passed: bool = False
-    chars_per_second: float = 4.2
-    max_atempo: float = 1.35
-    reference_quality: dict[str, Any] | None = None
-    warnings: list[str] = Field(default_factory=list)
-
-
-class DraftSessionResponse(BaseModel):
-    draft_id: str
-    state: str
-    work_dir: str
-    title: str
-    tracks: list[dict[str, Any]] = Field(default_factory=list)
-    segments: list[dict[str, Any]] = Field(default_factory=list)
-    voice_plan: dict[str, Any] = Field(default_factory=dict)
-    audit_report: dict[str, Any] = Field(default_factory=dict)
-    artifacts: dict[str, Any] = Field(default_factory=dict)
-    revision: int
-    created_at: str
-    updated_at: str
 
 
 class DraftListResponse(BaseModel):

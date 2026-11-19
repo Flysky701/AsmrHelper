@@ -178,7 +178,13 @@ class SpeechStore:
     def __init__(self, root: Path | None = None):
         if root is None:
             from src.config import PROJECT_ROOT
-            root = PROJECT_ROOT / "config" / "voice_lab"
+            override = os.environ.get("ASMR_HELPER_VOICE_LAB_DIR", "").strip()
+            data_dir = os.environ.get("ASMR_HELPER_DATA_DIR", "").strip()
+            root = Path(override).expanduser() if override else PROJECT_ROOT / "config" / "voice_lab"
+            if data_dir and not override and not (root / "store.json").exists():
+                previous = Path(data_dir).expanduser() / "voice_lab"
+                if (previous / "store.json").is_file():
+                    root = previous
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / "store.json"

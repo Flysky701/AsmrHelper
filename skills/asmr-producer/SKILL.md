@@ -81,3 +81,5 @@ Once the user replies `"跑"` / `"OK"` (or provides custom edits):
    - `mix_options` from `mix_defaults`,
    - `expected_revision`.
 3. Report the completed artifact paths (`artifacts.subtitles.srt`, `artifacts.subtitles.lrc`, `artifacts.mixed_audio_path`, and `reused_take_count` / `synthesized_take_count`). If the user later tweaks 1–2 lines, `asmr_patch_draft` + `asmr_commit_draft` will automatically reuse all unchanged synthesized takes!
+
+For a supplied script, review `audit_report.script_alignment` and report the actual script line numbers for unmatched or uncertain anchors. Use `prepare_stems: true` when the user needs extracted vocals and effects. For a performance-only retake, read the latest revision and cue IDs with `asmr_get_draft_audit(include_segments=true)`, then pass `regenerate_cue_ids` to `asmr_commit_draft` with that revision and the output directory. Other cues reuse their existing recordings. If a commit was interrupted, read its current revision and commit again to reuse the completed cues.

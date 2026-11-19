@@ -141,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="ASMR Helper stateless GPU compute worker (local --once or remote --serve).",
     )
     mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--session", metavar="READY_FILE", help="Read local job paths from stdin with one model lease manager.")
     mode.add_argument(
         "--once",
         metavar="JOB_JSON",
@@ -186,6 +187,17 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.once:
         return run_once_file(args.once)
+
+    if args.session:
+        handlers = WorkerHandlers()
+        _atomic_write_json(Path(args.session), {"status": "ready"})
+        for line in sys.stdin:
+            path = line.strip()
+            if path == "STOP":
+                break
+            if path:
+                run_once_file(path, handlers=handlers)
+        return 0
 
     import uvicorn
 

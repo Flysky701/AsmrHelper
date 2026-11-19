@@ -146,9 +146,9 @@ def test_speech_service_reuses_single_local_worker_process_across_batch(monkeypa
             line = data.strip()
             if line and line != "STOP":
                 job = json.loads(Path(line).read_text(encoding="utf-8"))
-                sf.write(job["output_path"], np.full(1600, 0.05, dtype="float32"), 16000)
+                sf.write(job["request"]["items"][0]["output_path"], np.full(1600, 0.05, dtype="float32"), 16000)
                 Path(job["response_path"]).write_text(
-                    json.dumps({"ok": True, "output_path": job["output_path"]}), encoding="utf-8"
+                    json.dumps({"ok": True, "result": {"items": [{"ok": True}]}}), encoding="utf-8"
                 )
             return len(data)
 
@@ -160,8 +160,7 @@ def test_speech_service_reuses_single_local_worker_process_across_batch(monkeypa
 
     class FakeBatchProcess:
         def __init__(self, session_file: Path):
-            cfg = json.loads(session_file.read_text(encoding="utf-8"))
-            Path(cfg["ready_path"]).write_text('{"status":"ready"}', encoding="utf-8")
+            session_file.write_text('{"status":"ready"}', encoding="utf-8")
             self.stdin = FakeStdin(session_file.parent)
             self._terminated = False
             self.returncode = None

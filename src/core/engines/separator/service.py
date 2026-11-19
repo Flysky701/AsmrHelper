@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from .registry import get_separator_registry
 
 if TYPE_CHECKING:
     import httpx
@@ -36,7 +35,7 @@ class SeparatorEngineRuntime:
         remote_client: ComputeClient | None = None,
         remote_transport: httpx.BaseTransport | None = None,
     ) -> None:
-        self._registry = registry or get_separator_registry()
+        self._registry = registry
         self._remote_worker_url = _clean_str(remote_worker_url)
         self._remote_worker_token = _clean_str(remote_worker_token)
         self._remote_worker_timeout = float(remote_worker_timeout)
@@ -195,8 +194,16 @@ class SeparatorEngineRuntime:
                 ) from exc
             return dict(result.stem_paths)
 
-        separator = self._registry.get("demucs", model_name=model)
-        return separator.separate(str(source), output_dir, stems=stems)
+        if self._registry is not None:
+            separator = self._registry.get("demucs", model_name=model)
+            return separator.separate(str(source), output_dir, stems=stems)
+        from packages.gpu_worker.client import ComputeClient
+        from packages.protocol.compute import SeparationRequest
+
+        request = SeparationRequest(input_path=str(source.resolve()), output_dir=str(Path(output_dir).resolve()),
+                                    model=model, stems=stems if stems is not None else ["vocals"])
+        with ComputeClient.from_local() as client:
+            return dict(client.separate(request).stem_paths)
 
 
 # Service alias for callers importing `SeparatorEngineService` from `separator.service`.

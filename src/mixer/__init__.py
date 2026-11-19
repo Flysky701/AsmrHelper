@@ -71,6 +71,7 @@ class Mixer:
         output_path: str,
         adjust_tts_volume: bool = True,
         output_length: str = "main",
+        sidechain_ducking: bool = False,
     ) -> str:
         """
         混音原音与 TTS 配音
@@ -174,10 +175,18 @@ class Mixer:
             final_ar = str(info.samplerate)  # FLAC 保持原采样率
 
         mix_duration = "first" if output_length == "main" else "longest"
-        filter_graph = (
-            f"[0:a]{orig_filter}[orig];[1:a]{tts_filter}[tts];"
-            f"[orig][tts]amix=inputs=2:duration={mix_duration}:normalize=0[mixed]"
-        )
+        if sidechain_ducking:
+            # Give both compressor inputs a silent tail, then trim the output
+            # explicitly. A short control stream can otherwise cut off the bed.
+            filter_graph = (
+                f"[0:a]{orig_filter},apad[orig];[1:a]{tts_filter},asplit=2[tts][key];"
+                "[key]apad[control];[orig][control]"
+                f"sidechaincompress=threshold=0.035:ratio=3:attack=15:release=200,atrim=duration={output_duration}[bed];"
+                "[bed][tts]amix=inputs=2:duration=first:normalize=0[mixed]"
+            )
+        else:
+            filter_graph = (f"[0:a]{orig_filter}[orig];[1:a]{tts_filter}[tts];"
+                            f"[orig][tts]amix=inputs=2:duration={mix_duration}:normalize=0[mixed]")
         cmd = [
             get_ffmpeg(),
             "-i", str(original_path),

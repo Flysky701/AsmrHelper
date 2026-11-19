@@ -8,7 +8,6 @@ import hashlib
 import inspect
 import json
 import math
-import os
 from pathlib import Path
 import re
 import shutil
@@ -380,6 +379,7 @@ class DraftSessionService:
         self,
         *,
         store: DraftStore | None = None,
+        standalone: bool = False,
         asr_service: Any | None = None,
         llm_service: Any | None = None,
         llm_runtime: Any | None = None,
@@ -387,6 +387,7 @@ class DraftSessionService:
         artifact_service: Any | None = None,
         mixer_factory: Callable[..., Mixer] | None = None,
     ) -> None:
+        self._standalone = standalone
         self._store = store
         self._asr_service = asr_service
         self._llm_service = llm_service
@@ -418,26 +419,15 @@ class DraftSessionService:
     def _get_speech_service(self) -> Any:
         if self._speech_service is not None:
             return self._speech_service
-        voice_lab_override = os.environ.get("ASMR_HELPER_VOICE_LAB_DIR", "").strip()
-        data_dir_override = os.environ.get("ASMR_HELPER_DATA_DIR", "").strip()
-        if voice_lab_override:
-            from src.app.services.speech_service import SpeechService
+        from src.app.services.speech_service import SpeechService, get_speech_service
 
-            self._speech_service = SpeechService(store=SpeechStore(Path(voice_lab_override)))
+        if self._standalone:
+            # The desktop owns recovery and cleanup of its task queue. The MCP
+            # process shares draft revisions and takes without opening that queue.
+            from src.app.services.task_service import TaskService
+            from src.app.services.artifact_service import ArtifactService
+            self._speech_service = SpeechService(tasks=TaskService(), artifacts=ArtifactService())
             return self._speech_service
-        if data_dir_override:
-            from src.config import PROJECT_ROOT
-
-            default_store_json = PROJECT_ROOT / "config" / "voice_lab" / "store.json"
-            if not default_store_json.exists():
-                from src.app.services.speech_service import SpeechService
-
-                self._speech_service = SpeechService(
-                    store=SpeechStore(Path(data_dir_override).expanduser().resolve() / "voice_lab")
-                )
-                return self._speech_service
-        from src.app.services.speech_service import get_speech_service
-
         return get_speech_service()
 
     def _is_llm_available(self, explicit_provider: str | None = None) -> bool:
@@ -737,6 +727,7 @@ class DraftSessionService:
         max_atempo: float = 1.35,
         guard_sec: float = 0.06,
         reference_quality: dict[str, Any] | None = None,
+        script_alignment: dict[str, Any] | None = None,
         warnings: list[str] | None = None,
     ) -> dict[str, Any]:
         """Compute deterministic Phase-1/patch QualityAuditReport for `segments`."""
@@ -857,6 +848,7 @@ class DraftSessionService:
             and len(japanese_residue_indices) == 0
             and len(over_speed_cues) == 0
             and len(blocking_empty) == 0
+            and not any((script_alignment or {}).get(key) for key in ("unmatched", "low_confidence", "conflicts", "extra_cue_ids"))
         )
 
         return {
@@ -876,6 +868,7 @@ class DraftSessionService:
             "chars_per_second": round(chars_per_second, 3),
             "max_atempo": round(max_atempo, 3),
             "reference_quality": deepcopy(reference_quality),
+            "script_alignment": deepcopy(script_alignment),
             "warnings": list(warnings or []),
         }
 
@@ -1238,7 +1231,7 @@ class DraftSessionService:
         )
 
     def _create_managed_task(self, speech_service: Any, *, task_type: str, draft_id: str) -> str:
-        tasks_svc = getattr(speech_service, "tasks", None)
+        tasks_svc = None if self._standalone else getattr(speech_service, "tasks", None)
         if tasks_svc is not None and hasattr(tasks_svc, "create_task_spec"):
             spec, _ = tasks_svc.create_task_spec(
                 task_type="speech.generate",
@@ -1258,7 +1251,7 @@ class DraftSessionService:
         *,
         error: Exception | None = None,
     ) -> None:
-        tasks_svc = getattr(speech_service, "tasks", None)
+        tasks_svc = None if self._standalone else getattr(speech_service, "tasks", None)
         if tasks_svc is None:
             return
         try:
@@ -1352,7 +1345,7 @@ class DraftSessionService:
                     delivery = str(seg.get("delivery") or snapshot["recipe"].get("default_delivery", "normal"))
                     emotion = str(seg.get("emotion") or snapshot["recipe"].get("default_emotion", "neutral"))
                     cache_key = self._cue_cache_key(snapshot, seg_text, delivery, emotion)
-                    take_cache[cache_key] = {
+                    take_cache[f"{seg['cue_id']}:{cache_key}"] = {
                         "take_id": take["id"],
                         "audio_path": take["audio_path"],
                         "duration": dur,
@@ -1414,6 +1407,7 @@ class DraftSessionService:
         llm_options: dict[str, Any] | None = None,
         voice_plan: dict[str, Any] | None = None,
         extract_voice_reference: bool = False,
+        prepare_stems: bool = False,
         synthesize_samples: bool = False,
         sample_cue_count: int = 0,
         chars_per_second: float = 4.2,
@@ -1442,7 +1436,7 @@ class DraftSessionService:
                     "paired_subtitles": [],
                     "paired_scripts": [],
                 }
-                tracks = [primary_track, *tracks]
+            tracks = [primary_track, *(t for t in tracks if t["path"] != primary_track["path"])]
         elif tracks:
             primary_track = tracks[0]
 
@@ -1478,6 +1472,30 @@ class DraftSessionService:
         warnings: list[str] = []
         try:
             staging_dir = self._staging_dir(draft_id)
+            if primary_track and prepare_stems:
+                from src.mixer.difference import extract_difference
+
+                stems = primary_track["paired_stems"]
+                mixed = primary_track["path"]
+                vocals = stems.get("vocals") or stems.get("no_se")
+                effects = stems.get("se_only")
+                if mixed in (vocals, effects):
+                    raise AppValidationError("分轨提取需要选择包含人声和环境音的原始混音")
+                if not vocals and effects:
+                    vocals = str(staging_dir / "vocals.wav")
+                    extract_difference(mixed, effects, vocals)
+                elif not vocals:
+                    from src.core.engines.separator.service import SeparatorEngineRuntime
+                    opts = {key: value for key, value in (asr_options or {}).items()
+                            if key in {"remote_worker_url", "remote_worker_token", "remote_worker_timeout"}}
+                    result = SeparatorEngineRuntime().separate(input_path=mixed, output_dir=str(staging_dir / "stems"),
+                                                              stems=["vocals"], provider_options=opts)
+                    vocals = result["vocals"]
+                stems["vocals"] = str(vocals)
+                if not effects:
+                    effects = str(staging_dir / "effects.wav")
+                    extract_difference(mixed, vocals, effects)
+                    stems["se_only"] = effects
             candidate_subtitles: list[str] = []
             if subtitle_path is not None:
                 candidate_subtitles = [str(Path(subtitle_path).expanduser().resolve())]
@@ -1523,6 +1541,8 @@ class DraftSessionService:
                         "start": float(seg.start),
                         "end": float(seg.end),
                         "source_text": str(seg.text).strip(),
+                        "confidence": getattr(seg, "confidence", None),
+                        "timestamp_source": (getattr(seg, "recognition_metadata", None) or {}).get("timestamp_source"),
                         "translation": "",
                         "speaker": None,
                         "delivery": "normal",
@@ -1532,6 +1552,13 @@ class DraftSessionService:
                     if float(seg.end) > float(seg.start)
                 ]
                 subtitle_source_mode = "asr"
+
+            script_alignment = None
+            if resolved_voice_plan.get("script_path"):
+                from src.core.subtitles.script_to_subtitle import ScriptToSubtitlePipeline
+                segments, script_alignment = ScriptToSubtitlePipeline().align_draft(
+                    resolved_voice_plan["script_path"], segments)
+                subtitle_source_mode += "_with_script"
 
             # Run optional LLM translation when cues have no translations yet (source-only subtitle or ASR)
             has_any_existing_translation = any(
@@ -1616,6 +1643,7 @@ class DraftSessionService:
                 chars_per_second=effective_cps,
                 max_atempo=max_atempo,
                 reference_quality=reference_quality,
+                script_alignment=script_alignment,
                 warnings=warnings,
             )
 
@@ -1696,6 +1724,7 @@ class DraftSessionService:
         segments = deepcopy(current.segments)
         cue_id_map = {str(seg.get("cue_id", "")): idx for idx, seg in enumerate(segments)}
 
+        anchors_edited = False
         for edit in edits or []:
             if not isinstance(edit, Mapping):
                 raise AppValidationError("Each segment edit must be an object")
@@ -1719,6 +1748,7 @@ class DraftSessionService:
             if "translation" in edit and edit["translation"] is not None:
                 seg["translation"] = str(edit["translation"])
             if "source_text" in edit and edit["source_text"] is not None:
+                anchors_edited |= seg.get("source_text") != str(edit["source_text"])
                 seg["source_text"] = str(edit["source_text"])
             if "speaker" in edit:
                 seg["speaker"] = str(edit["speaker"]) if edit["speaker"] is not None else None
@@ -1733,6 +1763,9 @@ class DraftSessionService:
                 raise AppValidationError(
                     f"Invalid timing range [{new_start}, {new_end}] for cue index {target_idx}"
                 )
+            if (new_start, new_end) != (seg["start"], seg["end"]):
+                seg.update(timestamp_source="manual", confidence=None)
+                anchors_edited = True
             seg["start"] = new_start
             seg["end"] = new_end
 
@@ -1741,6 +1774,18 @@ class DraftSessionService:
             if not isinstance(voice_plan_patch, Mapping):
                 raise AppValidationError("voice_plan_patch must be an object")
             voice_plan.update(deepcopy(dict(voice_plan_patch)))
+
+        script_alignment = current.audit_report.get("script_alignment")
+        script_changed = voice_plan.get("script_path") != current.voice_plan.get("script_path")
+        if script_changed or (anchors_edited and script_alignment):
+            from src.core.subtitles.script_to_subtitle import ScriptToSubtitlePipeline
+            aligner = ScriptToSubtitlePipeline()
+            if not script_changed and script_alignment.get("script_lines"):
+                segments, script_alignment = aligner.align_draft_lines(script_alignment["script_lines"], segments)
+            elif voice_plan.get("script_path"):
+                segments, script_alignment = aligner.align_draft(voice_plan["script_path"], segments)
+            else:
+                script_alignment = None
 
         primary_duration: float | None = None
         if current.tracks:
@@ -1761,6 +1806,7 @@ class DraftSessionService:
             max_atempo=max_atempo,
             reference_quality=voice_plan.get("reference_candidate"),
             warnings=current.audit_report.get("warnings", []),
+            script_alignment=script_alignment,
         )
 
         updated = self.store.update_draft(
@@ -1832,6 +1878,8 @@ class DraftSessionService:
         reference_duration: float,
         binaural_source_path: str | None,
         prior_take_cache: Mapping[str, dict[str, Any]],
+        checkpoint_take: Callable[[dict], None],
+        regenerate_cue_ids: frozenset[str] = frozenset(),
     ) -> tuple[dict[str, Any], dict[str, dict[str, Any]], int, int]:
         """Synthesize timeline via SpeechService, reusing unchanged takes across commits."""
         speech_service = self._get_speech_service()
@@ -1839,14 +1887,21 @@ class DraftSessionService:
         updated_cache = deepcopy(dict(prior_take_cache))
         max_atempo = float(voice_plan.get("max_atempo") or 1.35)
 
-        cue_keys = [
-            self._cue_cache_key(snapshot, cue["text"], cue["delivery"], cue["emotion"])
-            for cue in spoken_cues
-        ]
-        reusable_hits = [
-            key in updated_cache and Path(str(updated_cache[key].get("audio_path", ""))).is_file()
-            for key in cue_keys
-        ]
+        cue_keys = []
+        reusable_hits = []
+        for cue in spoken_cues:
+            signature = self._cue_cache_key(snapshot, cue["text"], cue["delivery"], cue["emotion"])
+            key = f"{cue['cue_id']}:{signature}"
+            cue_keys.append(key)
+            # Older drafts and preview samples used content-only keys.
+            if key not in updated_cache and signature in prior_take_cache:
+                updated_cache[key] = dict(prior_take_cache[signature])
+            cached = updated_cache.get(key, {})
+            reusable = Path(str(cached.get("audio_path") or "")).is_file()
+            selected = cue["cue_id"] in regenerate_cue_ids
+            if regenerate_cue_ids and not selected and not reusable:
+                raise AppValidationError(f"单句重抽需要其他台词已有录音：{cue['cue_id']}")
+            reusable_hits.append(reusable and not selected)
 
         task_id = self._create_managed_task(speech_service, task_type="draft.commit", draft_id=draft_id)
         try:
@@ -1865,8 +1920,9 @@ class DraftSessionService:
 
             has_real_store = isinstance(getattr(speech_service, "store", None), SpeechStore)
 
-            # Fast path 1: Fresh commit (0 cached hits) -> call `synthesize_timeline` directly
-            if not any(reusable_hits) or not has_real_store:
+            if not has_real_store:
+                if regenerate_cue_ids:
+                    raise AppValidationError("单句重抽需要可持久化的录音库")
                 assembly = speech_service.synthesize_timeline(
                     snapshot,
                     [
@@ -1874,6 +1930,8 @@ class DraftSessionService:
                             "text": cue["text"],
                             "start_time": cue["start_time"],
                             "end_time": cue["end_time"],
+                            "delivery": cue["delivery"],
+                            "emotion": cue["emotion"],
                         }
                         for cue in spoken_cues
                     ],
@@ -1882,19 +1940,6 @@ class DraftSessionService:
                     reference_duration=reference_duration,
                     **extra_timeline_kwargs,
                 )
-                if has_real_store and isinstance(assembly, Mapping) and assembly.get("experiment_id"):
-                    exp = speech_service.experiment(assembly["experiment_id"])
-                    by_seg = {t["segment_id"]: t for t in exp.get("takes", [])}
-                    for idx, key in enumerate(cue_keys):
-                        take = by_seg.get(f"sentence-{idx + 1}")
-                        if take and Path(take["audio_path"]).is_file():
-                            updated_cache[key] = {
-                                "take_id": take["id"],
-                                "audio_path": take["audio_path"],
-                                "duration": take.get("audio", {}).get("duration"),
-                                "audio": deepcopy(take.get("audio", {})),
-                                "compiled_request": deepcopy(take.get("compiled_request", {})),
-                            }
                 self._finish_managed_task(speech_service, task_id)
                 return dict(assembly), updated_cache, 0, len(spoken_cues)
 
@@ -1941,11 +1986,16 @@ class DraftSessionService:
             experiment = speech_service.store.create("experiments", experiment_payload)
             requests = compile_recipe(snapshot["recipe"], saved_plan, snapshot["assets"])
 
+            if requests[0]["compiler_version"] != snapshot["compiler_version"]:
+                raise AppValidationError("编译器版本已改变，请重新提交任务")
+            if requests[0]["provider_version"] != snapshot.get("provider_version"):
+                raise AppValidationError("引擎版本已改变，请重新提交任务")
+
             missing_requests: list[dict[str, Any]] = []
-            missing_indices: list[int] = []
+            missing_keys: dict[str, str] = {}
             reused_count = 0
 
-            for idx, (req, key, is_hit) in enumerate(zip(requests, cue_keys, reusable_hits, strict=True)):
+            for req, key, is_hit in zip(requests, cue_keys, reusable_hits, strict=True):
                 if is_hit:
                     cached_entry = updated_cache[key]
                     src_audio = Path(str(cached_entry["audio_path"]))
@@ -1987,30 +2037,22 @@ class DraftSessionService:
                     reused_count += 1
                 else:
                     missing_requests.append(req)
-                    missing_indices.append(idx)
+                    missing_keys[req["segment_id"]] = key
 
             if missing_requests:
-                new_takes = speech_service.run_requests(
-                    missing_requests,
-                    snapshot,
-                    task_id=task_id,
-                    experiment_id=experiment["id"],
-                    plan_id=saved_plan["id"],
-                    media_root=media_root,
-                )
-                for idx, take in zip(missing_indices, new_takes, strict=True):
-                    speech_service.select(
-                        {
-                            "experiment_id": experiment["id"],
-                            "segment_id": take["segment_id"],
-                            "take_id": take["id"],
-                        }
-                    )
-                    updated_cache[cue_keys[idx]] = {
-                        "take_id": take["id"],
-                        "audio_path": take["audio_path"],
+                def save_take(take):
+                    updated_cache[missing_keys[take["segment_id"]]] = {
+                        "take_id": take["id"], "audio_path": take["audio_path"],
                         "duration": take.get("audio", {}).get("duration"),
                     }
+                    checkpoint_take(updated_cache)
+                    speech_service.select({"experiment_id": experiment["id"],
+                                           "segment_id": take["segment_id"], "take_id": take["id"]})
+
+                speech_service.run_requests(
+                    missing_requests, snapshot, task_id=task_id, experiment_id=experiment["id"],
+                    plan_id=saved_plan["id"], media_root=media_root, on_take=save_take,
+                )
 
             assemble_sig = inspect.signature(speech_service.assemble)
             has_assemble_var_kw = any(
@@ -2046,6 +2088,7 @@ class DraftSessionService:
         enable_dubbing: bool = True,
         bilingual: bool = True,
         mix_options: Mapping[str, Any] | None = None,
+        regenerate_cue_ids: Sequence[str] = (),
         expected_revision: int | None = None,
     ) -> dict[str, Any]:
         """Execute Phase 2 (`committing -> completed`), exporting subtitles and optional dubbed mix."""
@@ -2062,6 +2105,14 @@ class DraftSessionService:
             raise AppValidationError(f"Cannot commit draft {draft_id!r} while state is {current.state!r}")
         if not current.segments:
             raise AppValidationError(f"Draft {draft_id!r} has no segments to commit")
+
+        requested = frozenset(regenerate_cue_ids)
+        if requested:
+            speakable = {str(seg.get("cue_id") or f"cue-{idx + 1:04d}")
+                         for idx, seg in enumerate(current.segments)
+                         if has_speech_text(str(seg.get("translation") or seg.get("source_text") or ""))}
+            if not enable_dubbing or requested - speakable:
+                raise AppValidationError("重抽需要启用配音并指定草稿内可朗读的 cue_id")
 
         committing_record = self.store.update_draft(
             draft_id,
@@ -2119,6 +2170,11 @@ class DraftSessionService:
                     or primary_track.get("paired_stems", {}).get("no_se")
                     or primary_track["path"]
                 )
+                def save_progress(cache):
+                    artifacts["take_cache"] = cache
+                    self.store.update_draft(draft_id, expected_revision=committing_record.revision,
+                                            increment_revision=False, artifacts=artifacts)
+
                 assembly, updated_cache, reused_count, synthesized_count = self._synthesize_with_take_reuse(
                     draft_id=draft_id,
                     spoken_cues=spoken_cues,
@@ -2127,6 +2183,8 @@ class DraftSessionService:
                     reference_duration=float(primary_track.get("duration") or 0.0),
                     binaural_source_path=str(binaural_ref) if binaural_ref else None,
                     prior_take_cache=artifacts.get("take_cache") or {},
+                    regenerate_cue_ids=requested,
+                    checkpoint_take=save_progress,
                 )
 
                 opts = dict(mix_options or {})
@@ -2148,6 +2206,7 @@ class DraftSessionService:
                     output_path=str(mixed_output_path),
                     adjust_tts_volume=bool(opts.get("adjust_tts_volume", True)),
                     output_length=str(opts.get("output_length", "main")),
+                    **({"sidechain_ducking": True} if opts.get("sidechain_ducking") else {}),
                 )
 
                 artifacts["take_cache"] = updated_cache
@@ -2183,7 +2242,8 @@ class DraftSessionService:
                 draft_id,
                 increment_revision=False,
                 state="failed",
-                artifacts={**deepcopy(committing_record.artifacts), "last_error": str(exc)},
+                expected_revision=committing_record.revision,
+                artifacts={**self.store.get_draft(draft_id).artifacts, "last_error": str(exc)},
             )
             raise AppExecutionError(f"Failed to commit draft {draft_id}: {exc}") from exc
 

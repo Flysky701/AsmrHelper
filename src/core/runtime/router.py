@@ -2,25 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import contextmanager
-import json
-import logging
 import os
-import subprocess
 import threading
-import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from src.config import PROJECT_ROOT
-from src.workspace_paths import temporary_directory, freeze_directories
 
 from .profiles import RuntimeProfileResolver, get_runtime_profile_resolver
 
 if TYPE_CHECKING:
     import httpx
     from packages.gpu_worker.client import ComputeClient
-
-logger = logging.getLogger(__name__)
 
 _REMOTE_OPTION_KEYS = frozenset({
     "remote_worker_url",
@@ -57,6 +50,7 @@ class RuntimeRouter:
     """Run providers with conflicting dependencies in short-lived local or remote workers."""
 
     _ASR_PROFILES = {
+        "faster_whisper": "main",
         "fun_asr": "fun_asr",
         "qwen3_asr": "qwen_asr",
         "anime_whisper": "anime_whisper",
@@ -160,25 +154,22 @@ class RuntimeRouter:
         finally:
             client.close()
 
-    def transcribe_file(self, payload: dict[str, Any]) -> dict[str, Any]:
+    @contextmanager
+    def _compute_client(self, payload, profile_id):
+        from packages.gpu_worker.client import ComputeClient
+
         if self.has_remote_worker(payload):
-            return self._transcribe_remote(payload)
+            with self._open_remote_client(payload) as client:
+                yield client
+            return
+        profile = self.resolver.resolve(profile_id)
+        if not profile.python_executable.is_file():
+            raise RuntimeWorkerError(f"runtime environment is not installed: {profile.id}")
+        with ComputeClient.from_local(python_executable=profile.python_executable,
+                                      cwd=self.project_root, env=self.resolver.subprocess_env()) as client:
+            yield client
 
-        profile = dict(payload.get("profile") or {})
-        provider = str(profile.get("provider") or "")
-        return self._run_worker(
-            "asr.transcribe_file",
-            payload,
-            self.asr_profile(provider),
-        )
-
-    def align_file(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if self.has_remote_worker(payload):
-            return self._align_remote(payload)
-
-        return self._run_worker("alignment.align_file", payload, "qwen_asr")
-
-    def _transcribe_remote(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+    def transcribe_file(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         from packages.protocol.compute import AsrRequest
         from packages.protocol.errors import ComputeRemoteError
 
@@ -192,15 +183,15 @@ class RuntimeRouter:
             profile=clean_profile,
         )
         try:
-            with self._open_remote_client(payload) as client:
+            with self._compute_client(payload, self.asr_profile(request.provider)) as client:
                 result = client.asr(request)
         except ComputeRemoteError as exc:
             raise RuntimeWorkerError(
-                f"remote runtime worker failed ({exc.code}): {exc}"
+                f"runtime worker failed ({exc.code}): {exc}"
             ) from exc
         return result.to_worker_document()
 
-    def _align_remote(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+    def align_file(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         from packages.protocol.compute import AlignmentRequest
         from packages.protocol.errors import ComputeRemoteError
 
@@ -211,81 +202,13 @@ class RuntimeRouter:
             model=str(payload.get("model") or "qwen3-forced-aligner-0.6b"),
         )
         try:
-            with self._open_remote_client(payload) as client:
+            with self._compute_client(payload, "qwen_asr") as client:
                 result = client.align(request)
         except ComputeRemoteError as exc:
             raise RuntimeWorkerError(
-                f"remote runtime worker failed ({exc.code}): {exc}"
+                f"runtime worker failed ({exc.code}): {exc}"
             ) from exc
         return result.to_runtime_dict()
-
-    @freeze_directories
-    def _run_worker(
-        self,
-        operation: str,
-        payload: dict[str, Any],
-        profile_id: str | None,
-    ) -> dict[str, Any]:
-        if not profile_id:
-            raise RuntimeWorkerError(f"no isolated runtime profile for operation: {operation}")
-        profile = self.resolver.resolve(profile_id)
-        if not profile.python_executable.is_file():
-            raise RuntimeWorkerError(
-                f"runtime environment is not installed: {profile.id}; install the selected model dependencies first"
-            )
-
-        exchange_dir = temporary_directory(project_root=self.project_root) / "runtime-workers"
-        exchange_dir.mkdir(parents=True, exist_ok=True)
-        token = uuid.uuid4().hex
-        request_path = exchange_dir / f"{token}.request.json"
-        response_path = exchange_dir / f"{token}.response.json"
-        request_path.write_text(
-            json.dumps({"operation": operation, "payload": payload}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        try:
-            result = subprocess.run(
-                [
-                    str(profile.python_executable),
-                    "-m",
-                    "src.core.runtime.stage_worker",
-                    "--request",
-                    str(request_path),
-                    "--response",
-                    str(response_path),
-                ],
-                cwd=str(self.project_root),
-                env=self.resolver.subprocess_env(),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=1800,
-                check=False,
-            )
-            if not response_path.is_file():
-                detail = (result.stderr or result.stdout or "worker produced no response").strip()[-2000:]
-                raise RuntimeWorkerError(f"runtime worker failed ({profile.id}): {detail}")
-            response = json.loads(response_path.read_text(encoding="utf-8"))
-            if not response.get("success"):
-                error = response.get("error") or {}
-                message = str(error.get("message") or "runtime worker failed")
-                logger.error(
-                    "runtime worker %s failed: %s\n%s\nstdout:\n%s\nstderr:\n%s",
-                    profile.id,
-                    message,
-                    error.get("traceback") or "",
-                    (result.stdout or "")[-2000:],
-                    (result.stderr or "")[-2000:],
-                )
-                raise RuntimeWorkerError(f"runtime worker failed ({profile.id}): {message}")
-            return dict(response.get("result") or {})
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeWorkerError(f"runtime worker timed out ({profile.id})") from exc
-        finally:
-            request_path.unlink(missing_ok=True)
-            response_path.unlink(missing_ok=True)
-
 
 _router: RuntimeRouter | None = None
 _lock = threading.Lock()

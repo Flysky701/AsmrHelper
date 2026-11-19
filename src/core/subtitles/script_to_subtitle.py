@@ -59,6 +59,70 @@ class ScriptToSubtitlePipeline:
             "fingerprint": script_fingerprint(script_path),
         }
 
+    def align_draft(self, script_path, segments):
+        """Bind script lines to real recording cues and preserve unmatched audio for review."""
+        preview = self.preview(script_path)
+        lines = [line.strip() for line in preview["clean_text"].splitlines() if line.strip()]
+        return self.align_draft_lines(lines, segments)
+
+    @staticmethod
+    def align_draft_lines(lines, segments):
+        from src.core.engines.llm.script_cleaner import LLMProcessor
+
+        if not lines:
+            raise ValueError("台本未提取到可匹配的台词")
+        unreliable = {"missing", "estimated", "proportional", "synthetic"}
+        source = [seg for seg in segments if str(seg.get("source_text") or "").strip()
+                  and seg.get("timestamp_source") not in unreliable]
+        anchors = [{"start": s["start"], "end": s["end"], "text": s["source_text"]} for s in source]
+        processor = LLMProcessor(allow_llm=False)
+        if anchors:
+            try:
+                processor.align_and_reorder(lines, anchors)
+                review = processor.review
+            except ScriptReviewRequired as exc:
+                review = exc.review
+            except ValueError as exc:
+                review = {"entries": [], "unmatched": [{"script_idx": i, "text": line} for i, line in enumerate(lines)],
+                          "extra_asr": [{"asr_idx": i} for i in range(len(anchors))], "conflicts": [str(exc)]}
+        else:
+            review = {"entries": [], "unmatched": [{"script_idx": i, "text": line} for i, line in enumerate(lines)],
+                      "extra_asr": [], "conflicts": ["缺少原文时间锚点"]}
+        positions = {cue["cue_id"]: idx for idx, cue in enumerate(segments)}
+        matched_ids = set()
+        by_id = {s["cue_id"]: dict(s) for s in segments}
+        for cue in by_id.values():
+            cue.pop("script_line", None)
+        low_confidence = []
+        matched = []
+        for match in review["entries"]:
+            cues = [source[i] for i in match["asr_indices"]]
+            span = positions[cues[-1]["cue_id"]] - positions[cues[0]["cue_id"]] + 1
+            if span != len(cues):
+                review["unmatched"].append({"script_idx": match["script_idx"], "text": match["text"]})
+                continue
+            matched_ids.update(c["cue_id"] for c in cues)
+            first = by_id[cues[0]["cue_id"]]
+            first.update(source_text=match["text"], end=match["end"], script_line=match["script_idx"] + 1)
+            first["translation"] = " ".join(c["translation"] for c in cues if c.get("translation"))
+            for cue in cues[1:]:
+                by_id.pop(cue["cue_id"])
+            matched.append({"line": first["script_line"], "cue_id": first["cue_id"],
+                            "start": first["start"], "end": first["end"]})
+            scores = [c["confidence"] for c in cues if c.get("confidence") is not None]
+            if scores:
+                first["confidence"] = min(scores)
+            if scores and min(scores) < 0.6:
+                low_confidence.append({**matched[-1], "confidence": min(scores)})
+        aligned = sorted(by_id.values(), key=lambda s: s["start"])
+        for idx, cue in enumerate(aligned):
+            cue["index"] = idx
+        report = {"script_lines": list(lines), "matched": matched, "low_confidence": low_confidence,
+                  "unmatched": [{"line": u["script_idx"] + 1, "text": u["text"]} for u in review["unmatched"]],
+                  "extra_cue_ids": [cue["cue_id"] for cue in segments if cue["cue_id"] not in matched_ids],
+                  "conflicts": review["conflicts"]}
+        return aligned, report
+
     def _prepare(
         self,
         script_path,

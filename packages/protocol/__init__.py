@@ -1,4 +1,4 @@
-"""Pure Pydantic v2 compute protocol contracts for ASMR Helper."""
+"""Pure Pydantic v2 compute and draft contracts for ASMR Helper."""
 
 from .compute import (
     DEFAULT_SUPPORTED_TASKS,
@@ -20,9 +20,12 @@ from .compute import (
     TtsSynthesizeItem,
     WorkerCapabilities,
 )
+from .drafts import DraftSession, QualityAuditReport
 from .errors import ComputeErrorCode, ComputeErrorPayload, ComputeRemoteError
 
 __all__ = [
+    "DraftSession",
+    "QualityAuditReport",
     "PROTOCOL_VERSION",
     "DEFAULT_SUPPORTED_TASKS",
     "AudioFormat",

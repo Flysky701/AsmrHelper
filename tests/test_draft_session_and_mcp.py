@@ -307,6 +307,59 @@ def test_two_phase_draft_gate_audit_patch_commit_and_take_reuse(isolated_env):
     assert recommitted["artifacts"]["dubbing"]["synthesized_take_count"] == 1
 
 
+def test_script_audit_and_interrupted_single_cue_recovery(isolated_env, monkeypatch):
+    from src.app.errors import AppExecutionError
+    from src.core.subtitles.script_to_subtitle import ScriptToSubtitlePipeline
+
+    work = isolated_env.tmp_path / "script-track"
+    _write_stereo_wav(work / "track.wav", duration_sec=4)
+    _write_stereo_wav(work / "track_se_only.wav", duration_sec=4)
+    script = work / "track.txt"
+    script.write_text("おやすみ。\nここにいてね。\nおはよう。\n", encoding="utf-8")
+    subtitles = work / "track.srt"
+    subtitles.write_text("1\n00:00:00,000 --> 00:00:01,000\nおやすみ。\n晚安\n\n"
+                         "2\n00:00:02,000 --> 00:00:03,000\nおはよう。\n晚安\n", encoding="utf-8")
+    service = isolated_env.service
+    draft = service.prepare_draft(work, script_path=script, subtitle_path=subtitles,
+                                  enable_translation=False, prepare_stems=True)
+    doc = draft["audit_report"]["script_alignment"]
+    assert [m["line"] for m in doc["matched"]] == [1, 3]
+    assert doc["unmatched"] == [{"line": 2, "text": "ここにいてね。"}]
+    assert not draft["audit_report"]["gate_passed"]
+    assert Path(draft["tracks"][0]["paired_stems"]["vocals"]).is_file()
+    segments = deepcopy(draft["segments"])
+    segments[0]["confidence"] = 0.3
+    _, audit = ScriptToSubtitlePipeline().align_draft(script, segments)
+    assert audit["low_confidence"][0]["cue_id"] == segments[0]["cue_id"]
+
+    provider = get_provider("edge")
+    synthesize = provider.synthesize
+    def interrupt_second(request, *args):
+        if request["segment_id"] == "sentence-2":
+            raise RuntimeError("offline disconnect")
+        return synthesize(request, *args)
+    monkeypatch.setattr(provider, "synthesize", interrupt_second)
+    output = work.parent / "delivered"
+    draft_id = draft["draft_id"]
+    with pytest.raises(AppExecutionError, match="offline disconnect"):
+        service.commit_draft(draft_id, output)
+    failed = service.get_draft(draft_id)
+    assert failed["state"] == "failed"
+    assert len(failed["artifacts"]["take_cache"]) == 1
+    monkeypatch.setattr(provider, "synthesize", synthesize)
+    result = service.commit_draft(draft_id, output, expected_revision=failed["revision"])
+    assert result["artifacts"]["dubbing"]["reused_take_count"] == 1
+    first_cache = result["artifacts"]["take_cache"]
+    result = service.commit_draft(draft_id, output, regenerate_cue_ids=[segments[1]["cue_id"]],
+                                  expected_revision=result["revision"], mix_options={"sidechain_ducking": True})
+    assert result["artifacts"]["dubbing"]["synthesized_take_count"] == 1
+    assert [request["segment_id"] for request in isolated_env.tts_calls] == ["sentence-1", "sentence-2", "sentence-2"]
+    for key, take in first_cache.items():
+        changed = result["artifacts"]["take_cache"][key]["take_id"] != take["take_id"]
+        assert changed == key.startswith(segments[1]["cue_id"] + ":")
+    assert sf.info(result["artifacts"]["mixed_audio_path"]).duration == pytest.approx(4.0)
+
+
 def test_prepare_draft_runs_asr_and_llm_when_no_subtitles_exist(isolated_env):
     work_dir = isolated_env.tmp_path / "work_asr_llm"
     _write_stereo_wav(work_dir / "ep01.wav", duration_sec=8.0)

@@ -10,7 +10,8 @@ from __future__ import annotations
 import base64
 from collections.abc import Callable
 import io
-import math
+import hashlib
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -585,14 +586,14 @@ class WorkerHandlers:
                 raw.model = request.model
             return raw
 
+        from src.core.engines.asr.service import _entry_confidence, _recognition_metadata
+
         segments: list[AsrSegmentItem] = []
         for entry in raw:
             start = max(0.0, float(entry.get("start", 0.0) or 0.0))
             end = max(start, float(entry.get("end", start) or start))
-            conf_raw = entry.get("confidence")
-            conf = float(conf_raw) if conf_raw is not None and math.isfinite(float(conf_raw)) else None
-            meta = dict(entry.get("recognition_metadata") or {})
-            meta.setdefault("provider", request.provider)
+            conf = _entry_confidence(entry)
+            meta = _recognition_metadata(entry, request.provider)
             segments.append(
                 AsrSegmentItem(
                     start=start,
@@ -627,15 +628,17 @@ class WorkerHandlers:
         common_options = dict(profile.get("common_options") or {})
         provider_options = dict(profile.get("provider_options") or {})
 
+        kwargs = AsrEngineRuntime._build_provider_kwargs(
+            provider=provider, model=str(profile.get("model") or ""),
+            common_options=common_options, provider_options=provider_options,
+        )
+        # A warm recognizer has a fixed language, device and decoding configuration.
+        signature = hashlib.sha256(json.dumps(kwargs, sort_keys=True).encode()).hexdigest()
+        lease_key = f"{lease_key}:{signature}"
+
         def _load_recognizer() -> Any:
             isolated_registry = AsrRegistry()
             isolated_registry._register_builtins()
-            kwargs = AsrEngineRuntime._build_provider_kwargs(
-                provider=provider,
-                model=str(profile.get("model") or ""),
-                common_options=common_options,
-                provider_options=provider_options,
-            )
             return isolated_registry.get(provider, **kwargs)
 
         recognize_kwargs: dict[str, Any] = {}
@@ -742,7 +745,7 @@ class WorkerHandlers:
                     stage=stage,
                 )
 
-                lease_key = f"tts:{request.provider_id}:{request.model or 'default'}"
+                lease_key = f"tts:{request.provider_id}:{request.model or 'default'}:{request.device}:{request.precision}"
                 if self._tts_fn is not None:
                     with self.lease_manager.lease(
                         lease_key,
@@ -854,6 +857,16 @@ class WorkerHandlers:
         output_format: AudioFormat,
         include_audio_b64: bool,
     ) -> TtsBatchItemResult:
+        if item.output_path and not include_audio_b64 and output_format == "wav":
+            import shutil
+            target = Path(item.output_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if produced_file.resolve() != target.resolve():
+                shutil.copyfile(produced_file, target)
+            info = sf.info(str(target))
+            return TtsBatchItemResult(item_id=item.item_id, ok=True, output_path=str(target),
+                                      output_format="wav", sample_rate=info.samplerate,
+                                      duration_seconds=info.duration)
         encoded, sr, dur = encode_audio_file_bytes(
             produced_file, output_format, stage="tts_batch"
         )

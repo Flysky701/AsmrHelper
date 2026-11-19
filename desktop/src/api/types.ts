@@ -606,6 +606,12 @@ export interface DraftSampleTake {
 }
 
 export interface QualityAuditReport {
+  script_alignment?: {
+    unmatched: Array<{ line: number; text: string }>
+    low_confidence: Array<{ line: number; cue_id: string; confidence: number }>
+    extra_cue_ids: string[]
+    conflicts: string[]
+  } | null
   draft_id?: string | null
   state?: DraftState | string | null
   revision?: number | null
@@ -696,6 +702,7 @@ export interface DraftPatchRequest {
 }
 
 export interface DraftCommitRequest {
+  regenerate_cue_ids?: string[]
   output_dir: string
   export_formats?: string[]
   enable_dubbing?: boolean
