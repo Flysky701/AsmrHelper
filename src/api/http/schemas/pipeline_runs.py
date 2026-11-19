@@ -99,13 +99,11 @@ class PipelineRunCreateRequest(BaseModel):
     input: PipelineInputRequest
     output: PipelineOutputRequest = Field(default_factory=PipelineOutputRequest)
     execution_profile: Annotated[PipelineExecutionProfileRequest | GraphExecutionProfileRequest,
-                                 Field(discriminator="version")] = Field(
-        default_factory=PipelineExecutionProfileRequest
-    )
+                                 Field(discriminator="version")]
 
-    @field_validator("execution_profile", mode="before")
+    @field_validator("execution_profile")
     @classmethod
-    def legacy_version_default(cls, value):
-        if isinstance(value, dict) and "version" not in value and "graph" not in value:
-            return {"version": 1, **value}
+    def require_bindings(cls, value):
+        if value.version == 1 and not value.workflow:
+            raise ValueError("V1 隐式流水线已退役，请提交节点图或带明确素材绑定的旧工作流")
         return value

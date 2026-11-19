@@ -31,9 +31,9 @@ class GraphExecutor:
 
     def execute(
         self, plan, *, slot_values, plan_for_node, node_context=None,
-        stage_callback=None, cancel_event=None,
+        stage_callback=None, cancel_event=None, checkpoints=None,
     ):
-        """Execute each node once; no caching, implicit stages, or checkpoint resume.
+        """Execute selected nodes in dependency order, optionally restoring verified outputs.
 
         plan_for_node(node) supplies frozen provider settings as a legacy stage
         plan. node_context(node) optionally binds that instance's private LLM
@@ -103,10 +103,13 @@ class GraphExecutor:
                     inputs[port] = values[key].clone()
                 node_plan = plan_for_node(deepcopy(node))
                 context = node_context(deepcopy(node)) if node_context else nullcontext()
-                with context:
-                    outputs = self.stage_runner.run(
-                        node, inputs, node_plan, directory, cancel_event=cancel_event,
-                    )
+                outputs = checkpoints.restore(node_id, directory) if checkpoints else None
+                reused = outputs is not None
+                if not reused:
+                    with context:
+                        outputs = self.stage_runner.run(
+                            node, inputs, node_plan, directory, cancel_event=cancel_event,
+                        )
                 if cancel_event and cancel_event.is_set():
                     raise InterruptedError("用户取消操作")
                 expected = GRAPH_CATALOG[node["kind"]]["outputs"]
@@ -124,8 +127,10 @@ class GraphExecutor:
                         raise RuntimeError("节点未产生有效文件")
                     values[(node_id, port)] = value.clone()
                     output_paths[port] = str(path)
+                if checkpoints:
+                    checkpoints.save(node_id, outputs)
                 results["steps"][node_id] = {
-                    "node_id": node_id, "kind": node["kind"], "state": "completed",
+                    "node_id": node_id, "kind": node["kind"], "state": "completed", "reused": reused,
                     "duration": time.perf_counter() - node_started, "outputs": output_paths,
                 }
                 results["node_states"][node_id] = "completed"

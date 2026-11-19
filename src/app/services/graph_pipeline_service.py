@@ -87,6 +87,64 @@ def validate_frozen_graph_submission(submission: FrozenGraphSubmission) -> dict:
     return prepared
 
 
+def default_dubbing_profile(request, tts_stage: dict) -> dict:
+    """The CLI's bilingual dubbing command explicitly wires its inputs and outputs."""
+    from src.core.subtitles.companions import inspect_subtitle
+    from src.provider_profiles import profiles_for
+    from src.core.orchestration.pipeline.graph_validation import validate_graph_profile
+    from src.config import config
+
+    nodes, edges = [], []
+    slots = [{"id": "audio", "type": "audio", "label": "原音轨"}]
+    bindings = {"audio": {"path": request.input_path}}
+    audio = {"kind": "slot", "slot_id": "audio"}
+
+    def node(kind, provider, inputs, port, *, model=None, source=None, target=None, options=None, provider_options=None):
+        nodes.append({"id": kind, "kind": kind, "provider": provider, "model": model,
+                      "source_lang": source, "target_lang": target, "options": options or {},
+                      "provider_options": provider_options or {}})
+        edges.extend({"source": ref, "target": {"node_id": kind, "port": name}} for name, ref in inputs.items())
+        return {"kind": "node", "node_id": kind, "port": port}
+
+    language = request.source_lang
+    if request.vtt_path:
+        evidence = inspect_subtitle(Path(request.vtt_path))
+        language = evidence.get("language")
+        if language not in {request.source_lang, request.target_lang}:
+            raise ValueError("伴随字幕语言不明确，请通过工作台绑定字幕并确认语言")
+        slots.append({"id": "subtitle", "type": "subtitle", "label": "伴随字幕", "language": language})
+        bindings["subtitle"] = {"path": request.vtt_path, "language": language, "language_confirmed": True,
+                                "audio_path": request.input_path, "pair_confirmed": True}
+        subtitle = {"kind": "slot", "slot_id": "subtitle"}
+    else:
+        vocals = (node("separate", "demucs", {"audio": audio}, "audio", model=request.vocal_model)
+                  if request.use_vocal_separator else audio)
+        subtitle = node("asr", "faster_whisper", {"audio": vocals}, "subtitle", model=request.asr_model,
+                        source=language, provider_options={"vad_filter": False})
+    if language != request.target_lang:
+        profiles = profiles_for(config.to_dict())
+        candidates = [c for c in profiles["llm"] if c["provider"] == request.translate_provider]
+        selected = next((c for c in candidates if c["id"] == profiles["active_llm"]), None)
+        if selected is None and len(candidates) == 1:
+            selected = candidates[0]
+        if selected is None:
+            raise ValueError("请选择明确的翻译连接并提交节点图")
+        subtitle = node("translate", request.translate_provider, {"subtitle": subtitle}, "subtitle",
+                        model=request.translate_model or None, source=language, target=request.target_lang,
+                        options={"connection_ref": selected["id"]})
+    options = dict(tts_stage["options"])
+    options.pop("language", None)
+    speech = node("tts", tts_stage.get("provider") or "speech", {"subtitle": subtitle}, "audio",
+                  target=request.target_lang, options=options, model=tts_stage.get("model"))
+    node("mix", "ffmpeg", {"audio": audio, "speech": speech}, "audio", options={
+        "original_volume": request.original_volume, "tts_volume_ratio": request.tts_volume_ratio,
+        "tts_delay_ms": request.tts_delay * 1000})
+    node("export", "ffmpeg", {"subtitle": subtitle}, "subtitle", options={"subtitle_format": "srt"})
+    return validate_graph_profile({"version": 2, "graph": {"version": 2, "nodes": nodes, "edges": edges,
+        "input_slots": slots, "outputs": [{"node_id": "mix", "port": "audio"}, {"node_id": "export", "port": "subtitle"}]},
+        "bindings": bindings})
+
+
 def node_profile(node: dict, snapshot: dict | None = None) -> dict:
     """A single capability projection, never a second graph execution plan."""
     stages = {kind: {"enabled": False, "provider": "unused", "options": {},
@@ -289,19 +347,23 @@ def run_graph_task(service, task_spec, *, progress_callback=None, cancel_event=N
         snapshots = profile.get("_graph_runtime", {}).get("node_snapshots", {})
         plan = build_graph_plan(profile["graph"], profile["bindings"], task_id=task_id,
                                 output_dir=output_dir, node_snapshots=snapshots)
+        from src.app.persistence.recovery_store import GraphCheckpoints
+        checkpoints = (GraphCheckpoints(tasks.recovery_store, task_id, task_spec.execution_profile)
+                       if getattr(tasks, "recovery_store", None) and not task_spec.task_source.startswith("batch-run:") else None)
         results = GraphExecutor(stage_runner=GraphStageRunner(service._executor)).execute(
             plan, slot_values=slots,
             plan_for_node=lambda node: make_node_plan(node, task_id=task_id, output_dir=output_dir,
                                                      snapshots=snapshots),
-            node_context=node_context, stage_callback=on_stage, cancel_event=cancel_event)
-        service._register_pipeline_artifacts(task_id=task_id, results=results,
-                                             mix_path=None, exported_subtitle=None)
+            node_context=node_context, stage_callback=on_stage, cancel_event=cancel_event, checkpoints=checkpoints)
+        service._register_pipeline_artifacts(task_id=task_id, results=results)
         if manage_lifecycle:
             tasks.complete_task(task_id, message="graph completed", detail=results["primary_output"],
                                 stage=current_node, artifact_set_id=task_id)
         status = tasks.get_task(task_id)
         return PipelineResult(success=True, input_path=primary.absolute_path, task=status,
             task_id=task_id, task_state=status.state, artifacts=service._artifact_service.get_task_artifacts(task_id),
+            mix_path=next((a["path"] for a in results["workflow_outputs"] if a["type"] == "audio.mix"), None),
+            exported_subtitle=next((a["path"] for a in results["workflow_outputs"] if a["type"].startswith("subtitle.")), None),
             steps=results["steps"], total_duration=results["total_duration"])
     except Exception as exc:
         cancelled = bool(cancel_event and cancel_event.is_set()) or isinstance(exc, InterruptedError)

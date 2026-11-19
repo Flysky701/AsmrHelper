@@ -37,11 +37,7 @@ API 优先使用 8000；已有服务占用时为本次会话选择空闲端口�
 浏览器模式用于页面/API 热更新；原生对话框使用上面的日常桌面入口验证。
 `--installed` 和 `--release` 保留为显式旧桌面操作，默认入口不会选择它们。
 
-重写候选源码目前在 `.tmp/full-stack-v2` 的 Git worktree，存在未提交工作，禁止整体清理 `.tmp`。
-`GUIRun.bat --rewrite` 用同一开发启动器打开重写源码，`GUIRun.bat --rewrite --smoke` 验证后退出。
-该入口读取本机 `config/dev-runtime-sources.json`，只读借用已存在的 Python；模型来源仍由候选版自己的 `config/model_sources.json` 管理。
-两个 Vite 会话共用 5173，先退出一个再启动另一个；它们不会接管或停止对方。
-`D:\AsmrHelper-Test` 是试用部署目录，不是源码仓库；其借用的模型和 Python 环境必须在清理前核对。
+旧重写工作树连同未提交文件和本地资源已移入 `.tmp/archive/full-stack-v2-8058445`。在归档目录可用 `git status` 查看当时的修改。当前开发使用 `GUIRun.bat --dev`。
 
 ## 模型与运行环境分别操作
 

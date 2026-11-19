@@ -195,7 +195,7 @@ def test_real_difference_to_multitrack_dag_registers_playable_audio_and_metadata
     assert mix["metadata"]["tracks"] == profile["graph"]["nodes"][1]["options"]["tracks"]
     artifacts = ArtifactService()
     PipelineService._register_pipeline_artifacts(SimpleNamespace(_artifact_service=artifacts),
-        task_id="audio-test", results=results, mix_path=None, exported_subtitle=None)
+        task_id="audio-test", results=results)
     preview = artifacts.get_task_preview_view("audio-test")
     assert preview["artifact_count"] == 2 and preview["preview_modes"] == ["audio"]
     assert {entry.artifact_type for entry in preview["artifacts"]} == {"audio.mix", "audio.difference"}

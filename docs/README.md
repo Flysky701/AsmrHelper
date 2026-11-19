@@ -27,6 +27,6 @@
 - [现有格式的兼容边界](contracts/compatibility.md)
 - [模块化分层与 Agent 驱动演进契约（V2）](contracts/modular-agent-architecture.md)
 
-工作台以 V2 图为执行依据；V1 请求及历史数据的兼容并不代表桌面仍使用固定全流程。HTTP 字段以 [Pydantic schema](../src/api/http/schemas/) 为准，运行实例可通过 `/docs` 或 `/openapi.json` 查看接口定义。模型资源以 [模型目录](../config/models.yaml) 为准，实际可运行性还取决于本机依赖和服务权限。
+工作台以 V2 图为执行依据。V1 历史可查询，具备完整绑定的旧工作流可迁移。HTTP 字段以 [Pydantic schema](../src/api/http/schemas/) 为准，运行实例可通过 `/docs` 或 `/openapi.json` 查看接口定义。模型资源以 [模型目录](../config/models.yaml) 为准，实际可运行性还取决于本机依赖和服务权限。
 
 - [Windows 1.0.0 待验收与 beta 兼容](windows-release-1.0-acceptance.md)

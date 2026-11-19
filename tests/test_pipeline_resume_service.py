@@ -27,7 +27,9 @@ def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp
     monkeypatch.setattr(config, "_config", {"api": {}, "external_tts": {}})
     monkeypatch.setattr(PipelineExecutor, "_try_clear_gpu", staticmethod(lambda: None))
     audio = tmp_path / "source.wav"
-    audio.write_bytes(b"original audio bytes")
+    import numpy as np
+    import soundfile as sf
+    sf.write(audio, np.zeros(16000), 16000)
     calls = []
     first_tts_outputs = []
     speech_store = SpeechStore(tmp_path / "voice-lab")
@@ -55,7 +57,7 @@ def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp
         calls.append("tts")
         assert kwargs["segments"][0]["text"] == "spoken"
         assert kwargs["segments"][0]["start_time"] == 0.0
-        Path(kwargs["output_path"]).write_bytes(b"complete audio")
+        sf.write(kwargs["output_path"], np.ones(16000) * 0.2, 16000)
 
     def make_services(state_store, tts_function):
         task_service = TaskService(state_store=state_store)
@@ -75,7 +77,7 @@ def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp
         sessions = SessionService(workspace_service=workspace_service, input_catalog_service=catalog)
         artifacts = ArtifactService(state_store=state_store)
         resources = Mock()
-        resources.check_task_readiness.return_value = {"ready": True}
+        resources._check_graph_profile.return_value = []
         resources.ensure_workspace.return_value = {"output_dir": tmp_path / "output"}
         executor = PipelineExecutor(asr=SimpleNamespace(transcribe_file=transcribe_file))
         service = PipelineService(task_service=task_service, resource_service=resources,
@@ -88,10 +90,12 @@ def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp
     tasks, pipeline, orchestrator, _, _, _ = make_services(SqliteStateStore(db_path), fail_synthesis)
     request = PipelineRequest(input_path=str(audio), output_dir=str(tmp_path / "chosen-output"),
                               source_lang="ja", target_lang="ja", use_vocal_separator=False)
+    request.speech_recipe_id = recipe["id"]
     profile = PipelineService._resolve_execution_profile(request)
-    profile["stages"]["mix"]["enabled"] = False
-    profile["stages"]["tts"] = {"enabled": True, "provider": "speech", "model": None,
-                                 "options": {"speech_recipe_id": recipe["id"]}, "provider_options": {}}
+    graph = profile["graph"]
+    graph["nodes"] = [n for n in graph["nodes"] if n["kind"] != "mix"]
+    graph["edges"] = [e for e in graph["edges"] if e["target"]["node_id"] != "mix"]
+    graph["outputs"][0] = {"node_id": "tts", "port": "audio"}
     request.execution_profile = profile
     _, first_spec = pipeline.create_pipeline_task(request)
     with pytest.raises(AppExecutionError, match="injected synthesis failure"):
@@ -132,5 +136,6 @@ def test_resume_after_restart_reconstructs_session_and_reuses_asr_checkpoint(tmp
     restored_tts = tasks2.recovery_store.checkpoint(resumed.task_id, "tts")
     tts_output = Path(restored_tts["files"][0]["original"])
     assert tts_output.is_relative_to(new_output)
-    assert tts_output.read_bytes() == b"complete audio"
+    assert sf.info(tts_output).frames == 16000
+    assert result.steps["asr"]["reused"] is True
     assert Path(result.exported_subtitle).is_file()

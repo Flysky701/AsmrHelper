@@ -116,6 +116,15 @@ class RecoveryStore:
             return None
         return record
 
+    def graph_checkpoint_source(self, task_id: str | None, node_id: str) -> str | None:
+        visited = set()
+        while task_id and task_id not in visited:
+            if self.checkpoint(task_id, node_id):
+                return task_id
+            visited.add(task_id)
+            task_id = (self.manifest(task_id) or {}).get("resume_of_task_id")
+        return None
+
     def retain_interrupted(self) -> None:
         """Keep recoverable unfinished tasks as failed, with a precise cause."""
         with self.state_store._lock, self.state_store._connect() as connection:
@@ -127,9 +136,44 @@ class RecoveryStore:
                 graph = json.loads(row["spec_json"]).get("execution_profile", {}).get("version") == 2
                 now = datetime.now(UTC).isoformat()
                 status.update(state="failed", updated_at=now, finished_at=now,
-                              message=("图任务已中断，请检查记录后重新提交；不支持阶段续跑" if graph
-                                       else "运行已中断，可从已完成阶段继续"),
+                              message=("图任务已中断，可查看已完成节点并恢复" if graph
+                                       else "V1 任务已中断，历史记录已保留"),
                               error={"code": "TASK_INTERRUPTED", "stage": status.get("stage") or "prepare",
                                      "message": "应用停止时任务尚未完成", "retryable": True})
                 connection.execute("UPDATE tasks SET state='failed',updated_at=?,status_json=? WHERE task_id=?",
                                    (now, json.dumps(status, ensure_ascii=False), row["task_id"]))
+
+class GraphCheckpoints:
+    """Store validated node outputs under the immutable submission and restore into a fresh attempt."""
+
+    def __init__(self, store, task_id, profile):
+        self.store = store
+        self.task_id = task_id
+        self.signature = fingerprint(profile)
+        manifest = store.manifest(task_id) or {}
+        self.previous = manifest.get("resume_of_task_id")
+
+    def restore(self, node_id, directory):
+        from src.core.orchestration.pipeline.graph_adapters import GraphValue
+
+        source_task = self.store.graph_checkpoint_source(self.previous, node_id)
+        if source_task is None:
+            return None
+        record = self.store.validated(source_task, node_id, self.signature)
+        if record is None:
+            raise ValueError(f"节点 {node_id} 的恢复文件已改变，请重新提交任务")
+        originals = {f["original"]: f["path"] for f in record["files"]}
+        directory.mkdir(parents=True, exist_ok=True)
+        outputs = {}
+        for port, raw in record["payload"].items():
+            src = originals[raw["path"]]
+            dest = directory / Path(raw["path"]).name
+            shutil.copyfile(src, dest)
+            outputs[port] = GraphValue(**{**raw, "path": str(dest)})
+        return outputs
+
+    def save(self, node_id, outputs):
+        from dataclasses import asdict
+        payload = {port: {**asdict(value), "path": str(Path(value.path).resolve())}
+                   for port, value in outputs.items()}
+        self.store.commit(self.task_id, node_id, self.signature, payload, [v["path"] for v in payload.values()])
