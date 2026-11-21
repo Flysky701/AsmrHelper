@@ -34,9 +34,11 @@ def test_reference_preview_save_match_without_transcript_and_preserve_source(tmp
     assert store.list("assets") == []
     assert store.get_inspection(preview["id"])["staged"]
     saved = store.import_reference(original, .1, .9, "", "ja", False, **options)
-    assert saved["sha256"] == preview["sha256"]
     assert saved["confirmed"] is False
-    samples, _ = sf.read(saved["path"])
+    samples, rate = sf.read(saved["path"])
+    preview_samples, preview_rate = sf.read(preview["path"])
+    assert rate == preview_rate == 1000
+    np.testing.assert_array_equal(samples, preview_samples)
     assert samples[0] == samples[-1] == 0
     assert samples[200] == pytest.approx(.2 * 10**(.3), rel=1e-6)
     assert hashlib.sha256(original.read_bytes()).hexdigest() == original_hash
