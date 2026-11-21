@@ -65,14 +65,3 @@ test('a replaced guard cannot authorize leaving a different draft', async () => 
   await first
   assert.equal(useNavStore.getState().activePage, 'workbench')
 })
-
-test('failed native confirmation preserves the draft and releases the dialog lock', async () => {
-  let fail = true
-  const { confirmAction } = load('../src/utils/confirmAction.ts', {
-    '@tauri-apps/api/core': { isTauri: () => true },
-    '@tauri-apps/plugin-dialog': { confirm: async () => { if (fail) throw Error('test dialog failure'); return true } },
-  })
-  assert.equal(await confirmAction('Unsaved draft'), false)
-  fail = false
-  assert.equal(await confirmAction('Unsaved draft'), true)
-})

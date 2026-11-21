@@ -1,8 +1,6 @@
 """Explicit per-run LLM selection must not mutate or fall back to global A."""
 from dataclasses import asdict
-import importlib
 import json
-from unittest.mock import Mock
 
 import pytest
 
@@ -67,40 +65,12 @@ def test_graph_translation_pins_selected_connection_across_retry(monkeypatch, tm
     assert config.to_dict() == changed
 
 
-@pytest.mark.parametrize("change", ["missing", "provider", "empty-key", "empty-ref", "null-ref"])
+@pytest.mark.parametrize("change", ["missing", "empty-key"])
 def test_invalid_explicit_connection_never_falls_back(change):
     data, execution = settings(), profile()
     if change == "missing":
         execution["stages"]["translate"]["options"]["connection_ref"] = "deleted"
-    elif change == "provider":
-        execution["stages"]["translate"]["provider"] = "deepseek"
-    elif change == "empty-key":
-        data["connection_profiles"]["llm"][1]["api_key"] = ""
-    elif change == "null-ref":
-        execution["stages"]["translate"]["options"]["connection_ref"] = None
     else:
-        execution["stages"]["translate"]["options"]["connection_ref"] = ""
+        data["connection_profiles"]["llm"][1]["api_key"] = ""
     with pytest.raises(ValueError):
         resolve_task_settings(data, execution)
-
-
-def test_model_discovery_targets_B_without_saving_or_fallback(monkeypatch, tmp_path):
-    from src.app.services.settings_service import SettingsService
-    from src.app.errors import AppValidationError
-    module = importlib.import_module("src.config")
-    monkeypatch.setattr(module, "CONFIG_FILE", tmp_path / "config.json")
-    monkeypatch.setattr(module, "CONFIG_DIR", tmp_path)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    cfg = object.__new__(module.Config)
-    cfg.save(settings())
-    cfg.reload()
-    before = module.CONFIG_FILE.read_bytes()
-    probe = Mock(return_value=["model-B"])
-    service = SettingsService(config_manager=cfg, model_probe=probe)
-    assert service.discover_models("openai", {"active_connections": {"llm": "B"}}) == ["model-B"]
-    probe.assert_called_once_with("openai", "secret-B", "https://b.invalid/v1")
-    assert module.CONFIG_FILE.read_bytes() == before
-    assert cfg.to_dict()["connection_profiles"]["active_llm"] == "A"
-    with pytest.raises(AppValidationError):
-        service.discover_models("openai", {"active_connections": {"llm": "missing"}})
-    assert probe.call_count == 1

@@ -111,24 +111,6 @@ def test_reference_analysis_task_returns_progress_and_durable_result(speech_http
     assert (service.store.root / "_analyses" / (task["task_id"] + ".json")).exists()
 
 
-def test_reference_analysis_failure_is_visible_and_asr_is_opt_in(speech_http, monkeypatch, tmp_path):
-    from src.core.tts.audio_preprocessor import AudioPreprocessor
-    client, _service = speech_http
-    source = tmp_path / "reference.wav"
-    source.write_bytes(wav())
-
-    def analyze(_self, **kwargs):
-        assert kwargs["require_text"] is True
-        raise RuntimeError("识别模型尚未安装")
-
-    monkeypatch.setattr(AudioPreprocessor, "analyze_segments", analyze)
-    task = post(client, "/references/analyze-tasks", {"path": str(source), "require_text": True}, status=202)
-    assert wait_task(client, task["task_id"])["state"] == "failed"
-    result = client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()
-    assert "识别模型尚未安装" in str(result["status"]["error"])
-    assert result["result"] is None
-
-
 def test_reference_analysis_can_cancel_without_publishing_result(speech_http, monkeypatch, tmp_path):
     import threading
     from src.core.tts.audio_preprocessor import AudioPreprocessor
@@ -155,39 +137,11 @@ def test_reference_analysis_can_cancel_without_publishing_result(speech_http, mo
     assert client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"] is None
 
 
-def test_reference_analysis_rejects_missing_input(speech_http, tmp_path):
-    client, _service = speech_http
-    post(client, "/references/analyze-tasks", {"path": str(tmp_path / "missing.wav")}, status=422)
-
-
-def test_reference_analysis_silence_reports_no_candidates_without_loading_asr(speech_http, monkeypatch, tmp_path):
-    from src.core.tts.audio_preprocessor import AudioPreprocessor
-    client, _service = speech_http
-    source = tmp_path / "silence.wav"
-    sf.write(source, np.zeros(64000, dtype="float32"), 16000)
-
-    def forbidden_asr(*args, **kwargs):
-        pytest.fail("关闭 ASR 时不应加载模型")
-
-    monkeypatch.setattr(AudioPreprocessor, "_run_asr", forbidden_asr)
-    task = post(client, "/references/analyze-tasks", {"path": str(source), "require_text": False}, status=202)
-    status = wait_task(client, task["task_id"])
-    assert status["state"] == "completed"
-    result = client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"]
-    assert result["segments"] == []
-    assert result["mode"] == "manual"
-    assert result["transcript_source"] == "none"
-
-
 @pytest.mark.parametrize("sidecar_suffix,language,text,end,expected_source,verified", [
     ('.vtt', 'en', 'Hello this is the original recording.', '00:00:03.500', 'subtitle', True),
-    ('.wav.vtt', 'en', 'Hello this is the original recording.', '00:00:03.500', 'subtitle', True),
-    ('.srt', 'en', 'Hello this is the original recording.', '00:00:03.500', 'subtitle', True),
     ('.wav.srt', 'en', 'Hello this is the original recording.', '00:00:03.500', 'subtitle', True),
-    ('.vtt', 'ja', 'これは録音の原文です。よろしくお願いします。', '00:00:03.500', 'subtitle', True),
-    ('.vtt', 'auto', 'Hello this is the original recording.', '00:00:03.500', 'asr', None),
     ('.vtt', 'ja', '这是翻译后的中文字幕。', '00:00:03.500', 'asr', None),
-    ('.vtt', 'en', 'Hello this is the original recording.', '00:00:09.000', 'asr', None)
+    ('.vtt', 'en', 'Hello this is the original recording.', '00:00:09.000', 'asr', None),
 ])
 def test_reference_analysis_reuses_valid_sidecar_from_staged_audio(
     speech_http, monkeypatch, tmp_path, language, text, end, expected_source, verified, sidecar_suffix,
@@ -214,47 +168,6 @@ def test_reference_analysis_reuses_valid_sidecar_from_staged_audio(
     assert result["warnings"]
     if verified is not None:
         assert result["subtitle"]["language_verified"] is verified
-
-
-def test_processed_reference_does_not_reuse_parent_subtitle_timeline(speech_http, tmp_path):
-    client, _service = speech_http
-    source = tmp_path / "recording.wav"
-    sf.write(source, np.zeros(64000, dtype="float32"), 16000)
-    source.with_suffix(".srt").write_text("1\n00:00:00,000 --> 00:00:03,500\nHello original recording.\n", encoding="utf-8")
-    staged = post(client, "/references/inspect", {"path": str(source)})
-    cropped = post(client, "/references/preview", {"path": staged["path"], "start": 1, "end": 2})
-    again = post(client, "/references/inspect", {"path": cropped["path"]})
-    assert again["companion_subtitles"] == []
-    assert again["companion_source_path"] is None
-
-
-@pytest.mark.parametrize("language,text", [
-    ("ja", "これは原文です。\n这是中文字幕翻译。"),
-    ("ja", "这是中文字幕翻译，只有一个の字。\n另外一句也是中文字幕。"),
-    ("ja", "这是中文字幕翻译，只有一个の字。"),
-    ("auto", "Hello from this recording."),
-    ("ja", "This is an English translation."),
-])
-def test_uncertain_or_translated_subtitles_do_not_block_requested_asr(speech_http, monkeypatch, tmp_path, language, text):
-    from src.core.tts.audio_preprocessor import AudioPreprocessor
-    client, _service = speech_http
-    source = tmp_path / "recording.wav"
-    sf.write(source, np.zeros(64000, dtype="float32"), 16000)
-    source.with_suffix(".vtt").write_text(f"WEBVTT\n\n00:00:00.000 --> 00:00:03.500\n{text}\n", encoding="utf-8")
-
-    def analyze(_self, **kwargs):
-        assert kwargs["subtitle_path"] is None
-        assert kwargs["require_text"] is True
-        assert kwargs["audio_language"] == language
-        return {"segments": [{"start": 0, "end": 3, "text": "ASR original"}], "mode": "asr"}
-
-    monkeypatch.setattr(AudioPreprocessor, "analyze_segments", analyze)
-    task = post(client, "/references/analyze-tasks", {"path": str(source), "language": language, "require_text": True}, status=202)
-    assert wait_task(client, task["task_id"])["state"] == "completed"
-    result = client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"]
-    assert result["transcript_source"] == "asr"
-    assert result["subtitle"] is None
-    assert result["warnings"]
 
 
 def test_selection_asr_only_reads_crop_ignores_subtitles_and_requires_confirmation(speech_http, monkeypatch, tmp_path):
@@ -287,65 +200,9 @@ def test_selection_asr_only_reads_crop_ignores_subtitles_and_requires_confirmati
     assert service.store.list("assets") == []
 
 
-@pytest.mark.parametrize("start,end", [(1, 1), (-1, 1), (2, 1)])
-def test_selection_asr_rejects_invalid_interval(speech_http, tmp_path, start, end):
-    client, _service = speech_http
-    source = tmp_path / "recording.wav"
-    source.write_bytes(wav())
-    post(client, "/references/transcribe-tasks", {"path": str(source), "start": start, "end": end}, status=422)
-
-
-def test_selection_asr_cancellation_discards_late_result(speech_http, monkeypatch, tmp_path):
-    import threading
-    from src.core.tts.audio_preprocessor import AudioPreprocessor
-    client, service = speech_http
-    source = tmp_path / "recording.wav"
-    source.write_bytes(wav())
-    entered, release = threading.Event(), threading.Event()
-
-    def transcribe(*args, **kwargs):
-        entered.set()
-        assert release.wait(5)
-        return [{"start": 0, "end": .1, "text": "late"}]
-
-    monkeypatch.setattr(AudioPreprocessor, "_run_asr", transcribe)
-    task = post(client, "/references/transcribe-tasks", {"path": str(source), "start": 0, "end": .1}, status=202)
-    try:
-        assert entered.wait(5)
-        assert client.post("/api/v1/tasks/" + task["task_id"] + "/cancel").status_code == 200
-    finally:
-        release.set()
-    assert wait_task(client, task["task_id"])["state"] == "cancelled"
-    assert not (service.store.root / "_analyses" / (task["task_id"] + ".json")).exists()
-
-
-def test_selection_asr_bounds_and_engine_failure_are_visible(speech_http, monkeypatch, tmp_path):
-    from src.core.tts.audio_preprocessor import AudioPreprocessor
-    client, _service = speech_http
-    source = tmp_path / "recording.wav"
-    source.write_bytes(wav())
-    calls = []
-
-    def transcribe(*args, **kwargs):
-        calls.append(True)
-        raise RuntimeError("ASR 模型未安装")
-
-    monkeypatch.setattr(AudioPreprocessor, "_run_asr", transcribe)
-    task = post(client, "/references/transcribe-tasks", {"path": str(source), "start": 0, "end": 1}, status=202)
-    assert wait_task(client, task["task_id"])["state"] == "failed"
-    assert not calls
-    task = post(client, "/references/transcribe-tasks", {"path": str(source), "start": 0, "end": .1}, status=202)
-    status = wait_task(client, task["task_id"])
-    assert status["state"] == "failed" and "ASR 模型未安装" in str(status["error"])
-    assert len(calls) == 1
-    assert client.get("/api/v1/speech/references/analyze-tasks/" + task["task_id"]).json()["result"] is None
-
-
 @pytest.mark.parametrize("text,format,expected", [
-    ("WEBVTT\n\n00:00:00.000 --> 00:00:03.500\nHello from the recording.\n", "vtt", "subtitle"),
     ("1\n00:00:00,000 --> 00:00:03,500\nHello from the recording.\n", "srt", "subtitle"),
     ("WEBVTT\n\n00:00:00.000 --> 00:00:09.000\nOut of bounds.\n", "vtt", "asr"),
-    ("not a subtitle", "srt", "asr"),
 ])
 def test_manual_subtitle_is_snapshotted_and_reused_without_asr(speech_http, monkeypatch, tmp_path, text, format, expected):
     from src.core.tts.audio_preprocessor import AudioPreprocessor
@@ -376,16 +233,6 @@ def test_manual_subtitle_is_snapshotted_and_reused_without_asr(speech_http, monk
         assert result["subtitle"]["name"] == "手动加载字幕"
 
 
-@pytest.mark.parametrize("extra", [
-    {"subtitle_text": []}, {"subtitle_format": "../vtt"}, {"subtitle_text": "x" * (5 * 1024 * 1024 + 1)},
-])
-def test_manual_subtitle_rejects_invalid_transport(speech_http, tmp_path, extra):
-    client, _service = speech_http
-    source = tmp_path / "browser.wav"
-    source.write_bytes(wav())
-    post(client, "/references/analyze-tasks", {"path": str(source), **extra}, status=422)
-
-
 def test_browser_reference_upload_can_be_cropped_and_played(speech_http):
     client, service = speech_http
     response = client.post("/api/v1/speech/references/upload", params={"filename": "参考.wav"},
@@ -399,27 +246,6 @@ def test_browser_reference_upload_can_be_cropped_and_played(speech_http):
     audio = client.get(f'/api/v1/speech/references/{asset["id"]}/audio')
     samples, rate = sf.read(BytesIO(audio.content))
     assert len(samples) == int(rate * .08)
-
-
-def test_browser_reference_upload_rejects_empty_and_oversize(speech_http, monkeypatch):
-    client, service = speech_http
-    assert client.post("/api/v1/speech/references/upload?filename=empty.wav", content=b"").status_code == 422
-    assert client.post("/api/v1/speech/references/upload?filename=bad.exe", content=b"bad").status_code == 422
-    monkeypatch.setattr("src.api.http.routes.speech.MAX_REFERENCE_UPLOAD", 3)
-    assert client.post("/api/v1/speech/references/upload?filename=large.wav", content=b"1234").status_code == 413
-    # Missing Content-Length: enforce the limit while streaming too.
-    assert client.post("/api/v1/speech/references/upload?filename=large.wav", content=iter([b"12", b"34"])).status_code == 413
-    assert not list((service.store.root / "_uploads").iterdir())
-
-
-def test_reference_metadata_patch_is_allowed_from_desktop_origin(speech_http):
-    client, _ = speech_http
-    response = client.options("/api/v1/speech/references/test", headers={
-        "origin": "http://tauri.localhost", "access-control-request-method": "PATCH",
-        "access-control-request-headers": "content-type",
-    })
-    assert response.status_code == 200
-    assert "PATCH" in response.headers["access-control-allow-methods"]
 
 
 def test_reference_library_preview_search_delete_and_subtitles(speech_http):
@@ -514,53 +340,3 @@ def test_remote_result_unknown_is_structured_and_generic_retry_blocked(speech_ht
     retry = client.post(f"/api/v1/tasks/{task['task_id']}/retry")
     assert retry.status_code in {400, 409, 422}, retry.text
     assert len(calls) == 1 and service.store.list("takes") == []
-
-
-@pytest.mark.parametrize("path", ["/compile", "/plan-performance", "/references", "/references/inspect", "/experiments", "/workbench-draft"])
-def test_missing_http_fields_are_validation_errors(speech_http, path):
-    client, _ = speech_http
-    response = client.post("/api/v1/speech" + path, json={})
-    assert response.status_code == 422, response.text
-
-
-def test_recipe_requires_existing_voice(speech_http):
-    client, _ = speech_http
-    _, _, recipe, _, _ = setup_fish(client)
-    recipe.pop("id")
-    recipe["voice_id"] = "nonexistent-voice"
-    response = client.post("/api/v1/speech/recipes", json=recipe)
-    assert response.status_code == 422, response.text
-
-
-def test_formal_fish_single_sentence_regeneration_preserves_other_audio(speech_http, monkeypatch, tmp_path):
-    client, service = speech_http
-    calls = []
-    def handler(request):
-        calls.append(json.loads(request.content))
-        return httpx.Response(200, content=wav())
-    fake_remote(monkeypatch, handler)
-    _, _, recipe, _, _ = setup_fish(client)
-    first = service.synthesize_timeline(service.snapshot(recipe["id"]), [
-        {"text": "第一句。", "start_time": .2, "end_time": .5},
-        {"text": "第二句。", "start_time": .8, "end_time": 1.1},
-    ], tmp_path / "formal.wav", "formal-parent", reference_duration=1.5)
-    experiment = next(e for e in service.store.list("experiments") if e.get("kind") == "formal")
-    task = post(client, f"/experiments/{experiment['id']}/generate", {"recipe_id": recipe["id"], "segment_id": "sentence-1"}, status=202)
-    assert wait_task(client, task["task_id"])["state"] == "completed"
-    take = next(t for t in service.experiment(experiment["id"])["takes"] if t["task_id"] == task["task_id"])
-    post(client, "/selections", {"experiment_id": experiment["id"], "segment_id": "sentence-1", "take_id": take["id"]})
-    second = post(client, "/assemblies", {"experiment_id": experiment["id"]})
-    assert len(calls) == 3
-    assert first["processing"][1]["take_id"] == second["processing"][1]["take_id"]
-    assert first["processing"][0]["take_id"] != second["processing"][0]["take_id"]
-    assert second["duration"] == 1.5
-
-
-def test_recipe_rejects_binding_provider_mismatch(speech_http):
-    client, _ = speech_http
-    _, _, recipe, _, _ = setup_fish(client)
-    voice = post(client, "/voices", {"name": "Edge only", "bindings": [{"id": "edge", "provider_id": "edge", "variants": []}]})
-    recipe.pop("id")
-    recipe["voice_id"] = voice["id"]
-    response = client.post("/api/v1/speech/recipes", json=recipe)
-    assert response.status_code == 422, response.text

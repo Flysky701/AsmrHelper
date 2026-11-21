@@ -15,6 +15,7 @@ from src.core.speech.compiler import compile_recipe
 from src.core.speech.providers import ProviderError, get_provider
 from src.core.speech.remake import extract_voice_reference_candidate, prepare_references, validate_timeline_options
 from src.core.tasks import TaskDispatcher
+from src.workspace_paths import windows_long_path
 from .task_service import get_task_service, get_task_dispatcher
 from .artifact_service import get_artifact_service
 
@@ -78,18 +79,20 @@ class SpeechService:
             raise ValueError("此引擎需要明确选择连接，不能使用本机默认连接")
         if not any(item["id"] == mode and model in item["models"] for item in provider.modes):
             raise ValueError("模型与本机引擎模式不匹配")
-        name = {"qwen3": "Qwen3 TTS", "voxcpm2": "VoxCPM2"}.get(provider_id, provider_id)
+        name = {"qwen3": "Qwen3 TTS", "voxcpm2": "VoxCPM2", "fish_audio_local": "Fish Audio Drama 3"}.get(provider_id, provider_id)
         connection = self.store.resolve_local_connection(provider_id, name + " · 本机")
         if connection is None:
             return {"connection": None, "readiness": None,
                     "detail": "已有多个连接或非本机配置，请在高级连接设置中明确选择。"}
-        # Local readiness inspects paths/config metadata only. Never resolve a credential here.
         public = {key: connection[key] for key in
-                  ("id", "name", "provider_id", "deployment", "timeout", "model_path", "device")
+                  ("id", "name", "provider_id", "deployment", "timeout", "model_path", "device", "base_url")
                   if key in connection}
         context = {key: connection[key] for key in ("model_path", "device", "precision", "runtime") if key in connection}
+        if provider_id == "fish_audio_local":
+            # Only the loopback provider sees its optional credential.
+            context = self.connection_context(connection)
         readiness = provider.probe({**context, "model": model, "mode": mode})
-        if readiness.get("ready"):
+        if readiness.get("ready") and provider_id != "fish_audio_local":
             readiness["detail"] = "模型与运行环境文件已找到；尚未验证依赖或执行合成。"
         return {"connection": public, "readiness": readiness,
                 "detail": "保存音色只保存配置，不会启动或安装模型。"}
@@ -113,11 +116,15 @@ class SpeechService:
             url = urlsplit(data["base_url"])
             if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password or url.query or url.fragment:
                 raise ValueError("连接地址必须是无凭据的 HTTP(S) 基础地址")
+        if provider.provider_id == "fish_audio_local":
+            data["base_url"] = provider.connection_base(data)
         data["timeout"] = float(data.get("timeout", 120))
         if not 1 <= data["timeout"] <= 600:
             raise ValueError("超时应在 1–600 秒之间")
         key = data.pop("api_key", "")
-        if previous and any(data.get(k) != previous.get(k) for k in ("base_url", "provider_id")) and not key:
+        address_changed = previous and any(data.get(k) != previous.get(k) for k in ("base_url", "provider_id"))
+        optional_local_key = provider.provider_id == "fish_audio_local" and not data.get("credential_ref")
+        if address_changed and not key and not optional_local_key:
             raise ValueError("更换服务地址或协议后请重新提供凭据")
         if key:
             data["credential_ref"] = uuid4().hex
@@ -1092,7 +1099,8 @@ class SpeechService:
         if time_stretch_engine == "pytsmod_wsola":
             key_src += ":wsola-v1"
         key = hashlib.sha256(key_src.encode()).hexdigest()
-        target = Path(media_root if media_root is not None else self.store.root) / "aligned" / (key + ".wav")
+        directory = Path(media_root if media_root is not None else self.store.root) / "aligned"
+        target = windows_long_path(directory / (key + ".wav"))
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             steps, factor = [], ratio

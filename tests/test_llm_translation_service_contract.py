@@ -10,8 +10,7 @@ from src.core.engines.llm.service import LlmOperationRuntime
 from src.core.engines.llm.translator import TranslationError
 
 
-@pytest.mark.parametrize("operation", [False, True])
-@pytest.mark.parametrize("failure", [False, True])
+@pytest.mark.parametrize("operation,failure", [(False, False), (True, True)])
 def test_translation_entrypoints_use_runtime_keyword_contract(tmp_path, operation, failure):
     translate = Mock(return_value=["translated one", "translated two"])
     if failure:

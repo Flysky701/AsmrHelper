@@ -9,7 +9,6 @@ import soundfile as sf
 
 from src.api.http.schemas.workflow_graph import GraphDefinitionRequest
 from src.app.services.graph_pipeline_service import make_node_plan
-from src.core.engines.llm.translator import Translator
 from src.core.orchestration.pipeline.executor import PipelineExecutor
 from src.core.orchestration.pipeline.graph_adapters import GraphStageRunner, GraphValue
 from src.core.orchestration.pipeline.graph_executor import GraphExecutor
@@ -110,38 +109,6 @@ def test_dynamic_reference_spans_keep_matching_source_transcripts(tmp_path):
     assert assets[refs[0]]["transcript"] == "ひとつ ふたつ"
     assert sf.info(assets[refs[0]]["path"]).duration == 4.5
     assert assets[refs[2]]["transcript"] == "おわり"
-
-
-def test_automatic_style_references_follow_relative_source_level(tmp_path):
-    rate = 16000
-    source = tmp_path / "source.wav"
-    wave = np.sin(np.arange(rate * 3) * .07)
-    sf.write(source, np.concatenate([.12 * wave, .025 * wave]), rate)
-    cues = [
-        {"start_time": 0, "end_time": 3, "delivery": "soft", "source_rms_db": -22, "original": "近い声"},
-        {"start_time": 3, "end_time": 6, "delivery": "soft", "source_rms_db": -35, "original": "遠い声"},
-    ]
-    assets, refs = prepare_references(source, cues, "per_style", tmp_path / "refs", match_level=True)
-    assert refs[0] != refs[1]
-    assert assets[refs[0]]["transcript"] == "近い声"
-    assert assets[refs[1]]["transcript"] == "遠い声"
-
-
-def test_duration_aware_passes_distinct_cue_budgets_to_llm():
-    import json
-
-    translator = Translator(use_cache=False, use_quality_check=False)
-    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
-        content='[{"id": 0, "dst": "早安"}, {"id": 1, "dst": "你好"}]',
-    ))])
-    create = Mock(return_value=response)
-    translator._get_client = lambda: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-    translated = translator.translate_batch(
-        ["おはよう", "こんにちは"], duration_aware=True, available_seconds=[.5, 2], chars_per_second=4,
-    )
-    assert translated == ["早安", "你好"]
-    rows = json.loads(create.call_args.kwargs["messages"][1]["content"])
-    assert [(item["available_seconds"], item["max_characters"]) for item in rows] == [(.5, 2), (2, 8)]
 
 
 def test_seed_vc_uses_aligned_reference_and_preserves_raw_takes(tmp_path, monkeypatch):

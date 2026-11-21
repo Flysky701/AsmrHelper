@@ -90,6 +90,7 @@ def main():
     )
     parser.add_argument("--mirror", type=str, default=None, help="HuggingFace mirror URL")
     parser.add_argument("--force", action="store_true", help="Force re-download of existing models")
+    parser.add_argument("--confirm-large-download", action="store_true", help="Accept the model's disk and GPU warning")
     parser.add_argument("--compute", choices=("auto", "cpu", "cuda"), help="CPU/CUDA policy for dependency installation (otherwise use saved policy)")
     args = parser.parse_args()
 
@@ -155,7 +156,11 @@ def main():
     for model_id in targets:
         print_step(f"Processing model: {model_id}")
         try:
-            service.install_model(model_id, mirror=args.mirror, force=args.force)
+            warning = service.download_warning(model_id)
+            if warning and args.confirm_large_download:
+                print_step(warning)
+            service.install_model(model_id, mirror=args.mirror, force=args.force,
+                                  confirm_large_download=args.confirm_large_download)
         except AppError as exc:
             print_fail(f"{model_id}: {exc}")
             print_fail(model_id)

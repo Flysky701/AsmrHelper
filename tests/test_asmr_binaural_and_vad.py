@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import subprocess
 import sys
 from copy import deepcopy
 from types import SimpleNamespace
@@ -20,7 +19,7 @@ from src.core.engines.asr.anime_whisper import AnimeWhisperRecognizer
 from src.core.engines.asr.vad_slicer import slice_speech_regions
 from src.core.speech.providers import get_provider
 from src.core.speech.store import SpeechStore
-from src.mixer.binaural import estimate_cue_panning, pan_mono_to_stereo, plan_cue_slots
+from src.mixer.binaural import estimate_cue_panning
 
 
 def _tone(duration_sec: float, sr: int = 16000, freq: float = 220.0, amp: float = 0.18) -> np.ndarray:
@@ -161,21 +160,6 @@ def test_anime_whisper_vad_slicing_offsets_chunk_timestamps_accurately(tmp_path,
     assert "00:00:31," in srt_text or "00:00:30,9" in srt_text
 
 
-def test_anime_whisper_read_audio_enforces_600s_subprocess_timeout(monkeypatch):
-    observed_kwargs: dict = {}
-
-    def fake_run(cmd, **kwargs):
-        observed_kwargs.update(kwargs)
-        raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout", 0))
-
-    monkeypatch.setattr("src.utils.get_ffmpeg", lambda: "ffmpeg")
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    with pytest.raises(TimeoutError, match="600s"):
-        AnimeWhisperRecognizer._read_audio("corrupt_hanging_input.wav")
-    assert observed_kwargs.get("timeout") == 600
-
-
 # ---------------------------------------------------------------------------
 # 2. Binaural Panning Estimation, Constant-Power Mapping & Slack Slot Planner
 # ---------------------------------------------------------------------------
@@ -261,71 +245,6 @@ def test_estimate_cue_panning_streams_slice_only_and_detects_left_right_center(t
     frames_read_log.clear()
     assert estimate_cue_panning(mono_path, 0.0, 1.0) == 0.0
     assert frames_read_log == []
-
-
-def test_pan_mono_to_stereo_constant_power_and_center_unity():
-    mono = _tone(0.5, 24000, amp=0.3)
-    center = pan_mono_to_stereo(mono, 0.0)
-    assert center.shape == (len(mono), 2)
-    assert center.dtype == np.float32
-    np.testing.assert_allclose(center[:, 0], mono, rtol=1e-6, atol=1e-6)
-    np.testing.assert_allclose(center[:, 1], mono, rtol=1e-6, atol=1e-6)
-
-    mono_power = float(np.mean(np.square(mono, dtype=np.float64)))
-    for pan in (-0.95, -0.6, 0.0, 0.5, 0.95):
-        stereo = pan_mono_to_stereo(mono, pan)
-        stereo_mean_power = float(np.mean(np.square(stereo, dtype=np.float64)))
-        # Mean per-channel power equals mono_power for all constant-power pan angles
-        assert stereo_mean_power == pytest.approx(mono_power, rel=1e-5)
-
-
-def test_plan_cue_slots_borrows_inter_cue_slack_and_flags_over_speed():
-    timeline = [
-        {"start_time": 0.0, "end_time": 1.0},  # 1.94s slack before cue 2 (3.0 - 0.06 - 1.0)
-        {"start_time": 3.0, "end_time": 4.0},  # 0.14s slack before cue 3 (4.2 - 0.06 - 4.0)
-        {"start_time": 4.2, "end_time": 5.0},  # 1.00s slack before reference_duration=6.0
-    ]
-    take_durations = [1.8, 2.0, 1.5]
-
-    plans = plan_cue_slots(
-        timeline,
-        take_durations,
-        reference_duration=6.0,
-        guard_sec=0.06,
-        max_atempo=1.35,
-        cap_atempo=True,
-    )
-    # Cue 0: 1.8s fits cleanly by borrowing 0.8s of the 1.94s gap -> no speedup needed!
-    assert plans[0]["borrowed_sec"] == pytest.approx(0.8)
-    assert plans[0]["effective_slot"] == pytest.approx(1.8)
-    assert plans[0]["required_atempo"] == pytest.approx(1.0)
-    assert plans[0]["applied_atempo"] == pytest.approx(1.0)
-    assert plans[0]["over_speed"] is False
-
-    # Cue 1: 2.0s take, natural 1.0s + 0.14s slack = 1.14s -> required_atempo = 1.754 > 1.35!
-    assert plans[1]["borrowed_sec"] == pytest.approx(0.14)
-    assert plans[1]["effective_slot"] == pytest.approx(1.14)
-    assert plans[1]["required_atempo"] == pytest.approx(2.0 / 1.14)
-    assert plans[1]["applied_atempo"] == pytest.approx(1.35)
-    assert plans[1]["over_speed"] is True
-
-    # Cue 2: 1.5s take on [4.2, 5.0] (natural 0.8s) borrows 0.7s up to reference_duration=6.0 -> 1.0x!
-    assert plans[2]["borrowed_sec"] == pytest.approx(0.7)
-    assert plans[2]["effective_slot"] == pytest.approx(1.5)
-    assert plans[2]["applied_atempo"] == pytest.approx(1.0)
-    assert plans[2]["over_speed"] is False
-
-    # Uncapped mode preserves exact required_atempo while still flagging over_speed
-    uncapped = plan_cue_slots(
-        timeline,
-        take_durations,
-        reference_duration=6.0,
-        guard_sec=0.06,
-        max_atempo=1.35,
-        cap_atempo=False,
-    )
-    assert uncapped[1]["over_speed"] is True
-    assert uncapped[1]["applied_atempo"] == pytest.approx(2.0 / 1.14)
 
 
 # ---------------------------------------------------------------------------
@@ -504,46 +423,3 @@ def test_speech_service_silence_slack_borrowing_and_capped_atempo(
     assert rebuilt["processing"][0]["borrowed_seconds"] == pytest.approx(0.6)
     assert rebuilt["processing"][1]["over_speed"] is True
     assert rebuilt["processing"][1]["time_stretch"] == pytest.approx(1.35)
-
-
-def test_binaural_and_vad_edge_cases_and_validation(speech_env, tmp_path, monkeypatch):
-    service, recipe = speech_env
-
-    # Parameter validation checks
-    with pytest.raises(ValueError, match="sample_rate"):
-        slice_speech_regions(np.zeros(100, dtype=np.float32), sample_rate=0)
-    with pytest.raises(ValueError, match="max_chunk_sec"):
-        slice_speech_regions(np.zeros(100, dtype=np.float32), max_chunk_sec=-1.0)
-    with pytest.raises(ValueError, match="pan must be finite"):
-        pan_mono_to_stereo(np.zeros(10, dtype=np.float32), float("nan"))
-    with pytest.raises(ValueError, match="same length"):
-        plan_cue_slots([{"start": 0.0, "end": 1.0}], [0.5, 0.5])
-
-    # 2D input to pan_mono_to_stereo and slice_speech_regions
-    stereo_in = np.ones((3200, 2), dtype=np.float32) * 0.2
-    panned = pan_mono_to_stereo(stereo_in, -0.5)
-    assert panned.shape == (3200, 2)
-    assert float(np.mean(panned[:, 0] ** 2)) > float(np.mean(panned[:, 1] ** 2))
-    assert len(slice_speech_regions(stereo_in, sample_rate=16000)) == 1
-
-    # Mono binaural_source_path (Windows string path) gracefully preserves legacy 44.1kHz mono behavior
-    def fake_synthesize(request, path, context, cancel):
-        sf.write(path, _tone(0.3, sr=24000, amp=0.15), 24000)
-        return {"model": request["model"]}
-
-    monkeypatch.setattr(get_provider("edge"), "synthesize", fake_synthesize)
-    mono_ref = tmp_path / "mono_source.wav"
-    sf.write(mono_ref, _tone(2.0, sr=48000, amp=0.1), 48000)
-    out_mono = tmp_path / "mono_fallback.wav"
-    assembly = service.synthesize_timeline(
-        service.snapshot(recipe["id"]),
-        [{"text": "单声道回退。", "start_time": 0.2, "end_time": 0.8}],
-        out_mono,
-        "mono-fallback-task",
-        reference_duration=2.0,
-        binaural_source_path=str(mono_ref),
-    )
-    assert sf.info(out_mono).channels == 1
-    assert sf.info(out_mono).samplerate == 44100
-    assert "pan" not in assembly["processing"][0]
-

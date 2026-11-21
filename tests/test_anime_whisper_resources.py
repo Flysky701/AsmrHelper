@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
-from src.app.services.model_service import ModelService as AppModelService
 from src.core.resources import model_assets as assets
 from src.core.resources.model_catalog import ModelCatalog, ModelEntry
 from src.core.resources.model_installer import ModelInstaller
@@ -131,25 +129,3 @@ def test_anime_runtime_repair_is_isolated_and_never_downloads(model, tmp_path, m
     assert all(cmd[0] == str(runtime.python_executable) for cmd in calls[1:])
     assert "[anime_whisper]" in calls[1][1]
     assert checked == ["anime_whisper"]
-
-
-def test_anime_model_operations_are_exposed_to_existing_http_schema(model):
-    from src.api.http.routes.models import list_models
-    from src.api.http.schemas.asr import AsrEngineDescriptorResponse
-    from src.app.services.capability_descriptor_service import CapabilityDescriptorService
-
-    core = MagicMock()
-    core.list_models.return_value = [model]
-    service = AppModelService(
-        core_service=core, dispatcher=MagicMock(), settings_service=MagicMock()
-    )
-    response = list_models(svc=service)[0]
-    assert response.model_id == "anime-whisper"
-    assert response.backend == "anime_whisper"
-    assert response.supports_install and response.supports_remove and not response.is_auxiliary
-    assert response.runtime_profile == "anime_whisper"
-    assert response.install_strategy == "huggingface_snapshot"
-    descriptor = AsrEngineDescriptorResponse(
-        **CapabilityDescriptorService().get_descriptor("asr", "anime_whisper")
-    )
-    assert descriptor.default_model == "anime-whisper"

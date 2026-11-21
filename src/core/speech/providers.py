@@ -1307,7 +1307,9 @@ def _ensure_cloud_providers():
         from .cloud_gemini import GeminiSpeechProvider
         from .cloud_elevenlabs import ElevenLabsSpeechProvider
         from .cloud_mimo import MimoSpeechProvider
-        for provider in (GeminiSpeechProvider(), ElevenLabsSpeechProvider(), MimoSpeechProvider()):
+        from .fish_drama3_local import FishDrama3LocalSpeechProvider
+        for provider in (GeminiSpeechProvider(), ElevenLabsSpeechProvider(), MimoSpeechProvider(),
+                         FishDrama3LocalSpeechProvider()):
             register_provider(provider)
         _CLOUD_REGISTERED = True
 

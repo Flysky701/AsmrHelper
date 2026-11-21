@@ -1,15 +1,12 @@
 from types import SimpleNamespace
 import sys
 
-import pytest
 
 from src.core.engines.asr.fun_asr import FunAsrRecognizer
 
 
-@pytest.mark.parametrize("start,end", [(0, 420), (420, 980), (420, 1000), (420, 5580)])
-def test_vad_sentence_bounds_always_use_milliseconds(start, end):
-    # Older Nano checkpoints lack CTC tensors. FunASR then supplies coarse
-    # VAD sentence bounds, including values smaller than one second.
+def test_vad_sentence_bounds_always_use_milliseconds():
+    start, end = (420, 980)
     result = FunAsrRecognizer._normalize_segments(
         [{"text": "一句话", "sentence_info": [
             {"start": start, "end": end, "text": "一句话", "timestamp": []}

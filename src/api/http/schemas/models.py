@@ -32,6 +32,7 @@ class ModelSummaryResponse(BaseModel):
     recommended_assets: list[str] = Field(default_factory=list)
     required_system_tools: list[str] = Field(default_factory=list)
     supported_os: list[str] = Field(default_factory=list)
+    download_warning: str | None = None
 
 
 class ModelStatusIssueResponse(BaseModel):
@@ -69,6 +70,7 @@ class ModelVerificationResponse(BaseModel):
 
 
 class ModelInstallRequest(BaseModel):
+    confirm_large_download: bool = Field(False, strict=True, description="Acknowledge the model's download warning")
     mirror: str | None = Field(None, description="HuggingFace mirror URL")
     force: bool = Field(False, description="Force reinstall even if already installed")
     install_mode: str = Field("single", description="Install scope: single/recommended/family_all")
@@ -79,6 +81,7 @@ class ModelInstallRequest(BaseModel):
 
 class ModelDownloadRequest(BaseModel):
     model_config = {"extra": "forbid"}
+    confirm_large_download: bool = Field(False, strict=True, description="Acknowledge the model's download warning")
     mirror: str | None = None
     force: bool = False
     install_mode: str = "single"

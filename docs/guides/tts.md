@@ -92,6 +92,21 @@ Fish 支持两种声音来源。选择已有云端音色时发送 `reference_id`
 
 核对于 2026-10-04：[官方 TTS 参数](https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech)、[两种克隆方式](https://docs.fish.audio/features/voice-cloning)、[官方 SDK](https://github.com/fishaudio/fish-audio-python)、[价格](https://docs.fish.audio/developer-guide/models-pricing/pricing-and-rate-limits)。当日 `s2.1-pro-free` 标价为免费，其他已列模型为 $15/百万 UTF-8 字节，以实际账户与官方最新规则为准。Mock 测试只能验证流程和参数，不能证明真实克隆音质。
 
+### 在本机运行 Fish Audio Drama 3
+
+在「引擎与资源 → 本机模型与镜像」选择 **Fish Audio Drama 3 · 本地权重**。完整下载约 **41.5 GB**，点击「下载模型权重」后需要确认。已有相同版本的完整权重时，可以在资源页添加现有的 `fish_drama3` 目录。命令行入口为 `asmr-helper model install fish_drama3`，默认会询问是否下载。
+
+本机推理使用 Linux 或同一台 Windows 电脑中可访问 NVIDIA GPU 的 WSL2。SGLang Omni 测得原版引擎权重约占 **37 GB 显存**，声码器、推理缓存和其他运行开销还需要额外显存。先按上游说明安装 CUDA 环境和 SGLang Omni 的 Fish Audio 依赖。[SGLang 安装指南](https://sgl-project.github.io/sglang-omni/get_started/quickstart.html) · [Drama 3 部署与显存数据](https://sgl-project.github.io/sglang-omni/cookbook/fishaudio_drama3.html)
+
+在 Linux 或 WSL2 中，将 `--model-path` 换为权重目录的实际 Linux 路径，然后启动服务。Windows 的 `D:\Models\fish_drama3` 在默认 WSL2 挂载设置下对应 `/mnt/d/Models/fish_drama3`。
+
+```bash
+sgl-omni serve --model-path "/mnt/d/Models/fish_drama3" \
+  --model-name fish_drama3 --host 127.0.0.1 --port 18083
+```
+
+在「声音与音色」选择 **Fish Audio Drama 3 · 本机 SGLang-Omni**。默认连接地址为 `http://127.0.0.1:18083/v1`。选择默认声音即可试音。选择参考克隆时，提供录音和已核对的原文。合成期间需保持本机服务运行。
+
 ## 开发边界
 
 1. 新能力只在 Speech Provider 声明，模型安装及依赖继续登记在 `config/models.yaml`，避免混淆运行能力与资源下载信息。
