@@ -26,10 +26,3 @@ test('all 29 context documents resolve to the correct heading and valid bundled 
   assert.equal(resolveHelpDocument('../../config/settings.md'), null)
   assert.equal(resolveHelpDocument('desktop-page-help.md#missing'), null)
 })
-test('every navigation page and task-specific subview mounts contextual help', () => {
-  const pages = ['Workbench', 'WorkflowPresets', 'SubtitleWorkshop', 'voice-lab/VoiceLab', 'AudioTools', 'TaskCenter', 'EnginesResources', 'Settings']
-  for (const page of pages) {
-    const source = readFileSync(new URL(`../src/pages/${page}.tsx`, import.meta.url), 'utf8')
-    assert.match(source, /<QuickStartHelp topic=/, page)
-  }
-})

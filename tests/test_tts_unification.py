@@ -77,7 +77,8 @@ def test_named_connection_and_hosted_voice_are_explicit(speech, tmp_path):
     connection = service.save_connection({'name': 'Fish', 'provider_id': 'fish_audio', 'deployment': 'cloud',
                                          'base_url': 'https://example.test/v1', 'api_key': 'test-only'})
     result = TtsEngineService(speech_service=service).synthesize_text(text='Hello.', output_path=str(tmp_path / 'fish.flac'),
-        model='s2-pro', connection_ref=connection['id'], common_options={'voice': 'real-hosted-id'})
+        provider='fish_audio', model='drama-3', connection_ref=connection['id'],
+        common_options={'voice': 'real-hosted-id'})
     assert result.engine == 'fish_audio'
     assert sf.info(result.output_path).format == 'FLAC'
     assert calls[0][1]['connection']['api_key'] == 'test-only'
@@ -112,24 +113,6 @@ def test_saved_rule_cli_uses_frozen_recipe_without_overrides(speech, tmp_path):
     assert calls[0][0]['recipe_id'] == rule['id']
     assert calls[0][0]['parameters']['options']['speed'] == 1.2
     assert service.store.get('recipes', rule['id']) == rule
-
-
-def test_pipeline_flat_adapter_keeps_model_and_provider_options(speech, monkeypatch):
-    from src.app.dto import PipelineRequest
-    from src.app.services.pipeline_service import PipelineService
-    service, calls = speech
-    facade = TtsEngineService(speech_service=service)
-    monkeypatch.setattr('src.app.services.tts_engine_service.get_tts_engine_service', lambda: facade)
-    request = PipelineRequest(input_path='input.wav', tts_engine='qwen3', tts_model='qwen3-custom-voice',
-                              engine_params={'qwen3': {'temperature': .5}})
-    stage = PipelineService._resolve_execution_profile(request)['stages']['tts']
-    snapshot = service.pipeline_snapshot(stage)
-    assert snapshot['recipe']['variant']['value'] == get_provider('qwen3').voice_sources('builtin')['default']
-    assert snapshot['recipe']['provider_options']['temperature'] == .5
-    request.voice_profile_id = 'historical-id'
-    with pytest.raises(AppValidationError, match='Speech'):
-        PipelineService._resolve_execution_profile(request)
-    assert calls == []
 
 
 @pytest.mark.parametrize('stage', [

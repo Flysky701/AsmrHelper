@@ -507,6 +507,7 @@ class CapabilityDescriptorService:
                 "provider": "demucs",
                 "display_name": "Demucs",
                 "kind": "local",
+                # Existing separation graphs address RoFormer through the Demucs node.
                 "supported_models": ["htdemucs", "htdemucs_ft", "htdemucs_6s", "mdx", "mdx_extra",
                                      "mel_band_roformer", "bs_roformer"],
                 "default_model": "htdemucs",
@@ -515,6 +516,32 @@ class CapabilityDescriptorService:
                 "supports": {
                     "multi_stem": True,
                 },
+            },
+            {
+                "category": "separator",
+                "provider": "audio_separator",
+                "display_name": "RoFormer",
+                "kind": "local",
+                "supported_models": [
+                    "mel_band_roformer",
+                    "bs_roformer",
+                    "denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt",
+                ],
+                "default_model": "mel_band_roformer",
+                "common_option_schema": [],
+                "provider_option_schema": [],
+                "supports": {"multi_stem": False},
+            },
+            {
+                "category": "vc",
+                "provider": "seed_vc",
+                "display_name": "Seed-VC",
+                "kind": "local",
+                "supported_models": ["seed_vc"],
+                "default_model": "seed_vc",
+                "common_option_schema": [],
+                "provider_option_schema": [],
+                "supports": {"voice_conversion": True},
             },
         ]
         for descriptor in descriptors:

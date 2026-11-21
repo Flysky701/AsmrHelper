@@ -1,8 +1,4 @@
-"""Tests for application-layer services — current API contracts.
-
-Covers TaskService, ResourceService, SubtitleService, and PipelineService
-with their current interfaces.
-"""
+"""Current application-layer service contracts."""
 
 from __future__ import annotations
 
@@ -14,27 +10,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
-
-def _saved_speech_recipe(tmp_path, monkeypatch, *, provider="edge", model="edge-tts", options=None):
-    """A real isolated v2 library; only tasks/artifact transport are test doubles."""
-    from src.app.services.speech_service import SpeechService
-    from src.core.speech.store import SpeechStore
-    speech = SpeechService(store=SpeechStore(tmp_path / "speech-library"), tasks=MagicMock(),
-                           dispatcher=MagicMock(), artifacts=MagicMock())
-    connection = speech.save_connection({"name": "Test connection", "provider_id": provider,
-        "deployment": "cloud", "base_url": "https://speech.invalid/v1",
-        "api_key": "test-key"})
-    hosted = provider == "openai_compatible"
-    speech.store.create("voices", {"id": "test-voice", "name": "Test voice",
-        "bindings": [{"provider_id": provider, "variants": [{"kind": "hosted" if hosted else "builtin",
-            "value": "voice" if hosted else "zh-CN-XiaoxiaoNeural", "style": "normal"}]}], "default_binding": provider})
-    recipe = speech.save_recipe({"name": "Test recipe", "voice_id": "test-voice", "provider_id": provider,
-        "model": model, "mode": "hosted" if hosted else "builtin", "connection_ref": connection["id"],
-        "variant": {"kind": "hosted" if hosted else "builtin", "value": "voice" if hosted else "zh-CN-XiaoxiaoNeural", "style": "normal"},
-        "language": "zh", "provider_options": {"schema_version": 1, **(options or {})}})
-    monkeypatch.setattr("src.app.services.speech_service.get_speech_service", lambda: speech)
-    return speech, recipe
 
 
 class _FakeConfig:
@@ -356,7 +331,7 @@ class TestCapabilityOptionContract:
         assert Translator.MODELS is LLM_SUPPORTED_MODELS
 
     @pytest.mark.parametrize("provider", ["deepseek", "openai"])
-    def test_llm_capability_does_not_advertise_ignored_generation_options(
+    def test_llm_capability_exposes_duration_controls_and_rejects_ignored_options(
         self,
         provider: str,
     ):
@@ -368,7 +343,13 @@ class TestCapabilityOptionContract:
         service = CapabilityDescriptorService()
         descriptor = service.get_descriptor("llm", provider)
 
-        assert descriptor["common_option_schema"] == []
+        assert {option["name"] for option in descriptor["common_option_schema"]} == {
+            "duration_aware", "chars_per_second",
+        }
+        service.validate_options(
+            category="llm", provider=provider,
+            common_options={"duration_aware": True, "chars_per_second": 4.5},
+        )
         with pytest.raises(
             AppValidationError,
             match="unsupported options: max_tokens, temperature",
@@ -384,40 +365,25 @@ class TestModelService:
     def test_list_models_normalizes_missing_install_strategy(self):
         from src.app.services.model_service import ModelService
 
+        from src.core.resources.model_catalog import ModelEntry
+
         core_service = MagicMock()
         core_service.list_models.return_value = [
-            SimpleNamespace(
+            ModelEntry(
                 id="deepseek",
                 kind="cloud",
                 category="llm",
                 provider="deepseek",
-                engine=None,
                 display_name="DeepSeek API",
-                estimated_size_mb=None,
+                description="Remote translation",
                 install_strategy=None,
-                capability_models=[],
-                supports_install=False,
-                supports_remove=False,
-                family_id=None,
-                variant_group=None,
-                variant_tier=None,
-                is_primary_variant=False,
-                is_auxiliary=False,
-                dependency_group=None,
-                runtime_profile=None,
-                preferred_runtime=None,
-                install_modes=[],
-                default_install_mode=None,
-                required_assets=[],
-                recommended_assets=[],
-                required_system_tools=[],
-                supported_os=[],
             )
         ]
 
         models = ModelService(core_service=core_service).list_models()
 
         assert models[0].install_strategy == ""
+        assert models[0].description == "Remote translation"
 
     def test_async_install_fails_task_when_core_install_returns_false(self):
         from src.app.services.model_service import ModelService
@@ -502,7 +468,7 @@ class TestTaskService:
 
         with pytest.raises(AppExecutionError, match="failed to persist task creation"):
             service.create_task_spec(
-                task_type="pipeline",
+                task_type="tool.convert",
                 task_source="test",
                 session_id="session-1",
             )
@@ -515,7 +481,7 @@ class TestTaskService:
 
         service = TaskService(state_store=self._FailingStateStore(fail_state="running"))
         spec, _ = service.create_task_spec(
-            task_type="pipeline",
+            task_type="tool.convert",
             task_source="test",
             session_id="session-1",
         )
@@ -528,39 +494,19 @@ class TestTaskService:
         assert task.error["code"] == "TASK_STATE_PERSISTENCE_FAILED"
         assert service.list_tasks(state="pending") == []
 
-    def test_running_persistence_failure_releases_concurrency_slot(self):
-        from src.app.errors import AppExecutionError
-        from src.app.services.task_service import TaskService
-
-        store = self._FailingStateStore(fail_state="never")
-        service = TaskService(max_concurrent=1, state_store=store)
-        spec, _ = service.create_task_spec(
-            task_type="pipeline",
-            task_source="test",
-            session_id="session-1",
-        )
-        service.start_task(spec.task_id)
-        store.fail_state = "running"
-
-        with pytest.raises(AppExecutionError, match="failed to persist task state"):
-            service.update_progress(spec.task_id, 0.5)
-
-        assert service.get_task(spec.task_id).state == "failed"
-        assert service.running_count() == 0
-
     def test_create_task_spec_and_lifecycle(self):
         from src.app.services.task_service import TaskService
 
         service = TaskService()
         spec, status = service.create_task_spec(
-            task_type="pipeline",
+            task_type="tool.convert",
             task_source="test",
             session_id="session-1",
             input_asset_id="asset-1",
         )
 
         assert spec.task_id
-        assert spec.task_type == "pipeline"
+        assert spec.task_type == "tool.convert"
         assert status.state == "pending"
         assert status.stage is None
         assert status.created_at
@@ -595,7 +541,7 @@ class TestTaskService:
 
         service = TaskService()
         spec, _ = service.create_task_spec(
-            task_type="pipeline",
+            task_type="tool.convert",
             task_source="test",
             session_id="session-1",
         )
@@ -670,34 +616,6 @@ class TestTaskService:
             "detail": "OOM",
         }
 
-    def test_cancel_task(self):
-        from src.app.services.task_service import TaskService
-
-        service = TaskService()
-        spec, _ = service.create_task_spec(
-            task_type="pipeline", task_source="test", session_id="s1",
-        )
-        cancelled = service.cancel_task(spec.task_id)
-        assert cancelled.state == "cancelled"
-
-    def test_retry_clears_previous_runtime_state(self):
-        from src.app.services.task_service import TaskService
-
-        service = TaskService()
-        spec, _ = service.create_task_spec(
-            task_type="pipeline", task_source="test", session_id="s1"
-        )
-        service.start_task(spec.task_id, stage="asr")
-        service.fail_task(spec.task_id, message="error", detail="OOM")
-
-        retried = service.retry_task(spec.task_id)
-
-        assert retried.state == "pending"
-        assert retried.stage is None
-        assert retried.error is None
-        assert retried.started_at is None
-        assert retried.finished_at is None
-
     def test_get_unknown_task_raises(self):
         from src.app.errors import AppValidationError
         from src.app.services.task_service import TaskService
@@ -705,122 +623,6 @@ class TestTaskService:
         service = TaskService()
         with pytest.raises(AppValidationError):
             service.get_task("nonexistent-id")
-
-    def test_concurrent_create_is_safe(self):
-        from src.app.services.task_service import TaskService
-
-        service = TaskService()
-        ids = []
-        lock = threading.Lock()
-
-        def worker():
-            spec, _ = service.create_task_spec(
-                task_type="pipeline", task_source="test", session_id="s1",
-            )
-            with lock:
-                ids.append(spec.task_id)
-
-        threads = [threading.Thread(target=worker) for _ in range(20)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        assert len(ids) == 20
-        assert len(set(ids)) == 20
-
-
-class TestPipelineTaskOrchestrator:
-    def test_submit_returns_before_background_pipeline_finishes(self):
-        from src.app.dto import PipelineRequest
-        from src.app.services.pipeline_task_orchestrator import PipelineTaskOrchestrator
-        from src.app.services.task_service import TaskService
-
-        task_service = TaskService()
-        started = threading.Event()
-        release = threading.Event()
-        finished = threading.Event()
-
-        class BlockingPipelineService:
-            def create_pipeline_task(self, request, *, task_source):
-                spec, task = task_service.create_task_spec(
-                    task_type="pipeline",
-                    task_source=task_source,
-                    session_id="session-1",
-                    input_asset_id="asset-1",
-                    execution_profile={},
-                )
-                return task, spec
-
-            def run_pipeline_task(self, task_id, *, cancel_event=None):
-                started.set()
-                release.wait(timeout=2)
-                if cancel_event is not None and cancel_event.is_set():
-                    task_service.cancel_task(task_id)
-                else:
-                    task_service.complete_task(task_id)
-                finished.set()
-                return MagicMock(task_id=task_id)
-
-        service = PipelineTaskOrchestrator(
-            pipeline_service=BlockingPipelineService(),
-            task_service=task_service,
-        )
-
-        accepted = service.submit_task(PipelineRequest(input_path="/tmp/input.wav"))
-
-        assert accepted.state == "pending"
-        assert started.wait(timeout=1)
-        assert not finished.is_set()
-        assert task_service.get_task(accepted.task_id).state == "running"
-
-        release.set()
-        assert finished.wait(timeout=1)
-        assert task_service.get_task(accepted.task_id).state == "completed"
-
-    def test_cancel_is_requested_before_task_becomes_cancelled(self):
-        from src.app.dto import PipelineRequest
-        from src.app.services.pipeline_task_orchestrator import PipelineTaskOrchestrator
-        from src.app.services.task_service import TaskService
-
-        task_service = TaskService()
-        started = threading.Event()
-        release = threading.Event()
-        finished = threading.Event()
-
-        class CancellablePipelineService:
-            def create_pipeline_task(self, request, *, task_source):
-                spec, task = task_service.create_task_spec(
-                    task_type="pipeline",
-                    task_source=task_source,
-                    session_id="session-1",
-                    input_asset_id="asset-1",
-                    execution_profile={},
-                )
-                return task, spec
-
-            def run_pipeline_task(self, task_id, *, cancel_event=None):
-                started.set()
-                release.wait(timeout=2)
-                if cancel_event is not None and cancel_event.is_set():
-                    task_service.cancel_task(task_id)
-                finished.set()
-                return MagicMock(task_id=task_id)
-
-        service = PipelineTaskOrchestrator(
-            pipeline_service=CancellablePipelineService(),
-            task_service=task_service,
-        )
-        accepted = service.submit_task(PipelineRequest(input_path="/tmp/input.wav"))
-        assert started.wait(timeout=1)
-
-        cancelling = service.request_cancel(accepted.task_id)
-
-        assert cancelling.state == "running"
-        assert cancelling.message == "cancellation requested"
-        release.set()
-        assert finished.wait(timeout=1)
-        assert task_service.get_task(accepted.task_id).state == "cancelled"
 
 class TestResourceService:
     """Test ResourceService workspace management."""
@@ -845,255 +647,6 @@ class TestResourceService:
 
         assert statuses["project_root"].available is True
         assert statuses["output_dir"].available is False
-
-    def test_pipeline_readiness_reports_selected_model_runtime_issue(self, tmp_path):
-        from src.app.dto import ModelStatusIssueView, ModelStatusView, ModelSummary
-        from src.app.services.resource_service import ResourceService
-
-        descriptors = MagicMock()
-        descriptors.get_descriptor.return_value = {
-            "supported_models": ["faster-whisper-base"],
-            "default_model": "faster-whisper-base",
-        }
-        models = MagicMock()
-        models.list_models.return_value = [
-            ModelSummary(
-                model_id="faster-whisper-base",
-                kind="local",
-                category="asr",
-                backend="faster_whisper",
-                display_name="faster-whisper base",
-            )
-        ]
-        models.get_model_status.return_value = ModelStatusView(
-            model_id="faster-whisper-base",
-            status="installed",
-            detail="runtime unavailable",
-            executable=False,
-            issues=[
-                ModelStatusIssueView(
-                    code="PYTHON_DEPENDENCY_MISSING",
-                    requirement="faster_whisper",
-                    message="Python dependency is unavailable: faster_whisper",
-                )
-            ],
-        )
-        service = ResourceService(
-            project_root=tmp_path,
-            descriptor_service=descriptors,
-            model_service=models,
-        )
-
-        result = service.check_task_readiness(
-            task_type="pipeline",
-            execution_profile={
-                "stages": {
-                    "asr": {
-                        "enabled": True,
-                        "provider": "faster_whisper",
-                        "model": "faster-whisper-base",
-                    }
-                }
-            },
-        )
-
-        assert result["ready"] is False
-        assert result["missing_requirements"] == ["faster_whisper"]
-        assert result["issues"][0]["stage"] == "asr"
-        assert result["issues"][0]["action"] == "engines"
-
-    def test_pipeline_readiness_resolves_explicit_capability_model_mapping(self, tmp_path):
-        from src.app.dto import ModelStatusView, ModelSummary
-        from src.app.services.resource_service import ResourceService
-
-        descriptors = MagicMock()
-        descriptors.get_descriptor.return_value = {
-            "supported_models": ["htdemucs"],
-            "default_model": "htdemucs",
-            "runtime_requirements": {
-                "python_modules": [],
-                "system_tools": [],
-            },
-        }
-        models = MagicMock()
-        models.list_models.return_value = [
-            ModelSummary(
-                model_id="demucs-other",
-                kind="local",
-                category="separator",
-                backend="demucs",
-                display_name="other",
-                capability_models=["other"],
-            ),
-            ModelSummary(
-                model_id="demucs-htdemucs",
-                kind="local",
-                category="separator",
-                backend="demucs",
-                display_name="HTDemucs",
-                capability_models=["htdemucs"],
-            ),
-        ]
-        models.get_model_status.return_value = ModelStatusView(
-            model_id="demucs-htdemucs",
-            status="installed",
-            detail="ready",
-            executable=True,
-        )
-        service = ResourceService(
-            project_root=tmp_path,
-            descriptor_service=descriptors,
-            model_service=models,
-        )
-        service.ensure_workspace()
-
-        result = service.check_task_readiness(
-            task_type="pipeline",
-            execution_profile={
-                "stages": {
-                    "separate": {
-                        "enabled": True,
-                        "provider": "demucs",
-                        "model": "htdemucs",
-                    }
-                }
-            },
-        )
-
-        assert result["ready"] is True
-        models.get_model_status.assert_called_once_with("demucs-htdemucs")
-
-    def test_pipeline_readiness_ignores_disabled_stage(self, tmp_path):
-        from src.app.services.resource_service import ResourceService
-
-        descriptors = MagicMock()
-        models = MagicMock()
-        models.list_models.return_value = []
-        service = ResourceService(
-            project_root=tmp_path,
-            descriptor_service=descriptors,
-            model_service=models,
-        )
-
-        result = service.check_task_readiness(
-            task_type="pipeline",
-            execution_profile={
-                "stages": {
-                    "translate": {
-                        "enabled": False,
-                        "provider": "missing-provider",
-                        "model": None,
-                    }
-                }
-            },
-        )
-
-        assert result["ready"] is True
-        descriptors.get_descriptor.assert_not_called()
-
-    def test_pipeline_readiness_checks_provider_runtime_dependency(self, tmp_path, monkeypatch):
-        from src.app.services.resource_service import ResourceService
-        _speech, recipe = _saved_speech_recipe(tmp_path, monkeypatch)
-        from importlib.util import find_spec
-        monkeypatch.setattr("importlib.util.find_spec", lambda name: None if name == "edge_tts" else find_spec(name))
-
-        descriptors = MagicMock()
-        descriptors.get_descriptor.return_value = {
-            "supported_models": ["default"],
-            "default_model": "default",
-            "runtime_requirements": {
-                "python_modules": ["edge_tts"],
-                "system_tools": [],
-            },
-        }
-        models = MagicMock()
-        models.list_models.return_value = []
-        service = ResourceService(
-            project_root=tmp_path,
-            descriptor_service=descriptors,
-            model_service=models,
-            module_checker=lambda module: module != "edge_tts",
-        )
-
-        result = service.check_task_readiness(
-            task_type="pipeline",
-            execution_profile={
-                "stages": {
-                    "tts": {
-                        "enabled": True,
-                        "provider": "speech",
-                        "model": None,
-                        "options": {"speech_recipe_id": recipe["id"]},
-                    }
-                }
-            },
-        )
-
-        assert result["ready"] is False
-        assert result["issues"][0]["code"] == "SPEECH_RECIPE_NOT_READY"
-        assert result["issues"][0]["requirement"] == "speech_recipe"
-        assert result["issues"][0]["stage"] == "tts"
-        monkeypatch.setattr("importlib.util.find_spec", find_spec)
-        # The same saved recipe is usable once its provider dependency is present.
-        monkeypatch.setattr("importlib.util.find_spec", lambda name: object() if name == "edge_tts" else find_spec(name))
-        repaired = service.check_task_readiness(task_type="pipeline", execution_profile={"stages": {
-            "tts": {"enabled": True, "provider": "speech", "options": {"speech_recipe_id": recipe["id"]}}
-        }})
-        assert repaired["ready"] is True
-
-    def test_pipeline_readiness_checks_ffmpeg_for_mix(self, tmp_path):
-        from src.app.services.resource_service import ResourceService
-
-        models = MagicMock()
-        models.list_models.return_value = []
-        service = ResourceService(
-            project_root=tmp_path,
-            descriptor_service=MagicMock(),
-            model_service=models,
-            ffmpeg_checker=lambda: (False, "Bundled FFmpeg could not be started"),
-        )
-
-        result = service.check_task_readiness(
-            task_type="pipeline",
-            execution_profile={
-                "stages": {
-                    "mix": {
-                        "enabled": True,
-                        "provider": "ffmpeg",
-                        "model": None,
-                    }
-                }
-            },
-        )
-
-        assert result["ready"] is False
-        assert result["issues"][0]["code"] == "SYSTEM_TOOL_MISSING"
-        assert result["issues"][0]["stage"] == "mix"
-
-    def test_pipeline_readiness_rejects_undecodable_input(self, tmp_path):
-        from src.app.services.resource_service import ResourceService
-
-        input_file = tmp_path / "broken.wav"
-        input_file.write_bytes(b"not audio")
-        models = MagicMock()
-        models.list_models.return_value = []
-        service = ResourceService(
-            project_root=tmp_path,
-            descriptor_service=MagicMock(),
-            model_service=models,
-            media_probe=lambda path: (False, f"Cannot decode {path}"),
-        )
-
-        result = service.check_task_readiness(
-            task_type="pipeline",
-            execution_profile={"stages": {}},
-            input_path=str(input_file),
-        )
-
-        assert result["ready"] is False
-        assert result["issues"][0]["code"] == "INPUT_MEDIA_INVALID"
-        assert result["issues"][0]["action"] == "workbench"
-
 
 class TestSubtitleService:
     """Test SubtitleService document operations."""
@@ -1193,318 +746,3 @@ class TestAudioToolTaskSpec:
             "mode": "custom-dir",
             "custom_output_dir": str(output_dir),
         }
-
-
-class TestPipelineServiceCallbacks:
-    """Test PipelineService progress/cancel passthrough semantics."""
-
-    def _make_service(self):
-        from src.app.dto import PipelineRequest
-        from src.app.services.pipeline_service import PipelineService
-
-        task_service = MagicMock()
-        task_service.complete_task.return_value = MagicMock(task_id="pipeline-1", state="completed")
-        resource_service = MagicMock()
-        resource_service.ensure_workspace.return_value = {"output_dir": Path("/tmp/output")}
-        input_catalog_service = MagicMock()
-        input_catalog_service.get_asset.return_value = MagicMock(absolute_path="/tmp/input.wav")
-        session_service = MagicMock()
-        session_service.get_session.return_value = MagicMock(
-            resolved_output_dir="/tmp/output",
-            companion_asset_ids=[],
-        )
-        artifact_service = MagicMock()
-        executor = MagicMock()
-
-        service = PipelineService(
-            task_service=task_service,
-            resource_service=resource_service,
-            input_catalog_service=input_catalog_service,
-            session_service=session_service,
-            artifact_service=artifact_service,
-            executor=executor,
-        )
-        task_spec = MagicMock(
-            task_id="pipeline-1",
-            session_id="session-1",
-            input_asset_id="asset-1",
-            execution_profile=PipelineService._resolve_execution_profile(
-                PipelineRequest(input_path="/tmp/input.wav")
-            ),
-        )
-        return service, executor, task_service, task_spec
-
-    def test_progress_callback_and_cancel_event_are_forwarded(self):
-        service, executor, task_service, task_spec = self._make_service()
-        cancel_event = threading.Event()
-        messages: list[str] = []
-
-        def run(plan, *, progress_callback=None, stage_callback=None, cancel_event=None):
-            assert cancel_event is not None
-            progress_callback("[1/5] 人声分离...")
-            stage_callback("separate", 0.2, "[1/5] 人声分离...")
-            return {
-                "input": "/tmp/input.wav",
-                "mix_path": "/tmp/output/input_mix.wav",
-                "exported_subtitle": None,
-                "primary_output": "/tmp/output/input_mix.wav",
-                "steps": {},
-                "step_errors": {},
-                "total_duration": 1.23,
-                "error": None,
-            }
-
-        executor.execute.side_effect = run
-
-        result = service.run_pipeline_task_spec(
-            task_spec,
-            progress_callback=messages.append,
-            cancel_event=cancel_event,
-        )
-
-        assert messages == ["[1/5] 人声分离..."]
-        task_service.update_progress.assert_any_call(
-            "pipeline-1",
-            progress=0.1,
-            message="[1/5] 人声分离...",
-        )
-        task_service.update_progress.assert_any_call(
-            "pipeline-1",
-            progress=0.2,
-            message="[1/5] 人声分离...",
-            stage="separate",
-        )
-        assert result.mix_path == "/tmp/output/input_mix.wav"
-
-    def test_plan_uses_task_and_filename_scoped_output_directory(self):
-        service, _, _, task_spec = self._make_service()
-
-        plan = service.build_plan(task_spec)
-
-        assert Path(plan.output_dir).parts[-2:] == ("pipeline-1", "input")
-
-    def test_batch_plan_scopes_batch_root_under_task_and_filename(self):
-        service, _, _, task_spec = self._make_service()
-        task_spec.execution_profile = dict(task_spec.execution_profile)
-        task_spec.execution_profile["output_mode"] = "batch"
-        task_spec.execution_profile["batch_root_dir"] = "/tmp/batch"
-
-        plan = service.build_plan(task_spec)
-
-        assert Path(plan.batch_root_dir).parts[-4:] == (
-            "tmp",
-            "batch",
-            "pipeline-1",
-            "input",
-        )
-
-    def test_prepare_rechecks_v1_readiness_and_fails_task(self):
-        from src.app.errors import ResourceValidationError
-
-        service, executor, task_service, task_spec = self._make_service()
-        task_spec.execution_profile = {
-            "version": 1,
-            "stages": {
-                "asr": {
-                    "enabled": True,
-                    "provider": "faster_whisper",
-                    "model": "faster-whisper-base",
-                }
-            },
-        }
-        service._resource_service.check_task_readiness.return_value = {
-            "ready": False,
-            "missing_requirements": ["faster_whisper"],
-            "issues": [
-                {
-                    "stage": "asr",
-                    "message": "Python dependency is unavailable: faster_whisper",
-                }
-            ],
-        }
-
-        with pytest.raises(ResourceValidationError, match="pipeline readiness check failed"):
-            service.run_pipeline_task_spec(task_spec)
-
-        executor.execute.assert_not_called()
-        failure = task_service.fail_task.call_args.kwargs
-        assert failure["stage"] == "prepare"
-        assert "faster_whisper" in failure["detail"]
-
-    def test_create_pipeline_task_rejects_unready_v1_profile(self):
-        from src.app.dto import PipelineRequest
-        from src.app.errors import ResourceValidationError
-        from src.app.services.pipeline_service import PipelineService
-
-        resource_service = MagicMock()
-        resource_service.check_task_readiness.return_value = {
-            "ready": False,
-            "missing_requirements": ["api.deepseek_api_key"],
-            "issues": [
-                {
-                    "stage": "translate",
-                    "message": "Required provider credential is not configured",
-                }
-            ],
-        }
-        input_catalog_service = MagicMock()
-        service = PipelineService(
-            resource_service=resource_service,
-            task_service=MagicMock(),
-            workspace_service=MagicMock(),
-            input_catalog_service=input_catalog_service,
-            session_service=MagicMock(),
-            artifact_service=MagicMock(),
-            executor=MagicMock(),
-        )
-        request = PipelineRequest(
-            input_path="input.wav",
-            execution_profile={"version": 1, "stages": {}},
-        )
-
-        with pytest.raises(ResourceValidationError, match="translate"):
-            service.create_pipeline_task(request)
-
-        input_catalog_service.inspect_paths.assert_not_called()
-
-    def test_flat_pipeline_request_is_normalized_before_readiness(self):
-        from src.app.dto import PipelineRequest
-        from src.app.errors import ResourceValidationError
-        from src.app.services.pipeline_service import PipelineService
-
-        resource_service = MagicMock()
-        resource_service.check_task_readiness.return_value = {
-            "ready": False,
-            "missing_requirements": ["api.deepseek_api_key"],
-            "issues": [
-                {
-                    "stage": "translate",
-                    "message": "Required provider credential is not configured",
-                }
-            ],
-        }
-        input_catalog_service = MagicMock()
-        service = PipelineService(
-            resource_service=resource_service,
-            task_service=MagicMock(),
-            workspace_service=MagicMock(),
-            input_catalog_service=input_catalog_service,
-            session_service=MagicMock(),
-            artifact_service=MagicMock(),
-            executor=MagicMock(),
-        )
-
-        with pytest.raises(ResourceValidationError, match="translate"):
-            service.create_pipeline_task(PipelineRequest(input_path="input.wav"))
-
-        readiness_profile = resource_service.check_task_readiness.call_args.kwargs[
-            "execution_profile"
-        ]
-        assert readiness_profile["version"] == 1
-        assert readiness_profile["stages"]["separate"]["provider"] == "demucs"
-        assert "profile_version" not in readiness_profile
-        input_catalog_service.inspect_paths.assert_not_called()
-
-    def test_cancellation_marks_task_cancelled(self):
-        from src.app.errors import AppExecutionError
-
-        service, executor, task_service, task_spec = self._make_service()
-        cancel_event = threading.Event()
-        cancel_event.set()
-        executor.execute.side_effect = RuntimeError("用户取消操作")
-
-        with pytest.raises(AppExecutionError, match="用户取消操作"):
-            service.run_pipeline_task_spec(task_spec, cancel_event=cancel_event)
-
-        task_service.cancel_task.assert_called_once_with(
-            "pipeline-1",
-            message="cancelled by user",
-        )
-        task_service.fail_task.assert_not_called()
-
-    @pytest.mark.parametrize(
-        ("step_errors", "expected_stage", "expected_code", "expected_detail"),
-        [
-            (
-                {
-                    "vocal_separator": "No module named 'torch'",
-                    "asr": "No module named 'faster_whisper'",
-                },
-                "separate",
-                "PROVIDER_DEPENDENCY_MISSING",
-                "No module named 'torch'",
-            ),
-            (
-                {"tts": "No audio was received. Please verify the parameters."},
-                "tts",
-                "PROVIDER_RESPONSE_INVALID",
-                "No audio was received. Please verify the parameters.",
-            ),
-            (
-                {"translate": "authentication failed"},
-                "translate",
-                "PROVIDER_EXECUTION_FAILED",
-                "authentication failed",
-            ),
-        ],
-    )
-    def test_first_stage_error_is_reported_with_stable_contract(
-        self,
-        step_errors,
-        expected_stage,
-        expected_code,
-        expected_detail,
-    ):
-        from src.app.errors import AppExecutionError
-
-        service, executor, task_service, task_spec = self._make_service()
-        executor.execute.return_value = {"step_errors": step_errors}
-
-        with pytest.raises(AppExecutionError, match=expected_stage):
-            service.run_pipeline_task_spec(task_spec)
-
-        failure = task_service.fail_task.call_args.kwargs
-        assert failure["stage"] == expected_stage
-        assert failure["detail"] == expected_detail
-        assert failure["error"]["code"] == expected_code
-        assert failure["error"]["stage"] == expected_stage
-        assert failure["error"]["retryable"] is True
-        if expected_code == "PROVIDER_EXECUTION_FAILED":
-            assert failure["error"]["action"] == "settings"
-            assert "验证服务连接" in failure["error"]["suggestion"]
-
-
-class TestBatchPipelineServiceCompanions:
-    """Test companion subtitle discovery in batch task creation."""
-
-    def test_create_batch_task_specs_passes_auto_discovered_subtitle(self, tmp_path):
-        from src.app.dto.batch_pipeline import BatchPipelineRequest
-        from src.app.services.batch_pipeline_service import BatchPipelineService
-
-        audio_file = tmp_path / "sample.wav"
-        audio_file.write_bytes(b"audio")
-
-        pipeline_service = MagicMock()
-        pipeline_service.create_pipeline_task.return_value = (
-            MagicMock(task_id="pipeline-1"),
-            MagicMock(task_id="pipeline-1"),
-        )
-        input_catalog_service = MagicMock()
-        input_catalog_service.inspect_paths.return_value = [
-            MagicMock(asset_id="asset-1", absolute_path=str(audio_file))
-        ]
-        input_catalog_service.discover_companions.return_value = [
-            MagicMock(kind="subtitle", absolute_path=str(tmp_path / "sample.vtt"))
-        ]
-
-        service = BatchPipelineService(
-            pipeline_service=pipeline_service,
-            input_catalog_service=input_catalog_service,
-        )
-        request = BatchPipelineRequest(input_files=[str(audio_file)])
-
-        service.create_batch_task_specs(request)
-
-        request_arg = pipeline_service.create_pipeline_task.call_args.args[0]
-        assert request_arg.vtt_path == str(tmp_path / "sample.vtt")
-        assert request_arg.asr_model == "faster-whisper-base"

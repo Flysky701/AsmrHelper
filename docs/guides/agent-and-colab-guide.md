@@ -204,3 +204,13 @@ $env:ASMR_HELPER_REMOTE_WORKER_TOKEN = [System.Net.NetworkCredential]::new('', (
 ```powershell
 python scripts/benchmark_asmr_remake.py original.wav timing.srt --takes cue1.wav cue2.wav --background no_vocals.wav --reference vocals.wav
 ```
+
+### Fish Audio Drama 3
+
+在桌面端创建 Fish Audio 语音连接，选择模型 `drama-3`，再选托管 Voice ID 或参考录音。这个入口使用连接中配置的服务地址。
+
+自行部署时，Drive 模型库约定目录为 `AsmrHelper_Models/models/fish_drama3/`。官方版本 `78e5ab79e49aa9a25abe8799eff2c4d73a1c3216` 包含 15 个权重分片、`codec.pth`、分词器和模型配置，完整快照约 41.5 GB。在已安装 SGLang Omni、具备相应 GPU 和显存的环境中，挂载 Drive 后可用以下命令从权重目录启动推理服务。模型文件和使用许可见[官方模型卡](https://huggingface.co/fishaudio/drama-3/tree/78e5ab79e49aa9a25abe8799eff2c4d73a1c3216)。
+
+```bash
+sgl-omni serve --model-path /content/drive/MyDrive/AsmrHelper_Models/models/fish_drama3 --port 8000
+```

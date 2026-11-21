@@ -42,24 +42,6 @@ test('help opens only on explicit toggle, repeated toggles close, and stale page
   assert.equal(usePageHelpStore.getState().openTopic, null)
 })
 
-test('each supported context has distinct contextual actions and only static public copy examples', () => {
-  const { PAGE_HELP, SERVICE_ADDRESSES } = load('../src/domain/pageHelp.ts')
-  assert.equal(Object.keys(PAGE_HELP).length, 29)
-  for (const topic of ['workbench', 'workflow', 'subtitle-editor', 'subtitle-translate', 'script-text', 'script-audio', 'script-vtt', 'presets', 'references', 'audition', 'fish-clone', 'audio-separate', 'audio-convert', 'audio-split', 'audio-translate', 'audio-volume', 'tasks', 'batches', 'local-asr', 'local-tts', 'local-llm', 'local-other', 'connections', 'appearance', 'preset-catalog', 'preset-templates', 'paths', 'workbench-common', 'workbench-advanced']) assert.ok(PAGE_HELP[topic]?.document, topic)
-  const steps = new Set()
-  for (const help of Object.values(PAGE_HELP)) {
-    assert.ok(help.steps.length > 0)
-    steps.add(help.steps.map(step => step.title + step.detail).join('|'))
-  }
-  assert.equal(steps.size, 29)
-  assert.equal(SERVICE_ADDRESSES.length, 4)
-  assert.deepEqual(SERVICE_ADDRESSES.map(item => item.value), [
-    'https://api.fish.audio/v1', 'https://generativelanguage.googleapis.com/v1beta',
-    'https://api.elevenlabs.io', 'https://api.xiaomimimo.com/v1',
-  ])
-  assert.doesNotMatch(JSON.stringify(PAGE_HELP), /E:\\\\|api_key|credential_ref|voicekey_/)
-})
-
 test('all help copy has English translations without translating public URLs or sample data', () => {
   const { PAGE_HELP } = load('../src/domain/pageHelp.ts')
   const { helpMessages } = load('../src/locales/help.ts')

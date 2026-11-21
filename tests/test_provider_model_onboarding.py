@@ -52,7 +52,14 @@ def test_each_local_capability_model_has_an_explicit_resource_mapping() -> None:
             entry
             for entry in catalog_entries
             if entry.category == descriptor["category"]
-            and _backend(entry) == descriptor["provider"]
+            and (
+                _backend(entry) == descriptor["provider"]
+                or (
+                    entry.category == "separator"
+                    and descriptor["provider"] == "demucs"
+                    and _backend(entry) == "audio_separator"
+                )
+            )
         ]
         covered_models = {
             model_id

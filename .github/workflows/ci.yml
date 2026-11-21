@@ -15,9 +15,9 @@ jobs:
         with:
           enable-cache: true
       - name: Install Python 3.12 and dependencies
-        run: uv sync --locked --python 3.12 --extra dev
+        run: uv sync --locked --python 3.12 --extra dev --extra audio
       - name: Run Ruff lint
-        run: uv run python -m ruff check src scripts tests
+        run: uv run --no-sync python -m ruff check src scripts tests
       - name: Run Pytest suite (isolated data and state)
         env:
           PYTHONUTF8: "1"
@@ -26,7 +26,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $isolated | Out-Null
           $env:ASMR_HELPER_DATA_DIR = $isolated
           $env:ASMR_HELPER_STATE_DB = Join-Path $isolated "state.sqlite3"
-          uv run python -m pytest -q
+          uv run --no-sync python -m pytest -q
 
   frontend:
     runs-on: windows-latest

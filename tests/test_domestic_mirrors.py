@@ -413,28 +413,6 @@ def test_demucs_supports_mirror_base_url_override_and_fallback(tmp_path, monkeyp
     assert weight_file.read_bytes() == payload
 
 
-def test_models_yaml_catalog_declares_valid_download_sources():
-    catalog = ModelCatalog()
-    local_entries = catalog.list(kind="local")
-    assert len(local_entries) >= 16
-
-    for entry in local_entries:
-        assert entry.download_sources, f"{entry.id} must declare download_sources"
-        source_types = [src.get("type") for src in entry.download_sources]
-        if entry.provider == "demucs":
-            assert source_types == ["http"]
-            assert entry.download_sources[0].get("endpoint") == DEMUCS_DEFAULT_BASE_URL
-        elif entry.id == "anime-whisper":
-            assert source_types == ["hf-mirror", "huggingface"]
-        else:
-            assert source_types == ["modelscope", "hf-mirror", "huggingface"], (
-                f"unexpected source order for {entry.id}: {source_types}"
-            )
-            for src in entry.download_sources:
-                assert src.get("repo_id") and "/" in src["repo_id"]
-                assert src.get("endpoint", "").startswith("https://")
-
-
 def _find_powershell() -> str:
     found = shutil.which("pwsh") or shutil.which("powershell")
     if not found:

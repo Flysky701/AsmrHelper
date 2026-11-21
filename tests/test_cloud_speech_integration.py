@@ -2,7 +2,6 @@
 import base64
 from copy import deepcopy
 import json
-from pathlib import Path
 from unittest.mock import Mock
 
 import httpx
@@ -15,8 +14,6 @@ from src.core.speech.compiler import compile_recipe
 from src.core.speech.providers import ProviderError
 from src.core.speech.store import SpeechStore, build_plan
 from test_cloud_speech_transport import install_transport, wav_bytes
-from test_pipeline_stage_recovery import setup as recovery_setup, run, next_plan  # noqa: F401
-from test_speech_recovery import speech_plan
 
 
 CASES = [
@@ -153,16 +150,3 @@ def test_mixed_request_snapshot_rejected_before_credentials_or_network(cloud, mo
         service.run_requests(requests, snapshot, task_id="invalid", experiment_id="invalid", plan_id="invalid")
     assert not service.store.list("takes")
     service.artifacts.register_artifact.assert_not_called()
-
-
-@pytest.mark.parametrize("provider,model,mode,voice,options", CASES, ids=[case[0] for case in CASES])
-def test_audited_completed_stage_reuses_without_resynthesis(recovery_setup, provider, model, mode, voice, options):  # noqa: F811
-    store, plan = recovery_setup
-    snapshot = speech_plan(plan, provider=provider, model=model, mode=mode, kind=mode, value=voice)
-    snapshot["recipe"]["provider_options"].update(options)
-    run(store, plan)
-    executor, result = run(store, next_plan(plan), "first")
-    assert executor.calls == []
-    assert Path(result["tts_audio_path"]).read_bytes() == b"complete audio"
-    audit = store.checkpoint("second", "tts")["payload"]["speech_identity"]
-    assert audit["provider_id"] == provider and "opaque-ref" not in str(audit)

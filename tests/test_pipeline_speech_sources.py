@@ -125,38 +125,3 @@ def test_default_voxcpm_worker_uses_plain_text_without_reference(monkeypatch, tm
              "output_path": str(tmp_path / "out.wav"), "response_path": str(tmp_path / "response.json")})
     assert factory.call_args.kwargs["reference_wav_path"] is None
     engine.synthesize.assert_called_once_with("你好。", str(tmp_path / "out.wav"))
-
-
-def test_pipeline_submission_embeds_snapshot_without_creating_rule(speech, monkeypatch):
-    from src.app.dto import PipelineRequest
-    from src.app.services.pipeline_service import PipelineService
-    monkeypatch.setattr("src.app.services.speech_service.get_speech_service", lambda: speech)
-    tasks = Mock()
-    tasks.create_task_spec.return_value = (Mock(task_id="task-test"), Mock())
-    catalog = Mock()
-    catalog.inspect_paths.return_value = [Mock(asset_id="input", absolute_path="input.wav")]
-    catalog.discover_companions.return_value = []
-    service = PipelineService(task_service=tasks, resource_service=Mock(), workspace_service=Mock(),
-        input_catalog_service=catalog, session_service=Mock(), artifact_service=Mock(), executor=Mock())
-    profile = {"version": 1, "stages": {"tts": {"enabled": True, "provider": "edge", "model": "edge-tts",
-        "options": {"language": "zh"}, "provider_options": {}}}}
-    original = deepcopy(profile)
-    service.create_pipeline_task_spec(PipelineRequest(input_path="input.wav", execution_profile=profile))
-    submitted = tasks.create_task_spec.call_args.kwargs["execution_profile"]
-    snap = submitted["stages"]["tts"]["provider_options"]["speech_snapshot"]
-    assert snap["recipe"]["variant"]["value"] == "zh-CN-XiaoxiaoNeural"
-    assert profile == original
-    assert speech.store.list("recipes") == []
-
-
-def test_readiness_uses_same_engine_source_resolution(speech, monkeypatch, tmp_path):
-    from src.app.services.resource_service import ResourceService
-    monkeypatch.setattr("src.app.services.speech_service.get_speech_service", lambda: speech)
-    models = Mock()
-    models.list_models.return_value = []
-    resources = ResourceService(project_root=tmp_path, descriptor_service=Mock(), model_service=models)
-    assert resources._check_pipeline_profile({"stages": {"tts": {"provider": "edge"}}}) == []
-    issues = resources._check_pipeline_profile({"stages": {"tts": {"provider": "fish_audio", "model": "s2-pro"}}})
-    assert issues[0]["code"] == "SPEECH_SOURCE_NOT_READY"
-    assert issues[0]["requirement"] == "speech_source"
-    assert "VoiceLab" not in issues[0]["message"]

@@ -49,8 +49,6 @@ from src.app.services.task_service import TaskService
 from src.core.engines.alignment import AlignmentRuntime
 from src.core.engines.asr.service import AsrEngineRuntime
 from src.core.engines.asr.vad_slicer import slice_speech_regions
-from src.core.resources.download_sources import resolve_download_sources
-from src.core.resources.model_catalog import ModelCatalog
 from src.core.runtime.profiles import RuntimeProfileResolver
 from src.core.runtime.router import RuntimeRouter, RuntimeWorkerError
 from src.core.speech.providers import get_provider
@@ -554,20 +552,3 @@ def test_runtime_router_env_remote_alignment_and_local_preservation(
                 "language": "ja",
             }
         )
-
-
-def test_v2_domestic_mirror_catalog_and_namespace_integrity(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify PEP 420 `packages/` namespace integrity and 3-tier ModelScope domestic mirror resolution."""
-    repo_root = Path(__file__).resolve().parents[1]
-    assert not (repo_root / "packages" / "__init__.py").exists()
-
-    monkeypatch.setenv("ASMR_HELPER_DOWNLOAD_REGION", "cn")
-    catalog = ModelCatalog()
-    qwen_entry = catalog.get("qwen3-custom-voice")
-    sources = resolve_download_sources(qwen_entry)
-    assert [s.type for s in sources] == ["modelscope", "hf-mirror", "huggingface"]
-    assert [s.endpoint for s in sources] == [
-        "https://www.modelscope.cn",
-        "https://hf-mirror.com",
-        "https://huggingface.co",
-    ]

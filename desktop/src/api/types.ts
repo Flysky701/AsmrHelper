@@ -753,5 +753,3 @@ export interface DraftPrepareRequest {
   chars_per_second?: number
   max_atempo?: number
 }
-
-

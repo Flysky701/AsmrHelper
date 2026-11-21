@@ -15,24 +15,15 @@ def fingerprint(value) -> str:
                                      separators=(",", ":")).encode()).hexdigest()
 
 
-_FILE_DIGEST_CACHE: dict[tuple[str, int, int], str] = {}
-
-
 def file_identity(path: str | Path) -> dict:
     source = Path(path).resolve()
-    stat = source.stat()
-    cache_key = (str(source), stat.st_mtime_ns, stat.st_size)
-    cached = _FILE_DIGEST_CACHE.get(cache_key)
-    if cached is None:
-        digest = hashlib.sha256()
-        with source.open("rb") as stream:
-            for block in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(block)
-        cached = digest.hexdigest()
-        if len(_FILE_DIGEST_CACHE) >= 512:
-            _FILE_DIGEST_CACHE.pop(next(iter(_FILE_DIGEST_CACHE)))
-        _FILE_DIGEST_CACHE[cache_key] = cached
-    return {"path": str(source), "size": stat.st_size, "sha256": cached}
+    digest = hashlib.sha256()
+    size = 0
+    with source.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+            size += len(block)
+    return {"path": str(source), "size": size, "sha256": digest.hexdigest()}
 
 
 class RecoveryStore:

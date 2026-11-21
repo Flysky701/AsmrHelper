@@ -532,7 +532,7 @@ class RemoteHttpTransport:
         wire_req = request.model_copy(deep=True)
         wire_req.references = {}
         wire_req.output_format = "flac"
-        for ref_index, (ref_id, path) in enumerate(request.references.items()):
+        for ref_index, path in enumerate(request.references.values()):
             data, _, _ = encode_audio_file_bytes(path, "flac", stage=stage)
             files[f"reference_{ref_index}"] = ("reference.flac", data, "audio/flac")
         for index, item in enumerate(wire_req.items):

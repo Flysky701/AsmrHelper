@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
+from itertools import pairwise
 from math import gcd
 from pathlib import Path
 import subprocess
@@ -202,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     ).segments
     if not segments or any(
         not 0 <= cue.start < cue.end <= duration + 0.0005 for cue in segments
-    ) or any(left.start > right.start for left, right in zip(segments, segments[1:])):
+    ) or any(left.start > right.start for left, right in pairwise(segments)):
         parser.error("provide ordered, positive cue timings inside the original audio")
     cues = [{"start": cue.start, "end": min(cue.end, duration)} for cue in segments]
     if any(round(cue["start"] * sr) >= round(cue["end"] * sr) for cue in cues):

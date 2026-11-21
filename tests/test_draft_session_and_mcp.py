@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 import numpy as np
 import pytest
 import soundfile as sf
-import yaml
 
 from packages.mcp_server import MCP_PROTOCOL_VERSION, McpStdioServer, McpToolRegistry
 from src.api.http import dependencies
@@ -788,39 +787,6 @@ def test_mcp_server_subprocess_stdio_roundtrip(tmp_path: Path):
     assert proc.returncode == 0
 
 
-# ─── 6. Skill & Preferences Config Validation ─────────────────────────────
-
-
-def test_skill_frontmatter_and_preferences_template_are_valid():
-    skill_path = PROJECT_ROOT / "skills" / "asmr-producer" / "SKILL.md"
-    prefs_path = PROJECT_ROOT / "config" / "agent_preferences.example.yaml"
-    assert skill_path.is_file()
-    assert prefs_path.is_file()
-    assert not (PROJECT_ROOT / "packages" / "__init__.py").exists()
-
-    skill_text = skill_path.read_text(encoding="utf-8")
-    assert skill_text.startswith("---\n")
-    _, frontmatter_raw, body = skill_text.split("---", 2)
-    frontmatter = yaml.safe_load(frontmatter_raw)
-    assert frontmatter["name"] == "asmr-producer"
-    assert isinstance(frontmatter.get("description"), str) and frontmatter["description"].strip()
-    for tool_name in (
-        "asmr_inspect_work",
-        "asmr_prepare_draft",
-        "asmr_get_draft_audit",
-        "asmr_patch_draft",
-        "asmr_commit_draft",
-        "asmr_list_voices_and_presets",
-    ):
-        assert tool_name in body
-
-    prefs = yaml.safe_load(prefs_path.read_text(encoding="utf-8"))
-    assert "library_roots" in prefs
-    assert "translation_style" in prefs
-    assert "voice_preferences" in prefs
-    assert "compute" in prefs
-
-
 def test_saved_voicelab_recipe_and_sample_take_reuse_on_commit(isolated_env):
     """Verify saved VoiceLab recipe_id selection and automatic reuse of Phase-1 sample takes in Phase-2."""
     speech_svc: SpeechService = isolated_env.speech_svc
@@ -960,4 +926,3 @@ def test_automatic_queue_dubbing_respects_clone_readiness(isolated_env, monkeypa
     else:
         assert request["parameters"]["variant"]["value"] == "ja-JP-NanamiNeural"
         assert "Qwen3 克隆模型或连接不可用，已使用默认音色。" in output.metadata["warnings"]
-

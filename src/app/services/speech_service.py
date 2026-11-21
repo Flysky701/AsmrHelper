@@ -940,7 +940,6 @@ class SpeechService:
             batch_provider.batch_session(requests, context)
             if batch_provider is not None
             and hasattr(batch_provider, "batch_session")
-            and "synthesize" not in vars(batch_provider)
             else nullcontext(context)
         )
         with session_cm as active_context:
@@ -1101,7 +1100,7 @@ class SpeechService:
                 steps.append("atempo=2")
                 factor /= 2
             steps.append(f"atempo={factor:.9f}")
-            temporary = target.with_suffix(".pending.wav")
+            temporary = target.parent / f"{uuid4().hex}.pending.wav"
             try:
                 if time_stretch_engine == "pytsmod_wsola":
                     from src.mixer.acoustic_matching import stretch_wsola
