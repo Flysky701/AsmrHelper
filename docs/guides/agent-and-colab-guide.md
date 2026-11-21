@@ -209,6 +209,8 @@ python scripts/benchmark_asmr_remake.py original.wav timing.srt --takes cue1.wav
 
 在桌面端创建 Fish Audio 语音连接，选择模型 `drama-3`，再选托管 Voice ID 或参考录音。这个入口使用连接中配置的服务地址。
 
+用 [Fish Audio Drama 3 转存笔记本](../../notebooks/fish_drama3_to_drive.ipynb)在 Colab 免费 CPU 会话中挂载 Google Drive，可直接从 Hugging Face 转存并校验官方固定版本的 25 个文件。会话中断后可重跑，已经校验的文件会跳过。建议预留至少 42 GB 的 Drive 空间。
+
 自行部署时，Drive 模型库约定目录为 `AsmrHelper_Models/models/fish_drama3/`。官方版本 `78e5ab79e49aa9a25abe8799eff2c4d73a1c3216` 包含 15 个权重分片、`codec.pth`、分词器和模型配置，完整快照约 41.5 GB。在已安装 SGLang Omni、具备相应 GPU 和显存的环境中，挂载 Drive 后可用以下命令从权重目录启动推理服务。模型文件和使用许可见[官方模型卡](https://huggingface.co/fishaudio/drama-3/tree/78e5ab79e49aa9a25abe8799eff2c4d73a1c3216)。
 
 ```bash
