@@ -1,5 +1,6 @@
 import { api } from './client'
 import type {
+  ModelDownloadRequest,
   ModelSummaryResponse,
   ModelStatusResponse,
   ModelInstallRequest,
@@ -18,7 +19,7 @@ export const modelsApi = {
   runtime: (modelId: string) =>
     api.post<TaskStatusResponse>(`/models/${encodeURIComponent(modelId)}/runtime`),
 
-  download: (modelId: string, body?: { install_mode?: string }) =>
+  download: (modelId: string, body: ModelDownloadRequest) =>
     api.post<TaskStatusResponse>(`/models/${encodeURIComponent(modelId)}/download`, body),
 
   sources: () => api.get<{ roots: string[] }>('/models/sources'),

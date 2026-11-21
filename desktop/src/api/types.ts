@@ -270,6 +270,7 @@ export interface ModelSummaryResponse {
   description?: string
   estimated_size_mb?: number | null
   inference_vram_gb?: number | null
+  download_warning?: string | null
   install_strategy: string
   supports_install: boolean
   supports_remove: boolean
@@ -324,6 +325,11 @@ export interface ModelInstallRequest {
   install_dependencies?: boolean
   install_recommended_assets?: boolean
   allow_fallback_variant?: boolean
+}
+
+export interface ModelDownloadRequest {
+  install_mode: string
+  confirm_large_download?: true
 }
 
 export interface ModelVerificationResponse {

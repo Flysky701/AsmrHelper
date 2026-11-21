@@ -100,6 +100,8 @@ class ModelInstaller:
         if not entry.supports_install:
             raise ValueError(f"model cannot be installed: {entry.id}")
 
+        if entry.install_strategy == "pinned_snapshot":
+            return self._install_pinned_snapshot(entry, mirror=mirror, force=force)
         if self._reuse_shared(entry, force):
             return True
         if self._weights_present(entry) and not force:
@@ -270,6 +272,18 @@ class ModelInstaller:
     def _download_huggingface_snapshot(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
         return self._download_snapshot_tiers(entry, entry.install_strategy, mirror)
 
+    def _install_pinned_snapshot(self, entry, *, mirror, force, on_progress=None):
+        from .model_assets import shared
+        from .pinned_snapshot import install_snapshot
+
+        directory = entry.resolved_install_dir()
+        readonly = shared(entry, directory)
+        if readonly and force:
+            self._guard_shared(entry)
+        sources = resolve_download_sources(entry, mirror=mirror, hf_repo=entry.upstream_name)
+        install_snapshot(entry, directory, sources, force=force, on_progress=on_progress, readonly=readonly)
+        return self.verify_local_model(entry)
+
     # ── Async install with progress ──────────────────────────────────
 
     @freeze_directories
@@ -289,6 +303,8 @@ class ModelInstaller:
             raise ValueError(f"model cannot be installed: {entry.id}")
 
         strategy = entry.install_strategy
+        if strategy == "pinned_snapshot":
+            return self._install_pinned_snapshot(entry, mirror=mirror, force=force, on_progress=on_progress)
         if strategy == "release_files":
             if self._reuse_shared(entry, force):
                 return True

@@ -164,6 +164,7 @@ class ModelSummary:
     recommended_assets: list[str] = field(default_factory=list)
     required_system_tools: list[str] = field(default_factory=list)
     supported_os: list[str] = field(default_factory=list)
+    download_warning: str | None = None
 
 
 @dataclass(slots=True)

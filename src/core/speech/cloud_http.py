@@ -57,7 +57,7 @@ def decode_base64(value):
         raise ProviderError("invalid_audio", "远端音频编码无效") from None
 
 
-def post_audio(url, headers, body, output_path, connection, *, decoder=None):
+def post_audio(url, headers, body, output_path, connection, *, decoder=None, local=False):
     """Decode only a successful response; redact upstream errors and credentials.
 
     A decoder returns (bytes, 'audio' | 'pcm_s16le', sample_rate | None).
@@ -72,12 +72,18 @@ def post_audio(url, headers, body, output_path, connection, *, decoder=None):
         raise ProviderError("connection_missing", "外部连接地址无效，请检查 API 基础地址")
     try:
         with httpx.Client(timeout=httpx.Timeout(float(connection.get("timeout", 120)), connect=15),
-                          follow_redirects=False) as client:
+                          follow_redirects=False, trust_env=not local) as client:
             response = client.post(url, headers=headers, json=body)
     except httpx.TimeoutException:
+        if local:
+            raise ProviderError("local_timeout", "本机语音服务响应超时，请检查运行状态") from None
         raise ProviderError("result_unknown", "远端响应超时，请确认计费与结果后再生成", result_unknown=True) from None
     except httpx.RequestError:
+        if local:
+            raise ProviderError("connection_failed", "本机语音服务连接失败") from None
         raise ProviderError("connection_failed", "外部语音服务连接失败", result_unknown=True) from None
+    if local and not response.is_success:
+        raise ProviderError("local_failed", f"本机语音服务未生成音频（HTTP {response.status_code}）")
     if response.status_code in {401, 403}:
         raise ProviderError("authentication_failed", "外部语音服务认证失败")
     if response.status_code == 402:

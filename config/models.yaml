@@ -1016,6 +1016,52 @@ models:
       - G2PWModel/char_bopomofo_dict.json
       - G2PWModel/version
 
+  - id: fish_drama3
+    kind: local
+    category: tts
+    provider: fish_audio_local
+    family_id: fish_audio_local
+    display_name: Fish Audio Drama 3 · 本地权重
+    description: 参考录音克隆 · 需单独启动本机 SGLang Omni
+    estimated_size_mb: 41503
+    supported_os: [linux]
+    preferred_runtime: local_service
+    download_warning: "完整权重约 41.50 GB。下载只准备模型文件；推理需在 Linux 或 WSL2 单独启动 SGLang Omni。官方文档给出的语言模型权重约占 37 GB 显存，还需为编解码器和推理缓存留出空间。"
+    install_root: models
+    install_path: fish_drama3
+    supports_install: true
+    supports_remove: true
+    install_strategy: pinned_snapshot
+    upstream_name: fishaudio/drama-3
+    snapshot_revision: '78e5ab79e49aa9a25abe8799eff2c4d73a1c3216'
+    capability_models: [fish_drama3]
+    snapshot_files:
+      .gitattributes: [1570, '52373fe24473b1aa44333d318f578ae6bf04b49b']
+      LICENSE: [19685, '3109ed8be76ee63f8b79e8752deef2bce2886675']
+      README.md: [7996, 'adcc9ce0dcc643e1beb983ac050598b64c2552c0']
+      chat_template.jinja: [7756, 'a585dec894e63da457d9440ec6aa7caa16d20860']
+      codec.pth: [1871099728, '74fc41c5a7151c6f350af8bd7e5d6e3accfcc7f3dfbfac23afd35af07052bb2f']
+      config.json: [5534, 'fa0e4a3621e0ee496c1bf1c99c84cf28f4ad9122']
+      model-00001-of-00015.safetensors: [2862881576, 'a1b7af15210d2eda2d75a2cf976295f80e345855b745b109aa3ce49d26a44497']
+      model-00002-of-00015.safetensors: [2628610248, 'a95e113c6f32f8fcb23ecb618cd4384fad6358f3c0ac31cfbf352daf5370db94']
+      model-00003-of-00015.safetensors: [2628610224, 'a34d0952d6369f5c73e6ae06138ef96bc6a3af9bb259c4e41425a33706cf5b68']
+      model-00004-of-00015.safetensors: [2628611792, '13ac368d87441a18752e424e485b711a115ea1084e3a18ab13276e73eedef8b4']
+      model-00005-of-00015.safetensors: [2641525264, 'c432fa0dac97471f0d625bc67eb94fe084ca2e5ecd8865f457b751479b50e363']
+      model-00006-of-00015.safetensors: [2628614896, '661a31433747fa9d029632a61350ea9eb105bf7276d013ff0901b6a939fb2dcb']
+      model-00007-of-00015.safetensors: [2628614880, '4a7574b5c238f424b37aa945a736da1994a26bd38b86bf3ec4abf524c0969cc8']
+      model-00008-of-00015.safetensors: [2628614888, '7fac6d1e899939eb03c9cf28a33b0bfd9c7a599298662f26d9a59d64c96d007f']
+      model-00009-of-00015.safetensors: [2641525264, 'fcf1313744ea5978e363b2bb49c3b66748d886d79f3ec102f4346a462385de4b']
+      model-00010-of-00015.safetensors: [2628614896, '6db3f7cd9d49806ae4f17b6f6d17a0c8dd9686aee57728da1b50ec0c6139a629']
+      model-00011-of-00015.safetensors: [2628614880, 'a9027ef4db30bb1875bd2bc93b80bae785c5943807efe63bf09834b66e49fc16']
+      model-00012-of-00015.safetensors: [2628614888, 'c16fea955e973010064ff7bc907a6fa67821956e0de23f74807c31fb48339f3a']
+      model-00013-of-00015.safetensors: [2641525264, '64861c8e1ee13a0cbb5ec9431f402cee33edcbcbc744ff63091fe3a997f0da19']
+      model-00014-of-00015.safetensors: [3749111392, 'ba5319475a6258984143b69af8380f166df8179af90378f2f4e02694cad87baf']
+      model-00015-of-00015.safetensors: [1409461016, '1e2ddf01c1be73fb19f3022c28e90d24e730c1bc759e5de78083afb39aab3fb7']
+      model.safetensors.index.json: [6880196, 'ae27a3416e4509cf6cc04e290ae2865d220cd077']
+      special_tokens_map.json: [102779, 'aaac48f459bc88b562c2079a64d5b13aa23d2685']
+      tokenizer.json: [20791070, '0e9b9db76b2f0389b04b6ef057a2ac3b89100b7e96f2dd7034d19580a09654d6']
+      tokenizer_config.json: [103580, 'f6d3655491f93602f82a61a6ad6fa0658d737f63']
+
   - id: deepseek
     kind: cloud
     category: llm

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -70,6 +71,9 @@ class ModelEntry:
     sample_inference_policy: Dict[str, Any] = field(default_factory=dict)
     healthcheck_timeout_seconds: Optional[int] = None
     inference_vram_gb: Optional[int] = None
+    download_warning: Optional[str] = None
+    snapshot_revision: Optional[str] = None
+    snapshot_files: Dict[str, tuple[int, str]] = field(default_factory=dict)
 
     def resolved_install_root(self) -> Path:
         from src.workspace_paths import model_directory, resolve_directory
@@ -127,6 +131,21 @@ def _validate_entry(raw: Dict[str, Any]) -> ModelEntry:
     if kind == "local" and not raw.get("install_path"):
         raise ModelCatalogError(f"local model missing install_path: {raw['id']}")
 
+    snapshot_revision = raw.get("snapshot_revision")
+    snapshot_files = {}
+    if raw.get("install_strategy") == "pinned_snapshot":
+        if kind != "local" or not isinstance(snapshot_revision, str) or not re.fullmatch(r"[0-9a-f]{40}", snapshot_revision):
+            raise ModelCatalogError(f"pinned snapshot requires a full commit: {raw['id']}")
+        if not raw.get("upstream_name") or not isinstance(raw.get("snapshot_files"), dict) or not raw["snapshot_files"]:
+            raise ModelCatalogError(f"pinned snapshot requires a repository and file manifest: {raw['id']}")
+        for name, spec in raw["snapshot_files"].items():
+            if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", name)
+                    or name in {".", ".."} or not isinstance(spec, list) or len(spec) != 2
+                    or type(spec[0]) is not int or spec[0] <= 0
+                    or not isinstance(spec[1], str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", spec[1])):
+                raise ModelCatalogError(f"invalid pinned snapshot file: {name!r}")
+            snapshot_files[name] = (spec[0], spec[1])
+
     return ModelEntry(
         id=raw["id"],
         kind=kind,
@@ -139,7 +158,7 @@ def _validate_entry(raw: Dict[str, Any]) -> ModelEntry:
         engine=raw.get("engine"),
         install_root=raw.get("install_root"),
         install_path=raw.get("install_path"),
-        required_files=_list_of_strings(raw.get("required_files")),
+        required_files=list(snapshot_files) or _list_of_strings(raw.get("required_files")),
         required_dirs=_list_of_strings(raw.get("required_dirs")),
         supports_install=bool(raw.get("supports_install", False)),
         supports_remove=bool(raw.get("supports_remove", False)),
@@ -178,6 +197,9 @@ def _validate_entry(raw: Dict[str, Any]) -> ModelEntry:
         post_install_checks=_list_of_dicts(raw.get("post_install_checks")),
         sample_inference_policy=_string_keyed_dict(raw.get("sample_inference_policy")),
         healthcheck_timeout_seconds=_optional_int(raw.get("healthcheck_timeout_seconds")),
+        download_warning=raw.get("download_warning"),
+        snapshot_revision=snapshot_revision,
+        snapshot_files=snapshot_files,
     )
 
 

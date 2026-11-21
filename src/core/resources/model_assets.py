@@ -72,6 +72,12 @@ def remove_source(value: str) -> None:
 
 
 def complete(entry, path: Path) -> bool:
+    if entry.install_strategy == 'pinned_snapshot':
+        from .pinned_snapshot import has_expected_size
+
+        return bool(entry.snapshot_files) and all(
+            has_expected_size(path / name, size) for name, (size, _) in entry.snapshot_files.items()
+        )
     if entry.provider == 'demucs' and demucs_hf_manifest(entry.upstream_name or 'htdemucs', path):
         return True
     required = DEMUCS_FILES.get(entry.upstream_name or 'htdemucs', []) if entry.provider == 'demucs' else entry.required_files
@@ -127,7 +133,10 @@ def candidates(entry, roots: list[str] | None = None):
             for cache in (root, root / 'hub', root / Path(entry.install_path or '').parent):
                 snapshot = cache / slug / 'snapshots'
                 if snapshot.is_dir():
-                    yield from sorted(snapshot.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+                    if entry.snapshot_revision:
+                        yield snapshot / entry.snapshot_revision
+                    else:
+                        yield from sorted(snapshot.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 def resolve_assets(entry) -> Path:

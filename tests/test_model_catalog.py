@@ -143,4 +143,4 @@ def test_project_catalog_declares_size_for_every_local_model():
         for entry in local_models
         if entry.category == "tts"
     }
-    assert tts_backends == {"qwen3", "voxcpm2", "cosyvoice2", "gpt_sovits"}
+    assert tts_backends == {"qwen3", "voxcpm2", "cosyvoice2", "gpt_sovits", "fish_audio_local"}

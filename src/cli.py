@@ -317,10 +317,18 @@ def model_status(model_id: Optional[str], kind: Optional[str], category: Optiona
 @click.argument("model_id")
 @click.option("--mirror", default=None, help="HuggingFace mirror")
 @click.option("--force", is_flag=True, help="Force redownload")
-def model_install(model_id: str, mirror: Optional[str], force: bool):
+@click.option("--confirm-large-download", is_flag=True, help="Accept the model's disk and GPU warning")
+def model_install(model_id: str, mirror: Optional[str], force: bool, confirm_large_download: bool):
     """Install a model through the application API layer."""
     service = get_app_model_service()
-    result = _run_app_command(service.install_model, model_id, mirror=mirror, force=force)
+    warning = _run_app_command(service.download_warning, model_id)
+    if warning:
+        click.echo(warning, err=True)
+        if not confirm_large_download:
+            click.confirm("确认下载此模型？", default=False, abort=True)
+            confirm_large_download = True
+    result = _run_app_command(service.install_model, model_id, mirror=mirror, force=force,
+                              confirm_large_download=confirm_large_download)
     click.echo(f"Model installed: {result.model_id} [{result.status}]")
 
 

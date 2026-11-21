@@ -12,6 +12,7 @@ export type PageId =
 
 export type TaskCenterView = 'tasks' | 'batches'
 export type EnginesView = 'local' | 'remote' | 'external'
+export type LocalModelCategory = 'llm' | 'asr' | 'tts' | 'other'
 export type ReviewView = 'drafts' | 'subtitles'
 
 export const PAGE_LABELS: Record<PageId, string> = {
@@ -39,7 +40,9 @@ interface NavStore {
   openReview: (view?: ReviewView) => Promise<void>
   enginesView: EnginesView
   setEnginesView: (view: EnginesView) => void
-  openEngines: (view?: EnginesView) => Promise<void>
+  localModelCategory: LocalModelCategory
+  setLocalModelCategory: (category: LocalModelCategory) => void
+  openEngines: (view?: EnginesView, category?: LocalModelCategory) => Promise<void>
   taskCenterView: TaskCenterView
   setTaskCenterView: (view: TaskCenterView) => void
   openTaskCenter: (view?: TaskCenterView) => Promise<void>
@@ -71,10 +74,12 @@ export const useNavStore = create<NavStore>((set, get) => ({
   taskCenterView: 'tasks',
   enginesView: 'local',
   setEnginesView: (enginesView) => set({ enginesView }),
-  openEngines: async (enginesView = 'local') => {
+  localModelCategory: 'asr',
+  setLocalModelCategory: (localModelCategory) => set({ localModelCategory }),
+  openEngines: async (enginesView = 'local', localModelCategory) => {
     const state = get()
     if (state.activePage !== 'engines' && !(await state.confirmLeaveCurrentPage())) return
-    set({ activePage: 'engines', enginesView })
+    set({ activePage: 'engines', enginesView, ...(localModelCategory ? { localModelCategory } : {}) })
   },
   setTaskCenterView: (taskCenterView) => set({ taskCenterView }),
   openTaskCenter: async (taskCenterView = 'tasks') => {

@@ -9,12 +9,11 @@ import ExternalServices from '@/components/ExternalServices'
 import RemoteComputePanel from '@/components/RemoteComputePanel'
 import QuickStartHelp from '@/components/QuickStartHelp'
 import ModelWeightRemoval from '@/components/ModelWeightRemoval'
+import { modelDownloadWarning, prepareModelDownload } from '@/domain/modelDownloads'
 import type { ModelSummaryResponse, ModelStatusResponse, ResourceStatusResponse } from '@/api/types'
-import { useNavStore } from '@/stores/navStore'
+import { useNavStore, type LocalModelCategory as CategoryTab } from '@/stores/navStore'
 import { useTaskStore } from '@/stores/taskStore'
 import type { TaskStatus } from '@/stores/taskStore'
-
-type CategoryTab = 'llm' | 'asr' | 'tts' | 'other'
 
 const actionStyle = {
   fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', padding: '6px 10px',
@@ -70,7 +69,7 @@ export default function EnginesResources() {
   useI18n()
   const view = useNavStore(state => state.enginesView)
   const setView = useNavStore(state => state.setEnginesView)
-  const [localCategory, setLocalCategory] = useState<CategoryTab>('asr')
+  const localCategory = useNavStore(state => state.localModelCategory)
   const refreshRef = useRef<(() => void) | null>(null)
   const [refreshDisabled, setRefreshDisabled] = useState(false)
 
@@ -113,7 +112,7 @@ export default function EnginesResources() {
         </div>
       </header>
       <div role="tabpanel" id="engines-panel-local" aria-labelledby="engines-tab-local" hidden={view !== 'local'} style={{ flex: 1, minHeight: 0 }}>
-        <LocalResources onCategory={setLocalCategory} refreshRef={refreshRef} onBusyChange={setRefreshDisabled} />
+        <LocalResources refreshRef={refreshRef} onBusyChange={setRefreshDisabled} />
       </div>
       <div role="tabpanel" id="engines-panel-remote" aria-labelledby="engines-tab-remote" hidden={view !== 'remote'} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 24 }}>
         <RemoteComputePanel />
@@ -151,11 +150,9 @@ function CloudSpeechModels() {
 }
 
 function LocalResources({
-  onCategory,
   refreshRef,
   onBusyChange,
 }: {
-  onCategory: (category: CategoryTab) => void
   refreshRef: React.MutableRefObject<(() => void) | null>
   onBusyChange: (busy: boolean) => void
 }) {
@@ -168,8 +165,8 @@ function LocalResources({
   const [modelStatuses, setModelStatuses] = useState<ModelStatusResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [statusLoading, setStatusLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<CategoryTab>('asr')
-  useEffect(() => { onCategory(activeTab) }, [activeTab, onCategory])
+  const activeTab = useNavStore(state => state.localModelCategory)
+  const setActiveTab = useNavStore(state => state.setLocalModelCategory)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [installing, setInstalling] = useState<Record<string, { active: boolean; message?: string; progress?: number }>>({})
   const [error, setError] = useState('')
@@ -226,6 +223,8 @@ function LocalResources({
   useEffect(() => { void loadData() }, [])
 
   const handleInstall = async (model: ModelSummaryResponse, operation: 'runtime' | 'download') => {
+    const downloadRequest = operation === 'download' ? await prepareModelDownload(model) : undefined
+    if (operation === 'download' && !downloadRequest) return
     const modelId = model.model_id
     const actionLabel = operation === 'runtime' ? '安装/修复环境' : '下载模型权重'
     const localTaskId = addTask({
@@ -244,9 +243,7 @@ function LocalResources({
       [modelId]: { active: true, message: operation === 'runtime' ? '正在安装/修复环境…' : '正在下载模型权重…' },
     }))
     try {
-      const res = operation === 'runtime' ? await modelsApi.runtime(modelId) : await modelsApi.download(modelId, {
-        install_mode: model.default_install_mode || 'single',
-      })
+      const res = downloadRequest ? await modelsApi.download(modelId, downloadRequest) : await modelsApi.runtime(modelId)
       updateTask(localTaskId, {
         serverTaskId: res.task_id,
         status: res.state as TaskStatus,
@@ -562,6 +559,8 @@ function LocalResources({
                         const pendingRuntime = status?.issues.some(issue => issue.code === 'RUNTIME_CHECK_PENDING') ?? false
                         const vram = model.inference_vram_gb ?? 0
                         const gpuExample = GPU_EXAMPLES.find(({ upTo }) => upTo >= vram)
+                        const downloadWarning = modelDownloadWarning(model)
+                        const localService = model.preferred_runtime === 'local_service'
                         const dependencies = (model.required_assets || []).map(id => ({
                           id,
                           name: models.find(item => item.model_id === id)?.display_name || id,
@@ -604,10 +603,10 @@ function LocalResources({
                             fontSize: 'var(--text-control)', gap: '8px',
                           }}>
                             <div className="engines-model-info">
-                              <div style={{ fontWeight: 500 }}>{model.display_name}</div>
+                              <div style={{ fontWeight: 500 }}>{t(model.display_name)}</div>
                               <div className="engines-model-description">
                                 {t(model.description || model.backend)}
-                                {vram > 0 && (
+                                {vram > 0 && !downloadWarning && (
                                   <span title={t('按单任务推理估算，实际占用随音频长度和批量设置变化。')}>
                                     {' · '}{formatMessage(model.preferred_runtime === 'gpu_worker'
                                       ? '工作节点显存建议 ≥ {0} GB' : 'GPU 显存建议 ≥ {0} GB', [vram])}
@@ -615,8 +614,9 @@ function LocalResources({
                                   </span>
                                 )}
                               </div>
+                              {downloadWarning && <p className="engines-model-description">{downloadWarning}</p>}
                               {status && <div style={{ fontSize: 11.5, marginTop: 6, overflowWrap: 'anywhere' }}>
-                                <details className="engines-status-details"><summary>{t("状态明细")}</summary><p>{t("权重：")}{status.status === 'unknown' ? t("待确认") : status.weights_ready ? t("文件完整") : t("缺失或不完整")} {model.preferred_runtime === 'gpu_worker' ? t('· 在工作节点运行') : <>{t("· 环境：")}{pendingRuntime ? t('待检测') : status.status === 'unknown' ? t("待确认") : status.runtime_ready ? t("依赖检查通过") : t("未就绪")} {t("· 推理：尚未验证")}</>}</p></details>
+                                <details className="engines-status-details"><summary>{t("状态明细")}</summary><p>{t("权重：")}{status.status === 'unknown' ? t("待确认") : status.weights_ready ? t("文件完整") : t("缺失或不完整")} {localService ? t('· 在语音连接中检查本机服务') : model.preferred_runtime === 'gpu_worker' ? t('· 在工作节点运行') : <>{t("· 环境：")}{pendingRuntime ? t('待检测') : status.status === 'unknown' ? t("待确认") : status.runtime_ready ? t("依赖检查通过") : t("未就绪")} {t("· 推理：尚未验证")}</>}</p></details>
                                 <div className="engines-model-location">
                                   {status.path ? <span className="model-path" title={status.path}>{t("位置：")}{status.path}</span> : <span>{t("位置：未找到")}</span>}
                                 </div>
@@ -645,7 +645,7 @@ function LocalResources({
                                   </button>
                                 ) : (
                                   <>
-                                    {model.preferred_runtime !== 'gpu_worker' && <button title={formatMessage("目标环境：{0}。安装依赖并对齐项目版本，可能替换已有包；不下载模型权重。", [model.runtime_profile || 'main'])} onClick={() => void handleInstall(model, 'runtime')} style={actionStyle}>{t("安装/修复环境")}</button>}
+                                    {!localService && model.preferred_runtime !== 'gpu_worker' && <button title={formatMessage("目标环境：{0}。安装依赖并对齐项目版本，可能替换已有包；不下载模型权重。", [model.runtime_profile || 'main'])} onClick={() => void handleInstall(model, 'runtime')} style={actionStyle}>{t("安装/修复环境")}</button>}
                                     {model.supports_install && (!status.weights_ready || missingDependencies) &&
                                       <button onClick={() => void handleInstall(model, 'download')} style={actionStyle}>{t("下载模型权重")}</button>}
                                     <button onClick={() => void handleVerify(model.model_id)} style={actionStyle}>{t("检查状态")}</button>

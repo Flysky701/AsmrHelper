@@ -60,6 +60,7 @@ class ModelService:
                 display_name=entry.display_name,
                 description=entry.description,
                 estimated_size_mb=entry.estimated_size_mb,
+                download_warning=entry.download_warning,
                 inference_vram_gb=entry.inference_vram_gb,
                 install_strategy=entry.install_strategy or "",
                 capability_models=entry.capability_models or [entry.id],
@@ -138,6 +139,16 @@ class ModelService:
             for status in statuses
         ]
 
+    def download_warning(self, model_id: str) -> str | None:
+        return getattr(self._get_model_entry(model_id), "download_warning", None)
+
+    def _check_download_confirmation(self, model_id: str, confirmed: bool) -> None:
+        warning = self.download_warning(model_id)
+        if warning and confirmed is not True:
+            raise AppValidationError(
+                f"{warning} 请确认后下载（CLI 加 --confirm-large-download，API 传 confirm_large_download=true）。"
+            )
+
     def install_model(
         self,
         model_id: str,
@@ -147,7 +158,9 @@ class ModelService:
         install_dependencies: bool = True,
         install_recommended_assets: bool = False,
         allow_fallback_variant: bool = False,
+        confirm_large_download: bool = False,
     ) -> ModelOperationResult:
+        self._check_download_confirmation(model_id, confirm_large_download)
         return self._run_model_operation(
             action="install",
             model_id=model_id,
@@ -172,9 +185,13 @@ class ModelService:
         install_recommended_assets: bool = False,
         allow_fallback_variant: bool = False,
         operation: str = "install",
+        confirm_large_download: bool = False,
     ):
         """Submit model installation and return the authoritative task snapshot."""
-        self._get_model_entry(model_id)
+        if operation == "runtime":
+            self._get_model_entry(model_id)
+        else:
+            self._check_download_confirmation(model_id, confirm_large_download)
         task_svc = self._get_task_service()
         _spec, task = task_svc.create_task_spec(
             task_type="model_install",
@@ -182,6 +199,7 @@ class ModelService:
             session_id="",
             execution_profile={
                 "operation": operation,
+                "confirm_large_download": confirm_large_download,
                 "model_id": model_id,
                 "mirror": mirror,
                 "force": force,
@@ -217,11 +235,11 @@ class ModelService:
             message="waiting for model installer",
             stage="install",
         )
-        self._get_model_entry(model_id)
         if profile.get("operation") == "runtime":
             context.update_progress(0.1, "正在准备运行环境", stage="runtime")
             self.core_service.prepare_runtime(model_id)
             return {"detail": "运行环境准备完成；未下载模型权重"}
+        self._check_download_confirmation(model_id, profile.get("confirm_large_download", False))
         installed = self.core_service.install(
             model_id,
             mirror=profile.get("mirror"),
@@ -421,7 +439,6 @@ class ModelService:
             raise AppExecutionError(str(exc)) from exc
 
     def _run_model_operation(self, action: str, model_id: str, runner) -> ModelOperationResult:
-        self._get_model_entry(model_id)
         try:
             operation_result = runner()
         except ValueError as exc:
