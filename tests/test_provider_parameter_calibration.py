@@ -9,7 +9,6 @@ import pytest
 
 from src.app.errors import AppValidationError
 from src.app.services.capability_descriptor_service import CapabilityDescriptorService
-from src.app.services.resource_service import ResourceService
 from src.core.engines.asr.service import AsrEngineRuntime
 
 
@@ -316,38 +315,3 @@ async def test_edge_batch_synthesis_limits_websocket_concurrency(
     await engine._synthesize_all_async(sentences, outputs)
 
     assert peak == engine.MAX_CONCURRENT_REQUESTS
-
-
-def test_readiness_rejects_invalid_edge_speed_before_runtime(tmp_path, monkeypatch) -> None:
-    from test_app_services import _saved_speech_recipe
-    speech, recipe = _saved_speech_recipe(tmp_path, monkeypatch)
-    # Simulate a persisted invalid recipe; readiness must recompile rather than
-    # trusting an old validation result or falling back to legacy Edge options.
-    invalid = speech.store.update("recipes", recipe["id"], {"provider_options": {"schema_version": 1, "speed": 2.1}})
-    model_service = SimpleNamespace(list_models=lambda: [])
-    service = ResourceService(
-        project_root=tmp_path,
-        descriptor_service=CapabilityDescriptorService(),
-        model_service=model_service,
-        module_checker=lambda module: True,
-    )
-    service.ensure_workspace()
-
-    result = service.check_task_readiness(
-        task_type="pipeline",
-        execution_profile={
-            "stages": {
-                "tts": {
-                    "enabled": True,
-                    "provider": "speech",
-                    "model": None,
-                    "options": {"speech_recipe_id": invalid["id"]},
-                    "provider_options": {},
-                }
-            }
-        },
-    )
-
-    assert result["ready"] is False
-    assert result["issues"][0]["code"] == "SPEECH_RECIPE_NOT_READY"
-    assert "speed" in result["issues"][0]["message"]

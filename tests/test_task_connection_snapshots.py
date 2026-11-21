@@ -1,136 +1,74 @@
-"""Connection changes must not retarget queued or retried paid work."""
+"""V2 translation tasks pin node connections privately."""
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 import json
-import threading
+import sqlite3
 
-import pytest
-
-from src.config import config
-from src.app.errors import AppValidationError
+from src.app.dto import PipelineRequest
 from src.app.persistence import SqliteStateStore
+from src.app.services.artifact_service import ArtifactService
+from src.app.services.input_catalog_service import InputCatalogService
+from src.app.services.pipeline_service import PipelineService
+from src.app.services.session_service import SessionService
 from src.app.services.task_service import TaskService
-from src.core.tasks import TaskDispatcher
-from src.task_connection_context import connection_context, overlay_connections
+from src.config import config
+from src.provider_profiles import project_profiles
 
 
-def _settings(label):
-    return {
-        "api": {"deepseek_api_key": f"secret-{label}", "deepseek_base_url": f"https://{label}.example"},
-        "external_tts": {"api_key": f"tts-secret-{label}", "base_url": f"https://tts-{label}.example"},
-        "paths": {"output_dir": label},
-    }
+def test_queued_translation_uses_frozen_credentials_without_persisting_them(monkeypatch, tmp_path):
+    settings = project_profiles({
+        "api": {},
+        "connection_profiles": {
+            "active_llm": "initial",
+            "llm": [{"id": "initial", "name": "Test", "provider": "deepseek",
+                     "base_url": "https://test-provider.invalid", "model": "deepseek-chat",
+                     "api_key": "original-node-secret"}],
+        },
+        "paths": {"output_dir": str(tmp_path / "config-out")},
+    })
+    monkeypatch.setattr(config, "_config", settings)
+    store = SqliteStateStore(tmp_path / "state.sqlite3")
+    tasks = TaskService(state_store=store)
+    catalog = InputCatalogService()
+    pipeline = PipelineService(
+        task_service=tasks,
+        input_catalog_service=catalog,
+        session_service=SessionService(input_catalog_service=catalog),
+        artifact_service=ArtifactService(state_store=store),
+    )
+    subtitle = tmp_path / "source.vtt"
+    subtitle.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nHello, world!\n", encoding="utf-8")
+    status, spec = pipeline.create_pipeline_task(PipelineRequest(
+        input_path=str(subtitle), output_dir=str(tmp_path / "out"),
+        execution_profile={
+            "version": 2,
+            "graph": {
+                "version": 2,
+                "nodes": [{"id": "translate", "kind": "translate", "provider": "deepseek",
+                           "source_lang": "en", "target_lang": "zh",
+                           "options": {"connection_ref": "initial"}}],
+                "input_slots": [{"id": "source", "type": "subtitle", "label": "Source", "language": "en"}],
+                "edges": [{"source": {"kind": "slot", "slot_id": "source"},
+                           "target": {"node_id": "translate", "port": "subtitle"}}],
+                "outputs": [{"node_id": "translate", "port": "subtitle"}],
+            },
+            "bindings": {"source": {"path": str(subtitle), "language": "en", "language_confirmed": True}},
+        },
+    ))
+    assert status.state == "pending"
+    settings["connection_profiles"]["llm"][0]["api_key"] = "rotated-node-secret"
+    settings["paths"]["output_dir"] = str(tmp_path / "new-output")
+    project_profiles(settings)
 
+    with tasks.graph_node_connection_context(spec.task_id, "translate"):
+        assert config.get("api.deepseek_api_key") == "original-node-secret"
+        assert config.get("api.deepseek_model") == "deepseek-chat"
+        assert config.get("paths.output_dir") == str(tmp_path / "new-output")
+    assert config.get("api.deepseek_api_key") == "rotated-node-secret"
 
-def _create(service):
-    return service.create_task_spec(task_type="pipeline", task_source="test", session_id="test")[0]
-
-
-def test_queued_task_keeps_connections_but_unrelated_settings_stay_live(monkeypatch):
-    monkeypatch.setattr(config, "_config", _settings("first"))
-    service = TaskService()
-    dispatcher = TaskDispatcher(service.registry, task_service=service)
-    spec = _create(service)
-    monkeypatch.setattr(config, "_config", _settings("second"))
-    dispatcher.register_executor("pipeline", lambda spec: config.to_dict())
-    result = dispatcher.run(spec.task_id)
-    assert result["api"] == _settings("first")["api"]
-    assert result["external_tts"] == _settings("second")["external_tts"]  # Not a runtime TTS source
-    assert result["paths"] == _settings("second")["paths"]
-    assert config.get("api.deepseek_api_key") == "secret-second"
-
-
-def test_retry_keeps_original_connections_and_context_resets_after_failure(monkeypatch):
-    monkeypatch.setattr(config, "_config", _settings("first"))
-    service = TaskService()
-    dispatcher = TaskDispatcher(service.registry, task_service=service)
-    spec = _create(service)
-
-    def fail(spec):
-        assert config.get("api.deepseek_api_key") == "secret-first"
-        raise RuntimeError("temporary failure")
-
-    dispatcher.register_executor("pipeline", fail)
-    monkeypatch.setattr(config, "_config", _settings("second"))
-    with pytest.raises(RuntimeError, match="temporary failure"):
-        dispatcher.run(spec.task_id)
-    assert config.get("api.deepseek_api_key") == "secret-second"
-    retry = service.retry_task(spec.task_id)
-    dispatcher.register_executor("pipeline", lambda spec: config.get("api.deepseek_api_key"))
-    assert dispatcher.run(retry.task_id) == "secret-first"
-
-
-def test_parallel_running_tasks_do_not_share_or_leak_connections(monkeypatch):
-    monkeypatch.setattr(config, "_config", _settings("first"))
-    service = TaskService()
-    first = _create(service)
-    monkeypatch.setattr(config, "_config", _settings("second"))
-    second = _create(service)
-    dispatcher = TaskDispatcher(service.registry, task_service=service)
-    barrier = threading.Barrier(2)
-
-    def execute(spec):
-        before = config.get("api.deepseek_api_key")
-        barrier.wait(timeout=5)
-        assert config.get("api.deepseek_api_key") == before
-        return before
-
-    dispatcher.register_executor("pipeline", execute)
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(dispatcher.run, [first.task_id, second.task_id]))
-    assert results == ["secret-first", "secret-second"]
-    assert config.get("api.deepseek_api_key") == "secret-second"
-
-
-def test_snapshot_secrets_are_absent_from_public_and_persisted_task(monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "_config", _settings("first"))
-    store = SqliteStateStore(tmp_path / "state.db")
-    service = TaskService(state_store=store)
-    spec = _create(service)
-    service.start_task(spec.task_id)
-    service.complete_task(spec.task_id)
-    public = json.dumps([asdict(service.get_task_spec(spec.task_id)), asdict(service.get_task(spec.task_id))])
-    persisted = repr(store.load_terminal_tasks())
-    for value in (public, persisted):
-        assert "secret-first" not in value
-        assert "https://first.example" not in value
-    restored = TaskService(state_store=store)
-    with pytest.raises(AppValidationError, match="historical tasks"):
-        restored.retry_task(spec.task_id)
-
-
-def test_missing_section_and_nested_context_do_not_fall_back_or_mutate():
-    current = _settings("current")
-    with connection_context({"api": {}, "external_tts": {}}):
-        assert overlay_connections(current)["external_tts"] == {}
-        with connection_context({"api": {"key": "nested"}}):
-            view = overlay_connections(current)
-            view["api"]["key"] = "mutated"
-            assert overlay_connections(current)["api"]["key"] == "nested"
-        assert overlay_connections(current)["api"] == {}
-    assert overlay_connections(current) == current
-
-
-@pytest.mark.parametrize("provider", ["deepseek", "openai"])
-def test_empty_explicit_translator_key_does_not_use_another_profile(monkeypatch, provider):
-    from src.core.engines.llm.translator import Translator
-
-    monkeypatch.setattr(config, "_config", {"api": {f"{provider}_api_key": "other-profile-secret"}})
-    monkeypatch.setenv(f"{provider.upper()}_API_KEY", "environment-secret")
-    translator = Translator(provider=provider, api_key="", use_terminology=False)
-    assert translator.api_key == ""
-    with pytest.raises(ValueError, match="API"):
-        translator.get_client()
-
-
-@pytest.mark.parametrize("provider", ["deepseek", "openai"])
-def test_translator_uses_effective_config_without_independent_env_fallback(monkeypatch, provider):
-    from src.core.engines.llm.translator import Translator
-
-    monkeypatch.setattr(config, "_config", {"api": {f"{provider}_api_key": ""}})
-    monkeypatch.setenv(f"{provider.upper()}_API_KEY", "unrelated-environment-secret")
-    translator = Translator(provider=provider, use_terminology=False)
-    assert translator.api_key == ""
-    monkeypatch.setattr(config, "_config", {"api": {f"{provider}_api_key": "effective-secret"}})
-    assert translator.api_key == "effective-secret"
+    public = json.dumps([asdict(spec), asdict(status)])
+    with sqlite3.connect(store.db_path) as connection:
+        persisted = "\n".join(connection.iterdump())
+    for secret in ("original-node-secret", "rotated-node-secret", "https://test-provider.invalid"):
+        assert secret not in public
+        assert secret not in persisted

@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 import urllib.request
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_CONFIG = ("models.yaml", "presets.yaml", "asmr_terms.json", "config.example.json", "voice_profiles.example.json")
 EXCLUDED = ["developer venv/runtime", "config.json", "voice_profiles.json", "voice_lab", "models", "output", "logs", "databases", ".git", ".env", "__pycache__", "imageio_ffmpeg bundled executable", "dependency test audio", "ffplay"]
@@ -77,7 +77,8 @@ def main():
     # This private copy is application-managed; leave the uv source distribution untouched.
     (output / "python" / "Lib" / "EXTERNALLY-MANAGED").unlink(missing_ok=True)
     app = output / "app"
-    tracked = subprocess.check_output(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "src"], cwd=ROOT).decode("utf-8").split("\0")
+    tracked = subprocess.check_output(["git", "ls-files", "--cached", "-z", "src", "packages/gpu_worker", "packages/mcp_server"], cwd=ROOT).decode("utf-8").split("\0")
+    tracked.extend(f"packages/protocol/{module}.py" for module in ("__init__", "compute", "errors", "drafts"))
     for name in tracked:
         if name.endswith(".py"):
             copy_file(ROOT / name, app / name)

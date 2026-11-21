@@ -4,7 +4,7 @@ import type { ComponentType } from 'react'
 
 import Workbench from '@/pages/Workbench'
 import WorkflowPresets from '@/pages/WorkflowPresets'
-import SubtitleWorkshop from '@/pages/SubtitleWorkshop'
+import ReviewStudio from '@/pages/ReviewStudio'
 import VoiceLab from '@/pages/voice-lab/VoiceLab'
 import TaskCenter from '@/pages/TaskCenter'
 import EnginesResources from '@/pages/EnginesResources'
@@ -14,7 +14,7 @@ import AudioTools from '@/pages/AudioTools'
 const PAGES: Record<PageId, ComponentType> = {
   workbench: Workbench,
   'workflow-presets': WorkflowPresets,
-  'subtitle-workshop': SubtitleWorkshop,
+  'subtitle-workshop': ReviewStudio,
   'voice-lab': VoiceLab,
   'audio-tools': AudioTools,
   'task-center': TaskCenter,

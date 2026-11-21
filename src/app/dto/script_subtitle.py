@@ -15,12 +15,16 @@ class ScriptSubtitleRequest:
     audio_path: Optional[str] = None
     vtt_path: Optional[str] = None
     fmt: str = "vtt"
-    use_llm_clean: bool = True
+    use_llm_clean: bool = False
     asr_model_size: str = "large-v3"
     asr_language: str = "ja"
     track_index: Optional[int] = None
     vertical_mode: str = "auto"
     debug_dir: Optional[str] = None
+    confirmed_text: Optional[str] = None
+    fingerprint: Optional[str] = None
+    use_llm_match: bool = False
+    reference_confirmed: bool = False
 
 
 @dataclass(slots=True)

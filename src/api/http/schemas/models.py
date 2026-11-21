@@ -11,8 +11,10 @@ class ModelSummaryResponse(BaseModel):
     category: str
     backend: str
     display_name: str
+    description: str = ""
     capability_models: list[str] = Field(default_factory=list)
     estimated_size_mb: int | None = None
+    inference_vram_gb: int | None = None
     install_strategy: str = ""
     supports_install: bool = False
     supports_remove: bool = False

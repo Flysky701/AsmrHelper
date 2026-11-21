@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master, dev]
+
+jobs:
+  backend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Python 3.12 and dependencies
+        run: uv sync --locked --python 3.12 --extra dev --extra audio
+      - name: Run Ruff lint
+        run: uv run --no-sync python -m ruff check src scripts tests
+      - name: Run Pytest suite (isolated data and state)
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          $isolated = Join-Path $env:RUNNER_TEMP "asmr-helper-ci-data"
+          New-Item -ItemType Directory -Force -Path $isolated | Out-Null
+          $env:ASMR_HELPER_DATA_DIR = $isolated
+          $env:ASMR_HELPER_STATE_DB = Join-Path $isolated "state.sqlite3"
+          uv run --no-sync python -m pytest -q
+
+  frontend:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: TypeScript typecheck and Vite build
+        run: npm run build
+      - name: Run frontend unit tests
+        run: npm test

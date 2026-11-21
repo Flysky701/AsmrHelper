@@ -2,13 +2,15 @@
   "name": "asmr-helper-desktop",
   "private": true,
   "license": "CC-BY-NC-4.0",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-test-isolation=none tests/*.test.mjs",
     "test:navigation": "node --test tests/navigation.test.mjs"
   },
   "dependencies": {

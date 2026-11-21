@@ -62,6 +62,20 @@ def get_runtime_capabilities(
     )
 
 
+@router.get("/runtime/remote-worker")
+def get_remote_worker_status():
+    from packages.protocol.errors import ComputeRemoteError
+    from src.core.runtime import get_runtime_router
+
+    try:
+        capabilities = get_runtime_router().remote_capabilities()
+    except ComputeRemoteError as exc:
+        return {"configured": True, "capabilities": None, "error": exc.code}
+    except ValueError:
+        return {"configured": True, "capabilities": None, "error": "INVALID_CONFIGURATION"}
+    return {"configured": capabilities is not None, "capabilities": capabilities, "error": None}
+
+
 @router.post("/runtime/check-task-readiness", response_model=TaskReadinessResponse)
 def check_task_readiness(
     body: TaskReadinessRequest,

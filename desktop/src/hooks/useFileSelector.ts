@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { t, format } from '@/i18n'
 
 export interface FileFilter {
   name: string
@@ -56,7 +57,8 @@ export function useFileSelector() {
       const { open } = await import('@tauri-apps/plugin-dialog')
       const selected = await open({
         multiple,
-        filters,
+        title: t('选择文件'),
+        filters: filters.map(filter => ({ ...filter, name: t(filter.name) })),
       })
       if (!selected) return []
       // open() returns string | string[] depending on multiple flag
@@ -79,8 +81,8 @@ export function useFileSelector() {
           if (files.length > 0) {
             // In browser mode, prompt user for the actual directory
             const dir = prompt(
-              `${browserPrompt}\n` +
-              `（文件名：${files.join(', ')}）`,
+              `${t(browserPrompt)}\n` +
+              format('（文件名：{0}）', [files.join(', ')]),
               'D:\\Asmr'
             )
             if (dir) {
@@ -107,6 +109,7 @@ export function useFileSelector() {
       const { open } = await import('@tauri-apps/plugin-dialog')
       const selected = await open({
         directory: true,
+        title: t('选择文件夹'),
         multiple: false,
       })
       if (!selected) return null
@@ -117,7 +120,7 @@ export function useFileSelector() {
 
     // Browser fallback
     try {
-      const dir = prompt('请输入文件夹的完整路径：', 'D:\\Asmr')
+      const dir = prompt(t('请输入文件夹的完整路径：'), 'D:\\Asmr')
       return dir || null
     } catch {
       return null

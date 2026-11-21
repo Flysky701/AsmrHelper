@@ -1,9 +1,13 @@
+import { t, format as formatMessage, useI18n } from '@/i18n'
 import './EnginesResources.css'
 import { displayPath } from '@/utils/displayPath'
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { modelsApi } from '@/api/models'
+import { speechApi, type SpeechProvider } from '@/api/speech'
 import { resourcesApi } from '@/api/resources'
 import ExternalServices from '@/components/ExternalServices'
+import RemoteComputePanel from '@/components/RemoteComputePanel'
+import QuickStartHelp from '@/components/QuickStartHelp'
 import ModelWeightRemoval from '@/components/ModelWeightRemoval'
 import type { ModelSummaryResponse, ModelStatusResponse, ResourceStatusResponse } from '@/api/types'
 import { useNavStore } from '@/stores/navStore'
@@ -38,6 +42,13 @@ const CATEGORY_COLORS: Record<string, { bg: string; fg: string }> = {
   separator: { bg: 'oklch(93% 0.03 85)', fg: 'oklch(45% 0.12 85)' },
 }
 
+const GPU_EXAMPLES = [
+  { upTo: 4, card: 'RTX 3050 6 GB' },
+  { upTo: 6, card: 'RTX 4060 8 GB' },
+  { upTo: 8, card: 'RTX 3060 12 GB' },
+  { upTo: 12, card: 'RTX 4060 Ti 16 GB' },
+]
+
 const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   installed: { dot: 'oklch(60% 0.16 145)', label: '权重文件完整' },
   ready: { dot: 'oklch(60% 0.16 145)', label: '就绪' },
@@ -55,37 +66,57 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   unknown: { dot: 'oklch(62% 0.02 240)', label: '状态未知' },
 }
 
-function formatEstimatedSize(sizeMb?: number | null): string {
-  if (!sizeMb || sizeMb <= 0) return ''
-  if (sizeMb >= 1000) {
-    const sizeGb = sizeMb / 1000
-    return `约 ${sizeGb >= 10 ? sizeGb.toFixed(0) : sizeGb.toFixed(1)} GB`
-  }
-  return `约 ${Math.round(sizeMb)} MB`
-}
-
 export default function EnginesResources() {
+  useI18n()
   const view = useNavStore(state => state.enginesView)
   const setView = useNavStore(state => state.setEnginesView)
+  const [localCategory, setLocalCategory] = useState<CategoryTab>('asr')
+  const refreshRef = useRef<(() => void) | null>(null)
+  const [refreshDisabled, setRefreshDisabled] = useState(false)
 
   return (
     <div className="engines-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <header style={{ padding: '24px 24px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div className="page-heading" style={{ marginBottom: 14 }}><h1 className="page-title">引擎与资源</h1></div>
-        <div role="tablist" aria-label="资源类型" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {([{ id: 'local', label: '本地模型' }, { id: 'external', label: '外部服务' }] as const).map(tab => (
-            <button key={tab.id} id={`engines-tab-${tab.id}`} role="tab" aria-selected={view === tab.id}
-              aria-controls={`engines-panel-${tab.id}`} onClick={() => setView(tab.id)}
-              style={{ padding: '9px 20px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer',
-                background: view === tab.id ? 'var(--accent)' : 'var(--surface)',
-                color: view === tab.id ? 'white' : 'var(--muted)', fontWeight: 600 }}>
-              {tab.label}
+      <header style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+        <div className="page-heading app-page-heading"><div className="page-title-row"><h1 className="page-title">{t("算力与模型")}</h1><QuickStartHelp topic={view === 'external' ? 'connections' : `local-${localCategory}`} /></div></div>
+        <div className="app-page-toolbar" style={{ justifyContent: 'space-between' }}>
+          <div role="tablist" aria-label={t("资源类型")} style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {([
+              { id: 'local', label: t("本机模型与镜像") },
+              { id: 'remote', label: t("远端 GPU 算力") },
+              { id: 'external', label: t("外部 API 服务") },
+            ] as const).map(tab => (
+              <button key={tab.id} id={`engines-tab-${tab.id}`} role="tab" aria-selected={view === tab.id}
+                aria-controls={`engines-panel-${tab.id}`} onClick={() => setView(tab.id)}
+                style={{ padding: '8px 18px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', cursor: 'pointer',
+                  background: view === tab.id ? 'var(--accent)' : 'var(--surface)',
+                  color: view === tab.id ? 'white' : 'var(--muted)', fontWeight: 600 }}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {view === 'local' && (
+            <button
+              type="button"
+              onClick={() => refreshRef.current?.()}
+              disabled={refreshDisabled}
+              style={{
+                ...actionStyle,
+                fontWeight: 500,
+                padding: '7px 14px',
+                cursor: refreshDisabled ? 'not-allowed' : 'pointer',
+                opacity: refreshDisabled ? 0.6 : 1,
+              }}
+            >
+              {t("刷新状态")}
             </button>
-          ))}
+          )}
         </div>
       </header>
       <div role="tabpanel" id="engines-panel-local" aria-labelledby="engines-tab-local" hidden={view !== 'local'} style={{ flex: 1, minHeight: 0 }}>
-        <LocalResources />
+        <LocalResources onCategory={setLocalCategory} refreshRef={refreshRef} onBusyChange={setRefreshDisabled} />
+      </div>
+      <div role="tabpanel" id="engines-panel-remote" aria-labelledby="engines-tab-remote" hidden={view !== 'remote'} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 24 }}>
+        <RemoteComputePanel />
       </div>
       <div role="tabpanel" id="engines-panel-external" aria-labelledby="engines-tab-external" hidden={view !== 'external'} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 24 }}>
         <ExternalServices />
@@ -94,7 +125,41 @@ export default function EnginesResources() {
   )
 }
 
-function LocalResources() {
+function CloudSpeechModels() {
+  const [providers, setProviders] = useState<SpeechProvider[]>([])
+  const openServices = useNavStore(state => state.setEnginesView)
+  useEffect(() => {
+    let active = true
+    void speechApi.providers().then(({ providers }) => {
+      if (active) setProviders(providers.filter(provider => ['fish_audio', 'gemini', 'elevenlabs', 'mimo'].includes(provider.provider_id)))
+    }).catch(() => {})
+    return () => { active = false }
+  }, [])
+  if (!providers.length) return null
+  return (
+    <details className="engines-cloud-speech">
+      <summary>{t('云端语音模型 · 无需本机显存')}</summary>
+      <dl>{providers.map(provider => (
+        <div key={provider.provider_id}>
+          <dt>{provider.name}</dt>
+          <dd>{Array.from(new Set(provider.modes.flatMap(mode => mode.models))).join(' · ')}</dd>
+        </div>
+      ))}</dl>
+      <button style={actionStyle} onClick={() => openServices('external')}>{t('配置语音服务')}</button>
+    </details>
+  )
+}
+
+function LocalResources({
+  onCategory,
+  refreshRef,
+  onBusyChange,
+}: {
+  onCategory: (category: CategoryTab) => void
+  refreshRef: React.MutableRefObject<(() => void) | null>
+  onBusyChange: (busy: boolean) => void
+}) {
+  useI18n()
   const setPage = useNavStore((state) => state.setPage)
   const addTask = useTaskStore((state) => state.addTask)
   const updateTask = useTaskStore((state) => state.updateTask)
@@ -104,6 +169,7 @@ function LocalResources() {
   const [loading, setLoading] = useState(true)
   const [statusLoading, setStatusLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<CategoryTab>('asr')
+  useEffect(() => { onCategory(activeTab) }, [activeTab, onCategory])
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [installing, setInstalling] = useState<Record<string, { active: boolean; message?: string; progress?: number }>>({})
   const [error, setError] = useState('')
@@ -111,11 +177,15 @@ function LocalResources() {
   const [sourceRoots, setSourceRoots] = useState<string[]>([])
   const [sourceBusy, setSourceBusy] = useState(false)
   const [sourceMessage, setSourceMessage] = useState('')
+  const [domesticMirror, setDomesticMirror] = useState(() => {
+    try { return window.localStorage.getItem('asmr_helper_download_region') !== 'global' } catch { return true }
+  })
+  const [mirrorCopied, setMirrorCopied] = useState(false)
   const loadRequestId = useRef(0)
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => { onBusyChange(loading || statusLoading) }, [loading, statusLoading, onBusyChange])
 
-  const loadData = async (preserveError = false) => {
+  const loadData = async (preserveError = false, checkRuntime = false) => {
     const requestId = ++loadRequestId.current
     setLoading(true)
     setStatusLoading(true)
@@ -139,7 +209,7 @@ function LocalResources() {
     }
 
     try {
-      const statuses = await modelsApi.statuses()
+      const statuses = await modelsApi.statuses(checkRuntime)
       if (requestId !== loadRequestId.current) return
       setModelStatuses(statuses)
     } catch (statusError) {
@@ -151,6 +221,9 @@ function LocalResources() {
       if (requestId === loadRequestId.current) setStatusLoading(false)
     }
   }
+
+  refreshRef.current = () => { void loadData(false, true) }
+  useEffect(() => { void loadData() }, [])
 
   const handleInstall = async (model: ModelSummaryResponse, operation: 'runtime' | 'download') => {
     const modelId = model.model_id
@@ -165,10 +238,10 @@ function LocalResources() {
         operation,
       },
     })
-    updateTask(localTaskId, { message: `正在创建${actionLabel}任务` })
+    updateTask(localTaskId, { message: operation === 'runtime' ? '正在创建环境修复任务' : '正在创建权重下载任务' })
     setInstalling(prev => ({
       ...prev,
-      [modelId]: { active: true, message: `正在${actionLabel}…` },
+      [modelId]: { active: true, message: operation === 'runtime' ? '正在安装/修复环境…' : '正在下载模型权重…' },
     }))
     try {
       const res = operation === 'runtime' ? await modelsApi.runtime(modelId) : await modelsApi.download(modelId, {
@@ -179,7 +252,7 @@ function LocalResources() {
         status: res.state as TaskStatus,
         stage: res.stage ?? undefined,
         progress: Math.round(res.progress * 100),
-        message: res.message || '后端已接管模型安装任务',
+        message: res.message || "后端已接管模型安装任务",
         detail: res.detail,
       })
       setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
@@ -187,7 +260,7 @@ function LocalResources() {
     } catch (installError) {
       updateTask(localTaskId, {
         status: 'failed',
-        message: '模型安装任务创建失败',
+        message: "模型安装任务创建失败",
         errorMessage: installError instanceof Error ? installError.message : String(installError),
       })
       setInstalling(prev => ({ ...prev, [modelId]: { active: false } }))
@@ -205,7 +278,7 @@ function LocalResources() {
       } else {
         const result = await modelsApi.addSource(sourcePath)
         setSourceRoots(result.roots); setSourcePath('')
-        setSourceMessage('已添加目录引用')
+        setSourceMessage("已添加目录引用")
       }
       void loadData(true)
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
@@ -216,7 +289,7 @@ function LocalResources() {
     setSourceBusy(true)
     try {
       const result = await modelsApi.removeSource(path)
-      setSourceRoots(result.roots); setSourceMessage('已解除引用，原文件保留')
+      setSourceRoots(result.roots); setSourceMessage("已解除引用，原文件保留")
       void loadData(true)
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { setSourceBusy(false) }
@@ -291,95 +364,117 @@ function LocalResources() {
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '200px', color: 'var(--muted)' }}>
-        加载中...
-      </div>
+        {t("加载中...")}</div>
     )
   }
 
   const tabGroups = getTabModels(activeTab)
 
   return (
-    <div className="engines-page" style={{ display: 'grid', gridTemplateRows: 'auto 1fr', height: '100%', overflow: 'hidden' }}>
-      {/* Action bar */}
-      <div className="engines-action-bar" style={{
-        background: 'var(--surface)', borderBottom: '1px solid var(--border)',
-        padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '12px',
-      }}>
-        <button onClick={() => void loadData()} disabled={loading || statusLoading} style={{
-          fontFamily: 'var(--font-body)', fontSize: 'var(--text-control)', fontWeight: 500, padding: '7px 14px',
-          borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
-          color: 'var(--fg)', cursor: loading || statusLoading ? 'not-allowed' : 'pointer',
-          opacity: loading || statusLoading ? 0.6 : 1,
-          display: 'inline-flex', alignItems: 'center', gap: '6px',
-        }}>
-          刷新状态
-        </button>
-      </div>
-
+    <div className="engines-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Content */}
-      <div className="engines-content" style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div className="engines-content" style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
         {error && (
           <div className="engines-message" style={{
             padding: '10px 14px',
             color: 'var(--danger)',
             background: 'rgba(239,68,68,0.06)',
             border: '1px solid rgba(239,68,68,0.18)',
-            borderRadius: '6px',
+            borderRadius: 'var(--radius-sm)',
             fontSize: 'var(--text-help)',
           }}>
-            {error}
+            {t(error)}
           </div>
         )}
 
-        <section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>
-          <h2 className="section-title" style={{ marginBottom: 8 }}>使用已有模型</h2>
-          <p style={{ fontSize: 13, color: 'var(--muted)' }}>引用已有模型或缓存目录，不复制文件；解除引用保留原文件。</p>
+        <section style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-card)', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <strong style={{ fontSize: 14 }}>{t("国内极速下载源（V2 三级回退）")}</strong>
+              <span style={{ fontSize: 11.5, padding: '2px 8px', borderRadius: 999, background: domesticMirror ? 'var(--success-soft)' : 'var(--panel-muted)', color: domesticMirror ? 'var(--success)' : 'var(--muted)', fontWeight: 600 }}>
+                {domesticMirror ? 'ModelScope → HF-Mirror → HuggingFace' : 'HuggingFace 官方直连'}
+              </span>
+            </div>
+            <span style={{ fontSize: 'var(--text-help)', color: 'var(--muted)' }}>
+              {t("国内网络建议开启，模型权重优先从魔搭社区（ModelScope）拉取并校验 SHA256。")}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', fontWeight: 550 }}>
+              <input
+                type="checkbox"
+                checked={domesticMirror}
+                onChange={(e) => {
+                  const next = e.target.checked
+                  setDomesticMirror(next)
+                  try { window.localStorage.setItem('asmr_helper_download_region', next ? 'cn' : 'global') } catch {}
+                }}
+              />
+              {t("启用国内镜像优先")}
+            </label>
+            <button
+              type="button"
+              style={actionStyle}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(`$env:ASMR_HELPER_DOWNLOAD_REGION="${domesticMirror ? 'cn' : 'global'}"`)
+                  setMirrorCopied(true)
+                  window.setTimeout(() => setMirrorCopied(false), 2000)
+                } catch {}
+              }}
+            >
+              {mirrorCopied ? t("已复制环境变量") : t("复制环境变量")}
+            </button>
+          </div>
+        </section>
+
+        <section style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-card)', padding: 16 }}>
+          <h2 className="section-title" style={{ marginBottom: 6 }}>{t("使用已有模型")}</h2>
           <div className="engines-source-actions">
-            <input aria-label="已有模型目录或缓存目录" value={sourcePath} onChange={e => setSourcePath(e.target.value)} placeholder="例如 D:\AI\Models" style={{ ...actionStyle, cursor: 'text' }} />
+            <input aria-label={t("已有模型目录或缓存目录")} value={sourcePath} onChange={e => setSourcePath(e.target.value)} placeholder={t("例如 D:\\AI\\Models")} style={{ ...actionStyle, cursor: 'text' }} />
             <button style={actionStyle} disabled={sourceBusy} onClick={async () => {
               try { const { open } = await import('@tauri-apps/plugin-dialog'); const path = await open({ directory: true, multiple: false }); if (typeof path === 'string') setSourcePath(path) }
               catch (cause) { setError(String(cause)) }
-            }}>选择目录</button>
-            <button style={actionStyle} disabled={sourceBusy || !sourcePath.trim()} onClick={() => void handleSource(false)}>引用此目录</button>
-            <button style={actionStyle} disabled={sourceBusy} onClick={() => void handleSource(true)}>扫描并引用缓存</button>
+            }}>{t("选择目录")}</button>
+            <button style={actionStyle} disabled={sourceBusy || !sourcePath.trim()} onClick={() => void handleSource(false)}>{t("引用此目录")}</button>
+            <button style={actionStyle} disabled={sourceBusy} onClick={() => void handleSource(true)}>{t("扫描并引用缓存")}</button>
           </div>
-          {sourceMessage && <p role="status" style={{ fontSize: 13 }}>{sourceMessage}</p>}
+          {sourceMessage && <p role="status" style={{ fontSize: 13, marginTop: 8 }}>{t(sourceMessage)}</p>}
           {sourceRoots.map(path => <div key={path} className="engines-source-root">
             <span>{displayPath(path)}</span>
-            <button style={actionStyle} disabled={sourceBusy} onClick={() => void unlinkSource(path)}>解除引用（保留文件）</button>
+            <button style={actionStyle} disabled={sourceBusy} onClick={() => void unlinkSource(path)}>{t("解除引用（保留文件）")}</button>
           </div>)}
         </section>
 
         {/* Runtime status cards */}
         <div>
           <h2 className="section-title" style={{ marginBottom: 12 }}>
-            工作目录
-          </h2>
-          <div className="engines-runtime-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+            {t("工作目录")}</h2>
+          <div className="engines-runtime-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
             {resources.map(res => (
               <div className="engines-runtime-card" key={res.name} style={{
-                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px', minWidth: 0,
+                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-card)', padding: '14px 16px', minWidth: 0,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                   <div style={{
                     width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
                     background: res.available ? 'oklch(60% 0.16 145)' : 'oklch(55% 0.18 25)',
                   }} />
-                  <span style={{ fontSize: 'var(--text-control)', fontWeight: 600 }}>{RESOURCE_LABELS[res.name] ?? res.name}</span>
+                  <span style={{ fontSize: 'var(--text-control)', fontWeight: 600 }}>{RESOURCE_LABELS[res.name] ? t(RESOURCE_LABELS[res.name]!) : res.name}</span>
                   <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                    {res.available ? '可用' : (({ missing: '尚未创建', 'not a directory': '路径不是目录', inaccessible: '无法访问' } as Record<string, string>)[res.detail] || '不可用')}
+                    {res.available ? t("可用") : (({ missing: t("尚未创建"), 'not a directory': t("路径不是目录"), inaccessible: t("无法访问") } as Record<string, string>)[res.detail] || t("不可用"))}
                   </span>
                 </div>
                 <div
                   title={typeof res.metadata.path === 'string' ? displayPath(res.metadata.path) : undefined}
-                  style={{ fontSize: 'var(--text-help)', lineHeight: 1.6, color: 'var(--muted)', overflowWrap: 'anywhere', userSelect: 'text' }}
+                  style={{ fontSize: 'var(--text-help)', lineHeight: 1.5, color: 'var(--muted)', overflowWrap: 'anywhere', userSelect: 'text' }}
                 >
-                  {typeof res.metadata.path === 'string' ? displayPath(res.metadata.path) : '路径未提供'}
+                  {typeof res.metadata.path === 'string' ? displayPath(res.metadata.path) : t("路径未提供")}
                 </div>
               </div>
             ))}
             {resources.length === 0 && (
-              <div style={{ fontSize: 'var(--text-control)', color: 'var(--muted)' }}>未检测到资源信息</div>
+              <div style={{ fontSize: 'var(--text-control)', color: 'var(--muted)' }}>{t("未检测到资源信息")}</div>
             )}
           </div>
         </div>
@@ -387,16 +482,12 @@ function LocalResources() {
         {/* Model management */}
         <div>
           <h2 className="section-title" style={{ marginBottom: 12 }}>
-            模型管理
-          </h2>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-            安装环境可能联网下载或替换依赖；模型权重需单独下载。
-          </p>
+            {t("模型管理")}</h2>
 
           {/* Category tabs */}
           <div className="engines-category-tabs" style={{
             display: 'flex', gap: '2px', background: 'var(--bg)', border: '1px solid var(--border)',
-            borderRadius: '8px', padding: '3px', marginBottom: '16px',
+            borderRadius: 'var(--radius-sm)', padding: '3px', marginBottom: '16px',
           }}>
             {(Object.keys(CATEGORY_LABELS) as CategoryTab[]).filter(tab => tab !== 'llm' || counts.llm > 0).map(tab => (
               <button
@@ -410,7 +501,7 @@ function LocalResources() {
                   borderRadius: '6px', cursor: 'pointer', border: 'none', fontFamily: 'var(--font-body)',
                 }}
               >
-                {CATEGORY_LABELS[tab]}
+                {t(CATEGORY_LABELS[tab])}
                 <span style={{
                   fontSize: '11px', color: 'var(--muted)', marginLeft: '4px', fontWeight: 400,
                 }}>
@@ -420,9 +511,10 @@ function LocalResources() {
             ))}
           </div>
 
+          {activeTab === 'tts' && <CloudSpeechModels />}
           {/* Model groups */}
           {Object.entries(tabGroups).length === 0 ? (
-            <div style={{ fontSize: 'var(--text-control)', color: 'var(--muted)', padding: '16px' }}>该分类下暂无模型</div>
+            <div style={{ fontSize: 'var(--text-control)', color: 'var(--muted)', padding: '16px' }}>{t("该分类下暂无模型")}</div>
           ) : (
             Object.entries(tabGroups).map(([groupKey, groupModels]) => {
               const isCollapsed = !!collapsed[groupKey]
@@ -432,7 +524,7 @@ function LocalResources() {
               const catBg = catColor?.bg ?? 'var(--bg)'
               return (
                 <div key={groupKey} style={{
-                  background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px',
+                  background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-card)',
                   marginBottom: '12px', overflow: 'hidden',
                 }}>
                   {/* Group header */}
@@ -455,12 +547,11 @@ function LocalResources() {
                       padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 500,
                       background: catBg, color: catFg,
                     }}>
-                      {CATEGORY_LABELS[cat as CategoryTab] || cat.toUpperCase()}
+                      {t(CATEGORY_LABELS[cat as CategoryTab] || cat.toUpperCase())}
                     </span>
                     <span style={{ fontSize: 'var(--text-control)', fontWeight: 600 }}>{groupKey}</span>
                     <span style={{ fontSize: '11px', color: 'var(--muted)', marginLeft: 'auto' }}>
-                      {groupModels.length} 个模型
-                    </span>
+                      {groupModels.length} {t("个模型")}</span>
                   </div>
 
                   {/* Group body */}
@@ -468,6 +559,9 @@ function LocalResources() {
                     <div>
                       {groupModels.map(model => {
                         const status = getStatus(model.model_id)
+                        const pendingRuntime = status?.issues.some(issue => issue.code === 'RUNTIME_CHECK_PENDING') ?? false
+                        const vram = model.inference_vram_gb ?? 0
+                        const gpuExample = GPU_EXAMPLES.find(({ upTo }) => upTo >= vram)
                         const dependencies = (model.required_assets || []).map(id => ({
                           id,
                           name: models.find(item => item.model_id === id)?.display_name || id,
@@ -477,7 +571,7 @@ function LocalResources() {
                           asset && ['missing', 'not_installed', 'invalid'].includes(asset.status),
                         )
                         const runtimeUnavailable =
-                          status?.executable === false &&
+                          model.preferred_runtime !== 'gpu_worker' && !pendingRuntime && status?.executable === false &&
                           (status.status === 'installed' || status.status === 'configured') &&
                           !status.issues.some(issue => [
                             'PROVIDER_UNVERIFIED',
@@ -506,35 +600,37 @@ function LocalResources() {
                         return (
                           <div className="engines-model-row" key={model.model_id} style={{
                             display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)',
-                            padding: '10px 14px', borderBottom: '1px solid var(--border)', alignItems: 'start',
+                            padding: '12px 16px', borderBottom: '1px solid var(--border)', alignItems: 'start',
                             fontSize: 'var(--text-control)', gap: '8px',
                           }}>
                             <div className="engines-model-info">
-                              <div style={{ fontWeight: 500 }}>{model.display_name}{model.install_strategy === 'package' && <small style={{ display: 'block', fontWeight: 400, marginTop: 6 }}>可引用本地 HF / PyTorch 权重</small>}</div>
-                              <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                                {model.backend || model.family_id || model.kind}
-                                {model.estimated_size_mb ? ` · ${formatEstimatedSize(model.estimated_size_mb)}` : ''}
+                              <div style={{ fontWeight: 500 }}>{model.display_name}</div>
+                              <div className="engines-model-description">
+                                {t(model.description || model.backend)}
+                                {vram > 0 && (
+                                  <span title={t('按单任务推理估算，实际占用随音频长度和批量设置变化。')}>
+                                    {' · '}{formatMessage(model.preferred_runtime === 'gpu_worker'
+                                      ? '工作节点显存建议 ≥ {0} GB' : 'GPU 显存建议 ≥ {0} GB', [vram])}
+                                    {gpuExample && <> · {formatMessage('如 {0}', [gpuExample.card])}</>}
+                                  </span>
+                                )}
                               </div>
-                              {status && <div style={{ fontSize: 11, marginTop: 6, overflowWrap: 'anywhere' }}>
-                                <details className="engines-status-details"><summary>状态明细</summary><p>权重：{status.status === 'unknown' ? '待确认' : status.weights_ready ? '文件完整' : '缺失或不完整'} · 环境：{status.status === 'unknown' ? '待确认' : status.runtime_ready ? '依赖检查通过' : '未就绪'} · 推理：尚未验证</p></details>
+                              {status && <div style={{ fontSize: 11.5, marginTop: 6, overflowWrap: 'anywhere' }}>
+                                <details className="engines-status-details"><summary>{t("状态明细")}</summary><p>{t("权重：")}{status.status === 'unknown' ? t("待确认") : status.weights_ready ? t("文件完整") : t("缺失或不完整")} {model.preferred_runtime === 'gpu_worker' ? t('· 在工作节点运行') : <>{t("· 环境：")}{pendingRuntime ? t('待检测') : status.status === 'unknown' ? t("待确认") : status.runtime_ready ? t("依赖检查通过") : t("未就绪")} {t("· 推理：尚未验证")}</>}</p></details>
                                 <div className="engines-model-location">
-                                  {status.path ? <details className="model-path">
-                                    <summary title={status.path}>位置：{status.path}</summary>
-                                    <p>{status.path}</p>
-                                  </details> : <span>位置：未找到</span>}
+                                  {status.path ? <span className="model-path" title={status.path}>{t("位置：")}{status.path}</span> : <span>{t("位置：未找到")}</span>}
                                 </div>
                               </div>}
                               {status?.issues?.length ? (
                                 <div style={{ fontSize: '11px', color: 'oklch(48% 0.12 65)', marginTop: '4px' }}>
-                                  {status.issues.map(issue => issue.message).join('；')}
+                                  {status.issues.map(issue => issue.code === 'RUNTIME_CHECK_PENDING' ? t('运行环境待检测') : issue.message).join('；')}
                                 </div>
                               ) : null}
                               {dependencies.length > 0 && (
                                 <div style={{ fontSize: '11px', color: missingDependencies ? 'oklch(48% 0.12 65)' : 'var(--muted)', marginTop: '4px' }}>
-                                  配套资源：{dependencies.map(({ name, status: asset }) =>
-                                    `${name}（${asset ? (STATUS_STYLES[asset.status]?.label || '状态未知') : statusLoading ? '检测中' : '状态未知'}）`,
-                                  ).join('；')}。随主模型权重下载。
-                                </div>
+                                  {t("配套资源：")}{dependencies.map(({ name, status: asset }) =>
+                                    `${name}（${asset ? (t(STATUS_STYLES[asset.status]?.label || "状态未知")) : statusLoading ? t("检测中") : t("状态未知")}）`,
+                                  ).join('；')}{t("。随主模型权重下载。")}</div>
                               )}
                             </div>
                             <div className="engines-model-toolbar">
@@ -545,14 +641,14 @@ function LocalResources() {
                                     borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)',
                                     color: 'var(--muted)', cursor: 'not-allowed',
                                   }}>
-                                    {isInstalling ? '安装中...' : statusLoading ? '检测中...' : '状态不可用'}
+                                    {isInstalling ? t("安装中...") : statusLoading ? t("检测中...") : t("状态不可用")}
                                   </button>
                                 ) : (
                                   <>
-                                    <button title={`目标环境：${model.runtime_profile || 'main'}。安装依赖并对齐项目版本，可能替换已有包；不下载模型权重。`} onClick={() => void handleInstall(model, 'runtime')} style={actionStyle}>安装/修复环境</button>
+                                    {model.preferred_runtime !== 'gpu_worker' && <button title={formatMessage("目标环境：{0}。安装依赖并对齐项目版本，可能替换已有包；不下载模型权重。", [model.runtime_profile || 'main'])} onClick={() => void handleInstall(model, 'runtime')} style={actionStyle}>{t("安装/修复环境")}</button>}
                                     {model.supports_install && (!status.weights_ready || missingDependencies) &&
-                                      <button onClick={() => void handleInstall(model, 'download')} style={actionStyle}>下载模型权重</button>}
-                                    <button onClick={() => void handleVerify(model.model_id)} style={actionStyle}>检查状态</button>
+                                      <button onClick={() => void handleInstall(model, 'download')} style={actionStyle}>{t("下载模型权重")}</button>}
+                                    <button onClick={() => void handleVerify(model.model_id)} style={actionStyle}>{t("检查状态")}</button>
                                   </>
                                 )}
                               </div>
@@ -560,10 +656,10 @@ function LocalResources() {
                                 <span className="engines-model-status-label">
                                   <span style={{ width: 6, height: 6, flexShrink: 0, borderRadius: '50%', background: resolvedStatusInfo.dot,
                                     animation: isInstalling || statusLoading ? 'pulse 1.5s infinite' : 'none' }} />
-                                  {resolvedStatusInfo.label}
+                                  {t(resolvedStatusInfo.label)}
                                 </span>
-                                {status && <span className="engines-model-ownership">{status.shared_readonly ? '外部引用 · 只读' : '本项目管理'}</span>}
-                                {model.is_primary_variant && <span className="engines-model-recommended">推荐</span>}
+                                {status && <span className="engines-model-ownership">{status.shared_readonly ? t("外部引用 · 只读") : t("本项目管理")}</span>}
+                                {model.is_primary_variant && <span className="engines-model-recommended">{t("推荐")}</span>}
                               </div>
                               {!isInstalling && !statusLoading && status && model.supports_remove && status.weights_ready && !status.shared_readonly &&
                                 <ModelWeightRemoval modelId={model.model_id} onChanged={() => loadData(true)} />}
@@ -572,7 +668,7 @@ function LocalResources() {
                               <div style={{ gridColumn: '1 / -1', marginTop: '6px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                                   <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
-                                    {installState?.message || '安装中...'}
+                                    {t(installState?.message || "安装中...")}
                                   </span>
                                   {installState?.progress != null && installState.progress > 0 && (
                                     <span style={{ fontSize: '11px', color: 'var(--muted)' }}>

@@ -130,94 +130,15 @@ class TestPipelineRoutes:
         ]
 
 class TestPipelineRunRoutes:
-    def test_submit_v1_pipeline_run_preserves_stage_profiles(self, client):
-        mock_svc = MagicMock()
-        mock_svc.submit_task.return_value = TaskStatus(
-            task_id="pipeline-1",
-            task_type="pipeline",
-            state="pending",
-            progress=0.0,
-            created_at="2026-07-23T10:00:00+00:00",
-        )
-        client.app.dependency_overrides[
-            dependencies.pipeline_task_orchestrator
-        ] = _mock_dep(mock_svc)
-        profile = {
-            "version": 1,
-            "source_lang": "ja",
-            "target_lang": "zh",
-            "skip_existing": True,
-            "stages": {
-                "separate": {
-                    "enabled": False,
-                    "provider": "demucs",
-                    "model": "htdemucs",
-                    "options": {"mode": "vocals"},
-                    "provider_options": {},
-                },
-                "asr": {
-                    "enabled": True,
-                    "provider": "faster_whisper",
-                    "model": "faster-whisper-base",
-                    "options": {"language": "ja"},
-                    "provider_options": {"vad_filter": False},
-                },
-                "translate": {
-                    "enabled": True,
-                    "provider": "deepseek",
-                    "model": None,
-                    "options": {"target_lang": "zh"},
-                    "provider_options": {},
-                },
-                "tts": {
-                    "enabled": True,
-                    "provider": "edge",
-                    "model": None,
-                    "options": {"voice": "zh-CN-XiaoxiaoNeural"},
-                    "provider_options": {},
-                },
-                "mix": {
-                    "enabled": True,
-                    "provider": "ffmpeg",
-                    "model": None,
-                    "options": {"tts_delay_ms": 250},
-                    "provider_options": {},
-                },
-                "export": {
-                    "enabled": True,
-                    "provider": "ffmpeg",
-                    "model": None,
-                    "options": {"subtitle_format": "srt"},
-                    "provider_options": {},
-                },
-            },
-        }
-
-        resp = client.post(
-            "/api/v1/pipeline-runs",
-            json={
-                "input": {
-                    "path": "/test/input.wav",
-                    "companion_paths": ["/test/input.vtt"],
-                },
-                "output": {"directory": "/test/output"},
-                "execution_profile": profile,
-            },
-        )
-
-        assert resp.status_code == 202
-        request = mock_svc.submit_task.call_args.args[0]
-        assert request.input_path == "/test/input.wav"
-        assert request.output_dir == "/test/output"
-        assert request.companion_paths == ["/test/input.vtt"]
-        resolved = dict(request.execution_profile)
-        resolved_stages = dict(resolved["stages"])
-        alignment = resolved_stages.pop("align")
-        assert alignment["enabled"] is False
-        assert alignment["model"] == "qwen3-forced-aligner-0.6b"
-        resolved["stages"] = resolved_stages
-        assert resolved == profile
-        assert "profiles" not in request.execution_profile
+    @pytest.mark.parametrize("profile", [None, {"version": 1, "stages": {}}])
+    def test_implicit_pipeline_is_rejected_before_submission(self, client, profile):
+        service = MagicMock()
+        client.app.dependency_overrides[dependencies.pipeline_task_orchestrator] = _mock_dep(service)
+        body = {"input": {"path": "/test/input.wav"}}
+        if profile is not None:
+            body["execution_profile"] = profile
+        assert client.post("/api/v1/pipeline-runs", json=body).status_code == 422
+        service.submit_task.assert_not_called()
 
     def test_submit_pipeline_run_rejects_legacy_flat_request(self, client):
         mock_svc = MagicMock()
@@ -241,30 +162,6 @@ class TestPipelineRunRoutes:
     def test_submit_pipeline_run_requires_input(self, client):
         resp = client.post("/api/v1/pipeline-runs", json={})
         assert resp.status_code == 422
-
-    def test_default_pipeline_profile_uses_demucs_provider(self, client):
-        mock_svc = MagicMock()
-        mock_svc.submit_task.return_value = TaskStatus(
-            task_id="pipeline-defaults",
-            task_type="pipeline",
-            state="pending",
-            progress=0.0,
-            created_at="2026-07-28T10:00:00+00:00",
-        )
-        client.app.dependency_overrides[
-            dependencies.pipeline_task_orchestrator
-        ] = _mock_dep(mock_svc)
-
-        resp = client.post(
-            "/api/v1/pipeline-runs",
-            json={"input": {"path": "/test/input.wav"}},
-        )
-
-        assert resp.status_code == 202
-        profile = mock_svc.submit_task.call_args.args[0].execution_profile
-        assert profile["stages"]["separate"]["provider"] == "demucs"
-        assert profile["stages"]["separate"]["model"] == "htdemucs"
-
 
     def test_create_tool_task_uses_task_driven_contract(self, client):
         mock_svc = MagicMock()

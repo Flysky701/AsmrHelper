@@ -139,7 +139,45 @@ function withoutDeletedTaskHistory(batch: BatchRunResponse, deleted: Set<string>
 const hasNoBatchHistory = (batch: BatchRunResponse) => batch.state === 'history_deleted'
   || batch.items.length > 0 && batch.items.every(item => item.state === 'history_deleted' && !item.task_ids.length)
 
-export const useWorkbenchStore = create<WorkbenchStore>()(persist((set, get) => ({
+function applyReceivedBatch(state: WorkbenchStore, incoming: BatchRunResponse): Partial<WorkbenchStore> {
+  if (state.deletedQueueBatchIds.includes(incoming.batch_id)) return {}
+  const batch = withoutDeletedTaskHistory(incoming, new Set(state.deletedQueueTaskIds))
+  if (hasNoBatchHistory(batch)) return {
+    deletedQueueBatchIds: [...state.deletedQueueBatchIds, batch.batch_id],
+    queueBatches: state.queueBatches.filter(item => item.batch_id !== batch.batch_id),
+    queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => id !== batch.batch_id)),
+    queueGroups: state.queueGroups.map(group => group.run?.batchId === batch.batch_id
+      ? { ...group, run: { ...group.run, state: 'history_deleted' as const } } : group),
+  }
+  const matching = state.queueSubmission?.request.client_request_id === batch.client_request_id ? state.queueSubmission : null
+  if (matching) {
+    const expected = new Set(matching.request.groups.map(group => group.group_id))
+    if (batch.items.length !== expected.size || batch.items.some(item => !item.group_id || !expected.delete(item.group_id)) || expected.size) return {}
+  }
+  const previous = state.queueBatches.find(item => item.batch_id === batch.batch_id)
+  if (previous && previous.updated_at > batch.updated_at) return {}
+  const pendingAction = state.queueBatchActions[batch.batch_id]
+  if (
+    previous
+    && !matching
+    && !pendingAction
+    && previous.updated_at === batch.updated_at
+    && previous.state === batch.state
+    && !state.queueGroups.some(group => group.run?.batchId === batch.batch_id && group.run.state === 'unknown')
+  ) {
+    return {}
+  }
+  const resolved = pendingAction && (pendingAction.action === 'retry'
+    ? pendingAction.taskIds !== JSON.stringify(batch.items.flatMap(item => item.task_ids)) : pendingAction.state !== batch.state)
+  return {
+    queueBatches: [...state.queueBatches.filter(item => item.batch_id !== batch.batch_id), batch],
+    ...(resolved ? { queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => id !== batch.batch_id)) } : {}),
+    queueGroups: attachSubmittedBatch(state.queueGroups, batch, matching),
+    queueSubmission: matching ? null : state.queueSubmission,
+  }
+}
+
+export const useWorkbenchStore = create<WorkbenchStore>()(persist((set) => ({
   queueGroups: [], queueInitialized: false, queueMigrationNotice: false, queueSubmission: null, queueBatches: [], queueBatchActions: {},
   deletedQueueBatchIds: [], deletedQueueTaskIds: [],
   beginQueueBatchAction: (batch, action) => set(state => ({ queueBatchActions: { ...state.queueBatchActions,
@@ -197,43 +235,41 @@ export const useWorkbenchStore = create<WorkbenchStore>()(persist((set, get) => 
     return uncertain ? { queueSubmission: { ...state.queueSubmission, state: 'unknown' as const, error } }
       : { queueSubmission: null, queueGroups: state.queueGroups.map(group => group.pendingRequestId === id ? { ...group, pendingRequestId: undefined } : group) }
   }),
-  receiveQueueBatch: batch => set(state => {
-    if (state.deletedQueueBatchIds.includes(batch.batch_id)) return {}
-    batch = withoutDeletedTaskHistory(batch, new Set(state.deletedQueueTaskIds))
-    if (hasNoBatchHistory(batch)) return {
-      deletedQueueBatchIds: [...state.deletedQueueBatchIds, batch.batch_id],
-      queueBatches: state.queueBatches.filter(item => item.batch_id !== batch.batch_id),
-      queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => id !== batch.batch_id)),
-      queueGroups: state.queueGroups.map(group => group.run?.batchId === batch.batch_id
-        ? { ...group, run: { ...group.run, state: 'history_deleted' as const } } : group),
-    }
-    const matching = state.queueSubmission?.request.client_request_id === batch.client_request_id ? state.queueSubmission : null
-    if (matching) {
-      const expected = new Set(matching.request.groups.map(group => group.group_id))
-      if (batch.items.length !== expected.size || batch.items.some(item => !item.group_id || !expected.delete(item.group_id)) || expected.size) return {}
-    }
-    const previous = state.queueBatches.find(item => item.batch_id === batch.batch_id)
-    if (previous && previous.updated_at > batch.updated_at) return {}
-    const pendingAction = state.queueBatchActions[batch.batch_id]
-    const resolved = pendingAction && (pendingAction.action === 'retry'
-      ? pendingAction.taskIds !== JSON.stringify(batch.items.flatMap(item => item.task_ids)) : pendingAction.state !== batch.state)
-    return { queueBatches: [...state.queueBatches.filter(item => item.batch_id !== batch.batch_id), batch],
-      ...(resolved ? { queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => id !== batch.batch_id)) } : {}),
-      queueGroups: attachSubmittedBatch(state.queueGroups, batch, matching), queueSubmission: matching ? null : state.queueSubmission }
-  }),
-  reconcileQueueBatches: (batches, knownBatchIdsAtRequest) => {
+  receiveQueueBatch: batch => set(state => applyReceivedBatch(state, batch)),
+  reconcileQueueBatches: (batches, knownBatchIdsAtRequest) => set(state => {
     // Only an authoritative full-list success can establish absence. Batches created
     // after this request began are deliberately excluded from the missing set.
     const present = new Set(batches.map(batch => batch.batch_id))
-    set(state => {
-      const deleted = new Set([...state.deletedQueueBatchIds, ...knownBatchIdsAtRequest.filter(id => !present.has(id))])
-      return { deletedQueueBatchIds: [...deleted], queueBatches: state.queueBatches.filter(batch => !deleted.has(batch.batch_id)),
+    const missingIds = knownBatchIdsAtRequest.filter(id => !present.has(id) && !state.deletedQueueBatchIds.includes(id))
+    let nextState = state
+    let changed = false
+    if (missingIds.length > 0) {
+      const deleted = new Set([...state.deletedQueueBatchIds, ...missingIds])
+      nextState = {
+        ...state,
+        deletedQueueBatchIds: [...deleted],
+        queueBatches: state.queueBatches.filter(batch => !deleted.has(batch.batch_id)),
         queueGroups: migrateMaterialGroups(state.queueGroups.map(group => group.run && deleted.has(group.run.batchId)
           ? { ...group, run: { ...group.run, state: 'history_deleted' as const } } : group)),
-        queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => !deleted.has(id))) }
-    })
-    for (const batch of batches) get().receiveQueueBatch(batch)
-  },
+        queueBatchActions: Object.fromEntries(Object.entries(state.queueBatchActions).filter(([id]) => !deleted.has(id))),
+      }
+      changed = true
+    }
+    for (const batch of batches) {
+      const patch = applyReceivedBatch(nextState, batch)
+      if (Object.keys(patch).length > 0) {
+        nextState = { ...nextState, ...patch }
+        changed = true
+      }
+    }
+    return changed ? {
+      deletedQueueBatchIds: nextState.deletedQueueBatchIds,
+      queueBatches: nextState.queueBatches,
+      queueGroups: nextState.queueGroups,
+      queueBatchActions: nextState.queueBatchActions,
+      queueSubmission: nextState.queueSubmission,
+    } : {}
+  }),
   markQueueTaskHistoryDeleted: taskIds => set(state => {
     const deletedTasks = new Set([...state.deletedQueueTaskIds, ...taskIds])
     const normalized = state.queueBatches.map(batch => withoutDeletedTaskHistory(batch, deletedTasks))

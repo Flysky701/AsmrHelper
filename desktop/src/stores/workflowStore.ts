@@ -4,7 +4,7 @@ import { createJSONStorage } from 'zustand/middleware'
 import { pipelineApi } from '../api/pipeline'
 import type { GraphPresetDraft, GraphPresetItem, PresetItem } from '../api/types'
 import type { GraphBindings, GraphDefinition, GraphMaterialBinding, GraphNode } from '../domain/workflowGraph'
-import { GRAPH_NODE_KINDS, validateGraph } from '../domain/workflowGraph'
+import { graphMixTracks, graphNodeInputs, isMultitrackMix, GRAPH_NODE_KINDS, validateGraph } from '../domain/workflowGraph'
 import { cloneDraft, draftFingerprint, emptyGraph, type WorkflowEditorDraft } from '../domain/workflowDraft'
 
 type Destination = 'workbench' | 'settings'
@@ -31,6 +31,7 @@ export interface WorkflowState {
   loadBuiltinTemplates: () => Promise<void>
   addBuiltinTemplate: (id: string, revision: number, label?: string) => Promise<PresetItem | GraphPresetItem | null>
   selectPreset: (preset: GraphPresetItem) => void
+  useGraphForRun: (graph: GraphDefinition) => void
   updateRuntimeNode: (node: GraphNode) => void
   setBinding: (slotId: string, value: GraphMaterialBinding | undefined) => void
   openEditor: (preset: GraphPresetItem | null, returnTo: Destination, useRuntime?: boolean) => void
@@ -157,9 +158,16 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
         selectionGeneration++
         set({ selectedPreset: cloneDraft(preset), runtimeGraph: cloneDraft(preset.graph), error: null, catalogNotice: null })
       },
+      useGraphForRun: graph => {
+        selectionGeneration++
+        set({ selectedPreset: null, runtimeGraph: cloneDraft(graph), error: null, catalogNotice: null })
+      },
       updateRuntimeNode: node => {
         const graph = get().runtimeGraph, previous = graph?.nodes.find(item => item.id === node.id)
-        if (!graph || !previous || previous.kind !== node.kind) {
+        if (!graph || !previous || previous.kind !== node.kind
+          || isMultitrackMix(previous) !== isMultitrackMix(node)
+          || isMultitrackMix(previous) && JSON.stringify(graphMixTracks(previous).map(track => track.id)) !== JSON.stringify(graphMixTracks(node).map(track => track.id))
+          || JSON.stringify(Object.keys(graphNodeInputs(previous))) !== JSON.stringify(Object.keys(graphNodeInputs(node)))) {
           set({ error: '工作台只能调整已有模块的参数；请在流水线编辑页修改结构' }); return
         }
         selectionGeneration++

@@ -3,7 +3,7 @@ import type { TaskStatusResponse } from './types'
 
 export type Delivery = 'normal' | 'soft' | 'whisper'
 export type FishVoiceScope = 'workspace' | 'mine_public' | 'public'
-export interface HostedVoicePage { items: { id: string; name: string }[]; page: number; page_size: number; has_more: boolean; notice: string; scope?: FishVoiceScope }
+export interface HostedVoicePage { items: { id: string; name: string }[]; page?: number; page_size?: number; next_page_token?: string | null; has_more: boolean; notice: string; scope?: FishVoiceScope }
 export type VariantKind = 'hosted' | 'builtin' | 'reference' | 'design' | 'default'
 export interface VoiceVariant { kind: VariantKind; value: string; style: Delivery }
 export interface WorkbenchSpeechSource {
@@ -62,23 +62,25 @@ export interface SpeechTake { id: string; task_id: string; experiment_id: string
 export interface SpeechExperiment { id: string; name: string; plan_id: string; takes?: SpeechTake[]; kind?: string; task_id?: string }
 export interface TakeSelection { experiment_id: string; segment_id: string; take_id: string }
 export interface SpeechAssembly { id: string; experiment_id: string; revision?: number; audio?: Record<string, unknown>; status?: string }
-export interface OptionSchema { type?: string; title?: string; description?: string; enum?: (string | number)[]; default?: unknown; minimum?: number; maximum?: number; maxLength?: number; const?: unknown; applies_to_modes?: string[] }
+export interface OptionSchema { type?: string; title?: string; description?: string; enum?: (string | number)[]; default?: unknown; minimum?: number; maximum?: number; maxLength?: number; const?: unknown; applies_to_modes?: string[]; applies_to_models?: string[]; model_overrides?: Record<string, Partial<OptionSchema>> }
 export interface SpeechMode {
   id: string
   runtime_options?: string[]
+  model_runtime_options?: Record<string, string[]>
+  model_capabilities?: Record<string, Record<string, unknown>>
   variant_kinds: VariantKind[]
   models: string[]
   capabilities?: Record<string, unknown>
   voice_sources?: {
     kind: string
-    presets: { id: string; name?: string; language?: string }[]
+    presets: { id: string; name?: string; language?: string; trait?: string }[]
     default: string | null
     required: boolean
     allow_custom: boolean
     description: string
   }
 }
-export interface SpeechProvider { provider_id: string; name: string; remote: boolean; version: string; connection_required: boolean; modes: SpeechMode[]; options_schema: { properties: Record<string, OptionSchema> }; capabilities: Record<string, unknown> }
+export interface SpeechProvider { default_base_url?: string; connection_deployments?: SpeechConnection['deployment'][]; provider_id: string; name: string; remote: boolean; version: string; connection_required: boolean; modes: SpeechMode[]; options_schema: { properties: Record<string, OptionSchema> }; capabilities: Record<string, unknown> }
 export interface SpeechLibrary { voices: SpeechVoice[]; recipes: SpeechRecipe[]; assets: ReferenceAsset[]; experiments: SpeechExperiment[]; takes: SpeechTake[]; plans: SpeechPlan[]; selections: TakeSelection[]; assemblies: SpeechAssembly[]; connections: SpeechConnection[] }
 export interface Waveform { id?: string; duration: number; peaks: number[] }
 
@@ -108,8 +110,10 @@ export const speechApi = {
   previewConnectionDeletion: (id: string) => api.post<SpeechConnectionDeletionPreview>(`/speech/connections/${encodeURIComponent(id)}/deletion-preview`, {}),
   executeConnectionDeletion: (id: string, token: string, action: 'replace' | 'detach', replacement_ref?: string) => api.post<SpeechConnectionDeletionResult>(`/speech/connections/${encodeURIComponent(id)}/deletion-execute`, { token, action, ...(replacement_ref ? { replacement_ref } : {}) }),
   localConnection: (provider_id: string, model: string, mode: string) => api.post<LocalSpeechConnection>('/speech/connections/local-default', { provider_id, model, mode }),
-  hostedVoices: (connectionId: string, title: string, page: number, scope: FishVoiceScope | boolean) => {
-    const query = new URLSearchParams({ title, page: String(page), page_size: '20', scope: typeof scope === 'boolean' ? scope ? 'workspace' : 'public' : scope })
+  hostedVoices: (connectionId: string, title: string, page: number, scope?: FishVoiceScope | boolean, pageToken?: string) => {
+    const query = new URLSearchParams({ title, page: String(page), page_size: '20' })
+    if (scope !== undefined) query.set('scope', typeof scope === 'boolean' ? scope ? 'workspace' : 'public' : scope)
+    if (pageToken) query.set('page_token', pageToken)
     return api.get<HostedVoicePage>(`/speech/connections/${encodeURIComponent(connectionId)}/voices?${query}`)
   },
   voice: ({ id, ...voice }: Omit<SpeechVoice, 'id'> & { id?: string }) => api.post<SpeechVoice>('/speech/voices', { ...voice, ...(id ? { id } : {}) }),

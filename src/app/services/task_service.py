@@ -89,6 +89,8 @@ class TaskService:
             from src.task_connection_context import resolve_task_settings
             execution_profile = deepcopy(execution_profile)
             is_graph = (execution_profile or {}).get("version") == 2
+            if task_type == "pipeline" and not is_graph:
+                raise AppValidationError("V1 执行已退役，请通过 /pipeline-runs 提交 V2 图及素材绑定")
             if is_graph and not graph_prepared:
                 raise AppValidationError("节点工作流请通过 /pipeline-runs 提交，以校验素材并冻结节点配置")
             settings = config.to_dict() if is_graph else resolve_task_settings(config.to_dict(), execution_profile)
@@ -109,6 +111,13 @@ class TaskService:
             connections = {} if is_graph else capture_connections(settings)
             from src.recovery_connections import capture_recovery_connections
             connection_record = {} if is_graph else capture_recovery_connections(settings, connections, include_tts=False)
+            if is_graph and self.recovery_store is not None:
+                from ..persistence.recovery_store import fingerprint
+                from .graph_pipeline_service import capture_graph_speech_connections
+                from secrets import token_hex
+                salt = token_hex(32)
+                speech = capture_graph_speech_connections(execution_profile)
+                connection_record = {"salt": salt, "digest": fingerprint([salt, graph_connections, speech])}
             try:
                 result = self._registry.create_task_spec(
                     task_type=task_type,
@@ -268,6 +277,8 @@ class TaskService:
                 )
             try:
                 task_spec = self._registry.get_task_spec(task_id)
+                if task_spec.task_type == "pipeline" and task_spec.execution_profile.get("version") != 2:
+                    raise AppValidationError("V1 任务已归档，请按 V2 节点图重新提交")
                 if task_spec.task_source.startswith("batch-run:") and not _batch_managed:
                     raise AppValidationError("retry this group from its batch controls to preserve queue membership")
                 error = self._registry.get_task(task_id).error or {}
@@ -352,39 +363,30 @@ class TaskService:
 
     def recovery_info(self, task_id: str) -> dict:
         task = self.get_task(task_id)
-        if self.get_task_spec(task_id).execution_profile.get("version") == 2:
-            return {"can_resume": False, "reason": "图任务暂不支持阶段续跑；显式重试会重新执行全部节点",
-                    "completed_stages": []}
+        profile = self.get_task_spec(task_id).execution_profile
         manifest = self.recovery_store.manifest(task_id) if self.recovery_store else None
-        reason = None
-        stages = []
+        completed = []
         if task.task_type != "pipeline" or not manifest:
             reason = "此任务没有可恢复的执行清单"
+        elif profile.get("version") != 2:
+            reason = "V1 流水线已归档，请用 V2 节点图重新提交"
+        elif task.task_source.startswith("batch-run:"):
+            reason = "请从所属批次重试该组"
         elif task.state not in {"failed", "cancelled"}:
-            reason = "仅失败、取消或中断的任务可以继续"
-        elif any(t.retry_of_task_id == task_id and t.state in {"pending", "running"}
-                 for t in self.list_tasks()):
-            reason = "该任务已有正在执行的恢复尝试"
+            reason = "只能恢复失败或已取消的任务"
+        elif (task.error or {}).get("result_unknown"):
+            reason = "远端结果未知，请先核对服务端记录"
         else:
-            from src.config import config
-            from src.recovery_connections import restore_recovery_connections
-            from pathlib import Path
-            try:
-                restore_recovery_connections(manifest["connections"], config.to_dict())
-                for path in [manifest["input_path"], *manifest["companion_paths"]]:
-                    if not Path(path).is_file():
-                        raise ValueError("原始输入文件已不存在")
-            except (ValueError, KeyError) as exc:
-                reason = str(exc)
-        if manifest:
-            stages = [stage for stage in ("separate", "asr", "align", "translate", "tts", "mix", "export")
-                      if self.recovery_store.checkpoint(task_id, stage)]
-        return {"can_resume": reason is None, "reason": reason, "completed_stages": stages}
+            completed = [node["id"] for node in profile["graph"]["nodes"]
+                         if self.recovery_store.graph_checkpoint_source(task_id, node["id"])]
+            reason = None if completed and manifest["connections"].get("salt") else "没有可恢复的节点结果"
+        return {"can_resume": reason is None, "reason": reason or "", "completed_stages": completed}
 
     def resume_pipeline_task(self, task_id: str, *, session_id: str,
                              input_asset_id: str, companion_asset_ids: list[str]) -> TaskStatus:
         from src.config import config
-        from src.recovery_connections import restore_recovery_connections
+        from .graph_pipeline_service import freeze_graph_connections, capture_graph_speech_connections
+        from ..persistence.recovery_store import fingerprint
         info = self.recovery_info(task_id)
         if not info["can_resume"]:
             raise AppValidationError(info["reason"])
@@ -395,7 +397,11 @@ class TaskService:
             previous = self._registry.get_task_spec(task_id)
             manifest = self.recovery_store.manifest(task_id)
             try:
-                connections = restore_recovery_connections(manifest["connections"], config.to_dict())
+                profile, connections = freeze_graph_connections(previous.execution_profile, config.to_dict())
+                speech = capture_graph_speech_connections(profile)
+                evidence = manifest["connections"]
+                if fingerprint([evidence["salt"], connections, speech]) != evidence["digest"]:
+                    raise ValueError("原任务连接已改变，请核对后重新提交")
             except ValueError as exc:
                 raise AppValidationError(str(exc)) from exc
             spec, status = self._registry.create_task_spec(
@@ -411,7 +417,8 @@ class TaskService:
             except Exception as exc:
                 self._registry.discard_task(spec.task_id)
                 raise AppExecutionError("failed to persist resumed task") from exc
-            self._connection_snapshots[spec.task_id] = connections
+            self._graph_connection_snapshots[spec.task_id] = connections
+            self._connection_snapshots[spec.task_id] = {}
             self._connection_records[spec.task_id] = deepcopy(manifest["connections"])
             return status
 

@@ -178,11 +178,19 @@ class SpeechStore:
     def __init__(self, root: Path | None = None):
         if root is None:
             from src.config import PROJECT_ROOT
-            root = PROJECT_ROOT / "config" / "voice_lab"
+            override = os.environ.get("ASMR_HELPER_VOICE_LAB_DIR", "").strip()
+            data_dir = os.environ.get("ASMR_HELPER_DATA_DIR", "").strip()
+            root = Path(override).expanduser() if override else PROJECT_ROOT / "config" / "voice_lab"
+            if data_dir and not override and not (root / "store.json").exists():
+                previous = Path(data_dir).expanduser() / "voice_lab"
+                if (previous / "store.json").is_file():
+                    root = previous
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / "store.json"
         self.assets_root = self.root / "assets"
+        self._cache_signature: tuple[int, int] | None = None
+        self._cache_data: dict | None = None
         with _LOCKS_GUARD:
             self._thread_lock = _LOCKS.setdefault(str(self.root).casefold(), threading.RLock())
 
@@ -225,16 +233,27 @@ class SpeechStore:
 
     def _read(self) -> dict:
         if not self.path.exists():
+            self._cache_signature = None
+            self._cache_data = None
             return {"schema_version": 1, "collections": {key: {} for key in COLLECTIONS}}
+        stat = self.path.stat()
+        signature = (stat.st_mtime_ns, stat.st_size)
+        if self._cache_signature == signature and self._cache_data is not None:
+            return deepcopy(self._cache_data)
         data = json.loads(self.path.read_text(encoding="utf-8"))
         if data.get("schema_version") != 1 or not isinstance(data.get("collections"), dict):
             raise ValueError("Unsupported or corrupt speech store")
         for key in COLLECTIONS:
             data["collections"].setdefault(key, {})
+        self._cache_signature = signature
+        self._cache_data = deepcopy(data)
         return data
 
     def _write(self, data: dict) -> None:
         self._atomic_json(self.path, data)
+        stat = self.path.stat()
+        self._cache_signature = (stat.st_mtime_ns, stat.st_size)
+        self._cache_data = deepcopy(data)
 
     @staticmethod
     def _atomic_json(path: Path, data: dict) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 import re
 import time
@@ -31,9 +32,9 @@ class GraphExecutor:
 
     def execute(
         self, plan, *, slot_values, plan_for_node, node_context=None,
-        stage_callback=None, cancel_event=None,
+        stage_callback=None, cancel_event=None, checkpoints=None,
     ):
-        """Execute each node once; no caching, implicit stages, or checkpoint resume.
+        """Execute selected nodes in dependency order, optionally restoring verified outputs.
 
         plan_for_node(node) supplies frozen provider settings as a legacy stage
         plan. node_context(node) optionally binds that instance's private LLM
@@ -48,6 +49,10 @@ class GraphExecutor:
             node_snapshots=plan.node_snapshots,
         )
         nodes = plan.nodes_by_id
+        background_nodes = {
+            edge["source"]["node_id"] for edge in plan.graph["edges"]
+            if edge["source"].get("port") == "background"
+        } | {item["node_id"] for item in plan.graph["outputs"] if item["port"] == "background"}
         if len({node_id.casefold() for node_id in nodes}) != len(nodes):
             raise ValueError("节点 ID 大小写冲突，会覆盖 Windows 产物目录")
         slots = {slot["id"]: slot for slot in plan.graph["input_slots"]}
@@ -102,18 +107,34 @@ class GraphExecutor:
                         raise ValueError(f"节点 {node_id} 的 {port} 输入尚未产生")
                     inputs[port] = values[key].clone()
                 node_plan = plan_for_node(deepcopy(node))
+                if node["kind"] == "separate" and node_plan is not None:
+                    binding = node_plan.separation
+                    node_plan = replace(node_plan, separation=replace(binding, common_options={
+                        **binding.common_options,
+                        "request_background": node_id in background_nodes,
+                    }))
                 context = node_context(deepcopy(node)) if node_context else nullcontext()
-                with context:
-                    outputs = self.stage_runner.run(
-                        node, inputs, node_plan, directory, cancel_event=cancel_event,
-                    )
+                outputs = checkpoints.restore(node_id, directory) if checkpoints else None
+                if node_id in background_nodes and outputs is not None and "background" not in outputs:
+                    outputs = None
+                reused = outputs is not None
+                if not reused:
+                    with context:
+                        outputs = self.stage_runner.run(
+                            node, inputs, node_plan, directory, cancel_event=cancel_event,
+                        )
                 if cancel_event and cancel_event.is_set():
                     raise InterruptedError("用户取消操作")
                 expected = GRAPH_CATALOG[node["kind"]]["outputs"]
-                if set(outputs) != set(expected):
+                required = set(expected)
+                if node["kind"] == "separate" and node_id not in background_nodes:
+                    required.discard("background")
+                if not required <= set(outputs) <= set(expected):
                     raise RuntimeError("节点产物端口不符合能力定义")
                 output_paths = {}
                 for port, kind in expected.items():
+                    if port not in outputs:
+                        continue
                     value = outputs[port]
                     if not isinstance(value, GraphValue) or value.kind != kind or not value.path:
                         raise RuntimeError("节点返回错误的产物类型")
@@ -124,10 +145,14 @@ class GraphExecutor:
                         raise RuntimeError("节点未产生有效文件")
                     values[(node_id, port)] = value.clone()
                     output_paths[port] = str(path)
+                if checkpoints:
+                    checkpoints.save(node_id, outputs)
                 results["steps"][node_id] = {
-                    "node_id": node_id, "kind": node["kind"], "state": "completed",
+                    "node_id": node_id, "kind": node["kind"], "state": "completed", "reused": reused,
                     "duration": time.perf_counter() - node_started, "outputs": output_paths,
                 }
+                if node["kind"] == "tts" and (warnings := outputs["audio"].metadata.get("warnings")):
+                    results["steps"][node_id]["warnings"] = warnings
                 results["node_states"][node_id] = "completed"
                 report(node_id, index + 1, f"已完成 {node_id} · {node['kind']}")
             except Exception as exc:
@@ -150,12 +175,16 @@ class GraphExecutor:
             kind = nodes[node_id]["kind"]
             suffix = Path(value.path).suffix.lower().lstrip(".")
             artifact_type = f"subtitle.{suffix}" if value.kind == "subtitle" else {
-                "separate": "audio.vocals", "tts": "audio.tts", "mix": "audio.mix", "audio_export": "audio.export",
+                "separate": "audio.background" if port == "background" else "audio.vocals",
+                "tts": "audio.tts", "mix": "audio.mix", "audio_export": "audio.export",
+                "audio_difference": "audio.difference",
             }[kind]
             metadata = {key: deepcopy(item) for key, item in value.metadata.items()
                         if key in {"language", "duration", "timeline_id", "pair_confirmed",
                                    "sample_rate", "channels", "output_length", "tts_delay_ms",
-                                   "delay_behavior"}}
+                                   "delay_behavior", "tracks", "track_count", "peak_before", "safety_gain",
+                                   "offset_samples", "offset_ms", "gains", "coverage_start", "coverage_end",
+                                   "uncaptured_seconds", "correlation", "warnings", "analysis_seconds"}}
             metadata.update(node_id=node_id, port=port)
             results["workflow_outputs"].append({
                 "node_id": node_id, "port": port, "stage": kind, "type": artifact_type,

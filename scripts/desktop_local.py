@@ -23,7 +23,7 @@ FINGERPRINT_VERSION = 1
 def source_fingerprint() -> str:
     """Hash executable inputs, never user configuration, models, caches or Git."""
     files = set()
-    for relative in ("src", "desktop/src", "desktop/public", "desktop/src-tauri/src",
+    for relative in ("src", "desktop/src", "desktop/public", "docs/guides", "docs/examples", "desktop/src-tauri/src",
                      "desktop/src-tauri/capabilities", "desktop/src-tauri/icons",
                      ".cargo", "desktop/.cargo", "desktop/src-tauri/.cargo"):
         directory = ROOT / relative
@@ -31,7 +31,7 @@ def source_fingerprint() -> str:
             files.update(path for path in directory.rglob("*") if path.is_file()
                          and "__pycache__" not in path.parts and path.suffix not in {".pyc", ".pyo"})
     for relative in ("scripts/desktop_local.py", "scripts/desktop_backend.py", "RUNGUI.bat", "GUIRun.bat", "run.bat",
-                     "pyproject.toml", "uv.lock", "config/models.yaml", "desktop/index.html", "desktop/package.json", "desktop/package-lock.json",
+                     "pyproject.toml", "uv.lock", "config/models.yaml", "docs/cloud-tts-extension.md", "desktop/index.html", "desktop/package.json", "desktop/package-lock.json",
                      "desktop/tsconfig.json", "desktop/tsconfig.node.json", "desktop/vite.config.ts",
                      "desktop/postcss.config.js", "desktop/tailwind.config.js", "desktop/src-tauri/build.rs",
                      "desktop/src-tauri/Cargo.toml", "desktop/src-tauri/Cargo.lock", "desktop/src-tauri/tauri.conf.json"):
@@ -211,8 +211,12 @@ def launch(args) -> None:
         print("[READY] Current build is ready. Existing desktop window/tasks were preserved; finish them, close the old window normally, then reopen RUNGUI.bat. No duplicate window was started.")
         return
     env = os.environ.copy()
+    runtime_keys = {
+        "ASMR_HELPER_COMPUTE", "ASMR_HELPER_CUDA_LIBRARY_DIR", "ASMR_HELPER_REMOTE_WORKER_URL",
+        "ASMR_HELPER_REMOTE_WORKER_TOKEN", "ASMR_HELPER_REMOTE_WORKER_TIMEOUT",
+    }
     for key in list(env):
-        if key.startswith("ASMR_HELPER_") and key not in {"ASMR_HELPER_COMPUTE", "ASMR_HELPER_CUDA_LIBRARY_DIR"}:
+        if key.startswith("ASMR_HELPER_") and key not in runtime_keys:
             env.pop(key)
     env.update(ASMR_HELPER_SOURCE_ROOT=str(ROOT), PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1")
     env.update(ASMR_HELPER_BUILD_SHA256=receipt["sha256"], ASMR_HELPER_BUILD_SOURCE=receipt["source_fingerprint"],

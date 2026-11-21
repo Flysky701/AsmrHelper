@@ -267,7 +267,9 @@ export interface ModelSummaryResponse {
   category: string
   backend: string
   display_name: string
+  description?: string
   estimated_size_mb?: number | null
+  inference_vram_gb?: number | null
   install_strategy: string
   supports_install: boolean
   supports_remove: boolean
@@ -375,6 +377,33 @@ export interface ScriptToSubtitleRequest {
   track_index?: number | null
   vertical_mode?: string
   debug_dir?: string | null
+  confirmed_text?: string | null
+  fingerprint?: string | null
+  use_llm_match?: boolean
+  reference_confirmed?: boolean
+}
+
+export interface ScriptPreview {
+  raw_text: string
+  clean_text: string
+  actions: string[]
+  sections: { index: number; title: string }[]
+  fingerprint: string
+}
+
+export interface ScriptReview {
+  complete: boolean
+  script_lines: string[]
+  entries: (SubtitleSegmentModel & { script_idx: number })[]
+  asr_segments: SubtitleSegmentModel[]
+  draft_entries?: SubtitleSegmentModel[]
+  unmatched: { script_idx: number; text: string }[]
+  extra_asr: (SubtitleSegmentModel & { asr_idx: number })[]
+  conflicts: string[]
+  audio_path?: string | null
+  output_path: string
+  duration?: number | null
+  timestamp_source: string
 }
 
 // ── Resources ──────────────────────────────────────────
@@ -501,4 +530,226 @@ export interface TaskDeletionExecuteResponse {
     retained_file_count: number
     failed_file_count: number
   }
+}
+
+// ── Two-Phase Draft Sessions (`/api/v1/drafts`) ────────
+export type DraftState =
+  | 'preparing'
+  | 'awaiting_review'
+  | 'committing'
+  | 'completed'
+  | 'failed'
+
+export interface DraftTrackItem {
+  track_id: string
+  stem: string
+  path: string
+  duration?: number
+  sample_rate?: number
+  channels?: number
+  format?: string
+  paired_stems?: {
+    vocals?: string | null
+    no_se?: string | null
+    se_only?: string | null
+    alternates?: string[]
+  }
+  paired_subtitles?: Array<Record<string, unknown>>
+  paired_scripts?: string[]
+}
+
+export interface DraftSegment {
+  index: number
+  cue_id: string
+  start: number
+  end: number
+  source_text: string
+  translation: string
+  speaker?: string | null
+  delivery?: string
+  emotion?: string
+}
+
+export interface OverSpeedCueItem {
+  index: number
+  cue_id: string
+  start: number
+  end: number
+  cue_duration: number
+  available_slack: number
+  effective_slot: number
+  char_count: number
+  estimated_duration: number
+  predicted_atempo: number
+  max_recommended_chars: number
+  source_text: string
+  translation: string
+}
+
+export interface DraftReferenceCandidate {
+  path: string
+  source_audio_path?: string
+  start?: number
+  end?: number
+  duration?: number
+  sample_rate?: number
+  snr_db?: number
+  rms?: number
+  transcript?: string
+}
+
+export interface DraftSampleTake {
+  index: number
+  cue_id: string
+  text: string
+  audio_path: string
+  duration: number
+  take_id?: string
+}
+
+export interface QualityAuditReport {
+  script_alignment?: {
+    unmatched: Array<{ line: number; text: string }>
+    low_confidence: Array<{ line: number; cue_id: string; confidence: number }>
+    extra_cue_ids: string[]
+    conflicts: string[]
+  } | null
+  draft_id?: string | null
+  state?: DraftState | string | null
+  revision?: number | null
+  untranslated_indices: number[]
+  japanese_residue_indices: number[]
+  empty_or_symbol_indices: number[]
+  over_speed_cues: OverSpeedCueItem[]
+  summary_counts: Record<string, number>
+  gate_passed: boolean
+  chars_per_second: number
+  max_atempo: number
+  reference_quality?: DraftReferenceCandidate | null
+  warnings: string[]
+}
+
+export interface DraftDubbingArtifact {
+  tts_track_path?: string
+  mixed_audio_path?: string
+  background_audio_path?: string
+  binaural_source_path?: string | null
+  borrow_silence_slack?: boolean
+  channels?: number
+  processing?: Record<string, unknown>
+  assembly_id?: string
+  reused_take_count?: number
+  synthesized_take_count?: number
+  total_spoken_cues?: number
+}
+
+export interface DraftArtifacts {
+  primary_track_path?: string | null
+  subtitle_source_mode?: string
+  source_subtitles?: string[]
+  reference_candidate?: DraftReferenceCandidate | null
+  sample_takes?: DraftSampleTake[]
+  take_cache?: Record<string, unknown>
+  output_dir?: string
+  subtitles?: Record<string, string>
+  tts_track_path?: string
+  mixed_audio_path?: string
+  dubbing?: DraftDubbingArtifact | null
+  last_error?: string
+  [key: string]: unknown
+}
+
+export interface DraftSummary {
+  draft_id: string
+  state: DraftState
+  work_dir: string
+  title: string
+  tracks: DraftTrackItem[]
+  segments: DraftSegment[]
+  voice_plan?: Record<string, unknown>
+  audit_report?: Partial<QualityAuditReport>
+  artifacts?: DraftArtifacts
+  revision: number
+  created_at: string
+  updated_at: string
+}
+
+export interface DraftDetail extends DraftSummary {
+  voice_plan: Record<string, unknown>
+  audit_report: Partial<QualityAuditReport>
+  artifacts: DraftArtifacts
+}
+
+export interface DraftListResponse {
+  drafts: DraftDetail[]
+}
+
+export interface DraftSegmentEdit {
+  index?: number
+  cue_id?: string
+  source_text?: string
+  translation?: string
+  start?: number
+  end?: number
+  speaker?: string | null
+  delivery?: string
+  emotion?: string
+}
+
+export interface DraftPatchRequest {
+  edits: DraftSegmentEdit[]
+  voice_plan_patch?: Record<string, unknown> | null
+  title?: string | null
+  expected_revision?: number | null
+}
+
+export interface DraftCommitRequest {
+  regenerate_cue_ids?: string[]
+  output_dir: string
+  export_formats?: string[]
+  enable_dubbing?: boolean
+  bilingual?: boolean
+  mix_options?: Record<string, unknown> | null
+  expected_revision?: number | null
+}
+
+export interface DraftCommitResponse extends DraftDetail {}
+
+export interface DraftInspectResponse {
+  work_dir: string
+  title: string
+  tracks: DraftTrackItem[]
+  audio_files: Array<{ path: string }>
+  subtitles: Array<{ path: string; valid?: boolean }>
+  scripts: Array<{ path: string }>
+  stem_pairs: Array<Record<string, unknown>>
+  readiness: Record<string, unknown>
+}
+
+export interface DraftPrepareRequest {
+  path_or_dir: string
+  track_path?: string | null
+  subtitle_path?: string | null
+  script_path?: string | null
+  title?: string | null
+  source_lang?: string
+  target_lang?: string
+  enable_translation?: boolean
+  duration_aware?: boolean
+  auto_detect_delivery?: boolean
+  force_asr?: boolean
+  asr_provider?: string | null
+  asr_model?: string | null
+  asr_options?: Record<string, unknown> | null
+  llm_provider?: string | null
+  llm_model?: string | null
+  llm_options?: Record<string, unknown> | null
+  voice_plan?: Record<string, unknown> | null
+  prepare_stems?: boolean
+  separation_model?: string | null
+  extract_voice_reference?: boolean
+  synthesize_samples?: boolean
+  sample_cue_count?: number
+  chars_per_second?: number
+  max_atempo?: number
 }

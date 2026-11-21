@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -213,36 +212,27 @@ def test_runtime_router_reads_structured_asr_worker_result(tmp_path, monkeypatch
     profile.python_executable.write_bytes(b"python")
     router = RuntimeRouter(resolver=resolver, project_root=tmp_path)
 
-    def fake_run(cmd, **kwargs):
-        response_path = Path(cmd[cmd.index("--response") + 1])
-        response_path.write_text(
-            json.dumps(
-                {
-                    "success": True,
-                    "result": {
-                        "document": {
-                            "segments": [
-                                {
-                                    "start": 0.0,
-                                    "end": 1.0,
-                                    "text": "hello",
-                                    "language": "en",
-                                    "confidence": 0.8,
-                                }
-                            ],
-                            "language": "en",
-                            "format": "srt",
-                            "source_path": "result.srt",
-                            "warnings": [],
-                        }
-                    },
-                }
-            ),
-            encoding="utf-8",
-        )
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+    from contextlib import contextmanager
 
-    monkeypatch.setattr("src.core.runtime.router.subprocess.run", fake_run)
+    from packages.gpu_worker.client import ComputeClient
+    from packages.protocol.compute import AsrResult, AsrSegmentItem
+
+    def transcribe(request):
+        assert request.provider == "qwen3_asr"
+        assert request.input_path == "input.wav"
+        return AsrResult(
+            segments=[AsrSegmentItem(start=0.0, end=1.0, text="hello", confidence=0.8)],
+            language="en",
+            format="srt",
+            source_path="result.srt",
+        )
+
+    @contextmanager
+    def local_client(**kwargs):
+        assert kwargs["python_executable"] == profile.python_executable
+        yield SimpleNamespace(asr=transcribe)
+
+    monkeypatch.setattr(ComputeClient, "from_local", local_client)
 
     result = router.transcribe_file(
         {

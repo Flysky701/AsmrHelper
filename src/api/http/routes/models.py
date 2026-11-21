@@ -34,8 +34,10 @@ def list_models(
             category=m.category,
             backend=m.backend,
             display_name=m.display_name,
+            description=m.description,
             capability_models=m.capability_models,
             estimated_size_mb=m.estimated_size_mb,
+            inference_vram_gb=m.inference_vram_gb,
             install_strategy=m.install_strategy,
             supports_install=m.supports_install,
             supports_remove=m.supports_remove,
@@ -62,9 +64,11 @@ def list_models(
 def list_model_statuses(
     kind: str | None = None,
     category: str | None = None,
+    cached_only: bool = False,
     svc: ModelService = Depends(model_service),
 ):
-    statuses = svc.list_model_statuses(kind=kind, category=category)
+    options = {'cached_only': True} if cached_only else {}
+    statuses = svc.list_model_statuses(kind=kind, category=category, **options)
     return [
         ModelStatusResponse(
             model_id=s.model_id,

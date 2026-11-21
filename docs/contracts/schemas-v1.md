@@ -9,12 +9,12 @@ JSON 使用 snake_case，时间为带时区的 ISO 8601，任务 progress 为 0�
 | 结构 | 关键字段 | 来源 |
 | --- | --- | --- |
 | 单任务请求 | input.path、input.companion_paths、output.directory、execution_profile | [pipeline_runs.py](../../src/api/http/schemas/pipeline_runs.py) |
-| V1 配置 | version=1、source_lang、target_lang、skip_existing、stages、可选 workflow | 同上 |
+| V1 配置 | version=1、source_lang、target_lang、skip_existing、stages、迁移时必需的显式 workflow | 同上 |
 | StageProfile | enabled、provider、model、options、provider_options | 同上 |
 | V2 配置 | version=2、graph、bindings | [workflow_graph.py](../../src/api/http/schemas/workflow_graph.py) |
 | 图定义 | version=2、nodes、edges、input_slots、outputs | 同上 |
 | 素材绑定 | path、language、language_confirmed、audio_path、pair_confirmed、sha256 | 同上 |
-| 批次请求 | V1 inputs 或 V2 groups、共同 execution_profile、提交标识及批次选项 | [batch_runs.py](../../src/api/http/schemas/batch_runs.py) |
+| 批次请求 | V2 groups、共同 execution_profile、提交标识及批次选项 | [batch_runs.py](../../src/api/http/schemas/batch_runs.py) |
 
 StageProfile 的 model 可以为 null；显式选项优先，未指定值由对应版本的解析器处理。混音延迟字段 `tts_delay_ms` 单位为毫秒。V1 `skip_existing` 不等于 V2 节点缓存。
 

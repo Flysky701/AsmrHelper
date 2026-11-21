@@ -7,11 +7,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
+const i18n = { t: value => value, useI18n: () => value => value, format: (source, values) => source.replace(/\{(\d+)\}/g, (_, index) => String(values[index] ?? '')) }
 function load(path, overrides = {}) {
   const source = readFileSync(new URL(path, import.meta.url), 'utf8')
   const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } })
   const module = { exports: {} }
-  new Function('require', 'module', 'exports', outputText)(name => overrides[name] ?? require(name), module, module.exports)
+  new Function('require', 'module', 'exports', outputText)(name => overrides[name] ?? (name === '@/i18n' ? i18n : require(name)), module, module.exports)
   return module.exports
 }
 function nodes(tree) {
@@ -39,8 +40,7 @@ test('one controlled Voice ID with clearly distinct account, workspace and publi
   assert.match(view.html, /我的公开音色（API 账号）/)
   assert.match(view.html, /当前工作区音色/)
   assert.match(view.html, /公共音色库（所有作者）/)
-  assert.match(setup({ scope: 'workspace' }).html, /不等同于本人公开库/)
-  assert.match(setup({ scope: 'public' }).html, /不代表属于当前账号/)
+  assert.doesNotMatch(view.html, /声音范围说明/)
   assert.equal(view.selected.length, 0)
 })
 
@@ -74,7 +74,7 @@ test('scope and search reset page without clearing selection; pagination follows
   assert.deepEqual(view.changed, [[1, 'public'], [2, 1], [0, 'filter'], [2, 1]])
   assert.deepEqual(view.selected, [])
   const last = setup({ result: { data: { ...data, has_more: false } } })
-  assert.equal(last.all.find(node => node.type === 'button' && node.props.children === '下一页').props.disabled, true)
+  assert.equal(last.all.some(node => node.type === 'button' && node.props.children === '下一页'), false)
 })
 
 test('client sends explicit scope and pagination without a second voice field', async () => {

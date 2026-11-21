@@ -180,6 +180,10 @@ class CapabilityDescriptorService:
         from src.core.engines.llm import get_llm_registry
 
         llm_registry = get_llm_registry()
+        duration_options = [
+            _option("duration_aware", "boolean", default=False),
+            _option("chars_per_second", "number", default=4.2, min_value=0.1),
+        ]
         descriptors = [
             {
                 "category": "llm",
@@ -188,7 +192,7 @@ class CapabilityDescriptorService:
                 "kind": "cloud",
                 "supported_models": llm_registry.list_models("deepseek"),
                 "default_model": llm_registry.default_model("deepseek"),
-                "common_option_schema": [],
+                "common_option_schema": deepcopy(duration_options),
                 "provider_option_schema": [],
                 "supports": {
                     "chat_completion": True,
@@ -204,7 +208,7 @@ class CapabilityDescriptorService:
                 "kind": "cloud",
                 "supported_models": llm_registry.list_models("openai"),
                 "default_model": llm_registry.default_model("openai"),
-                "common_option_schema": [],
+                "common_option_schema": deepcopy(duration_options),
                 "provider_option_schema": [],
                 "supports": {
                     "chat_completion": True,
@@ -481,6 +485,12 @@ class CapabilityDescriptorService:
                     _option("batch_size", "integer", default=1, min_value=1, max_value=16),
                     _option("no_repeat_ngram_size", "integer", default=0, min_value=0, max_value=10),
                     _option("repetition_penalty", "number", default=1.0, min_value=1.0, max_value=2.0),
+                    _option("vad_slicing", "boolean", required=False,
+                            description="Enable pre-ASR acoustic VAD slicing for long ASMR tracks"),
+                    _option("vad_filter", "boolean", required=False,
+                            description="Alias for pre-ASR acoustic VAD slicing"),
+                    _option("vad_options", "object", required=False,
+                            description="Optional parameters forwarded to slice_speech_regions"),
                 ],
                 "supports": {
                     "language_hint": True,
@@ -497,13 +507,41 @@ class CapabilityDescriptorService:
                 "provider": "demucs",
                 "display_name": "Demucs",
                 "kind": "local",
-                "supported_models": ["htdemucs", "htdemucs_ft", "htdemucs_6s"],
+                # Existing separation graphs address RoFormer through the Demucs node.
+                "supported_models": ["htdemucs", "htdemucs_ft", "htdemucs_6s", "mdx", "mdx_extra",
+                                     "mel_band_roformer", "bs_roformer"],
                 "default_model": "htdemucs",
                 "common_option_schema": [],
                 "provider_option_schema": [],
                 "supports": {
                     "multi_stem": True,
                 },
+            },
+            {
+                "category": "separator",
+                "provider": "audio_separator",
+                "display_name": "RoFormer",
+                "kind": "local",
+                "supported_models": [
+                    "mel_band_roformer",
+                    "bs_roformer",
+                    "denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt",
+                ],
+                "default_model": "mel_band_roformer",
+                "common_option_schema": [],
+                "provider_option_schema": [],
+                "supports": {"multi_stem": False},
+            },
+            {
+                "category": "vc",
+                "provider": "seed_vc",
+                "display_name": "Seed-VC",
+                "kind": "local",
+                "supported_models": ["seed_vc"],
+                "default_model": "seed_vc",
+                "common_option_schema": [],
+                "provider_option_schema": [],
+                "supports": {"voice_conversion": True},
             },
         ]
         for descriptor in descriptors:

@@ -15,6 +15,7 @@ function load(path, overrides = {}) {
   return module.exports
 }
 const Control = load('../src/components/workflow/GraphEngineControl.tsx', {
+  '@/i18n': { t: value => value, useI18n: () => value => value, format: (source, values) => source.replace(/\{(\d+)\}/g, (_, index) => String(values[index] ?? '')) },
   '@/api/models': { modelsApi: {} },
   '@/domain/nodeEngineStatus': { nodeInstallModel: () => undefined },
   '@/stores/navStore': { useNavStore: {} },

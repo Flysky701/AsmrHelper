@@ -6,7 +6,7 @@ from src.app.services.task_service import TaskService
 
 def test_restart_rejects_pending_and_running_tasks_then_reserves_submission_boundary():
     service = TaskService()
-    spec, _ = service.create_task_spec(task_type='pipeline', task_source='test', session_id='test')
+    spec, _ = service.create_task_spec(task_type='tool.convert', task_source='test', session_id='test')
     assert not service.workspace_switch_ready()
     assert not service.prepare_workspace_switch()
     service.start_task(spec.task_id)
@@ -15,7 +15,7 @@ def test_restart_rejects_pending_and_running_tasks_then_reserves_submission_boun
     assert service.workspace_switch_ready()
     assert service.prepare_workspace_switch()
     with pytest.raises(AppValidationError, match='重启'):
-        service.create_task_spec(task_type='pipeline', task_source='test', session_id='test')
+        service.create_task_spec(task_type='tool.convert', task_source='test', session_id='test')
     with pytest.raises(AppValidationError, match='重启'):
         service.retry_task(spec.task_id)
 

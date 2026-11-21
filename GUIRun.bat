@@ -22,9 +22,8 @@ exit /b !DEV_EXIT!
 set "DEV_ARGS="
 goto launch_source
 :rewrite_dev
-set "DEV_ARGS=--project "%~dp0.tmp\full-stack-v2" --python "%~dp0.venv\Scripts\python.exe" --runtime-sources "%~dp0config\dev-runtime-sources.json""
-if /I "%~2"=="--smoke" set "DEV_ARGS=!DEV_ARGS! --smoke"
-goto launch_source
+echo The rewrite worktree has been archived. Use --dev for the current source.
+exit /b 2
 :source_check
 set "DEV_ARGS=--check"
 goto launch_source
@@ -83,7 +82,7 @@ if /I "%LAUNCH_MODE%"=="--installed" goto frontend_ready
 if /I "%LAUNCH_MODE%"=="--dev" goto check_dev_tools
 if /I "%LAUNCH_MODE%"=="--release" goto check_dev_tools
 echo [ERROR] Unknown launch mode: %LAUNCH_MODE%
-echo         Supported: --dev, --rewrite, --check, --smoke, --desktop, --installed, --release
+echo         Supported: --dev, --check, --smoke, --desktop, --installed, --release
 goto launch_failed
 
 :check_dev_tools

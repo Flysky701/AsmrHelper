@@ -88,9 +88,7 @@ python -m src.cli tts --help
 3. 保存音色后进入试音，输入目标语言台词。Fish 自动判断语言，不接收语言强制参数。语速、temperature、top_p 会发送；轻柔/耳语/情绪转成文本标签。S2 支持自由描述，s1 使用固定圆括号标签；实际效果需要试听。
 4. 输出请求固定为 WAV，收到完整音频后播放，没有实时流式播放。超时表示结果未知，不自动重试，先核对计费；402 检查余额，401/403 检查凭据/权限，429 稍后再试。
 
-本软件目前**只使用已有云端声音**：声音库里的本地参考录音不会上传给 Fish。官方即时克隆是每次 TTS 发送参考音频及对应原文（`references`）；持久克隆是先创建云端模型，再用返回的 `reference_id`。这两种创建流程均未接入；如需克隆，应先在 Fish 平台按其流程创建，再填入已有 ID。
-
-当前未暴露：即时参考克隆、远程声音创建/修改/删除、多人单请求、WebSocket/时间戳流、输出格式/采样率/码率、音量/归一化/延迟/分块、发音词典等高级 API 参数。`drama-3-preview` 未列入模型选项；ASR、声音设计与语音代理不属于当前 Fish TTS 接线范围。
+Fish 支持两种声音来源。选择已有云端音色时发送 `reference_id`。选择参考录音时，以 MessagePack 发送录音字节与已核对原文，用于本次合成。持久音色可在 Fish 创建后按 ID 复用。
 
 核对于 2026-10-04：[官方 TTS 参数](https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech)、[两种克隆方式](https://docs.fish.audio/features/voice-cloning)、[官方 SDK](https://github.com/fishaudio/fish-audio-python)、[价格](https://docs.fish.audio/developer-guide/models-pricing/pricing-and-rate-limits)。当日 `s2.1-pro-free` 标价为免费，其他已列模型为 $15/百万 UTF-8 字节，以实际账户与官方最新规则为准。Mock 测试只能验证流程和参数，不能证明真实克隆音质。
 

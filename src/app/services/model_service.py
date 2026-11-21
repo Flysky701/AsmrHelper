@@ -58,7 +58,9 @@ class ModelService:
                 category=entry.category,
                 backend=entry.provider or entry.engine or "-",
                 display_name=entry.display_name,
+                description=entry.description,
                 estimated_size_mb=entry.estimated_size_mb,
+                inference_vram_gb=entry.inference_vram_gb,
                 install_strategy=entry.install_strategy or "",
                 capability_models=entry.capability_models or [entry.id],
                 supports_install=entry.supports_install,
@@ -105,9 +107,12 @@ class ModelService:
         self,
         kind: str | None = None,
         category: str | None = None,
+        *,
+        cached_only: bool = False,
     ) -> list[ModelStatusView]:
         try:
-            statuses = self.core_service.get_all_statuses(kind=kind, category=category)
+            options = {'cached_only': True} if cached_only else {}
+            statuses = self.core_service.get_all_statuses(kind=kind, category=category, **options)
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc
         except Exception as exc:

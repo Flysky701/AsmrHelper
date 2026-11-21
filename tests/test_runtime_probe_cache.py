@@ -239,6 +239,40 @@ assert resolver.check_modules('main', ['json']) is True
         assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_model_list_passively_reuses_runtime_and_gpu_checks_after_restart(tmp_path, monkeypatch):
+    from src.core.resources.model_catalog import ModelEntry
+    from src.core.resources.model_status import ModelStatusResolver
+
+    resolver, _, site = environment(tmp_path)
+    entry = ModelEntry(
+        "model", "local", "asr", "Test model", "", runtime_profile="fun_asr",
+        required_runtime_packages=["funasr"], requires_gpu=True, required_files=["weights.bin"],
+    )
+    monkeypatch.setattr(ModelEntry, "resolved_install_dir", lambda _: tmp_path)
+    (tmp_path / "weights.bin").write_bytes(b"weights")
+    package = site / "funasr"
+    package.mkdir()
+    (package / "__init__.py").touch()
+    calls = []
+
+    def run(*args, **kwargs):
+        calls.append(args)
+        return success()
+
+    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", run)
+    status_resolver = ModelStatusResolver(runtime_resolver=resolver)
+    pending = status_resolver.resolve(entry, cached_only=True)
+    assert pending.weights_ready and not pending.executable
+    assert [issue.code for issue in pending.issues] == ["RUNTIME_CHECK_PENDING"]
+    assert not calls
+    assert status_resolver.resolve(entry).executable
+    (package / "__pycache__").mkdir()
+    monkeypatch.setenv("PATH", "alternate launcher path")
+    restarted = ModelStatusResolver(runtime_resolver=RuntimeProfileResolver(tmp_path))
+    assert restarted.resolve(entry, cached_only=True).executable
+    assert len(calls) == 2
+
+
 def test_invalidation_waits_for_inflight_probe_and_discards_its_result(tmp_path, monkeypatch):
     resolver, _, _ = environment(tmp_path)
     started, release, clearing = Event(), Event(), Event()

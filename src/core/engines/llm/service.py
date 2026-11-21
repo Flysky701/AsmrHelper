@@ -30,12 +30,17 @@ class LlmOperationRuntime:
         profile: dict[str, Any],
         source_lang: str,
         target_lang: str,
+        available_seconds: list[float] | None = None,
     ) -> list[str]:
         translator = self._get_translator(profile)
+        options = profile.get("common_options", {})
         return translator.translate_batch(
             texts,
             source_lang=source_lang,
             target_lang=target_lang,
+            **({"duration_aware": True, "available_seconds": available_seconds,
+                "chars_per_second": options.get("chars_per_second", 4.2)}
+               if options.get("duration_aware") else {}),
         )
 
     def clean_script(

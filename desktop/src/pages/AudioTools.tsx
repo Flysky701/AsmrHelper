@@ -1,3 +1,5 @@
+import QuickStartHelp from '@/components/QuickStartHelp'
+import { t, useI18n } from '@/i18n'
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 
@@ -12,7 +14,6 @@ type ToolType =
   | 'tool.separate'
   | 'tool.convert'
   | 'tool.split'
-  | 'tool.translate_subtitle'
   | 'tool.volume_preview'
 
 const TOOLS: Array<{
@@ -22,10 +23,9 @@ const TOOLS: Array<{
   input: 'audio' | 'subtitle'
   jobType: JobType
 }> = [
-  { id: 'tool.separate', label: '人声分离', description: '提取人声并登记可试听产物', input: 'audio', jobType: 'separate' },
+  { id: 'tool.separate', label: '人声分离', description: '支持 Mel-Band Roformer / HTDemucs 提取人声与触发音', input: 'audio', jobType: 'separate' },
   { id: 'tool.convert', label: '格式转换', description: '转换格式、采样率和声道', input: 'audio', jobType: 'convert' },
   { id: 'tool.split', label: '按字幕切分', description: '根据字幕时间轴切分音频', input: 'audio', jobType: 'split' },
-  { id: 'tool.translate_subtitle', label: '字幕翻译', description: '翻译字幕并保留时间轴', input: 'subtitle', jobType: 'translate-subtitle' },
   { id: 'tool.volume_preview', label: '音量分析', description: '计算 RMS 并给出混音比例建议', input: 'audio', jobType: 'volume-preview' },
 ]
 
@@ -53,6 +53,7 @@ function fileName(path: string) {
 }
 
 export default function AudioTools() {
+  useI18n()
   const { selectFiles, selectFolder } = useFileSelector()
   const setPage = useNavStore((state) => state.setPage)
   const addTask = useTaskStore((state) => state.addTask)
@@ -61,7 +62,8 @@ export default function AudioTools() {
   const [catalog, setCatalog] = useState<ToolDescriptorResponse[]>([])
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogAvailable, setCatalogAvailable] = useState(false)
-  const [selectedTool, setSelectedTool] = useState<ToolType>('tool.convert')
+  const [selectedTool, setSelectedTool] = useState<ToolType>('tool.separate')
+  const [separationModel, setSeparationModel] = useState<'mel_band_roformer' | 'htdemucs'>('mel_band_roformer')
   const [inputPath, setInputPath] = useState('')
   const [companionPath, setCompanionPath] = useState('')
   const [ttsPath, setTtsPath] = useState('')
@@ -71,8 +73,6 @@ export default function AudioTools() {
   const [sampleRate, setSampleRate] = useState(44100)
   const [channels, setChannels] = useState(2)
   const [padding, setPadding] = useState(0.1)
-  const [sourceLang, setSourceLang] = useState('ja')
-  const [targetLang, setTargetLang] = useState('zh')
   const [originalVolume, setOriginalVolume] = useState(0.85)
   const [ttsRatio, setTtsRatio] = useState(0.5)
   const [submitting, setSubmitting] = useState(false)
@@ -119,7 +119,7 @@ export default function AudioTools() {
   }
 
   const executionProfile = (): Record<string, unknown> => {
-    if (selectedTool === 'tool.separate') return { model: 'htdemucs', output_dir: outputDir || undefined }
+    if (selectedTool === 'tool.separate') return { model: separationModel, output_dir: outputDir || undefined }
     if (selectedTool === 'tool.convert') {
       return {
         output_path: outputPath || undefined,
@@ -130,15 +130,6 @@ export default function AudioTools() {
       }
     }
     if (selectedTool === 'tool.split') return { output_dir: outputDir || undefined, padding }
-    if (selectedTool === 'tool.translate_subtitle') {
-      return {
-        output_path: outputPath || undefined,
-        provider: 'deepseek',
-        source_lang: sourceLang,
-        target_lang: targetLang,
-        bilingual: true,
-      }
-    }
     return {
       tts_path: ttsPath || undefined,
       original_volume: originalVolume,
@@ -148,11 +139,11 @@ export default function AudioTools() {
 
   const submit = async () => {
     if (!inputPath) {
-      setError('请先选择输入文件')
+      setError("请先选择输入文件")
       return
     }
     if (selectedTool === 'tool.split' && !companionPath) {
-      setError('按字幕切分需要字幕文件')
+      setError("按字幕切分需要字幕文件")
       return
     }
 
@@ -165,7 +156,7 @@ export default function AudioTools() {
       sourcePath: inputPath,
       params: { task_type: selectedTool, ...profile },
     })
-    updateTask(localTaskId, { message: '正在创建工具任务' })
+    updateTask(localTaskId, { message: "正在创建工具任务" })
 
     try {
       const remote = await toolsApi.create({
@@ -179,14 +170,14 @@ export default function AudioTools() {
         status: remote.state as TaskStatus,
         stage: remote.stage ?? undefined,
         progress: Math.round(remote.progress * 100),
-        message: remote.message || '后端已接管工具任务',
+        message: remote.message || "后端已接管工具任务",
         detail: remote.detail,
       })
       setPage('task-center')
     } catch (submitError) {
       updateTask(localTaskId, {
         status: 'failed',
-        message: '工具任务创建失败',
+        message: "工具任务创建失败",
         errorMessage: String(submitError),
       })
       setError(`提交失败：${String(submitError)}`)
@@ -196,22 +187,30 @@ export default function AudioTools() {
   }
 
   return (
-    <div className="audio-tools-page" style={{ height: '100%', overflow: 'auto', padding: 24 }}>
-      <header className="page-heading" style={{ marginBottom: 20 }}>
-        <div className="page-heading__copy"><h1 className="page-title">音频工具</h1>
-          <p className="page-description">单项音频处理，进度和结果见任务中心。</p>
+    <div className="audio-tools-page" style={{ height: '100%', overflow: 'auto', padding: '0 var(--app-page-gutter, 24px) 24px' }}>
+      <header className="page-heading app-page-heading" style={{ paddingInline: 0 }}>
+        <div className="page-heading__copy"><div className="page-title-row"><h1 className="page-title">{t("音频工具")}</h1><QuickStartHelp topic={({'tool.separate': 'audio-separate', 'tool.convert': 'audio-convert', 'tool.split': 'audio-split', 'tool.volume_preview': 'audio-volume'} as const)[selectedTool]} /></div>
+        </div>
+        <div className="page-heading__actions">
+          <button
+            type="button"
+            onClick={() => void useNavStore.getState().openReview('subtitles')}
+            style={{ ...inputStyle, width: 'auto', cursor: 'pointer', fontWeight: 550 }}
+          >
+            {t("字幕翻译与台本 → 精修与字幕 ↗")}
+          </button>
         </div>
       </header>
 
       {error ? (
         <div className="audio-tools-message" style={{ marginBottom: 16, padding: '10px 14px', color: 'var(--error)', background: 'var(--error-soft)', borderRadius: 'var(--radius-sm)' }}>
-          {error}
+          {t(error)}
         </div>
       ) : null}
 
-      <div className="audio-tools-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 360px) minmax(0, 1fr)', gap: 20 }}>
+      <div className="audio-tools-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 320px) minmax(0, 1fr)', gap: 20 }}>
         <section style={{ ...surface, padding: 16, alignSelf: 'start' }}>
-          <h2 className="section-title" style={{ marginBottom: 12 }}>选择工具</h2>
+          <h2 className="section-title" style={{ marginBottom: 12 }}>{t("选择工具")}</h2>
           <div style={{ display: 'grid', gap: 8 }}>
             {TOOLS.map((tool) => {
               const available = catalogAvailable && supported.has(tool.id)
@@ -231,15 +230,15 @@ export default function AudioTools() {
                     padding: '12px 14px',
                     textAlign: 'left',
                     border: active ? '1px solid var(--accent)' : '1px solid var(--border)',
-                    borderRadius: 'var(--radius-button)',
+                    borderRadius: 'var(--radius-sm)',
                     background: active ? 'var(--accent-soft)' : 'var(--surface)',
                     color: 'var(--fg)',
                     cursor: available ? 'pointer' : 'not-allowed',
                     opacity: available ? 1 : 0.45,
                   }}
                 >
-                  <div style={{ fontSize: 'var(--text-control)', fontWeight: 700 }}>{tool.label}</div>
-                  <div style={{ marginTop: 4, fontSize: 'var(--text-help)', color: 'var(--muted)' }}>{tool.description}</div>
+                  <div style={{ fontSize: 'var(--text-control)', fontWeight: 700 }}>{t(tool.label)}</div>
+                  <div style={{ marginTop: 4, fontSize: 'var(--text-help)', color: 'var(--muted)' }}>{t(tool.description)}</div>
                 </button>
               )
             })}
@@ -248,56 +247,59 @@ export default function AudioTools() {
 
         <section style={{ ...surface, padding: 20 }}>
           <div className="audio-tools-panel-header" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-            <div>
-              <h2 className="panel-title">{selected.label}</h2>
-              <div style={{ marginTop: 4, fontSize: 'var(--text-help)', color: 'var(--muted)' }}>{selected.id}</div>
-            </div>
-            <button type="button" onClick={chooseInput} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>
-              选择{selected.input === 'subtitle' ? '字幕' : '音频'}
+            <h2 className="panel-title" style={{ margin: 0 }}>{t(selected.label)}</h2>
+            <button type="button" onClick={chooseInput} style={{ ...inputStyle, width: 'auto', cursor: 'pointer', fontWeight: 500 }}>
+              {t("选择")}{selected.input === 'subtitle' ? t("字幕") : t("音频")}
             </button>
           </div>
 
-          <div className="audio-tools-path" style={{ marginTop: 18, padding: '12px 14px', background: 'var(--panel-muted)', borderRadius: 'var(--radius-sm)', wordBreak: 'break-all' }}>
-            <div style={{ fontSize: 'var(--text-help)', color: 'var(--muted)' }}>输入文件</div>
-            <div style={{ marginTop: 5, fontSize: 'var(--text-control)' }}>{inputPath || '尚未选择'}</div>
+          <div className="audio-tools-path" style={{ marginTop: 16, padding: '10px 14px', background: 'var(--panel-muted)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'baseline', gap: 10, wordBreak: 'break-all' }}>
+            <span style={{ fontSize: 'var(--text-help)', color: 'var(--muted)', flexShrink: 0 }}>{t("输入文件")}</span>
+            <span style={{ fontSize: 'var(--text-control)', color: inputPath ? 'var(--fg)' : 'var(--muted)' }}>{inputPath || t("尚未选择")}</span>
           </div>
 
           <div className="audio-tools-form-grid" style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
+            {selectedTool === 'tool.separate' ? (
+              <label style={{ gridColumn: '1 / -1' }}>
+                {t("分离模型")}
+                <select
+                  style={inputStyle}
+                  value={separationModel}
+                  onChange={(event) => setSeparationModel(event.target.value as 'mel_band_roformer' | 'htdemucs')}
+                >
+                  <option value="mel_band_roformer">{t("Mel-Band Roformer（V2 高保真推荐）")}</option>
+                  <option value="htdemucs">{t("HTDemucs（经典均衡）")}</option>
+                </select>
+              </label>
+            ) : null}
+
             {selectedTool === 'tool.convert' ? (
               <>
-                <label>目标格式<select style={inputStyle} value={format} onChange={(event) => setFormat(event.target.value)}><option value="wav">WAV</option><option value="mp3">MP3</option><option value="flac">FLAC</option><option value="ogg">OGG</option></select></label>
-                <label>采样率<select style={inputStyle} value={sampleRate} onChange={(event) => setSampleRate(Number(event.target.value))}><option value={16000}>16000 Hz</option><option value={24000}>24000 Hz</option><option value={44100}>44100 Hz</option><option value={48000}>48000 Hz</option></select></label>
-                <label>声道<select style={inputStyle} value={channels} onChange={(event) => setChannels(Number(event.target.value))}><option value={1}>单声道</option><option value={2}>双声道</option></select></label>
-                <label>输出文件（可选）<input style={inputStyle} value={outputPath} onChange={(event) => setOutputPath(event.target.value)} placeholder="留空则自动命名" /></label>
+                <label>{t("目标格式")}<select style={inputStyle} value={format} onChange={(event) => setFormat(event.target.value)}><option value="wav">WAV</option><option value="mp3">MP3</option><option value="flac">FLAC</option><option value="ogg">OGG</option></select></label>
+                <label>{t("采样率")}<select style={inputStyle} value={sampleRate} onChange={(event) => setSampleRate(Number(event.target.value))}><option value={16000}>16000 Hz</option><option value={24000}>24000 Hz</option><option value={44100}>44100 Hz</option><option value={48000}>48000 Hz</option></select></label>
+                <label>{t("声道")}<select style={inputStyle} value={channels} onChange={(event) => setChannels(Number(event.target.value))}><option value={1}>{t("单声道")}</option><option value={2}>{t("双声道")}</option></select></label>
+                <label>{t("输出文件（可选）")}<input style={inputStyle} value={outputPath} onChange={(event) => setOutputPath(event.target.value)} placeholder={t("留空则自动命名")} /></label>
               </>
             ) : null}
 
             {selectedTool === 'tool.split' ? (
               <>
-                <label>字幕文件<button className="audio-tools-path-button" type="button" style={inputStyle} onClick={chooseCompanion}>{companionPath ? fileName(companionPath) : '选择字幕'}</button></label>
-                <label>前后留白（秒）<input style={inputStyle} type="number" min={0} max={2} step={0.05} value={padding} onChange={(event) => setPadding(Number(event.target.value))} /></label>
-              </>
-            ) : null}
-
-            {selectedTool === 'tool.translate_subtitle' ? (
-              <>
-                <label>源语言<select style={inputStyle} value={sourceLang} onChange={(event) => setSourceLang(event.target.value)}><option value="ja">日语</option><option value="zh">中文</option><option value="en">英语</option></select></label>
-                <label>目标语言<select style={inputStyle} value={targetLang} onChange={(event) => setTargetLang(event.target.value)}><option value="zh">中文</option><option value="ja">日语</option><option value="en">英语</option></select></label>
-                <label style={{ gridColumn: '1 / -1' }}>输出文件（可选）<input style={inputStyle} value={outputPath} onChange={(event) => setOutputPath(event.target.value)} placeholder="留空则在字幕旁自动命名" /></label>
+                <label>{t("字幕文件")}<button className="audio-tools-path-button" type="button" style={inputStyle} onClick={chooseCompanion}>{companionPath ? fileName(companionPath) : t("选择字幕")}</button></label>
+                <label>{t("前后留白（秒）")}<input style={inputStyle} type="number" min={0} max={2} step={0.05} value={padding} onChange={(event) => setPadding(Number(event.target.value))} /></label>
               </>
             ) : null}
 
             {selectedTool === 'tool.volume_preview' ? (
               <>
-                <label>TTS 音频（可选）<button className="audio-tools-path-button" type="button" style={inputStyle} onClick={chooseTts}>{ttsPath ? fileName(ttsPath) : '选择 TTS 音频'}</button></label>
+                <label>{t("TTS 音频（可选）")}<button className="audio-tools-path-button" type="button" style={inputStyle} onClick={chooseTts}>{ttsPath ? fileName(ttsPath) : t("选择 TTS 音频")}</button></label>
                 <span className="audio-tools-grid-spacer" />
-                <label>原声音量<input style={inputStyle} type="number" min={0} max={2} step={0.05} value={originalVolume} onChange={(event) => setOriginalVolume(Number(event.target.value))} /></label>
-                <label>TTS 音量比例<input style={inputStyle} type="number" min={0} max={2} step={0.05} value={ttsRatio} onChange={(event) => setTtsRatio(Number(event.target.value))} /></label>
+                <label>{t("原声音量")}<input style={inputStyle} type="number" min={0} max={2} step={0.05} value={originalVolume} onChange={(event) => setOriginalVolume(Number(event.target.value))} /></label>
+                <label>{t("TTS 音量比例")}<input style={inputStyle} type="number" min={0} max={2} step={0.05} value={ttsRatio} onChange={(event) => setTtsRatio(Number(event.target.value))} /></label>
               </>
             ) : null}
 
             {selectedTool === 'tool.separate' || selectedTool === 'tool.split' || selectedTool === 'tool.convert' ? (
-              <label style={{ gridColumn: '1 / -1' }}>输出目录（可选）<button className="audio-tools-path-button" type="button" style={inputStyle} onClick={chooseOutputDir}>{outputDir || '使用工作区默认目录'}</button></label>
+              <label style={{ gridColumn: '1 / -1' }}>{t("输出目录（可选）")}<button className="audio-tools-path-button" type="button" style={inputStyle} onClick={chooseOutputDir}>{outputDir || t("使用工作区默认目录")}</button></label>
             ) : null}
           </div>
 
@@ -310,7 +312,7 @@ export default function AudioTools() {
                 minHeight: 40,
                 padding: '0 18px',
                 border: '1px solid var(--accent)',
-                borderRadius: 'var(--radius-button)',
+                borderRadius: 'var(--radius-sm)',
                 background: 'var(--accent)',
                 color: 'white',
                 fontWeight: 700,
@@ -318,7 +320,7 @@ export default function AudioTools() {
                 opacity: submitting ? 0.55 : 1,
               }}
             >
-              {catalogLoading ? '正在读取工具...' : submitting ? '正在提交...' : '创建任务'}
+              {catalogLoading ? t("正在读取工具...") : submitting ? t("正在提交...") : t("创建任务")}
             </button>
           </div>
         </section>
@@ -330,6 +332,15 @@ export default function AudioTools() {
         .audio-tools-layout > *,
         .audio-tools-form-grid > * {
           min-width: 0;
+        }
+
+        .audio-tools-form-grid label {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          font-size: 13px;
+          font-weight: 500;
+          color: var(--fg);
         }
 
         .audio-tools-message,
@@ -352,10 +363,6 @@ export default function AudioTools() {
         }
 
         @media (max-width: 760px) {
-          .audio-tools-page {
-            padding: 16px !important;
-          }
-
           .audio-tools-panel-header {
             align-items: stretch !important;
             flex-direction: column;

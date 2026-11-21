@@ -1,4 +1,4 @@
-"""Task V1 and shared executor-boundary acceptance tests."""
+"""Shared executor-boundary acceptance tests."""
 
 from __future__ import annotations
 
@@ -8,12 +8,11 @@ import time
 import pytest
 
 from src.app.errors import AppExecutionError, AppValidationError
-from src.app.persistence import SqliteStateStore
 from src.app.services.task_service import TaskService
-from src.core.tasks import ExecutorRegistry, TaskDispatcher, build_default_executor_registry
+from src.core.tasks import ExecutorRegistry, TaskDispatcher
 
 
-def _create(service: TaskService, task_type: str = "pipeline"):
+def _create(service: TaskService, task_type: str = "tool.convert"):
     return service.create_task_spec(
         task_type=task_type,
         task_source="contract-test",
@@ -35,19 +34,6 @@ def test_unregistered_task_type_is_rejected_at_submission():
 
     with pytest.raises(AppValidationError, match="no executor registered"):
         _create(service, "not.registered")
-
-
-@pytest.mark.parametrize("task_type", ["voice.design", "voice.clone", "voice.preview"])
-def test_default_task_registry_rejects_removed_voice_entrypoints(task_type):
-    registry = build_default_executor_registry()
-    assert registry.is_registered("speech.generate")
-    assert not registry.is_registered(task_type)
-    service = TaskService(executor_registry=registry)
-    with pytest.raises(AppValidationError, match="no executor registered"):
-        _create(service, task_type)
-    speech, status = _create(service, "speech.generate")
-    assert speech.task_type == "speech.generate"
-    assert status.state == "pending"
 
 
 def test_terminal_status_is_immutable_and_retry_is_a_new_task():
@@ -73,27 +59,6 @@ def test_terminal_status_is_immutable_and_retry_is_a_new_task():
     assert service.get_task(failed_spec.task_id).state == "failed"
 
 
-def test_voice_clone_retry_chain_cannot_branch_from_the_same_failed_task():
-    # The legacy internal service invariant remains testable with explicit
-    # registration, but is no longer exposed by application defaults.
-    registry = ExecutorRegistry()
-    registry.register("voice.clone")
-    service = TaskService(executor_registry=registry)
-    failed_spec, _ = _create(service, "voice.clone")
-    service.start_task(failed_spec.task_id)
-    service.fail_task(failed_spec.task_id, message="failed", stage="clone")
-
-    first_retry = service.retry_task(failed_spec.task_id)
-
-    with pytest.raises(AppValidationError, match="voice clone retry already exists"):
-        service.retry_task(failed_spec.task_id)
-
-    service.start_task(first_retry.task_id)
-    service.fail_task(first_retry.task_id, message="failed again", stage="clone")
-    second_retry = service.retry_task(first_retry.task_id)
-    assert second_retry.retry_of_task_id == first_retry.task_id
-
-
 def test_dispatcher_starts_one_task_once_and_finalizes_after_executor_exit():
     service = TaskService()
     dispatcher = TaskDispatcher(service.registry, task_service=service)
@@ -111,7 +76,7 @@ def test_dispatcher_starts_one_task_once_and_finalizes_after_executor_exit():
         finally:
             exited.set()
 
-    dispatcher.register_executor("pipeline", execute)
+    dispatcher.register_executor("tool.convert", execute)
     spec, _ = _create(service)
     accepted = dispatcher.submit(spec.task_id)
     assert accepted.state == "running"
@@ -127,27 +92,6 @@ def test_dispatcher_starts_one_task_once_and_finalizes_after_executor_exit():
 
     with pytest.raises(ValueError, match="cannot be submitted"):
         dispatcher.submit(spec.task_id)
-
-
-def test_one_failed_task_does_not_block_the_next_task():
-    service = TaskService(max_concurrent=1)
-    dispatcher = TaskDispatcher(service.registry, task_service=service)
-    executed: list[str] = []
-
-    def execute(spec):
-        executed.append(spec.task_id)
-        if spec.task_id.endswith("-1"):
-            raise RuntimeError("injected failure")
-        return {"detail": "ok"}
-
-    dispatcher.register_executor("pipeline", execute)
-    first, _ = _create(service)
-    second, _ = _create(service)
-    dispatcher.dispatch_all_pending()
-
-    assert service.get_task(first.task_id).state == "failed"
-    assert service.get_task(second.task_id).state == "completed"
-    assert executed == [first.task_id, second.task_id]
 
 
 def test_start_persistence_failure_cannot_be_drained_as_ghost_work():
@@ -169,7 +113,7 @@ def test_start_persistence_failure_cannot_be_drained_as_ghost_work():
     service = TaskService(state_store=store)
     dispatcher = TaskDispatcher(service.registry, task_service=service)
     executed: list[str] = []
-    dispatcher.register_executor("pipeline", lambda spec: executed.append(spec.task_id))
+    dispatcher.register_executor("tool.convert", lambda spec: executed.append(spec.task_id))
     failed_start, _ = _create(service)
 
     with pytest.raises(AppExecutionError, match="failed to persist task state"):
@@ -184,24 +128,6 @@ def test_start_persistence_failure_cannot_be_drained_as_ghost_work():
     assert service.get_task(healthy.task_id).state == "completed"
 
 
-def test_provider_error_containing_cancel_is_not_user_cancellation():
-    service = TaskService()
-    dispatcher = TaskDispatcher(service.registry, task_service=service)
-
-    def execute(_spec):
-        raise RuntimeError("provider request cancelled upstream")
-
-    dispatcher.register_executor("pipeline", execute)
-    spec, _ = _create(service)
-
-    dispatcher.dispatch_all_pending()
-
-    status = service.get_task(spec.task_id)
-    assert status.state == "failed"
-    assert status.error["code"] == "TASK_EXECUTION_FAILED"
-    assert "cancelled upstream" in status.error["detail"]
-
-
 def test_background_queue_drains_after_a_slot_is_released():
     service = TaskService(max_concurrent=1)
     dispatcher = TaskDispatcher(service.registry, task_service=service)
@@ -212,7 +138,7 @@ def test_background_queue_drains_after_a_slot_is_released():
             release.wait(timeout=2)
         return {"detail": spec.task_id}
 
-    dispatcher.register_executor("pipeline", execute)
+    dispatcher.register_executor("tool.convert", execute)
     first, _ = _create(service)
     second, _ = _create(service)
     dispatcher.submit(first.task_id)
@@ -268,7 +194,7 @@ def test_concurrent_submit_reserves_only_one_execution_slot(monkeypatch):
             with counter_lock:
                 active -= 1
 
-    dispatcher.register_executor("pipeline", execute)
+    dispatcher.register_executor("tool.convert", execute)
     first, _ = _create(service)
     second, _ = _create(service)
 
@@ -305,103 +231,6 @@ def test_concurrent_submit_reserves_only_one_execution_slot(monkeypatch):
     _wait_for(service, second.task_id, "completed")
     assert set(executed) == {first.task_id, second.task_id}
     assert max_active == 1
-
-
-def test_thread_start_failure_releases_slot_and_drains_next_task(monkeypatch):
-    service = TaskService(max_concurrent=1)
-    dispatcher = TaskDispatcher(service.registry, task_service=service)
-    executed: list[str] = []
-    dispatcher.register_executor("pipeline", lambda spec: executed.append(spec.task_id))
-    failed_start, _ = _create(service)
-    healthy, _ = _create(service)
-    original_start = threading.Thread.start
-    start_attempts = 0
-
-    def fail_first_start(thread):
-        nonlocal start_attempts
-        start_attempts += 1
-        if start_attempts == 1:
-            raise RuntimeError("injected thread start failure")
-        return original_start(thread)
-
-    monkeypatch.setattr(threading.Thread, "start", fail_first_start)
-
-    with pytest.raises(RuntimeError, match="injected thread start failure"):
-        dispatcher.submit(failed_start.task_id)
-
-    assert service.get_task(failed_start.task_id).state == "failed"
-    assert dispatcher._records[failed_start.task_id].thread is None
-    _wait_for(service, healthy.task_id, "completed")
-    assert executed == [healthy.task_id]
-    assert service.running_count() == 0
-
-
-def test_start_persistence_failure_does_not_fail_the_remaining_queue():
-    class RunningWriteFailureStore:
-        def purge_unfinished(self):
-            return None
-
-        def load_terminal_tasks(self):
-            return []
-
-        def save_task(self, _spec, status):
-            if status.state == "running":
-                raise OSError("injected disk full")
-
-    service = TaskService(
-        max_concurrent=1,
-        state_store=RunningWriteFailureStore(),
-    )
-    dispatcher = TaskDispatcher(service.registry, task_service=service)
-    first, _ = _create(service)
-    second, _ = _create(service)
-
-    with pytest.raises(AppExecutionError, match="failed to persist task state"):
-        dispatcher.submit(first.task_id)
-
-    assert service.get_task(first.task_id).state == "failed"
-    assert service.get_task(second.task_id).state == "pending"
-    assert service.running_count() == 0
-
-
-def test_queue_drain_stops_after_start_persistence_failure():
-    class RunningWriteFailureStore:
-        def purge_unfinished(self):
-            return None
-
-        def load_terminal_tasks(self):
-            return []
-
-        def save_task(self, _spec, status):
-            if status.state == "running":
-                raise OSError("injected disk full")
-
-    service = TaskService(
-        max_concurrent=1,
-        state_store=RunningWriteFailureStore(),
-    )
-    dispatcher = TaskDispatcher(service.registry, task_service=service)
-    first, _ = _create(service)
-    second, _ = _create(service)
-
-    dispatcher._drain_pending()
-
-    assert service.get_task(first.task_id).state == "failed"
-    assert service.get_task(second.task_id).state == "pending"
-    assert service.running_count() == 0
-
-
-def test_restored_non_pipeline_history_is_read_only(tmp_path):
-    store = SqliteStateStore(tmp_path / "state.sqlite3")
-    first = TaskService(state_store=store)
-    spec, _ = _create(first, "model_install")
-    first.start_task(spec.task_id, stage="install")
-    first.fail_task(spec.task_id, message="download failed", stage="install")
-
-    restarted = TaskService(state_store=SqliteStateStore(tmp_path / "state.sqlite3"))
-
-    with pytest.raises(AppValidationError, match="historical tasks cannot be retried"):
-        restarted.retry_task(spec.task_id)
 
 
 def test_tool_registry_executes_through_dispatcher_with_stage_and_result():

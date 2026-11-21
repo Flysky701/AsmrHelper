@@ -7,12 +7,13 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
+const i18n = { t: value => value, useI18n: () => value => value, format: (source, values) => source.replace(/\{(\d+)\}/g, (_, index) => String(values[index] ?? '')) }
 function load(path, overrides = {}) {
   const { outputText } = ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
   })
   const module = { exports: {} }
-  new Function('require', 'module', 'exports', outputText)(name => overrides[name] ?? require(name), module, module.exports)
+  new Function('require', 'module', 'exports', outputText)(name => overrides[name] ?? (name === '@/i18n' ? i18n : require(name)), module, module.exports)
   return module.exports
 }
 const { default: VoiceRecipeList } = load('../src/pages/voice-lab/VoiceRecipeList.tsx', { './VoiceRecipeList.css': {} })

@@ -1,8 +1,4 @@
-"""Pipeline executor — runs stages via engine runtimes directly.
-
-This module accepts a PipelineExecutionPlan and drives each enabled stage
-through the corresponding EngineRuntime.
-"""
+"""Execute a single graph node using its engine runtime."""
 
 from __future__ import annotations
 
@@ -54,7 +50,7 @@ class PipelineExecutor:
 
     def execute_stage(
         self, stage, plan, *, directory, audio_path=None, speech_path=None,
-        segments=None, cancel_event=None,
+        segments=None, cancel_event=None, room_tone_source_path=None,
     ):
         """Run exactly one capability with isolated state and strict failures.
 
@@ -98,8 +94,9 @@ class PipelineExecutor:
                 raise ValueError("翻译缺少字幕输入")
             translations = self._execute_translation(plan, cues, directory, results)
             if not results["step_errors"]:
-                cues = [{"start": cue["start"], "end": cue["end"], "text": text,
-                         "original": cue["text"]}
+                cues = [{"start": cue["start"], "end": cue["end"], "text": text, "original": cue["text"],
+                         **{key: cue[key] for key in ("delivery", "auto_delivery", "emotion", "source_rms_db")
+                            if key in cue}}
                         for cue, text in zip(cues, translations, strict=True)]
             value = results.get("steps", {}).get("translate", {}).get("output")
         elif stage == "tts":
@@ -116,6 +113,9 @@ class PipelineExecutor:
             if not Path(audio_path).is_file() or not Path(speech_path).is_file():
                 raise ValueError("混音输入音频不存在，不能复制原音代替混音")
             value = directory / "mix.wav"
+            if room_tone_source_path:
+                from src.mixer.room_tone import prepare_room_tone_bed
+                audio_path = prepare_room_tone_bed(audio_path, room_tone_source_path, cues, directory)
             self._execute_mix(plan, Path(audio_path), Path(speech_path), value, results)
         elif stage == "export":
             if not cues:
@@ -139,247 +139,8 @@ class PipelineExecutor:
         cancel_event: threading.Event | None = None,
         recovery=None,
     ) -> dict[str, Any]:
-        """Run all enabled stages and return normalized results.
-
-        Args:
-            plan: The execution plan describing what stages to run
-            progress_callback: Optional callback for progress messages
-
-        Returns:
-            Normalized result dictionary compatible with ArtifactResultMapper output
-        """
-        if recovery is not None:
-            plan = replace(plan, skip_existing=False)
-        results: dict[str, Any] = {
-            "input": plan.input_path,
-            "output_dir": plan.output_dir,
-            "mix_path": None,
-            "exported_subtitle": None,
-            "primary_output": None,
-            "vocal_path": None,
-            "tts_audio_path": None,
-            "transcript_path": None,
-            "steps": {},
-            "step_errors": {},
-            "subtitle_lang": None,
-            "subtitle_type": None,
-            "total_steps": len(plan.active_stage_kinds),
-            "total_duration": 0.0,
-            "error": None,
-        }
-
-        t0 = time.perf_counter()
-        current_step = 0
-        total_steps = len(plan.active_stage_kinds) + int(plan.subtitle.enabled)
-
-        def _report(stage: str, msg: str) -> None:
-            if progress_callback:
-                progress_callback(msg)
-            if stage_callback:
-                stage_callback(stage, current_step / max(total_steps, 1), msg)
-
-        def _check_cancel() -> None:
-            effective_cancel_event = cancel_event or self._cancel_event
-            if effective_cancel_event and effective_cancel_event.is_set():
-                raise RuntimeError("用户取消操作")
-
-        timestamped_segments: list[dict[str, Any]] = []
-        translations: list[str] = []
-        vocal_path = Path(plan.input_path)
-        mix_path, by_product_dir = self._resolve_output_paths(plan)
-        tts_audio_path = by_product_dir / "tts_output.wav"
-        results["output_dir"] = str(by_product_dir)
-
-        flow = None
-        if plan.workflow:
-            from .workflow import WorkflowInputs
-            flow = WorkflowInputs(plan)
-
-        def _run(stage, operation):
-            def execute_checked():
-                value = operation()
-                if flow and results["step_errors"]:
-                    raise RuntimeError(f"{stage} 阶段失败: {next(iter(results['step_errors'].values()))}")
-                results["last_stage"] = stage
-                return value
-            if recovery is None:
-                return execute_checked()
-            def checked_operation():
-                value = execute_checked()
-                _check_cancel()
-                return value
-            return recovery.run(stage, checked_operation, results, timestamped_segments,
-                                translations, by_product_dir, mix_path)
-
-        try:
-            if not flow and plan.translation.common_options.get("direct_tts") is True:
-                from src.core.subtitles.translation_reuse import direct_subtitle_input
-                if any(stage.enabled for stage in (plan.separation, plan.asr, plan.alignment, plan.translation, plan.mix)):
-                    raise ValueError("直接配音计划包含不需要的前置阶段，请重新提交任务")
-                selected = direct_subtitle_input({
-                    "source_lang": plan.source_lang, "target_lang": plan.target_lang,
-                    "stages": {"translate": {"options": plan.translation.common_options}},
-                }, plan.input_path, plan.companion_subtitle_paths)
-                timestamped_segments = selected["segments"]
-                translations = [segment["translation"] for segment in timestamped_segments]
-                results["direct_subtitle_tts"] = True
-                results["subtitle_lang"] = plan.target_lang
-                results["subtitle_type"] = "target"
-                results["subtitle_input"] = {"path": selected["path"], "segments": len(timestamped_segments)}
-                _report("tts", "已验证目标字幕，按现有时间轴直接配音（不混音）")
-            # === SEPARATION ===
-            if plan.separation.enabled:
-                _check_cancel()
-                current_step += 1
-                _report("separate", f"[{current_step}/{total_steps}] 人声分离...")
-                stage_plan = replace(plan, input_path=str(flow.audio("separate"))) if flow else plan
-                vocal_path = _run("separate", lambda: self._execute_separation(stage_plan, by_product_dir, results))
-                if flow:
-                    flow.outputs["separate"] = vocal_path
-
-            # === ASR ===
-            if plan.asr.enabled:
-                _check_cancel()
-                current_step += 1
-                _report("asr", f"[{current_step}/{total_steps}] ASR 语音识别...")
-                asr_audio = flow.audio("asr") if flow else vocal_path
-                stage_plan = replace(plan, companion_subtitle_path=None, input_path=str(asr_audio)) if flow else plan
-                timestamped_segments = _run("asr", lambda: self._execute_asr(stage_plan, asr_audio, by_product_dir, results))
-                if flow:
-                    if not timestamped_segments:
-                        raise ValueError("语音识别没有产生有效字幕，不能跳过缺项继续执行")
-                    flow.record_text("asr", timestamped_segments)
-
-            # === ALIGNMENT ===
-            if plan.alignment.enabled:
-                _check_cancel()
-                current_step += 1
-                _report("align", f"[{current_step}/{total_steps}] 校准字幕时间轴...")
-                if flow:
-                    timestamped_segments = flow.text("align")
-                stage_plan = replace(plan, input_path=str(flow.audio("align")), companion_subtitle_path=None) if flow else plan
-                timestamped_segments = _run("align", lambda: self._execute_alignment(
-                    stage_plan, timestamped_segments, by_product_dir, results
-                ))
-                if flow:
-                    flow.record_text("align", timestamped_segments)
-                _check_cancel()
-
-            # === TRANSLATION ===
-            if plan.translation.enabled or (not flow and plan.translation.common_options.get("reuse_only")):
-                _check_cancel()
-                current_step += 1
-                _report("translate", f"[{current_step}/{total_steps}] 文本翻译...")
-                if flow:
-                    timestamped_segments = flow.text("translate")
-                translations = _run("translate", lambda: self._execute_translation(
-                    plan, timestamped_segments, by_product_dir, results
-                ))
-                if not results["step_errors"].get("translate"):
-                    self._attach_translations(timestamped_segments, translations, plan.target_lang)
-                if flow:
-                    flow.record_text("translate", [{"start": s["start"], "end": s["end"], "text": t,
-                        "original": s["text"]} for s, t in zip(timestamped_segments, translations, strict=True)])
-
-            # === TTS ===
-            if plan.tts.enabled:
-                _check_cancel()
-                if results["step_errors"].get("translate"):
-                    raise RuntimeError(f"translate 阶段失败: {results['step_errors']['translate']}")
-                current_step += 1
-                _report("tts", f"[{current_step}/{total_steps}] TTS 语音合成...")
-                stage_plan = plan
-                if flow:
-                    timestamped_segments = flow.text("tts")
-                    stage_plan = replace(plan, tts=replace(plan.tts, common_options={
-                        **plan.tts.common_options, "reference_duration": flow.duration("tts"),
-                    }))
-                tts_audio_path = _run("tts", lambda: self._execute_tts(
-                    stage_plan, timestamped_segments, by_product_dir, results,
-                    cancel_check=lambda: bool((cancel_event or self._cancel_event) and (cancel_event or self._cancel_event).is_set()),
-                ))
-
-                if flow:
-                    flow.outputs["tts"] = tts_audio_path
-
-            # === MIX ===
-            if plan.mix.enabled:
-                _check_cancel()
-                current_step += 1
-                _report("mix", f"[{current_step}/{total_steps}] 混合音频...")
-                mix_audio = flow.audio("mix") if flow else vocal_path
-                speech_audio = flow.audio("mix", "speech") if flow else tts_audio_path
-                _run("mix", lambda: self._execute_mix(plan, mix_audio, speech_audio, mix_path, results))
-                if flow:
-                    flow.outputs["mix"] = mix_path
-
-            # === SUBTITLE EXPORT ===
-            if plan.subtitle.enabled:
-                _check_cancel()
-                current_step += 1
-                _report("export", f"[{current_step}/{total_steps}] 导出字幕...")
-                export_plan = plan
-                if flow:
-                    timestamped_segments = flow.text("export")
-                    has_original = all(s.get("original") for s in timestamped_segments)
-                    translations = [s["text"] for s in timestamped_segments] if has_original else []
-                    if has_original:
-                        timestamped_segments = [{**s, "text": s["original"]} for s in timestamped_segments]
-                    export_plan = replace(plan, source_lang=plan.workflow["languages"]["export"])
-                exported_subtitle = _run("export", lambda: self._export_subtitles(
-                    export_plan, timestamped_segments, translations, by_product_dir
-                ))
-                if flow and not exported_subtitle:
-                    raise ValueError("字幕导出未产生有效文件")
-                if exported_subtitle:
-                    results["exported_subtitle"] = exported_subtitle
-
-        except Exception as e:
-            results["error"] = str(e)
-            if not isinstance(e, RuntimeError) or "取消" not in str(e):
-                _report("error", f"[ERROR] 流水线异常: {e}")
-            raise
-        finally:
-            results["total_duration"] = time.perf_counter() - t0
-            results["mix_path"] = str(mix_path) if plan.mix.enabled and mix_path.exists() else None
-            results["primary_output"] = (
-                results["mix_path"]
-                or (results.get("tts_audio_path") if results.get("direct_subtitle_tts") else None)
-                or results.get("exported_subtitle")
-            )
-
-        if flow:
-            self._select_workflow_outputs(plan, results)
-        return results
-
-    @staticmethod
-    def _select_workflow_outputs(plan, results):
-        definitions = {
-            "separate": (results.get("vocal_path"), "audio.vocals", "audio", "分离人声"),
-            "asr": (results.get("transcript_path"), "text.transcript", "text", "识别文本"),
-            "align": (results.get("aligned_subtitle_path"), "subtitle.aligned", "subtitle", "校准字幕"),
-            "translate": (results["steps"].get("translate", {}).get("output"), "text.translation", "text", "翻译文本"),
-            "tts": (results.get("tts_audio_path"), "audio.tts", "audio", "配音音轨"),
-            "mix": (results.get("mix_path"), "audio.mix", "audio", "混音音频"),
-            "export": (results.get("exported_subtitle"), f"subtitle.{plan.subtitle.export_format}", "subtitle", "导出字幕"),
-        }
-        outputs = []
-        for stage in plan.workflow["outputs"]:
-            path, kind, preview, label = definitions[stage]
-            if not path or not Path(path).is_file():
-                raise ValueError(f"所选产出 {stage} 未生成，任务不能标记为完成")
-            outputs.append({"stage": stage, "path": path, "type": kind, "preview": preview, "label": label})
-        results["workflow_outputs"] = outputs
-        results["primary_output"] = outputs[0]["path"]
-        # Only selected deliverables are advertised; intermediates stay on disk for recovery.
-        if "mix" not in plan.workflow["outputs"]:
-            results["mix_path"] = None
-        if "export" not in plan.workflow["outputs"]:
-            results["exported_subtitle"] = None
-
-    # ------------------------------------------------------------------
-    # Stage implementations
-    # ------------------------------------------------------------------
+        """Retained for old callers so an implicit run fails before touching any engine."""
+        raise ValueError("V1 隐式流水线已退役，请提交含明确输入和输出的 V2 节点图")
 
     def _execute_separation(
         self,
@@ -402,16 +163,25 @@ class PipelineExecutor:
         t1 = time.time()
         try:
             separator = self._separator or SeparatorEngineRuntime()
+            request_background = bool(plan.workflow.get("graph_node")) and plan.separation.common_options.get(
+                "request_background", True,
+            )
             sep_results = separator.separate(
                 input_path=plan.input_path,
                 output_dir=str(by_product_dir),
                 model=plan.separation.model,
-                stems=["vocals"],
+                stems=["vocals", "no_vocals"] if request_background else ["vocals"],
+                **({"provider_options": plan.separation.provider_options}
+                   if plan.separation.provider_options else {}),
             )
             vocals = sep_results.get("vocals")
             if not vocals:
                 raise ValueError("人声分离未返回 vocals 路径")
             vocal_path = Path(vocals)
+            if request_background:
+                background = sep_results.get("no_vocals")
+                if background:
+                    results["background_path"] = str(background)
             results["steps"]["vocal_separator"] = {
                 "duration": time.time() - t1, "output": str(vocal_path)
             }
@@ -438,13 +208,6 @@ class PipelineExecutor:
         from src.core.engines.asr import AsrEngineRuntime
 
         asr_text_path = by_product_dir / "asr_result.txt"
-        companion = self._load_source_companion(plan, results)
-        if companion:
-            asr_text_path.write_text("\n".join(entry["text"] for entry in companion), encoding="utf-8")
-            results["transcript_path"] = str(asr_text_path)
-            results["steps"]["asr"] = {"duration": 0.0, "segments": len(companion),
-                                       "output": str(asr_text_path), "reused_subtitle": plan.companion_subtitle_path}
-            return companion
         t1 = time.time()
         try:
             recognizer = self._asr or AsrEngineRuntime()
@@ -479,42 +242,10 @@ class PipelineExecutor:
 
         return segments
 
-    @staticmethod
-    def _load_source_companion(plan, results):
-        from src.core.subtitles.companions import inspect_subtitle, is_source_subtitle
-        if not plan.companion_subtitle_path or Path(plan.companion_subtitle_path).suffix.lower() == ".txt":
-            return []
-        inspection = inspect_subtitle(plan.companion_subtitle_path)
-        results["companion_subtitle"] = {key: value for key, value in inspection.items() if key != "segments"}
-        if not is_source_subtitle(inspection, plan.source_lang):
-            results["companion_subtitle"]["reason"] = inspection["reason"] or "字幕与原音频语言不一致，保留 ASR 原文识别"
-            return []
-        try:
-            import soundfile as sf
-            duration = sf.info(plan.input_path).duration
-            if any(float(entry["end"]) > duration + 0.1 for entry in inspection["segments"]):
-                raise ValueError("字幕时间轴超出音频范围")
-        except (OSError, RuntimeError, ValueError) as exc:
-            results["companion_subtitle"]["reason"] = f"无法验证字幕时间轴：{exc}"
-            return []
-        results["companion_subtitle"]["reused"] = True
-        return inspection["segments"]
-
     def _execute_alignment(self, plan, segments, by_product_dir, results):
         from src.core.engines.alignment import AlignmentRuntime
         from src.core.subtitles import SubtitleExporter
 
-        if plan.companion_subtitle_path:
-            source = Path(plan.companion_subtitle_path)
-            if source.suffix.lower() == ".txt":
-                from src.core.subtitles.companions import conservative_text_language
-                from src.core.subtitles.text_utils import normalize_language_code
-                text = source.read_text(encoding="utf-8").strip()
-                language = conservative_text_language([text])
-                if language not in {"unknown", "mixed"} and language == normalize_language_code(plan.source_lang):
-                    segments = [{"text": text}]
-            else:
-                segments = self._load_source_companion(plan, results) or segments
         original = by_product_dir / "alignment_original.json"
         original.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
         started = time.time()
@@ -563,8 +294,9 @@ class PipelineExecutor:
                     plan.source_lang, plan.target_lang, plan.input_path)
                 cached = cached_translations(cache_path, timestamped_segments, plan.source_lang, plan.target_lang)
                 translations = [text or cached[i] for i, text in enumerate(translations)]
+            from src.core.engines.llm.translator import has_translatable_text
             pending = [i for i, text in enumerate(translations) if not text
-                       and str(timestamped_segments[i].get("text", "")).strip()]
+                       and has_translatable_text(str(timestamped_segments[i].get("text", "")))]
             reused = sum(bool(text) for text in translations)
             if pending and options.get("reuse_only"):
                 raise ValueError("已有译文无法完整匹配，缺失部分需要有效翻译连接；已停止配音，请检查字幕或配置翻译服务后重新提交")
@@ -581,6 +313,10 @@ class PipelineExecutor:
                     },
                     source_lang=plan.source_label,
                     target_lang=plan.target_label,
+                    **({"available_seconds": [
+                        float(timestamped_segments[i]["end"]) - float(timestamped_segments[i]["start"])
+                        for i in pending
+                    ]} if options.get("duration_aware") else {}),
                 )
                 if len(generated) != len(pending) or any(not isinstance(t, str) or not t.strip() for t in generated):
                     raise ValueError("翻译结果缺少条目或包含空译文，已停止配音以避免漏句")
@@ -655,6 +391,7 @@ class PipelineExecutor:
                     "original": seg.get("original", "") if plan.workflow else seg.get("text", ""),
                     "start_time": seg.get("start", 0),
                     "end_time": seg.get("end", seg.get("start", 0) + 5.0),
+                    **{key: seg[key] for key in ("delivery", "emotion", "source_rms_db", "auto_delivery") if key in seg},
                 })
 
             # Get reference duration from input
@@ -671,9 +408,20 @@ class PipelineExecutor:
             snapshot = plan.tts.provider_options.get("speech_snapshot")
             if not snapshot:
                 raise ValueError("缺少不可变配音配方快照，请从新工作台重新提交")
+            options = plan.tts.common_options
+            source = options.get("binaural_source_path")
+            if options.get("auto_detect_delivery") and source:
+                from src.core.asr.acoustic_profiler import annotate_delivery
+                voice_segments = annotate_delivery(source, voice_segments)
+            from src.core.speech.remake import REMAKE_KEYS
+            remake_options = {key: options[key] for key in REMAKE_KEYS if key in options}
             assembly = get_speech_service().synthesize_timeline(
                 snapshot, voice_segments, tts_audio_path, plan.task_id,
                 cancel_check=cancel_check, reference_duration=reference_duration,
+                **{key: options[key] for key in ("binaural_source_path", "borrow_silence_slack",
+                    "max_atempo", "acoustic_options") if key in options},
+                **({"remake_options": remake_options, "reference_language": plan.source_lang}
+                   if remake_options or "auto_clone_connection" in snapshot else {}),
             )
             results["speech_experiment_id"] = assembly["experiment_id"]
             results["speech_assembly_id"] = assembly["id"]
@@ -682,6 +430,7 @@ class PipelineExecutor:
                 "segments": len(voice_segments),
                 "output": str(tts_audio_path),
                 "engine": plan.tts.provider,
+                **({"warnings": assembly["warnings"]} if assembly.get("warnings") else {}),
             }
         except Exception as e:
             if plan.workflow.get("graph_node"):
@@ -740,6 +489,8 @@ class PipelineExecutor:
                 tts_path=str(tts_audio_path),
                 output_path=str(mix_path),
                 output_length=plan.mix.output_length,
+                **({"sidechain_ducking": True} if plan.mix.sidechain_ducking else {}),
+                **({"adjust_tts_volume": False} if not plan.mix.adjust_tts_volume else {}),
             )
             results["steps"]["mixer"] = {
                 "duration": time.time() - t1, "output": str(mix_path),
@@ -760,6 +511,8 @@ class PipelineExecutor:
                     "original_volume": plan.mix.original_volume, "tts_volume_ratio": plan.mix.tts_volume_ratio,
                     "tts_delay_ms": plan.mix.tts_delay_ms,
                     "output_length": plan.mix.output_length,
+                    **({"sidechain_ducking": True} if plan.mix.sidechain_ducking else {}),
+                    **({"adjust_tts_volume": False} if not plan.mix.adjust_tts_volume else {}),
                 })
             except Exception as exc:
                 warning = "混音音频已生成，但附加实验记录保存失败；音频结果仍可使用。"
@@ -845,24 +598,3 @@ class PipelineExecutor:
                 torch.cuda.empty_cache()
         except ImportError:
             pass
-
-    @staticmethod
-    def _resolve_output_paths(plan: PipelineExecutionPlan) -> tuple[Path, Path]:
-        """Mirror legacy PathPlanner output semantics for new executor runs."""
-        input_path = Path(plan.input_path)
-        task_name = input_path.stem
-        input_ext = ".wav" if plan.workflow else input_path.suffix or ".wav"
-
-        if plan.output_mode == "batch" and plan.batch_root_dir:
-            root_dir = Path(plan.batch_root_dir)
-            main_product_dir = root_dir / "Main_Product"
-            by_product_dir = root_dir / "BY_Product" / f"{task_name}_by"
-        else:
-            base_dir = Path(plan.output_dir) if plan.output_dir else input_path.parent / f"{task_name}_output"
-            main_product_dir = base_dir
-            by_product_dir = base_dir / "BY_Product"
-
-        main_product_dir.mkdir(parents=True, exist_ok=True)
-        by_product_dir.mkdir(parents=True, exist_ok=True)
-        mix_path = main_product_dir / f"{task_name}_mix{input_ext}"
-        return mix_path, by_product_dir

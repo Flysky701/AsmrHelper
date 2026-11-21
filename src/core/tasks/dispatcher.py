@@ -390,8 +390,14 @@ class TaskDispatcher:
             detail = str(result.get("primary_output") or result.get("detail") or "")
             artifact_set_id = result.get("artifact_set_id")
             return detail, str(artifact_set_id) if artifact_set_id else None
-        detail = str(getattr(result, "mix_path", "") or getattr(result, "primary_output", "") or "")
-        return detail, task_id if getattr(result, "artifacts", None) else None
+        artifacts = getattr(result, "artifacts", None)
+        detail = str(
+            getattr(artifacts, "primary_output", "")
+            or getattr(result, "primary_output", "")
+            or getattr(result, "mix_path", "")
+            or ""
+        )
+        return detail, task_id if artifacts else None
 
     def _get_next_pending(self) -> TaskSpec | None:
         pending = self._lifecycle().list_tasks(state="pending")

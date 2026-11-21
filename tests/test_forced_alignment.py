@@ -6,17 +6,6 @@ import pytest
 import soundfile as sf
 
 from src.core.engines.alignment import AlignmentRuntime, alignment_windows
-from src.core.orchestration.pipeline.executor import PipelineExecutor
-from src.core.orchestration.pipeline.models import PipelineExecutionPlan, StageKind
-from src.api.http.schemas.pipeline_runs import PipelineStagesRequest
-
-
-def test_defaults_are_opt_in():
-    plan = PipelineExecutionPlan(task_id="test", input_path="a", output_dir="b")
-    assert StageKind.ALIGN not in plan.active_stage_kinds
-    assert not PipelineStagesRequest().align.enabled
-    plan.alignment.enabled = True
-    assert plan.active_stage_kinds.index(StageKind.ALIGN) == plan.active_stage_kinds.index(StageKind.ASR) + 1
 
 
 def test_long_script_requires_real_anchors():
@@ -51,34 +40,6 @@ def test_missing_model_never_downloads(monkeypatch, tmp_path):
         AlignmentRuntime._load_model()
 
 
-def test_pipeline_alignment_preserves_original_and_exports(tmp_path):
-    plan = PipelineExecutionPlan(task_id="test", input_path=str(tmp_path / "input.wav"), output_dir=str(tmp_path / "out"))
-    plan.separation.enabled = plan.translation.enabled = plan.tts.enabled = plan.mix.enabled = False
-    plan.alignment.enabled = True
-    asr, aligner = Mock(), Mock()
-    asr.transcribe_file.return_value = SimpleNamespace(segments=[SimpleNamespace(start=0, end=2, text="hello")])
-    aligner.align_file.return_value = dict(segments=[dict(start=.5, end=1.5, text="hello")], words=[], warnings=[])
-    stages = []
-    result = PipelineExecutor(asr=asr, aligner=aligner).execute(plan, stage_callback=lambda stage, *_: stages.append(stage))
-    assert stages == ["asr", "align", "export"]
-    from pathlib import Path
-    import json
-    assert json.loads(Path(result["alignment_original_path"]).read_text())[0]["start"] == 0
-    assert "00:00:00.500" in Path(result["aligned_subtitle_path"]).read_text()
-    assert aligner.align_file.call_args.kwargs["input_path"] == plan.input_path
-
-
-def test_alignment_failure_stops_downstream(tmp_path):
-    plan = PipelineExecutionPlan(task_id="test", input_path="input.wav", output_dir=str(tmp_path))
-    plan.separation.enabled = plan.asr.enabled = False
-    plan.alignment.enabled = True
-    aligner, llm = Mock(), Mock()
-    aligner.align_file.side_effect = RuntimeError("missing model")
-    with pytest.raises(RuntimeError, match="missing model"):
-        PipelineExecutor(aligner=aligner, llm=llm).execute(plan)
-    llm.translate_texts.assert_not_called()
-
-
 @pytest.mark.parametrize("start,end", [(float("nan"), 2), (2, 1), (-1, 2), (1, 5)])
 def test_model_invalid_timestamps_are_rejected(tmp_path, start, end):
     source = tmp_path / "audio.wav"
@@ -87,17 +48,6 @@ def test_model_invalid_timestamps_are_rejected(tmp_path, start, end):
     model.align.return_value = [SimpleNamespace(items=[SimpleNamespace(text="hello", start_time=start, end_time=end)])]
     with pytest.raises(ValueError, match="无效时间戳"):
         AlignmentRuntime(local=True, model=model).align_file(input_path=str(source), segments=[dict(text="hello")], language="en")
-
-
-def test_readiness_reports_alignment_resource(tmp_path):
-    from src.app.services.resource_service import ResourceService
-    models = Mock()
-    models.list_models.return_value = []
-    models.get_model_status.return_value = SimpleNamespace(executable=False, detail="aligner missing")
-    service = ResourceService(tmp_path, model_service=models, descriptor_service=Mock())
-    issues = service._check_pipeline_profile({"stages": {"align": {
-        "enabled": True, "provider": "qwen3_forced_aligner", "model": "qwen3-forced-aligner-0.6b"}}})
-    assert any(issue["stage"] == "align" and issue["requirement"] == "qwen3-forced-aligner-0.6b" for issue in issues)
 
 
 def test_worker_routes_alignment_without_loading_asr(monkeypatch):

@@ -1,5 +1,6 @@
 """Stage recovery facts survive restart and never trust partial artifacts."""
 from pathlib import Path
+import os
 import sqlite3
 
 import pytest
@@ -137,8 +138,10 @@ def test_restart_retains_recoverable_tasks_and_preserves_terminal_history(stores
 def test_file_identity_hashes_content_and_fingerprint_ignores_mapping_order(tmp_path):
     output = tmp_path / "audio"
     output.write_bytes(b"abcdef")
+    original = output.stat()
     before = file_identity(output)
     output.write_bytes(b"fedcba")
+    os.utime(output, ns=(original.st_atime_ns, original.st_mtime_ns))
     after = file_identity(output)
     assert before["size"] == after["size"]
     assert before["sha256"] != after["sha256"]

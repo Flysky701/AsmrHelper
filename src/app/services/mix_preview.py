@@ -32,15 +32,6 @@ def resolve_mix_sources(task_id, tasks, artifacts, inputs):
     return str(original), str(source), str(speech)
 
 
-def _rms(path):
-    total = 0.0
-    count = 0
-    for block in sf.blocks(path, blocksize=262144, dtype="float64"):
-        total += float(np.sum(np.square(block)))
-        count += block.size
-    return float(np.sqrt(total / count)) if count else 0.0
-
-
 def _ffmpeg(*args):
     result = subprocess.run([get_ffmpeg(), "-nostdin", "-v", "error", *args],
                             capture_output=True, timeout=90)
@@ -55,23 +46,24 @@ def render_mix_preview(source, speech, *, original_volume, tts_volume_ratio, tts
     if start_seconds >= duration:
         raise AppValidationError("试听起点超出音频时长")
     # Once the non-padded TTS track and amix's 2 s dropout transition have ended,
-    # production mixing has only the original input. Keeping silent TTS would halve it.
+    # production mixing has only the original input.
     if tts_delay >= 0 and start_seconds >= sf.info(speech).duration + tts_delay + 2:
         return _ffmpeg("-ss", str(start_seconds), "-i", source, "-t", "15",
-                       "-af", f"volume={original_volume}", "-ar", "44100", "-ac", "2",
+                       "-af", f"volume={original_volume}", "-ar", str(source_info.samplerate), "-ac", "2",
                        "-c:a", "pcm_s16le", "-f", "wav", "pipe:1")
     # Keep overlap before/after the requested window so both delay signs remain correct.
     clip_start = max(0.0, start_seconds - abs(tts_delay) - 3.0)
     # Align the input window to decoder blocks to retain amix dropout timing.
     clip_start = int(clip_start * source_info.samplerate / 4096) * 4096 / source_info.samplerate
     clip_duration = start_seconds - clip_start + 15.0 + abs(tts_delay) + 3.0
-    global_levels = [_rms(source), _rms(speech)]
+    level_probe = Mixer(original_volume, tts_volume_ratio, tts_delay * 1000)
+    global_levels = [level_probe.detect_volume(source), level_probe.detect_volume(speech)]
     with TemporaryDirectory(prefix="asmr-mix-preview-") as directory:
         clips = [str(Path(directory) / name) for name in ("original.wav", "speech.wav")]
         for path, output in zip((source, speech), clips, strict=True):
             # An exhausted TTS track is represented as silence, never a new synthesis.
             if clip_start >= sf.info(path).duration:
-                sf.write(output, np.zeros((int(clip_duration * 44100), 2)), 44100, subtype="FLOAT")
+                sf.write(output, np.zeros((int(clip_duration * source_info.samplerate), 2)), source_info.samplerate, subtype="FLOAT")
             else:
                 _ffmpeg("-ss", str(clip_start), "-i", path, "-t", str(clip_duration),
                         "-c:a", "pcm_f32le", "-y", output)

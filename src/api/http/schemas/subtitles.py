@@ -123,12 +123,16 @@ class ScriptToSubtitleRequest(BaseModel):
     audio_path: str | None = Field(None, description="Optional audio file for alignment")
     vtt_path: str | None = Field(None, description="Existing VTT file for re-alignment")
     fmt: str = Field("vtt", description="Output format (vtt/srt/lrc)")
-    use_llm_clean: bool = Field(True, description="Use LLM to clean script text")
+    use_llm_clean: bool = Field(False, description="Use LLM to clean script text")
     asr_model_size: str = Field("large-v3", description="ASR model size")
     asr_language: str = Field("ja", description="Audio language")
-    track_index: int | None = Field(None, description="Audio track index")
+    track_index: int | None = Field(None, description="Script chapter index (zero-based)")
     vertical_mode: str = Field("auto", description="Vertical text mode (auto/horizontal/vertical)")
     debug_dir: str | None = Field(None, description="Debug output directory")
+    confirmed_text: str | None = None
+    fingerprint: str | None = None
+    use_llm_match: bool = False
+    reference_confirmed: bool = False
 
 
 class ScriptToSubtitleResponse(BaseModel):

@@ -33,6 +33,31 @@ def put_weights(path):
     (path / 'model.bin').write_bytes(b'weights')
 
 
+def test_worker_install_resolves_primary_and_supplemental_files(entry, monkeypatch):
+    from io import BytesIO
+    import urllib.request
+
+    model = replace(entry, preferred_runtime='gpu_worker', install_strategy='release_files',
+                    required_files=['encoder/model.bin', 'vocoder/config.json'],
+                    download_sources=[{'endpoint': 'https://primary.example/release'},
+                                      {'directory': 'vocoder', 'endpoint': 'https://extra.example/weights'}])
+    seen = []
+    def response(url, timeout):
+        seen.append(url)
+        result = BytesIO(b'fixture')
+        result.headers = {'Content-Length': '7'}
+        return result
+    monkeypatch.setattr(urllib.request, 'urlopen', response)
+    installer = ModelInstaller()
+    assert installer.install_with_progress(model)
+    assert seen == ['https://primary.example/release/encoder/model.bin', 'https://extra.example/weights/config.json']
+    seen.clear()
+    assert installer.install_local_model(model)
+    assert not seen
+    status = ModelStatusResolver().resolve(model)
+    assert status.weights_ready and not status.executable
+
+
 def test_reference_persists_without_runtime_and_unlink_preserves_files(entry, tmp_path, monkeypatch):
     shared = tmp_path / 'old-models'
     put_weights(shared / entry.install_path)

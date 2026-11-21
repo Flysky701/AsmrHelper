@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from src.core.batches import BatchRunItem, BatchRunRecord
 
-from .pipeline_runs import PipelineExecutionProfileRequest, PipelineOutputRequest
+from .pipeline_runs import PipelineOutputRequest
 from .workflow_graph import GraphDefinitionRequest, GraphMaterialBindingRequest
 
 
@@ -77,29 +77,16 @@ class BatchRunCreateRequest(BaseModel):
     groups: list[BatchRunGroupRequest] = Field(default_factory=list, max_length=500)
     client_request_id: str | None = Field(None, min_length=1, max_length=100)
     output: PipelineOutputRequest = Field(default_factory=PipelineOutputRequest)
-    execution_profile: Annotated[PipelineExecutionProfileRequest | BatchGraphProfileRequest,
-                                 Field(discriminator="version")] = Field(
-        default_factory=PipelineExecutionProfileRequest
-    )
+    execution_profile: BatchGraphProfileRequest
     max_parallel: int = Field(1, ge=1, le=4)
-
-    @field_validator("execution_profile", mode="before")
-    @classmethod
-    def legacy_version_default(cls, value):
-        if isinstance(value, dict) and "version" not in value and "graph" not in value:
-            return {"version": 1, **value}
-        return value
 
     @model_validator(mode="after")
     def validate_batch_shape(self):
-        if self.execution_profile.version == 2:
-            if not self.groups or self.inputs:
-                raise ValueError("graph batches require explicit groups and no legacy inputs")
-            ids = [group.group_id for group in self.groups]
-            if len(set(ids)) != len(ids):
-                raise ValueError("group_id must be unique within the batch")
-        elif not self.inputs or self.groups:
-            raise ValueError("version 1 batches require inputs and no graph groups")
+        if not self.groups or self.inputs:
+            raise ValueError("graph batches require explicit groups and no legacy inputs")
+        ids = [group.group_id for group in self.groups]
+        if len(set(ids)) != len(ids):
+            raise ValueError("group_id must be unique within the batch")
         return self
 
 

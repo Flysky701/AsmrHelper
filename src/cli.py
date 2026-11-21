@@ -112,7 +112,7 @@ def _emit_pipeline_result(result: Any, task_result: dict[str, Any]) -> None:
 
 
 @click.group()
-@click.version_option(version="1.0.1")
+@click.version_option(version="1.1.0")
 def cli():
     """ASMR Helper CLI."""
     pass
@@ -189,8 +189,13 @@ def pipeline_run(
 def pipeline_presets():
     """Show available pipeline presets."""
     click.echo("Available presets:\n")
-    for name, desc in _run_app_command(get_pipeline_service().list_presets).items():
-        click.echo(f"  {name:20s} - {desc}")
+    presets = _run_app_command(get_pipeline_service().list_presets)
+    items = presets.items() if isinstance(presets, dict) else (
+        (item.get("id") or item.get("name", ""), item.get("description") or item.get("name", ""))
+        for item in presets
+    )
+    for name, desc in items:
+        click.echo(f"  {str(name):20s} - {desc}")
 
 
 @cli.command(name="asr")

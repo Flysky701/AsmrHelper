@@ -1,0 +1,54 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import test from 'node:test'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import ts from 'typescript'
+
+const require = createRequire(import.meta.url)
+const i18n = { t: value => value, useI18n: () => value => value, format: (source, values) => source.replace(/\{(\d+)\}/g, (_, i) => String(values[Number(i)])) }
+function load(relative, overrides = {}) {
+  const source = readFileSync(new URL(relative, import.meta.url), 'utf8')
+  const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } })
+  const module = { exports: {} }
+  new Function('require', 'module', 'exports', outputText)(name => overrides[name] ?? (name === './HelpMarkdown' ? { default: () => null } : name === '@/i18n' ? i18n : name.endsWith('?raw') ? 'Fixture guide and subtitle' : name.endsWith('.css') ? {} : require(name)), module, module.exports)
+  return module.exports
+}
+
+test('page help is a collapsed, keyboard-accessible question button by default', () => {
+  const QuickStartHelp = load('../src/components/QuickStartHelp.tsx', {
+    '@/domain/pageHelp': { PAGE_HELP: { workbench: { title: '工作台', document: '', steps: [] } }, resolveHelpDocument: () => null },
+    '@/stores/pageHelpStore': { usePageHelpStore: selector => selector({ openTopic: null, toggle() {}, dismiss() {} }) },
+  }).default
+  const html = renderToStaticMarkup(React.createElement(QuickStartHelp))
+  assert.match(html, /<button/)
+  assert.match(html, /aria-label="本页帮助"/)
+  assert.match(html, /aria-expanded="false"/)
+  assert.doesNotMatch(html, /<aside|<details/)
+})
+
+test('help opens only on explicit toggle, repeated toggles close, and stale page cleanup cannot close another topic', () => {
+  const { usePageHelpStore } = load('../src/stores/pageHelpStore.ts')
+  assert.equal(usePageHelpStore.getState().openTopic, null)
+  usePageHelpStore.getState().toggle('workbench')
+  assert.equal(usePageHelpStore.getState().openTopic, 'workbench')
+  usePageHelpStore.getState().toggle('workbench')
+  assert.equal(usePageHelpStore.getState().openTopic, null)
+  usePageHelpStore.getState().toggle('connections')
+  usePageHelpStore.getState().dismiss('workbench')
+  assert.equal(usePageHelpStore.getState().openTopic, 'connections')
+  usePageHelpStore.getState().dismiss('connections')
+  assert.equal(usePageHelpStore.getState().openTopic, null)
+})
+
+test('all help copy has English translations without translating public URLs or sample data', () => {
+  const { PAGE_HELP } = load('../src/domain/pageHelp.ts')
+  const { helpMessages } = load('../src/locales/help.ts')
+  for (const help of Object.values(PAGE_HELP)) {
+    for (const text of [help.title, ...help.steps.flatMap(step => [step.title, step.detail])]) {
+      assert.ok(helpMessages[text], `Missing translation: ${text}`)
+      assert.doesNotMatch(helpMessages[text], /[\u3400-\u9fff]/)
+    }
+  }
+})

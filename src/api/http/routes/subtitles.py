@@ -6,7 +6,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends
 
-from src.api.http.dependencies import artifact_service, script_subtitle_service, subtitle_service
+from src.api.http.dependencies import (
+    artifact_service,
+    script_subtitle_service,
+    subtitle_service,
+)
 from src.api.http.schemas.subtitles import (
     ScriptToSubtitleRequest,
     ScriptToSubtitleResponse,
@@ -36,7 +40,9 @@ router = APIRouter(prefix="/subtitles", tags=["subtitles"])
 def _document_from_app(document: SubtitleDocument) -> SubtitleDocumentModel:
     return SubtitleDocumentModel(
         segments=[
-            SubtitleSegmentModel(start=segment.start, end=segment.end, text=segment.text)
+            SubtitleSegmentModel(
+                start=segment.start, end=segment.end, text=segment.text
+            )
             for segment in document.segments
         ]
     )
@@ -112,7 +118,10 @@ def translate_subtitle(
             preview_kind="subtitle",
             stage="translate_subtitle",
             is_primary=True,
-            metadata={"segment_count": result.total_segments, "provider": result.provider},
+            metadata={
+                "segment_count": result.total_segments,
+                "provider": result.provider,
+            },
         )
     return SubtitleTranslateResponse(
         output_path=result.output_path,
@@ -206,8 +215,13 @@ def script_to_subtitle(
         track_index=body.track_index,
         vertical_mode=body.vertical_mode,
         debug_dir=body.debug_dir,
+        confirmed_text=body.confirmed_text,
+        fingerprint=body.fingerprint,
+        use_llm_match=body.use_llm_match,
+        reference_confirmed=body.reference_confirmed,
     )
 
+    svc.validate_confirmed_request(request)
     if body.vtt_path:
         result = svc.run_from_existing_vtt(request)
     elif body.audio_path:
@@ -237,7 +251,9 @@ def script_to_subtitle(
     )
 
 
-@router.post("/script-to-subtitle/tasks", response_model=TaskStatusResponse, status_code=201)
+@router.post(
+    "/script-to-subtitle/tasks", response_model=TaskStatusResponse, status_code=201
+)
 def create_script_to_subtitle_task(
     body: ScriptToSubtitleRequest,
     svc: ScriptSubtitleService = Depends(script_subtitle_service),
@@ -254,5 +270,31 @@ def create_script_to_subtitle_task(
         track_index=body.track_index,
         vertical_mode=body.vertical_mode,
         debug_dir=body.debug_dir,
+        confirmed_text=body.confirmed_text,
+        fingerprint=body.fingerprint,
+        use_llm_match=body.use_llm_match,
+        reference_confirmed=body.reference_confirmed,
     )
     return TaskStatusResponse.from_task_status(svc.create_task(request))
+
+
+@router.post("/script-preview")
+def preview_script(
+    body: ScriptToSubtitleRequest,
+    svc: ScriptSubtitleService = Depends(script_subtitle_service),
+):
+    return svc.preview(
+        ScriptSubtitleRequest(
+            script_path=body.script_path,
+            track_index=body.track_index,
+            vertical_mode=body.vertical_mode,
+            use_llm_clean=body.use_llm_clean,
+        )
+    )
+
+
+@router.get("/script-to-subtitle/tasks/{task_id}/review")
+def script_review(
+    task_id: str, svc: ScriptSubtitleService = Depends(script_subtitle_service)
+):
+    return {"review": svc.review(task_id)}

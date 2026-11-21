@@ -101,6 +101,9 @@ def _build_mix(profile: dict[str, Any], pipeline_opts: dict[str, Any], *, enable
         tts_volume_ratio=float(mix_options.get("tts_volume_ratio", pipeline_opts.get("tts_volume_ratio", 0.5))),
         tts_delay_ms=tts_delay_ms,
         output_length=output_length,
+        sidechain_ducking=mix_options.get("sidechain_ducking", False),
+        adjust_tts_volume=mix_options.get("adjust_tts_volume", True),
+        room_tone_inpaint=mix_options.get("room_tone_inpaint", False),
     )
 
 
