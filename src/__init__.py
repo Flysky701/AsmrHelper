@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from importlib import import_module
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     "ASRRecognizer",
