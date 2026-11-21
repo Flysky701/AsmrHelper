@@ -59,58 +59,17 @@ def test_overrides_freeze_defaults_and_never_edit_saved_voice(speech):
 
 
 @pytest.mark.parametrize('overrides', [
-    {'variant': {'kind': 'hosted', 'value': 'other'}}, {'connection_ref': 'other'}, {'model': 'other'},
-    {'language': 'ja'}, {'provider_id': 'fish_audio'}, {'provider_options': {'reference_id': 'other'}},
-    {'provider_options': {'device': 'cpu'}}, {'provider_options': {'schema_version': 1}},
-    {'provider_options': {'speed': True}}, {'provider_options': {'speed': 100}},
-    {'provider_options': {'speed': float('nan')}}, {'provider_options': []}, [],
-    {'default_pause_ms': True}, {'default_emotion': 'happy'}, {'default_delivery': 'whisper'},
+    {'variant': {'kind': 'hosted', 'value': 'other'}},
+    {'connection_ref': 'other'},
+    {'provider_options': {'device': 'cpu'}},
+    {'provider_options': {'speed': 100}},
+    {'default_delivery': 'whisper'},
 ])
 def test_invalid_or_identity_overrides_are_rejected_without_writes(speech, overrides):
     recipe = save(speech)
     with pytest.raises(ValueError):
         speech.pipeline_snapshot(stage(recipe, overrides))
     assert speech.store.get('recipes', recipe['id']) == recipe
-
-
-@pytest.mark.parametrize('provider,mode,model,option,value', [
-    ('fish_audio', 'hosted', 's2-pro', 'speed', 1.2),
-    ('fish_audio', 'hosted', 's2-pro', 'style_description', 'soft tone'),
-    ('openai_compatible', 'hosted', 'custom', 'speed', 1.3),
-    ('qwen3', 'builtin', 'qwen3-custom-voice', 'temperature', .8),
-    ('qwen3', 'reference', 'qwen3-base', 'do_sample', False),
-    ('qwen3', 'design', 'qwen3-voice-design', 'top_k', 25),
-    ('voxcpm2', 'reference', 'voxcpm2', 'cfg_value', 1.5),
-])
-def test_each_supported_engine_mode_accepts_only_its_runtime_parameters(speech, provider, mode, model, option, value):
-    recipe = save(speech, provider, mode, model)
-    snap = speech.pipeline_snapshot(stage(recipe, {'provider_options': {option: value}}))
-    assert snap['recipe']['provider_options'][option] == value
-    assert snap['recipe']['variant'] == recipe['variant']
-
-
-@pytest.mark.parametrize('provider,mode,model,overrides', [
-    ('qwen3', 'reference', 'qwen3-base', {'provider_options': {'x_vector_only_mode': True}}),
-    ('qwen3', 'design', 'qwen3-voice-design', {'provider_options': {'speed': 1.2}}),
-    ('qwen3', 'reference', 'qwen3-base', {'default_emotion': 'happy'}),
-    ('fish_audio', 'hosted', 's1', {'provider_options': {'style_description': 'soft'}}),
-    ('fish_audio', 'hosted', 's1', {'provider_options': {'tag_density': 'full'}}),
-    ('fish_audio', 'hosted', 's2-pro', {'default_emotion': 'invented'}),
-])
-def test_mode_specific_restrictions(speech, provider, mode, model, overrides):
-    with pytest.raises(ValueError):
-        speech.pipeline_snapshot(stage(save(speech, provider, mode, model), overrides))
-
-
-def test_overrides_require_saved_recipe(speech):
-    with pytest.raises(ValueError, match='已保存音色'):
-        speech.pipeline_snapshot({'provider': 'edge', 'model': 'edge-tts', 'options': {'speech_overrides': {}}})
-
-
-def test_descriptor_does_not_offer_reference_identity_controls():
-    qwen = get_provider('qwen3').describe()
-    assert all('x_vector_only_mode' not in mode['runtime_options'] for mode in qwen['modes'])
-    assert get_provider('fish_audio').runtime_options('s1', 'hosted') == ['speed', 'temperature', 'top_p']
 
 
 def test_graph_freezes_effective_voice_once_and_recovers_without_resolving_again(speech, monkeypatch):

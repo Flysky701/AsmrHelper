@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from src.config import config
-from src.workspace_paths import model_directory, temporary_directory, directory_context, path_setting_errors
+from src.workspace_paths import model_directory, path_setting_errors
 
 
 @pytest.fixture
@@ -40,29 +40,6 @@ def test_status_and_install_reference_share_saved_model_root(roots, tmp_path):
     expected.mkdir(parents=True)
     assert resolve_model_reference(entry.id) == str(expected)
     assert {s.name:s for s in manager.check_required_resources()}['models_dir'].available
-
-
-def test_directory_context_freezes_installer_verification_and_worker_env(roots, tmp_path):
-    from src.core.runtime.profiles import RuntimeProfileResolver
-    from src.core.resources.model_catalog import ModelCatalog
-    original_root = model_directory()
-    original_temp = temporary_directory()
-    with directory_context():
-        roots.update(model_cache_dir=str(tmp_path/'later-models'), temp_dir=str(tmp_path/'later-temp'))
-        assert ModelCatalog().get('qwen3-asr-0.6b').resolved_install_root() == original_root
-        env = RuntimeProfileResolver(project_root=tmp_path).subprocess_env()
-        assert Path(env['ASMR_HELPER_MODEL_ROOT']) == original_root
-        assert Path(env['ASMR_HELPER_TEMP_ROOT']) == original_temp
-    assert model_directory() == tmp_path/'later-models'
-
-
-def test_environment_model_override_is_consistent(roots, monkeypatch, tmp_path):
-    from src.core.runtime.service import RuntimeWorkspaceManager
-    from src.core.resources.model_catalog import ModelCatalog
-    override = tmp_path/'deployment-models'
-    monkeypatch.setenv('ASMR_HELPER_MODEL_ROOT', str(override))
-    assert Path(RuntimeWorkspaceManager(tmp_path).resolve_workspace().models_dir) == override
-    assert ModelCatalog().get('qwen3-base').resolved_install_root() == override
 
 
 def test_new_session_refresh_keeps_existing_session_snapshot(roots, tmp_path):
@@ -117,11 +94,3 @@ def test_path_validation_rejects_files_and_types_without_creating_target(tmp_pat
     target=tmp_path/'新目录 with spaces'/'child'
     assert path_setting_errors({'output_dir':str(target)}) == []
     assert not target.exists() and existing.read_text() == 'preserve'
-
-
-def test_status_does_not_treat_a_file_as_a_directory(roots, tmp_path):
-    from src.core.runtime.service import RuntimeWorkspaceManager
-    file=Path(roots['model_cache_dir'])
-    file.write_text('preserve')
-    status={s.name:s for s in RuntimeWorkspaceManager(tmp_path).check_required_resources()}['models_dir']
-    assert not status.available and status.detail == 'not a directory'

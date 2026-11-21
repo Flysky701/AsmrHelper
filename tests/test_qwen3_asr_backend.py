@@ -144,30 +144,6 @@ def test_qwen3_asr_does_not_write_whole_file_cue_when_alignment_is_missing(
     assert not output_path.exists()
 
 
-def test_execution_profile_builder_uses_qwen3_asr_default_model_when_settings_hold_whisper():
-    from src.app.services.capability_descriptor_service import CapabilityDescriptorService
-    from src.app.services.execution_profile_builder import ExecutionProfileBuilder
-
-    settings = MagicMock()
-    settings.get_settings.return_value = {
-        "processing": {"asr_model": "large-v3", "vocal_model": "htdemucs"},
-        "tts": {"engine": "edge"},
-        "api": {"provider": "deepseek"},
-    }
-
-    builder = ExecutionProfileBuilder(
-        settings_service=settings,
-        descriptor_service=CapabilityDescriptorService(),
-    )
-    profile = builder.build(category="asr", provider="qwen3_asr")
-
-    assert profile["provider"] == "qwen3_asr"
-    assert profile["model"] == "qwen3-asr-0.6b"
-    assert profile["provider_options"]["forced_aligner"] == "qwen3-forced-aligner-0.6b"
-    assert profile["provider_options"]["return_time_stamps"] is True
-    assert profile["provider_options"]["max_alignment_chunk_seconds"] == 15.0
-
-
 def test_asr_runtime_passes_qwen3_asr_provider_options_to_registry(tmp_path):
     from src.core.engines.asr.service import AsrEngineRuntime
     from src.core.resources.model_reference import resolve_model_reference

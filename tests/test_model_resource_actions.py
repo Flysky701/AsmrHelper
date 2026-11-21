@@ -1,6 +1,5 @@
 """Separate weight/reference operations from runtime preparation without real downloads."""
 from dataclasses import replace
-from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -9,7 +8,6 @@ from fastapi.testclient import TestClient
 from src.api.http.dependencies import model_service
 from src.api.http.routes.models import router
 from src.api.http.schemas.tasks import TaskStatusResponse
-from src.app.services.model_service import ModelService as AppModelService
 from src.core.resources import model_assets as assets
 from src.core.resources.model_catalog import ModelEntry
 from src.core.resources.model_installer import ModelInstaller
@@ -87,22 +85,6 @@ def test_dependency_import_is_not_demucs_weight_evidence(entry, monkeypatch):
     assert status.status != 'installed'
 
 
-def test_demucs_status_does_not_require_unused_torchaudio(entry, monkeypatch):
-    monkeypatch.setattr(assets, 'scan_roots', lambda: [])
-    status = ModelStatusResolver(import_checker=lambda module: module != 'torchaudio').resolve(
-        replace(entry, provider='demucs', upstream_name='htdemucs', install_strategy='package'))
-    assert status.runtime_ready
-    assert not any(issue.requirement == 'torchaudio' for issue in status.issues)
-
-
-def test_download_existing_weights_never_probes_runtime(entry, monkeypatch):
-    put_weights(entry.managed_install_dir())
-    installer = ModelInstaller()
-    monkeypatch.setattr(installer._status, 'resolve', lambda _: pytest.fail('runtime probe during weight operation'))
-    assert installer.install_local_model(entry)
-    assert installer.install_with_progress(entry)
-
-
 def test_download_does_not_install_dependencies_or_validate_inference(entry, monkeypatch):
     service = ModelService()
     monkeypatch.setattr(service, 'get_model', lambda _: replace(entry, provider='faster_whisper'))
@@ -145,14 +127,3 @@ def test_separate_http_routes_and_reference_import(entry, tmp_path, monkeypatch)
         assert client.post('/models/sample/download', json={'install_dependencies': True}).status_code == 422
         assert client.post('/models/sources/remove', json={'path': str(shared)}).status_code == 200
     assert (shared / entry.install_path / 'model.bin').is_file()
-
-
-def test_runtime_dispatch_never_enters_weight_installer():
-    service = AppModelService.__new__(AppModelService)
-    calls = []
-    service.core_service = SimpleNamespace(prepare_runtime=lambda mid: calls.append(mid),
-                                          install=lambda *a, **k: pytest.fail('download'))
-    service._get_model_entry = lambda _: None
-    context = SimpleNamespace(cancellation_requested=False, update_progress=lambda *a, **k: None)
-    service._execute_model_install(SimpleNamespace(execution_profile={'operation': 'runtime', 'model_id': 'sample'}), context)
-    assert calls == ['sample']

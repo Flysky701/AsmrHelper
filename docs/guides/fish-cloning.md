@@ -39,9 +39,9 @@
 
 ## 验证与真实测试前置条件
 
-`tests/test_fish_cloning.py` 使用生成音频、假凭据和 HTTP MockTransport，覆盖 multipart 参数、校验失效、重复/并发提交、超时、错误脱敏、远程状态、保存与现有合成/工作台路径，以及本地直接删除、去重保留、运行中删除排序和既有音色/素材不受影响。
+`tests/test_fish_cloning.py` 使用生成音频、假凭据和模拟 HTTP 服务，验证上传前校验、重复提交与未知响应处理、保存音色后用于配音，以及删除本地记录时保留源素材。
 
-运行相关 Python 套件：fish_cloning、speech_voice_catalog、speech_providers、speech_rules、speech_store、speech_http。前端聚焦测试为 `desktop/tests/fishClonePanel.test.mjs`，覆盖常驻摘要、无勾选的单次提交、重复点击、失败/未知响应、直接删除及运行状态保护。`desktop/tests/fixtures/fish-clone.html` 是全模拟浏览器夹具，不连接后端/Fish。
+前端测试 `desktop/tests/fishClonePanel.test.mjs` 验证提交前的本地检查、重复点击仅发送一次请求，以及响应丢失后再次点击不会重新上传。
 
 真实测试尚未进行。需用户选定有权使用的素材、确认上传目的和本次费用/额度，且在安全配置入口自行填写有效凭据。真实音色质量、账户 Free 权限及服务端实际状态转换仍需授权后验证。
 

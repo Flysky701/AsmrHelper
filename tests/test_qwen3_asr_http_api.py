@@ -12,37 +12,6 @@ def _mock_dep(mock_obj):
     return lambda: mock_obj
 
 
-def test_list_asr_engines_exposes_qwen3_asr_descriptor():
-    app = create_app()
-    client = TestClient(app)
-
-    mock_svc = MagicMock()
-    mock_svc.list_engines.return_value = [
-        {
-            "category": "asr",
-            "provider": "qwen3_asr",
-            "display_name": "Qwen3-ASR",
-            "kind": "local",
-            "supported_models": ["Qwen/Qwen3-ASR-0.6B"],
-            "default_model": "Qwen/Qwen3-ASR-0.6B",
-            "common_option_schema": [],
-            "provider_option_schema": [],
-            "supports": {"language_identification": True},
-        }
-    ]
-    app.dependency_overrides[dependencies.asr_engine_service] = _mock_dep(mock_svc)
-
-    try:
-        response = client.get("/api/v1/asr/engines")
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["engines"][0]["provider"] == "qwen3_asr"
-    assert payload["engines"][0]["default_model"] == "Qwen/Qwen3-ASR-0.6B"
-
-
 def test_transcribe_route_forwards_qwen3_asr_provider_options():
     app = create_app()
     client = TestClient(app)

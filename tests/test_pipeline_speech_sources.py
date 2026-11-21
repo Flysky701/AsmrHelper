@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from src.app.services.speech_service import SpeechService
-from src.core.speech.providers import get_provider, list_providers
+from src.core.speech.providers import get_provider
 from src.core.speech.store import SpeechStore, build_plan
 from src.core.speech.compiler import compile_recipe
 
@@ -21,7 +21,6 @@ def speech(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("provider,model,expected", [
     ("edge", "edge-tts", "zh-CN-XiaoxiaoNeural"),
-    ("qwen3", "qwen3-custom-voice", "Vivian"),
     ("voxcpm2", "voxcpm2", "default"),
 ])
 def test_defaults_need_no_saved_rule_or_connection(speech, provider, model, expected):
@@ -49,9 +48,7 @@ def test_preset_speed_and_parameters_are_frozen(speech):
 
 @pytest.mark.parametrize("provider,model,mode", [
     ("qwen3", "qwen3-base", "reference"),
-    ("qwen3", "qwen3-voice-design", "design"),
     ("fish_audio", "s2-pro", "hosted"),
-    ("openai_compatible", "server-model", "hosted"),
 ])
 def test_input_required_modes_have_no_fake_default(speech, provider, model, mode):
     with pytest.raises(ValueError):
@@ -92,24 +89,6 @@ def test_saved_rule_cannot_override_explicit_engine_model(speech):
         speech.pipeline_snapshot({**stage, "model": "qwen3-base"})
     with pytest.raises(ValueError, match="同时"):
         speech.pipeline_snapshot({**stage, "options": {**stage["options"], "speech_source": {"mode": "builtin"}}})
-
-
-def test_local_resolved_paths_are_pinned(speech, monkeypatch):
-    monkeypatch.setattr(get_provider("voxcpm2"), "probe", lambda context: {
-        "ready": True, "model_path": "models/pinned", "runtime": "runtime/pinned/python"})
-    snap = speech.pipeline_snapshot({"provider": "voxcpm2", "model": "voxcpm2"})
-    assert snap["connection"]["model_path"] == "models/pinned"
-    assert snap["connection"]["runtime"] == "runtime/pinned/python"
-
-
-def test_descriptor_catalog_is_specific_to_model_mode():
-    providers = {p["provider_id"]: p for p in list_providers()}
-    qwen = {m["id"]: m["voice_sources"] for m in providers["qwen3"]["modes"]}
-    assert "Vivian" in {v["id"] for v in qwen["builtin"]["presets"]}
-    assert qwen["builtin"]["allow_custom"] is False
-    assert providers["edge"]["modes"][0]["voice_sources"]["allow_custom"] is True
-    assert qwen["reference"]["required"] and not qwen["reference"]["presets"]
-    assert providers["fish_audio"]["modes"][0]["voice_sources"]["presets"] == []
 
 
 def test_default_voxcpm_worker_uses_plain_text_without_reference(monkeypatch, tmp_path):

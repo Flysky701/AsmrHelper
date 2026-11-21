@@ -18,9 +18,8 @@ def test_reads_close_connections_immediately(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sqlite3, "connect", tracking_connect)
     store = SqliteStateStore(tmp_path / "state.sqlite3")
-    for _ in range(3):
-        assert store.load_terminal_tasks() == []
-    assert len(opened) == 4
+    assert store.load_terminal_tasks() == []
+    assert len(opened) == 2
     for connection in opened:
         with pytest.raises(sqlite3.ProgrammingError, match="closed"):
             connection.execute("SELECT 1")

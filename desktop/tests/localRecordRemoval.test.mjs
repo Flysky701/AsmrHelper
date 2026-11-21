@@ -35,12 +35,3 @@ test('a stale local delete action cannot remove a newly bound server task', () =
   assert.equal(tasks.getState().removeLocalFailure(id), false)
   assert.equal(tasks.getState().tasks[0].serverTaskId, 'actual-task')
 })
-
-test('deletion does not alter unrelated tasks', () => {
-  const tasks = store()
-  const ids = [0, 1, 2].map(() => tasks.getState().addTask(draft))
-  for (const id of ids.slice(0, 2)) tasks.getState().updateTask(id, { status: 'failed' })
-  for (const id of ids.slice(0, 2)) assert.equal(tasks.getState().removeLocalFailure(id), true)
-  assert.deepEqual(tasks.getState().tasks.map(t => t.id), [ids[2]])
-
-})

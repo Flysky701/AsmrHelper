@@ -88,7 +88,7 @@ print(result.text)
 应用默认配置和现有依赖锁定条目不变。
 
 ```bash
-python -m pytest -q tests/test_anime_whisper_backend.py tests/test_anime_whisper_resources.py tests/test_provider_model_onboarding.py tests/test_fun_asr_backend.py tests/test_fun_asr_timestamps.py tests/test_qwen3_asr_backend.py tests/test_asr_local_model_path.py tests/test_provider_parameter_calibration.py tests/test_model_catalog.py tests/test_model_resource_service.py tests/test_model_resource_actions.py tests/test_model_safe_removal.py tests/test_auxiliary_model_visibility.py tests/test_runtime_isolation.py tests/test_runtime_probe_cache.py tests/test_compute_install.py tests/test_configure_compute.py tests/test_http_api.py tests/test_qwen3_asr_http_api.py tests/test_fun_asr_http_api.py tests/test_app_services.py tests/test_cli.py
+python -m pytest -q tests/test_anime_whisper_backend.py tests/test_anime_whisper_resources.py tests/test_provider_model_onboarding.py tests/test_fun_asr_backend.py tests/test_fun_asr_timestamps.py tests/test_qwen3_asr_backend.py tests/test_asr_local_model_path.py tests/test_provider_parameter_calibration.py tests/test_model_catalog.py tests/test_model_resource_service.py tests/test_model_resource_actions.py tests/test_model_safe_removal.py tests/test_auxiliary_model_visibility.py tests/test_runtime_isolation.py tests/test_runtime_probe_cache.py tests/test_compute_install.py tests/test_configure_compute.py tests/test_http_api.py tests/test_qwen3_asr_http_api.py tests/test_app_services.py tests/test_cli.py
 python -m ruff check src/core/engines/asr/anime_whisper.py tests/test_anime_whisper_backend.py tests/test_anime_whisper_resources.py
 uv lock --check --offline
 git diff --check

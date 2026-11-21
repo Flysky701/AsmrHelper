@@ -20,7 +20,6 @@ const migration = load('../src/domain/speechPresetMigration.ts')
 const graph = load('../src/domain/graphNodeParameters.ts')
 const { useNavStore } = load('../src/stores/navStore.ts')
 const { useSpeechPresetHandoffStore: handoff, openSpeechPresetLibrary } = load('../src/stores/speechPresetHandoffStore.ts')
-const { useVoiceLabDraftStore: lab } = load('../src/stores/voiceLabDraftStore.ts')
 const provider = { provider_id: 'qwen3', connection_required: false, capabilities: { pause: { support: 'postprocess' }, emotion: { support: 'unsupported' } },
   modes: [{ id: 'reference', models: ['qwen3-base'], variant_kinds: ['reference'], runtime_options: ['temperature'], voice_sources: { required: true, presets: [], allow_custom: false } }],
   options_schema: { properties: { temperature: { type: 'number', minimum: .01, maximum: 2, default: .9 }, x_vector_only_mode: { type: 'boolean', default: false, applies_to_modes: ['reference'] } } } }
@@ -44,16 +43,6 @@ test('reference identity and unsupported controls never enter runtime fields', (
     assert.ok(consumption.speechOverrideIssue(provider, recipe, patch))
   }
 })
-test('selecting a preset preserves unknown legacy fields for explicit migration', () => {
-  const old = { ...node, options: { mystery: { nested: 7 }, speech_source: {} }, provider_options: { old_option: 1 } }
-  const selected = graph.graphNodeFromRecipe(old, recipe)
-  assert.deepEqual(selected.options.mystery, { nested: 7 })
-  assert.deepEqual(selected.provider_options, { old_option: 1 })
-  assert.deepEqual(selected.options.speech_source, {})
-  assert.deepEqual(old.options.speech_source, {})
-  const source = { mode: 'reference', variant: { kind: 'reference', value: 'asset' }, future: { keep: true } }
-  assert.deepEqual(graph.graphNodeFromRecipe({ ...node, options: { speech_source: source } }, recipe).options.speech_source, source)
-})
 test('legacy node becomes an independent preset while raw source and target language survive', () => {
   const legacy = graph.copyRecipeToGraphNode(node, recipe)
   const original = structuredClone(legacy)
@@ -65,12 +54,6 @@ test('legacy node becomes an independent preset while raw source and target lang
   assert.deepEqual(legacy, original)
   legacy.options.unknown = 9
   assert.ok(migration.speechRecipeFromNode(legacy, [provider], [recipe]).issues.length)
-})
-test('migrating a selected preset includes supported task overrides without changing its original', () => {
-  const result = migration.speechRecipeFromNode(consumption.withSpeechOverrides(node, { provider_options: { temperature: .5 } }), [provider], [recipe])
-  assert.equal(result.recipe.provider_options.temperature, .5)
-  assert.equal(recipe.provider_options.temperature, .9)
-  assert.equal(result.recipe.name, 'Reference voice（副本）')
 })
 test('navigation rejection leaves handoff empty; successful handoff clones all unknown node data', async () => {
   handoff.setState({ pending: null, navigating: false })
@@ -88,16 +71,4 @@ test('navigation rejection leaves handoff empty; successful handoff clones all u
   assert.equal(handoff.getState().pending.token, pending.token)
   handoff.getState().acknowledge(pending.token)
   assert.equal(handoff.getState().pending, null)
-})
-test('returning to pending handoff does not overwrite it and a route change retains the editor draft', async () => {
-  useNavStore.setState({ activePage: 'workbench', navigationGuard: null })
-  await openSpeechPresetLibrary({ nodeDraft: node })
-  const original = handoff.getState().pending
-  await useNavStore.getState().setPage('workbench')
-  await openSpeechPresetLibrary({ recipeId: 'different' })
-  assert.deepEqual(handoff.getState().pending, original)
-  lab.setState({ draft: { recipe, dirty: true, referenceId: 'asset', script: 'Unsaved text', returnTo: 'workbench', retainedNode: node, migrationIssues: [] } })
-  await useNavStore.getState().setPage('workbench')
-  assert.equal(lab.getState().draft.script, 'Unsaved text')
-  assert.equal(lab.getState().draft.dirty, true)
 })

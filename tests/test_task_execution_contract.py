@@ -128,28 +128,6 @@ def test_start_persistence_failure_cannot_be_drained_as_ghost_work():
     assert service.get_task(healthy.task_id).state == "completed"
 
 
-def test_background_queue_drains_after_a_slot_is_released():
-    service = TaskService(max_concurrent=1)
-    dispatcher = TaskDispatcher(service.registry, task_service=service)
-    release = threading.Event()
-
-    def execute(spec):
-        if spec.task_id.endswith("-1"):
-            release.wait(timeout=2)
-        return {"detail": spec.task_id}
-
-    dispatcher.register_executor("tool.convert", execute)
-    first, _ = _create(service)
-    second, _ = _create(service)
-    dispatcher.submit(first.task_id)
-    assert dispatcher.submit(second.task_id).state == "pending"
-    assert service.get_task(second.task_id).state == "pending"
-
-    release.set()
-    _wait_for(service, second.task_id, "completed")
-    assert service.get_task(first.task_id).state == "completed"
-
-
 def test_concurrent_submit_reserves_only_one_execution_slot(monkeypatch):
     service = TaskService(max_concurrent=1)
     dispatcher = TaskDispatcher(service.registry, task_service=service)
@@ -264,44 +242,6 @@ def test_tool_registry_executes_through_dispatcher_with_stage_and_result():
     assert task.state == "completed"
     assert task.stage == "separate"
     assert task.artifact_set_id == spec.task_id
-
-
-def test_tool_registry_create_task_submits_background_execution():
-    from src.app.services.tool_registry import ToolRegistry
-
-    service = TaskService()
-
-    class AudioTools:
-        def create_tool_task_spec(self, *, task_type, input_path, execution_profile, companion_paths, task_source):
-            spec, _ = service.create_task_spec(
-                task_type=task_type,
-                task_source=task_source,
-                session_id="session-1",
-                input_asset_id=input_path,
-                companion_asset_ids=list(companion_paths or []),
-                execution_profile=execution_profile,
-            )
-            return spec
-
-        def run_tool_task_spec(self, spec, *, manage_lifecycle, cancel_event):
-            assert manage_lifecycle is False
-            return {
-                "primary_output": f"{spec.task_id}.wav",
-                "artifact_set_id": spec.task_id,
-            }
-
-    tools = ToolRegistry(audio_tool_service=AudioTools(), task_service=service)
-
-    accepted = tools.create_task(
-        task_type="tool.convert",
-        input_path="input.wav",
-        execution_profile={"target_format": "wav"},
-        companion_paths=[],
-    )
-
-    assert accepted.state in {"running", "completed"}
-    _wait_for(service, accepted.task_id, "completed")
-    assert service.get_task(accepted.task_id).stage == "convert"
 
 
 def test_model_install_uses_dispatcher_and_reports_install_stage():

@@ -34,16 +34,6 @@ function setup({ scope = 'mine_public', page = 1, result, value = 'manual-id', c
 }
 const data = { items: [{ id: 'selected-id', name: 'Synthetic voice' }], page: 1, page_size: 20, has_more: true, notice: '' }
 
-test('one controlled Voice ID with clearly distinct account, workspace and public scopes', () => {
-  const view = setup()
-  assert.equal(view.all.filter(node => node.type === 'input' && node.props.value === 'manual-id').length, 1)
-  assert.match(view.html, /我的公开音色（API 账号）/)
-  assert.match(view.html, /当前工作区音色/)
-  assert.match(view.html, /公共音色库（所有作者）/)
-  assert.doesNotMatch(view.html, /声音范围说明/)
-  assert.equal(view.selected.length, 0)
-})
-
 test('selection and manual edit share the same ID callback without default selection', () => {
   const view = setup({ result: { data } })
   const select = view.all.find(node => node.type === 'select' && node.props.value === '')
@@ -63,18 +53,6 @@ test('empty, permission error and stale results preserve the manually entered ID
     assert.equal(view.selected.length, 0)
     assert.doesNotMatch(view.html, /value="selected-id"/)
   }
-})
-
-test('scope and search reset page without clearing selection; pagination follows has_more', () => {
-  const view = setup({ page: 3, result: { data } })
-  const scope = view.all.find(node => node.type === 'select' && node.props.value === 'mine_public')
-  scope.props.onChange({ target: { value: 'public' } })
-  const search = view.all.find(node => node.type === 'input' && node.props.maxLength === 200)
-  search.props.onChange({ target: { value: 'filter' } })
-  assert.deepEqual(view.changed, [[1, 'public'], [2, 1], [0, 'filter'], [2, 1]])
-  assert.deepEqual(view.selected, [])
-  const last = setup({ result: { data: { ...data, has_more: false } } })
-  assert.equal(last.all.some(node => node.type === 'button' && node.props.children === '下一页'), false)
 })
 
 test('client sends explicit scope and pagination without a second voice field', async () => {

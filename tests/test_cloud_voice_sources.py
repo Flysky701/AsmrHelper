@@ -9,7 +9,8 @@ import pytest
 
 from src.core.speech.providers import get_provider
 from src.core.speech.voice_catalog import list_account_voices
-from test_cloud_mimo import mock_http, response, wav
+from test_cloud_mimo import response
+from test_cloud_speech_transport import install_transport as mock_http, wav_bytes as wav
 
 
 @pytest.mark.parametrize("provider,base,header,path,cursor,record", [

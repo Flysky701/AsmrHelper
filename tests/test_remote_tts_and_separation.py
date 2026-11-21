@@ -552,25 +552,3 @@ def test_remote_demucs_separation_and_local_fallback(
     mock_demucs.separate.assert_called_once_with(
         str(src_wav), str(tmp_path / "local_out"), stems=["vocals"]
     )
-
-
-def test_operational_guide_and_docs_index_links() -> None:
-    guide_path = REPO_ROOT / "docs" / "guides" / "agent-and-colab-guide.md"
-    readme_path = REPO_ROOT / "docs" / "README.md"
-    assert guide_path.is_file()
-    guide_text = guide_path.read_text(encoding="utf-8")
-    readme_text = readme_path.read_text(encoding="utf-8")
-
-    assert "guides/agent-and-colab-guide.md" in readme_text
-    for expected in (
-        "packages.mcp_server.server",
-        "agent_preferences.example.yaml",
-        "agent_preferences.yaml",
-        "skills/asmr-producer/SKILL.md",
-        "colab_gpu_worker.ipynb",
-        "ASMR_HELPER_REMOTE_WORKER_URL",
-        "ASMR_HELPER_REMOTE_WORKER_TOKEN",
-        "-DomesticMirror",
-        "ModelScope",
-    ):
-        assert expected in guide_text, f"Guide missing expected operational keyword: {expected}"

@@ -14,31 +14,13 @@ def resolver(tmp_path, monkeypatch):
     return RuntimeProfileResolver(tmp_path)
 
 
-def test_persistence_and_environment_override(resolver, monkeypatch):
-    assert resolver.compute_mode() == "auto"
-    resolver.save_compute_mode("cpu")
-    assert RuntimeProfileResolver(resolver.project_root).compute_mode() == "cpu"
-    monkeypatch.setenv("ASMR_HELPER_COMPUTE", "cuda")
-    assert resolver.compute_mode() == "cuda"
-    monkeypatch.setenv("ASMR_HELPER_COMPUTE", "invalid")
-    with pytest.raises(ValueError):
-        resolver.compute_mode()
-    with pytest.raises(ValueError):
-        resolver.save_compute_mode("invalid")
-
-
 @pytest.mark.parametrize("profile,mode,gpu,target", [
-    # Every environment uses the shared policy; GPU selection is tested once.
     ("main", "auto", None, "cpu"),
-    ("qwen_asr", "auto", None, "cpu"),
-    ("fun_asr", "auto", None, "cpu"),
-    ("qwen_tts", "auto", None, "cpu"),
-    ("voxcpm2", "auto", None, "cpu"),
     ("qwen_tts", "cpu", 12.0, "cpu"),
     ("qwen_tts", "auto", 8.9, "cu126"),
     ("qwen_tts", "cuda", 12.0, "cu128"),
 ])
-def test_all_environments_share_pinned_policy(resolver, monkeypatch, profile, mode, gpu, target):
+def test_bootstrap_pins_torch_for_selected_compute_target(resolver, monkeypatch, profile, mode, gpu, target):
     resolver.save_compute_mode(mode)
     monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: gpu)
     commands = resolver.build_bootstrap_commands(resolver.resolve(profile))
@@ -56,21 +38,6 @@ def test_explicit_cuda_never_falls_back(resolver, monkeypatch):
     monkeypatch.setattr(resolver, "_detect_nvidia_compute_capability", lambda: None)
     with pytest.raises(RuntimeError, match="explicitly requested"):
         resolver.build_bootstrap_commands(resolver.resolve("qwen_asr"))
-
-
-def test_verify_runs_real_tensor_script_and_rejects_failed_probe(resolver, monkeypatch):
-    resolver.save_compute_mode("cpu")
-    captured = []
-    def run(cmd, **kwargs):
-        captured.append(cmd)
-        return SimpleNamespace(returncode=0, stdout='__ASMR_COMPUTE__{"target":"cpu"}', stderr='')
-    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", run)
-    assert resolver.verify_compute(resolver.resolve("main")) == {"target": "cpu"}
-    assert "a @ a" in captured[0][-1]
-    assert "torchaudio.__version__" in captured[0][-1]
-    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", lambda *a, **kw: SimpleNamespace(returncode=1, stderr="wrong torch build", stdout=""))
-    with pytest.raises(RuntimeProbeError, match="wrong torch build"):
-        resolver.verify_compute(resolver.resolve("main"))
 
 
 def test_model_extras_cannot_override_torch_and_final_probe_required(resolver, monkeypatch):

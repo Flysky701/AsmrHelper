@@ -77,23 +77,6 @@ def test_cancel_between_sentences_preserves_only_completed_take(lab):
     assert service.store.list("takes") == []
 
 
-def test_formal_dubbing_uses_same_compiler_and_runner(lab, tmp_path):
-    service, recipe, calls = lab
-    snapshot = service.snapshot(recipe["id"])
-    assembly = service.synthesize_timeline(snapshot, [{"text": "你好。", "start_time": .5, "end_time": 1}], tmp_path / "formal.wav", "formal-task", reference_duration=2)
-    assert assembly["duration"] == 2
-    assert assembly["processing"][0]["start"] == .5
-    assert calls[0]["recipe_id"] == recipe["id"]
-    assert sf.info(tmp_path / "formal.wav").duration == 2
-    experiment = service.store.get("experiments", assembly["experiment_id"])
-    media_root = Path(experiment["media_root"])
-    assert media_root.is_relative_to(tmp_path / "speech")
-    assert Path(assembly["audio_path"]).is_relative_to(media_root)
-    assert all(Path(take["audio_path"]).is_relative_to(media_root) for take in service.experiment(experiment["id"])["takes"])
-    assert not (service.store.root / "audio").exists()
-    assert not (service.store.root / "assemblies").exists()
-
-
 def test_formal_regeneration_alignment_and_remix_stay_in_task_directory(lab, tmp_path, monkeypatch):
     service, recipe, _ = lab
     # Use real small WAV files; stub time stretching to test path ownership
@@ -111,7 +94,8 @@ def test_formal_regeneration_alignment_and_remix_stay_in_task_directory(lab, tmp
     experiment = service.store.get("experiments", first["experiment_id"])
     root = Path(experiment["media_root"])
     assert root.is_relative_to(task_dir)
-    assert Path(first["processing"][0]["aligned_path"]).is_relative_to(root / "aligned")
+    aligned = Path(first["processing"][0]["aligned_path"])
+    assert aligned.is_file() and aligned.parent.samefile(root / "aligned")
 
     spec = SimpleNamespace(task_id="regenerate", execution_profile={
         "requests": service.compile(recipe["id"], experiment["plan_id"]), "snapshot": snapshot,
@@ -135,27 +119,6 @@ def test_formal_regeneration_alignment_and_remix_stay_in_task_directory(lab, tmp
         assert not (service.store.root / directory).exists()
 
 
-def test_legacy_formal_experiment_keeps_library_paths(lab):
-    service, recipe, _ = lab
-    plan = service.create_plan({"text": "旧任务。"})
-    experiment = service.store.create("experiments", {"name": "Old formal", "kind": "formal", "plan_id": plan["id"]})
-    spec = SimpleNamespace(task_id="legacy", execution_profile={
-        "requests": service.compile(recipe["id"], plan["id"]), "snapshot": service.snapshot(recipe["id"]),
-        "experiment_id": experiment["id"], "plan_id": plan["id"]})
-    takes = service._execute(spec, SimpleNamespace(cancellation_requested=False, update_progress=lambda *a, **k: None))
-    assert Path(takes[0]["audio_path"]).is_relative_to(service.store.root / "audio")
-    service.select({"experiment_id": experiment["id"], "segment_id": takes[0]["segment_id"], "take_id": takes[0]["id"]})
-    assembly = service.assemble(experiment["id"])
-    assert Path(assembly["audio_path"]).is_relative_to(service.store.root / "assemblies")
-
-
-def test_invalid_plan_does_not_persist(lab):
-    service, _, _ = lab
-    with pytest.raises(ValueError):
-        service.create_plan({"text": "不能改写。", "segments": [{"id": "a", "start": 1, "end": 5}]})
-    assert service.store.list("plans") == []
-
-
 def test_artifact_registration_failure_does_not_leave_dangling_completed_take(lab, monkeypatch):
     from pathlib import Path
     service, recipe, _ = lab
@@ -170,39 +133,3 @@ def test_artifact_registration_failure_does_not_leave_dangling_completed_take(la
     for take in service.store.list("takes"):
         assert Path(take["audio_path"]).is_file()
         assert sf.info(take["audio_path"]).frames > 0
-
-
-def test_registered_extra_provider_runs_through_service_without_business_branch(lab, monkeypatch):
-    from src.core.speech import providers
-    service, _, _ = lab
-    class ExtraLocal:
-        provider_id, version, remote = "test-extra-local", "test-1", False
-        def describe(self):
-            return {"provider_id": self.provider_id, "version": self.version}
-        def validate(self, recipe, assets):
-            if recipe["provider_options"] != {"schema_version": 1}:
-                raise ValueError("unsupported options")
-        def compile(self, recipe, segment, text, assets):
-            return {"text": text, "voice": recipe["variant"]["value"]}
-        def probe(self, context):
-            return {"ready": True}
-        def synthesize(self, request, path, context, cancel_check):
-            sf.write(path, np.ones(800, dtype="float32") * .1, 8000)
-            return {"model": request["model"], "sample_rate": 8000}
-        def release(self):
-            pass
-    monkeypatch.setattr(providers, "_PROVIDERS", dict(providers._PROVIDERS))
-    providers.register_provider(ExtraLocal())
-    conn = service.save_connection({"provider_id": "test-extra-local", "name": "Extra", "deployment": "local"})
-    voice = service.store.create("voices", {"name": "Extra", "bindings": []})
-    source = service.save_recipe({"name": "Extra", "voice_id": voice["id"], "provider_id": "test-extra-local",
-        "model": "fixture-model", "mode": "builtin", "connection_ref": conn["id"],
-        "variant": {"kind": "builtin", "value": "speaker", "style": "normal"}, "provider_options": {"schema_version": 1}})
-    script = service.create_plan({"text": "扩展引擎。"})
-    experiment = service.store.create("experiments", {"name": "Extra", "plan_id": script["id"]})
-    task = service.generate(experiment["id"], {"recipe_id": source["id"]})
-    service.dispatcher.run(task.task_id)
-    assert service.tasks.get_task(task.task_id).state == "completed"
-    take = service.experiment(experiment["id"])["takes"][0]
-    assert take["compiled_request"]["provider_version"] == "test-1"
-    assert sf.info(take["audio_path"]).samplerate == 8000

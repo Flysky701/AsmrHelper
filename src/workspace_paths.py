@@ -19,11 +19,15 @@ def resolve_directory(value, default: str | Path, *, project_root: Path | None =
     path = Path(value or default).expanduser()
     if not path.is_absolute():
         path = root / path
-    path = path.resolve()
-    # Do not require a machine-wide long-path policy for user-selected folders.
-    text = str(path)
-    if os.name == 'nt' and len(text) >= 248 and not text.startswith('\\\\?\\'):
-        path = Path('\\\\?\\UNC\\' + text[2:] if text.startswith('\\\\') else '\\\\?\\' + text)
+    return windows_long_path(path.resolve())
+
+
+def windows_long_path(path: Path) -> Path:
+    """Allow deep output paths on Windows without a machine-wide policy change."""
+    if os.name == 'nt':
+        text = os.path.abspath(path)
+        if len(text) >= 248 and not text.startswith('\\\\?\\'):
+            return Path('\\\\?\\UNC\\' + text[2:] if text.startswith('\\\\') else '\\\\?\\' + text)
     return path
 
 
