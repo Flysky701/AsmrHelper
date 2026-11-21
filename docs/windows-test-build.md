@@ -1,6 +1,6 @@
 # Windows x64 test installer
 
-Candidate source version: **1.1.0** (Python metadata: `1.1.0`). No 1.1.0 installer has been built or published. Product: **ASMR Helper Test**. This is a separate per-user NSIS test product, not a signed public release.
+Source version: **1.2.0** (Python metadata: `1.2.0`). Product: **ASMR Helper Test**. The Windows x64 installer uses per-user NSIS and retains the existing test product identity.
 
 The installed desktop executable starts its own loopback backend on an ephemeral port and passes a fresh session token to the WebView. It refuses packaged startup if resources are missing. A Windows Job Object owns the backend and model-worker process tree; application exit requests graceful shutdown and then terminates remaining children.
 
@@ -9,7 +9,7 @@ Immutable installed resources include a complete clean CPython 3.12.13 distribut
 On first launch, the app asks the user to select and confirm a dedicated empty writable workspace outside the installation. It contains config, state database, output, models, runtime environments, logs and the WebView cache. The workspace locator is saved under `%LOCALAPPDATA%\ASMRHelperTest\workspace.json`; an existing legacy `%LOCALAPPDATA%\ASMRHelperTestData` workspace can still be recognized. Upgrades and the standard uninstaller leave the workspace in place. `ASMR_HELPER_DATA_DIR` overrides this root for isolated testing.
 
 
-**The preceding published 1.0.1 is a license-only update to v1.0.0.** That release changed application-owned licensing to CC-BY-NC-4.0 and retains third-party licenses. Interactive installation acceptance and clean Windows/VM acceptance have not been repeated for that build. The 1.1.0 candidate integrates reference audio subtraction, dynamic multitrack mixing, local backgrounds and Chinese/English interface preferences; see [integration acceptance](v1.1-integration-acceptance.md). The existing ASMR Helper Test product name, com.asmrhelper.desktop.test identifier and beta workspace marker/locator are retained for upgrade continuity. No user workspace is moved or reset. See [1.0 acceptance and compatibility](windows-release-1.0-acceptance.md).
+The previous GitHub Release was [v1.0.0](https://github.com/Flysky701/AsmrHelper/releases/tag/v1.0.0). Version 1.2.0 retains the product name, `com.asmrhelper.desktop.test` identifier, and workspace locator for upgrade continuity. The new version uses CC-BY-NC-4.0 for application-owned material and retains third-party licenses. See [1.0 acceptance and compatibility](windows-release-1.0-acceptance.md).
 
 ## Reproduce
 
@@ -43,4 +43,4 @@ The staging script collects Python/native, uv, Rust and production npm dependenc
 
 Test actual installation in a separate directory, fresh data/cache directories and a PATH containing only Windows system directories. Verify desktop-managed backend startup, authenticated UI requests, rejected anonymous API access, local subtitle conversion, restart persistence, reinstall persistence, unchanged installed-resource hashes and process-tree cleanup. Verify uninstall preserves user data. A smoke test on this development machine is **not** clean Windows/VM acceptance; WebView2 and system components may already be present.
 
-The unsigned test installer is intended for private friend testing. No signing certificate, public release, remote API call, model download, virtualization/security change or system-wide development-tool installation is part of this build.
+The build instructions produce an unsigned installer. Use the acceptance steps above to assess each package. Remote API calls and real-model inference require separate verification.

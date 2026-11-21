@@ -1,13 +1,19 @@
 # 安装与运行
 
-## 环境
+## Windows x64 安装包
+
+在 [GitHub Releases](https://github.com/Flysky701/AsmrHelper/releases) 下载 Windows x64 安装包。安装完成后，从开始菜单启动 **ASMR Helper Test**。首次运行按提示选择专用可写的工作目录。已使用过本项目时，可选择原工作目录。请先保存草稿、结束任务并正常退出，再更新和备份工作区。
+
+安装包自带基础 Python 后端和 FFmpeg。缺少 WebView2 时，安装程序需要联网下载运行时。模型权重和部分引擎环境按需准备。只想试用时，可直接使用[免模型的在线中文配音演示](quick-start.md)。
+
+## 源码版环境
 
 - Windows 10/11、PowerShell 5.1+。
 - 安装脚本默认通过 uv 使用项目内 Python 3.12；显式 `-PythonPath` 支持已有 Python 3.11/3.12，不继承其他项目的 Conda 环境。
 - 前端依赖安装需要 Node.js 22+ 和 npm。Tauri 开发或 release 构建还需要 Rust/Cargo 与匹配的 Windows 编译工具链；WebView2 用于桌面渲染。
-- 已构建 release 仍依赖本项目 Python 后端和配置，并非携带所有模型的独立 exe。仅运行新鲜的现成构建无需再次执行前端编译。
+- 源码树内通过 `GUIRun.bat --release` 生成的 exe 使用本项目的 Python 后端和配置。
 
-## 安装
+## 源码安装
 
 在项目根目录执行：
 
@@ -41,6 +47,8 @@ Qwen、Fun-ASR、VoxCPM 等引擎的依赖使用各自的 `.runtimes/` 隔离环
 ```
 
 `--model` 可重复；`--provider` 会选择该引擎全部可安装模型，不适合只需一个模型时使用。不要把 `-Models -Full` 当作所有用户的安装前提。模型已下载、环境可执行和真实推理成功是不同状态。
+
+本机 Fish Audio Drama 3 完整权重约 41.50 GB。资源页需要确认后才开始下载；下载完成后还需在 Linux 或同机 WSL2 中手动启动 SGLang Omni。已有固定版本的权重也可直接引用。详见[本机 Drama 3 指南](tts.md#在本机运行-fish-audio-drama-3)。
 
 `-Mirror` 只为模型下载传入 Hugging Face 镜像，不修改 Python 包源。`-Offline` 约束 uv 与计算环境安装，要求已有 Python 和包缓存；它不自动约束 `npm ci` 或显式的 `-Models` 下载。离线准备应使用 `-SkipFrontend`、不传 `-Models`，并事先具备 uv、解释器和所需缓存。
 
