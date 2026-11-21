@@ -17,7 +17,7 @@ class PipelineRecovery:
     # would incorrectly attest to the model which produced an earlier output.
     # Unknown/new providers must opt in only after their dependencies are audited.
     _REUSABLE_TTS_PROVIDERS = frozenset({"edge", "openai_compatible"})
-    _REUSABLE_SPEECH_PROVIDERS = frozenset({"edge", "openai_compatible", "fish_audio", "qwen3", "voxcpm2",
+    _REUSABLE_SPEECH_PROVIDERS = frozenset({"edge", "openai_compatible", "fish_audio", "fish_audio_local", "qwen3", "voxcpm2",
                                           "gemini", "elevenlabs", "mimo"})
 
     def __init__(self, store, task_id, source_task_id, plan, connection_fingerprint=""):
@@ -94,7 +94,8 @@ class PipelineRecovery:
                 raise ValueError("语音参考素材已改变，不能恢复原任务，请建立新任务")
             reference_files[aid] = identity
         model_identity = None
-        if not provider.remote:
+        # A loopback SGLang service owns its loaded weights, just like a hosted endpoint.
+        if not provider.remote and provider_id != "fish_audio_local":
             from src.core.resources.model_reference import resolve_model_reference
             reference = connection.get("model_path") or resolve_model_reference(recipe["model"])
             directory = Path(reference)

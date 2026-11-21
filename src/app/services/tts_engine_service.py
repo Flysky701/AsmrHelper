@@ -97,7 +97,7 @@ class TtsEngineService:
             if connection_ref:
                 source["connection_ref"] = connection_ref
             # Hosted IDs have no built-in catalog and must always be explicit.
-            if engine.http and common.get("voice"):
+            if engine.http and common.get("voice") and any(mode["id"] == "hosted" for mode in engine.modes):
                 hosted = next((mode for mode in engine.modes if mode["id"] == "hosted"), None)
                 if hosted is None or (model and hosted["models"] and model not in hosted["models"]):
                     raise ValueError("Select a model that supports a hosted voice or use a saved rule")

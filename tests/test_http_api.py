@@ -456,7 +456,29 @@ class TestModelRoutes:
             install_dependencies=False,
             install_recommended_assets=True,
             allow_fallback_variant=True,
+            confirm_large_download=False,
         )
+
+    def test_drama3_download_needs_consent_before_install_or_queue(self, client, monkeypatch):
+        from src.app.services.model_service import ModelService
+
+        service = ModelService(task_service=MagicMock(), dispatcher=MagicMock())
+        installer = MagicMock()
+        monkeypatch.setattr(service.core_service, "install", installer)
+        client.app.dependency_overrides[dependencies.model_service] = lambda: service
+        root = "/api/v1/models/fish_drama3/"
+        for route in ("download", "install", "install?sync=true"):
+            response = client.post(root + route, json={"force": True})
+            assert response.status_code == 400
+            assert "41.50 GB" in response.json()["error"]["message"]
+        service._task_service.create_task_spec.assert_not_called()
+        installer.assert_not_called()
+
+        monkeypatch.setattr(service, "get_model_status", lambda _: ModelStatusView(
+            model_id="fish_drama3", status="installed", detail="fixture",
+        ))
+        assert client.post(root + "install?sync=true", json={"confirm_large_download": True}).status_code == 200
+        installer.assert_called_once()
 
     def test_install_model_async(self, client):
         mock_svc = MagicMock()

@@ -42,6 +42,8 @@ class ModelService:
             raise ValueError("只有本地模型需要运行环境")
         if entry.preferred_runtime == "gpu_worker":
             raise ValueError("请在工作节点准备此模型的运行环境")
+        if entry.preferred_runtime == "local_service":
+            raise ValueError("请在 Linux 或 WSL2 中安装并启动本机 SGLang Omni 服务，然后在语音连接中检测。")
         with self._install_lock:
             self._install_runtime_packages(entry)
             issues = self.status_resolver._runtime_issues(entry)

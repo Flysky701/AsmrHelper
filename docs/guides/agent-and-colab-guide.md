@@ -207,6 +207,8 @@ python scripts/benchmark_asmr_remake.py original.wav timing.srt --takes cue1.wav
 
 ### Fish Audio Drama 3
 
+具备大显存显卡的电脑也可使用桌面端的本机引擎。下载确认、WSL2 启动命令和试音步骤见[本机 Drama 3 指南](tts.md#在本机运行-fish-audio-drama-3)。
+
 在桌面端创建 Fish Audio 语音连接，选择模型 `drama-3`，再选托管 Voice ID 或参考录音。这个入口使用连接中配置的服务地址。
 
 用 [Fish Audio Drama 3 转存笔记本](../../notebooks/fish_drama3_to_drive.ipynb)在 Colab 免费 CPU 会话中挂载 Google Drive，可直接从 Hugging Face 转存并校验官方固定版本的 25 个文件。会话中断后可重跑，已经校验的文件会跳过。建议预留至少 42 GB 的 Drive 空间。

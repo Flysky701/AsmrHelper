@@ -37,6 +37,7 @@ def list_models(
             description=m.description,
             capability_models=m.capability_models,
             estimated_size_mb=m.estimated_size_mb,
+            download_warning=m.download_warning,
             inference_vram_gb=m.inference_vram_gb,
             install_strategy=m.install_strategy,
             supports_install=m.supports_install,
@@ -178,6 +179,7 @@ def install_model(
     install_dependencies = body.install_dependencies if body else True
     install_recommended_assets = body.install_recommended_assets if body else False
     allow_fallback_variant = body.allow_fallback_variant if body else False
+    confirm_large_download = body.confirm_large_download if body else False
 
     if sync:
         result = svc.install_model(
@@ -188,6 +190,7 @@ def install_model(
             install_dependencies=install_dependencies,
             install_recommended_assets=install_recommended_assets,
             allow_fallback_variant=allow_fallback_variant,
+            confirm_large_download=confirm_large_download,
         )
         return ModelOperationResponse(
             action=result.action,
@@ -205,6 +208,7 @@ def install_model(
         install_dependencies=install_dependencies,
         install_recommended_assets=install_recommended_assets,
         allow_fallback_variant=allow_fallback_variant,
+        confirm_large_download=confirm_large_download,
     )
     response.status_code = 201
     return TaskStatusResponse.from_task_status(task)
@@ -301,4 +305,4 @@ def download_model_weights(model_id: str, body: ModelDownloadRequest | None = No
     return TaskStatusResponse.from_task_status(svc.install_model_async(
         model_id, mirror=options.mirror, force=options.force, install_mode=options.install_mode,
         install_dependencies=False, install_recommended_assets=options.install_recommended_assets,
-        allow_fallback_variant=False, operation="download"))
+        allow_fallback_variant=False, operation="download", confirm_large_download=options.confirm_large_download))

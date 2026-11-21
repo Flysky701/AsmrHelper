@@ -8,6 +8,8 @@ import { GRAPH_OPTION_KEYS, type GraphNode } from '@/domain/workflowGraph'
 import { graphNodeFromRecipe, graphSpeechIssue, graphSpeechOptionDisabledReason } from '@/domain/graphNodeParameters'
 import { effectiveSpeechRecipe, runtimeSpeechOptions, speechOverrideIssue, withSpeechOverrides } from '@/domain/speechPresetConsumption'
 import { speechLanguageMatches, speechCapabilities, speechLanguageSupported } from '@/domain/speechAdvancedOptions'
+import { DRAMA3_PROVIDER_ID } from '@/domain/modelDownloads'
+import { useNavStore } from '@/stores/navStore'
 import { openSpeechPresetLibrary } from '@/stores/speechPresetHandoffStore'
 import SpeechProcessingParameters from './SpeechProcessingParameters'
 
@@ -101,8 +103,9 @@ export default function SpeechPresetParameters({ node, onChange, requestChange, 
           {!!node.options.speech_recipe_id && !recipes.some(item => item.id === node.options.speech_recipe_id) && <option value={String(node.options.speech_recipe_id)}>{selected?.name || t("原音色")}{t("（保留的引用）")}</option>}
           {recipes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select></Field>
-        {selected && <p className="graph-param-note">{providers.find(item => item.provider_id === selected.provider_id)?.name || selected.provider_id} · {selected.model}</p>}
+        {selected && <p className="graph-param-note">{t(providers.find(item => item.provider_id === selected.provider_id)?.name || selected.provider_id)} · {selected.model}</p>}
         <div className="graph-param-actions"><button type="button" onClick={() => void manage()}>{legacy ? t("在音色库另存") : t("管理音色")}</button>
+          {node.provider === DRAMA3_PROVIDER_ID && <button type="button" onClick={() => void useNavStore.getState().openEngines('local', 'tts')}>{t("管理本机 Drama 3 权重")}</button>}
           <button type="button" disabled={loading} onClick={() => setRevision(value => value + 1)}>{t("刷新")}</button></div>
         {legacy && <p className="graph-param-note">{t("编辑旧声音配置，请先在音色库另存。")}</p>}
         {!node.options.auto_clone && !node.options.speech_recipe_id && !legacy && !loading && !error && !recipes.length && <p className="graph-param-note">{t("请先在音色库保存一个音色。")}</p>}

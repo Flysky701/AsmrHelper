@@ -148,6 +148,20 @@ class ModelStatusResolver:
         from .model_assets import complete, shared
         path = entry.resolved_install_dir()
         weights_ready = complete(entry, path)
+        if entry.preferred_runtime == "local_service":
+            if cached_only:
+                detail = "在语音连接中可检测本机推理服务"
+                issues = (ModelStatusIssue("RUNTIME_CHECK_PENDING", entry.id, detail),)
+            else:
+                from src.core.speech.providers import get_provider
+                probe = get_provider(entry.provider).probe({"model": entry.id, "mode": "default"})
+                detail = probe["detail"]
+                issues = () if probe["ready"] else (ModelStatusIssue("LOCAL_SERVICE_UNAVAILABLE", entry.id, detail),)
+            state = ModelState.INSTALLED if weights_ready else ModelState.INVALID if path.exists() else ModelState.MISSING
+            weight_detail = "权重文件完整" if weights_ready else "当前模型目录缺少完整权重"
+            return ModelStatus(entry.id, state, f"{weight_detail}。{detail}", path, executable=not issues,
+                               issues=issues, weights_ready=weights_ready, runtime_ready=not issues,
+                               shared_readonly=shared(entry, path))
         if entry.preferred_runtime == "gpu_worker":
             state = ModelState.INSTALLED if weights_ready else ModelState.INVALID if path.exists() else ModelState.MISSING
             return ModelStatus(entry.id, state, "权重用于工作节点", path, weights_ready=weights_ready,
