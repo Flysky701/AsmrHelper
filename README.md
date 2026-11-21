@@ -4,9 +4,9 @@ Windows 桌面音频处理工具，支持人声分离、语音识别、字幕翻
 
 ## 开始使用
 
-先看[中文快速上手](docs/guides/quick-start.md)：默认“演示预设 · 中文配音”无需模型下载或 API 密钥，使用在线 Edge 晓晓音色，需联网。工作台提供收起的“快速上手”说明。
+Windows x64 安装包在 [GitHub Releases](https://github.com/Flysky701/AsmrHelper/releases)。安装后可按[中文快速上手](docs/guides/quick-start.md)选择工作区并生成第一份配音。默认“演示预设 · 中文配音”使用在线 Edge 晓晓音色，需联网，无需下载模型或填写 API 密钥。
 
-需要 Windows 10/11、PowerShell 5.1+。安装脚本默认使用项目内的 Python 3.12；桌面开发与构建另需 Node.js 22+、Rust/Cargo 及对应 Windows 编译工具链。模型和 GPU 要求取决于所选引擎。
+源码方式需要 Windows 10/11、PowerShell 5.1+。安装脚本默认使用项目内的 Python 3.12；桌面开发与构建另需 Node.js 22+、Rust/Cargo 及对应 Windows 编译工具链。模型和 GPU 要求取决于所选引擎。
 
 ```powershell
 git clone https://github.com/Flysky701/AsmrHelper.git
@@ -26,8 +26,9 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 | [工作台](docs/guides/workbench.md) | 选择流水线，添加音频或字幕，绑定素材并提交单组或批次 |
 | [流水线编辑](docs/guides/workflow-graph-v2.md) | 定义节点、连线、输入槽和交付结果，保存为可复用预设 |
 | [声音与音色](docs/guides/voice-lab-v2.md) | 编辑参考录音、保存音色规则、试听并复用高级参数 |
+| 精修与字幕 | 核对配音草稿、修改台词、试听和逐句重录，处理字幕和台本 |
 | 任务中心 | 查看任务与批次、错误归属、最终结果及中间产物，按可用条件取消、重试或恢复 |
-| 字幕工坊 / 音频工具 | 编辑字幕、处理台本、分离、转换音频及按字幕切分 |
+| 音频工具 | 分离、转换音频及按字幕切分 |
 | 引擎与资源 / 设置 | 按需安装模型、检查环境、管理命名连接、流水线预设和路径 |
 
 只包含目标语言字幕与 TTS 的流水线可直接配音，无需分离、ASR 或翻译。语言、时间轴、配对关系与引擎输入必须满足要求；检查配置或构建成功不等于真实音频验收通过。
