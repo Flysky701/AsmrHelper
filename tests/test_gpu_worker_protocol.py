@@ -728,39 +728,25 @@ def test_colab_gpu_worker_notebook_structure() -> None:
     nb = json.loads(nb_path.read_text(encoding="utf-8"))
     assert nb["nbformat"] == 4
     assert nb["nbformat_minor"] >= 4
-    cells = nb["cells"]
-    assert isinstance(cells, list) and len(cells) >= 6
+    cells = {cell["id"]: "".join(cell["source"]) for cell in nb["cells"]}
+    for cell in nb["cells"]:
+        if cell["cell_type"] == "code":
+            ast.parse(cells[cell["id"]], filename=f"{cell['id']}.py")
 
-    md_cells = [c for c in cells if c.get("cell_type") == "markdown"]
-    code_cells = [c for c in cells if c.get("cell_type") == "code"]
-    assert len(md_cells) >= 3
-    assert len(code_cells) == 3
+    setup = cells["setup"]
+    assert "drive.mount(" in setup and "ASMR_HELPER_MODEL_ROOT" in setup
+    assert "ASMR_COLAB_REVISION" in setup and "faster-whisper" in setup
+    assert "ASMR_COLAB_JOB_DIR" in cells["parameters"]
+    assert "packages.gpu_worker.cli" in cells["asr"] and "--once" in cells["asr"]
+    assert "result.srt" in cells["asr"] and "files.download" in cells["export"]
 
-    full_md = "\n".join("".join(c["source"]) for c in md_cells)
-    # Bilingual Chinese + English check
-    assert "Google Drive" in full_md
-    assert "挂载" in full_md and "Mount" in full_md
-    assert "Cloudflare" in full_md and "Bearer Token" in full_md
-
-    # Every code cell must be valid Python AST
-    code_sources = ["".join(c["source"]) for c in code_cells]
-    for idx, src in enumerate(code_sources, start=1):
-        ast.parse(src, filename=f"colab_cell_{idx}.py")
-
-    # Cell 1: Persistent Google Drive cache env vars
-    assert "/content/drive/MyDrive/AsmrHelperModels" in code_sources[0]
-    assert "HF_HOME" in code_sources[0]
-    assert "MODELSCOPE_CACHE" in code_sources[0]
-    assert "ASMR_HELPER_MODEL_ROOT" in code_sources[0]
-
-    # Cell 2: Fast dependency & repo setup for Colab T4/L4
-    assert "pip" in code_sources[1]
-    assert "PYTHONPATH" in code_sources[1]
-    assert "faster-whisper" in code_sources[1]
-
-    # Cell 3: Random token + packages.gpu_worker.cli --serve + cloudflared Quick Tunnel
-    assert "secrets.token_urlsafe" in code_sources[2]
-    assert "packages.gpu_worker.cli" in code_sources[2]
-    assert "--serve" in code_sources[2]
-    assert "http://127.0.0.1:8765" in code_sources[2]
-    assert "trycloudflare.com" in code_sources[2]
+    models = cells["optional-worker-models"]
+    assert "INSTALL_AUDIO_SEPARATOR = False" in models
+    assert "audio-separator[gpu]" in models and "AUDIO_SEPARATOR_MODEL_DIR" in models
+    server = cells["optional-worker-server"]
+    assert "START_WORKER = False" in server
+    assert "if START_WORKER and not cli_job_dir" in server
+    assert "packages.gpu_worker.cli" in server and "--serve" in server
+    assert "getpass(" in server and "ASMR_WORKER_TOKEN" in server
+    assert "ASMR_HELPER_REMOTE_WORKER_URL" in cells["worker-connection"]
+    assert "ASMR_HELPER_REMOTE_WORKER_TOKEN" in cells["worker-connection"]

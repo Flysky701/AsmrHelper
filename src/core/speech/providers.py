@@ -53,6 +53,8 @@ def _number(minimum, maximum, default):
 
 
 COMMON = {"schema_version": {"type": "integer", "const": 1, "default": 1}}
+REMOTE_GPU_ONLY = frozenset({"cosyvoice2", "gpt_sovits"})
+REMOTE_GPU_PROVIDERS = REMOTE_GPU_ONLY | {"qwen3", "voxcpm2"}
 SCHEMAS = {
     "fish_audio": {**COMMON, "speed": _number(.5, 2, 1), "temperature": _number(0, 1, .7),
         "top_p": _number(0, 1, .7), "style_description": {"type": "string", "maxLength": 300, "default": ""},
@@ -74,9 +76,13 @@ SCHEMAS = {
             "title": "最大生成长度", "description": "生成 token 上限；过小可能截断语音，不等于秒数。"}},
     "voxcpm2": {**COMMON, "cfg_value": _number(.1, 10, 2),
         "inference_timesteps": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10}},
+    "cosyvoice2": COMMON,
+    "gpt_sovits": {**COMMON, "temperature": {**_number(.01, 2, 1), "title": "随机温度"}},
 }
 MODES = {
-    "fish_audio": [{"id": "hosted", "variant_kinds": ["hosted"], "models": ["s2.1-pro-free", "s2.1-pro", "s2-pro", "s1"]}],
+    "fish_audio": [{"id": mode, "variant_kinds": [mode],
+                    "models": ["s2.1-pro-free", "s2.1-pro", "s2-pro", "s1", "drama-3"]}
+                   for mode in ("hosted", "reference")],
     "openai_compatible": [{"id": "hosted", "variant_kinds": ["hosted"], "models": []}],
     "edge": [{"id": "builtin", "variant_kinds": ["builtin"], "models": ["edge-tts"]}],
     "qwen3": [
@@ -84,6 +90,8 @@ MODES = {
         {"id": "reference", "variant_kinds": ["reference"], "models": ["qwen3-base"]},
         {"id": "design", "variant_kinds": ["design"], "models": ["qwen3-voice-design"]}],
     "voxcpm2": [{"id": mode, "variant_kinds": [mode], "models": ["voxcpm2"]} for mode in ("default", "reference", "design")],
+    "cosyvoice2": [{"id": "reference", "variant_kinds": ["reference"], "models": ["cosyvoice2"]}],
+    "gpt_sovits": [{"id": "reference", "variant_kinds": ["reference"], "models": ["gpt_sovits"]}],
 }
 _LOCAL_LOCK = threading.Lock()
 EMOTIONS = {"neutral", "happy", "sad", "angry", "excited", "calm", "nervous", "relaxed"}
@@ -97,6 +105,7 @@ RUNTIME_OPTIONS = {
     "edge": ("speed",),
     "qwen3": ("temperature", "top_p", "do_sample", "top_k", "repetition_penalty", "max_new_tokens"),
     "voxcpm2": ("cfg_value", "inference_timesteps"),
+    "gpt_sovits": ("temperature",),
 }
 
 
@@ -105,9 +114,15 @@ class SpeechProvider:
 
     def __init__(self, provider_id):
         self.provider_id = provider_id
-        self.remote = provider_id in {"fish_audio", "openai_compatible", "edge"}
+        if provider_id == "fish_audio":
+            self.default_base_url = "https://api.fish.audio/v1"
+        self.remote = provider_id in REMOTE_GPU_ONLY | {"fish_audio", "openai_compatible", "edge"}
         self.http = provider_id in {"fish_audio", "openai_compatible"}
         self.options_schema, self.modes = SCHEMAS[provider_id], MODES[provider_id]
+
+    @property
+    def connection_required(self) -> bool:
+        return self.http or self.provider_id in REMOTE_GPU_ONLY
 
     def capabilities(self, model=None, mode=None):
         express = self.provider_id in {"fish_audio", "voxcpm2"} or (self.provider_id == "qwen3" and mode != "reference")
@@ -118,9 +133,9 @@ class SpeechProvider:
             "cancellation": "between_segments" if self.remote else "worker_termination",
             "concurrency": 1 if not self.remote else None,
             "languages": ["zh", "en", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"] if self.provider_id == "qwen3" else "model-dependent",
-            "reference": {"supported": mode == "reference", "transcript_required": self.provider_id == "qwen3" and mode == "reference",
+            "reference": {"supported": mode == "reference", "transcript_required": self.provider_id in {"qwen3", "fish_audio"} and mode == "reference",
                 "transcript_optional_option": "x_vector_only_mode" if self.provider_id == "qwen3" and mode == "reference" else None,
-                "duration_limit_seconds": None, "upload": False}, "max_text_length": None}
+                "duration_limit_seconds": None, "upload": self.provider_id in {"fish_audio", "mimo"} and mode == "reference"}, "max_text_length": None}
 
     def runtime_options(self, model, mode):
         if not any(item["id"] == mode and (not item["models"] or model in item["models"]) for item in self.modes):
@@ -139,10 +154,14 @@ class SpeechProvider:
             mode["model_capabilities"] = {model: self.capabilities(model, mode["id"]) for model in mode["models"]}
             mode["model_runtime_options"] = {model: self.runtime_options(model, mode["id"]) for model in mode["models"]}
         return deepcopy({"provider_id": self.provider_id, "name": {"fish_audio": "Fish Audio", "edge": "Edge TTS",
-            "qwen3": "Qwen3 TTS", "voxcpm2": "VoxCPM2", "openai_compatible": "OpenAI 兼容语音"}.get(self.provider_id, getattr(self, "name", self.provider_id)),
+            "qwen3": "Qwen3 TTS", "voxcpm2": "VoxCPM2", "openai_compatible": "OpenAI 兼容语音",
+            "cosyvoice2": "CosyVoice 2 (Colab)", "gpt_sovits": "GPT-SoVITS (Colab)"}.get(self.provider_id, getattr(self, "name", self.provider_id)),
             "version": self.version, "contract_version": 1, "remote": self.remote,
-            "connection_required": self.http,
+            "connection_required": self.connection_required,
             "default_base_url": getattr(self, "default_base_url", None),
+            "connection_deployments": (["local"] if not self.remote else
+                                       ["cloud"] if self.http and getattr(self, "default_base_url", None) else
+                                       ["cloud", "lan", "local"]),
             "modes": modes, "options_schema": {"type": "object", "additionalProperties": False,
             "properties": self.options_schema}, "capabilities": self.capabilities()})
 
@@ -281,8 +300,8 @@ class SpeechProvider:
         return resolved
 
     def reference_requires_transcript(self, recipe):
-        return (self.provider_id == "qwen3" and recipe.get("mode") == "reference"
-                and not self._options(recipe)["x_vector_only_mode"])
+        return recipe.get("mode") == "reference" and (self.provider_id == "fish_audio" or (
+            self.provider_id == "qwen3" and not self._options(recipe)["x_vector_only_mode"]))
 
     def validate(self, recipe, assets):
         options = self._options(recipe)
@@ -312,7 +331,7 @@ class SpeechProvider:
         if self.provider_id == "qwen3" and recipe["mode"] == "builtin":
             if variant["value"] not in {v["id"] for v in self.voice_sources("builtin")["presets"]}:
                 raise ProviderError("invalid_variant", "请选择 Qwen CustomVoice 的真实预设音色")
-        if self.http and not recipe.get("connection_ref"):
+        if self.connection_required and not recipe.get("connection_ref"):
             raise ProviderError("connection_missing", "请明确选择外部连接")
         if variant["kind"] == "reference":
             asset = assets.get(variant["value"], {})
@@ -322,7 +341,7 @@ class SpeechProvider:
             if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
                 raise ProviderError("asset_missing", "参考素材不存在或缺少可信摘要")
             if self.reference_requires_transcript(recipe) and not str(asset.get("transcript", "")).strip():
-                raise ProviderError("transcript_missing", "Qwen 参考素材需要确认转录")
+                raise ProviderError("transcript_missing", "此音色需要参考录音的转录原文")
 
     def compile(self, recipe, segment, text, assets):
         self.validate(recipe, assets)
@@ -338,6 +357,8 @@ class SpeechProvider:
         params = {"language": recipe.get("language", "auto"), "variant": deepcopy(variant), "options": options,
             "delivery": delivery, "emotion": emotion}
         if self.provider_id == "fish_audio":
+            if variant["kind"] == "reference":
+                params["reference_transcript"] = assets[variant["value"]]["transcript"]
             cues = []
             if delivery != "normal":
                 cues.append({"whisper": "whispering", "soft": "soft tone"}[delivery])
@@ -358,10 +379,14 @@ class SpeechProvider:
             params["instruction"] = "，".join(x for x in [STYLE_TEXT[delivery], "" if emotion == "neutral" else emotion] if x)
             if variant["kind"] == "reference":
                 params["reference_transcript"] = str(assets[variant["value"]].get("transcript", ""))
+        elif self.provider_id in REMOTE_GPU_ONLY:
+            params["reference_transcript"] = str(assets[variant["value"]].get("transcript", ""))
         return params
 
     def _has_remote_worker(self, context: dict | None) -> bool:
-        if self.provider_id not in {"qwen3", "voxcpm2"}:
+        if self.provider_id in REMOTE_GPU_ONLY:
+            return True
+        if self.provider_id not in REMOTE_GPU_PROVIDERS:
             return False
         ctx = context if isinstance(context, dict) else {}
         conn = ctx.get("connection") if isinstance(ctx.get("connection"), dict) else {}
@@ -469,7 +494,7 @@ class SpeechProvider:
 
         model = context.get("model")
         mode = context.get("mode")
-        if mode is not None:
+        if mode:
             mode_desc = next((m for m in self.modes if m["id"] == mode), None)
             if mode_desc is None:
                 return {
@@ -479,7 +504,7 @@ class SpeechProvider:
                     "code": "invalid_mode",
                     "detail": "未知引擎模式",
                 }
-            if model is not None and mode_desc["models"] and model not in mode_desc["models"]:
+            if model and mode_desc["models"] and model not in mode_desc["models"]:
                 return {
                     "ready": False,
                     "reachable": None,
@@ -529,6 +554,15 @@ class SpeechProvider:
                 "verified": False,
                 "code": "model_unavailable",
                 "detail": "远端 GPU Worker 不支持 tts_batch 任务",
+            }
+        installed_tts = caps.installed_providers.get("tts_batch")
+        missing = (self.provider_id not in installed_tts if installed_tts is not None else
+                   self.provider_id in REMOTE_GPU_ONLY and self.provider_id not in caps.optional_tts_providers)
+        if missing:
+            return {
+                "ready": False, "reachable": True, "verified": False,
+                "code": "model_unavailable",
+                "detail": f"远端 GPU Worker 尚未配置 {self.provider_id}",
             }
         return {
             "ready": True,
@@ -604,6 +638,7 @@ class SpeechProvider:
             raise ProviderError("version_mismatch", "引擎版本与编译快照不符")
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        warnings = []
         if self.http:
             remote_id = self._remote(request, output_path, context)
         elif self.provider_id == "edge":
@@ -634,7 +669,7 @@ class SpeechProvider:
                 raise ProviderError("remote_failed", detail, retryable=True) from None
             remote_id = None
         elif self._has_remote_worker(context) or context.get("_remote_session") is not None:
-            self._remote_gpu(request, output_path, context, cancel_check)
+            warnings = self._remote_gpu(request, output_path, context, cancel_check) or []
             remote_id = None
         else:
             while not _LOCAL_LOCK.acquire(timeout=.2):
@@ -655,7 +690,8 @@ class SpeechProvider:
             raise ProviderError("invalid_audio", "引擎输出无法解码为完整音频") from None
         return {"path": str(output_path), "container": info.format, "codec": info.subtype,
             "sample_rate": info.samplerate, "channels": info.channels, "duration": info.duration,
-            "model": request["model"], "provider_id": self.provider_id, "remote_request_id": remote_id}
+            "model": request["model"], "provider_id": self.provider_id, "remote_request_id": remote_id,
+            **({"warnings": warnings} if warnings else {})}
 
     def _remote(self, request, output_path, context):
         connection = context.get("connection", {})
@@ -668,6 +704,9 @@ class SpeechProvider:
         p = request["parameters"]
         headers = {"Authorization": f"Bearer {key}"}
         if self.provider_id == "fish_audio":
+            mode = next((item for item in self.modes if item["id"] == request["mode"]), None)
+            if not mode or request["model"] not in mode["models"] or p["variant"]["kind"] not in mode["variant_kinds"]:
+                raise ProviderError("invalid_snapshot", "Fish 模型与声音来源不匹配")
             endpoint = "/tts"
             # Accept the official origin as well as the documented /v1 base.
             # Custom proxy prefixes remain explicit and are never rewritten.
@@ -682,13 +721,21 @@ class SpeechProvider:
             endpoint = "/audio/speech"
             body = {"model": request["model"], "input": request["text"], "voice": p["variant"]["value"],
                 "response_format": "wav", "speed": p["options"]["speed"]}
+        if self.provider_id == "fish_audio" and request["mode"] == "reference":
+            from .cloud_http import reference_audio
+            import msgpack
+            raw, _ = reference_audio(request, context)
+            body.pop("reference_id")
+            body["references"] = [{"audio": raw, "text": p["reference_transcript"]}]
+            headers["Content-Type"] = "application/msgpack"
+            body = msgpack.packb(body, use_bin_type=True)
         return self._http_audio(base if parsed.path.endswith(endpoint) else base + endpoint, headers, body, output_path, connection)
 
     @staticmethod
     def _http_audio(url, headers, body, output_path, connection):
         try:
             with httpx.Client(timeout=httpx.Timeout(float(connection.get("timeout", 180)), connect=15)) as client:
-                response = client.post(url, headers=headers, json=body)
+                response = client.post(url, headers=headers, **({"content": body} if isinstance(body, bytes) else {"json": body}))
         except httpx.TimeoutException:
             raise ProviderError("result_unknown", "远端响应超时，请确认计费与结果后再生成", result_unknown=True) from None
         except httpx.RequestError:
@@ -773,6 +820,8 @@ class SpeechProvider:
             for k, v in params["options"].items()
             if k not in {"schema_version", "device"}
         }
+        if params.get("reference_language"):
+            item_opts["reference_language"] = params["reference_language"]
         return TtsSynthesizeItem(
             item_id=f"item-{idx}",
             text=req["text"],
@@ -856,6 +905,7 @@ class SpeechProvider:
             reference_audio_path=primary_ref,
             references=ref_map,
             options=dict(items[0].options) if items else {},
+            **(requests[0].get("verification", {}) if requests else {}),
         )
 
     def _materialize_remote_tts_item(
@@ -896,11 +946,10 @@ class SpeechProvider:
         except Exception:
             raise ProviderError("invalid_audio", "远端 GPU Worker 返回的音频无法解码") from None
 
-    def _remote_gpu(self, request: dict, output_path: Path, context: dict, cancel_check) -> None:
+    def _remote_gpu(self, request: dict, output_path: Path, context: dict, cancel_check):
         session = context.get("_remote_session")
         if session is not None:
-            session.run(request, output_path, context, cancel_check)
-            return
+            return session.run(request, output_path, context, cancel_check)
 
         from packages.gpu_worker.client import ComputeClient, RemoteHttpTransport
         from packages.protocol.errors import ComputeRemoteError
@@ -928,10 +977,11 @@ class SpeechProvider:
         if not result.items:
             raise ProviderError("remote_failed", "远端 GPU Worker 未返回合成结果")
         self._materialize_remote_tts_item(result.items[0], output_path, token=token)
+        return result.warnings
 
     @contextmanager
     def batch_session(self, requests, context: dict):
-        if self.remote or self.provider_id not in {"qwen3", "voxcpm2"} or len(requests) <= 1:
+        if self.provider_id not in REMOTE_GPU_PROVIDERS or len(requests) <= 1:
             yield context
             return
         if self._has_remote_worker(context):
@@ -1007,6 +1057,8 @@ class _RemoteBatchSession:
         self._client = None
         self._token: str | None = None
         self._batch_results: dict[str, Any] | None = None
+        self._batch_warnings: list[str] = []
+        self._batch_start = 0
         self._cursor = 0
 
     @staticmethod
@@ -1022,6 +1074,7 @@ class _RemoteBatchSession:
                 "text",
                 "parameters",
                 "asset_hashes",
+                "verification",
             )
         )
 
@@ -1041,7 +1094,7 @@ class _RemoteBatchSession:
             )
         return self._client
 
-    def run(self, request: dict, output_path: Path, context: dict, cancel_check) -> None:
+    def run(self, request: dict, output_path: Path, context: dict, cancel_check):
         from packages.protocol.errors import ComputeRemoteError
 
         _cancel(cancel_check)
@@ -1050,13 +1103,15 @@ class _RemoteBatchSession:
         if (
             self._batch_results is None
             and not context.get("checkpoint_each_take")
-            and self._cursor == 0
-            and self._planned_requests
-            and self._matches_planned(self._planned_requests[0], request)
+            and self._cursor < len(self._planned_requests)
+            and self._matches_planned(self._planned_requests[self._cursor], request)
             and len({req.get("model") for req in self._planned_requests}) == 1
         ):
+            pending = self._planned_requests[self._cursor:]
+            if any(req.get("verification") or req["parameters"].get("reference_language") for req in pending):
+                pending = pending[:16]
             batch_req = self._provider._build_remote_tts_batch_request(
-                self._planned_requests,
+                pending,
                 context,
                 verified_assets=self._verified_assets,
             )
@@ -1068,13 +1123,16 @@ class _RemoteBatchSession:
                     exc.code, exc.payload.message, retryable=exc.retryable, token=self._token
                 ) from None
             self._batch_results = {item.item_id: item for item in res.items}
+            self._batch_warnings = res.warnings
+            self._batch_start = self._cursor
+            self._batch_end = self._cursor + len(pending)
 
         if (
             self._batch_results is not None
             and self._cursor < len(self._planned_requests)
             and self._matches_planned(self._planned_requests[self._cursor], request)
         ):
-            item_id = f"item-{self._cursor}"
+            item_id = f"item-{self._cursor - self._batch_start}"
             self._cursor += 1
             item_res = self._batch_results.get(item_id)
             if item_res is None:
@@ -1082,7 +1140,11 @@ class _RemoteBatchSession:
             self._provider._materialize_remote_tts_item(
                 item_res, output_path, token=self._token
             )
-            return
+            warnings = [warning for warning in self._batch_warnings if warning.startswith(f"{item_id}:")]
+            if self._cursor == self._batch_end:
+                self._batch_results = None
+                self._batch_warnings = []
+            return warnings
 
         single_req = self._provider._build_remote_tts_batch_request(
             [request],
@@ -1101,6 +1163,7 @@ class _RemoteBatchSession:
         self._provider._materialize_remote_tts_item(
             single_res.items[0], output_path, token=self._token
         )
+        return single_res.warnings
 
     def close(self) -> None:
         client, self._client = self._client, None

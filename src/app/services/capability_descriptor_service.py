@@ -180,6 +180,10 @@ class CapabilityDescriptorService:
         from src.core.engines.llm import get_llm_registry
 
         llm_registry = get_llm_registry()
+        duration_options = [
+            _option("duration_aware", "boolean", default=False),
+            _option("chars_per_second", "number", default=4.2, min_value=0.1),
+        ]
         descriptors = [
             {
                 "category": "llm",
@@ -188,7 +192,7 @@ class CapabilityDescriptorService:
                 "kind": "cloud",
                 "supported_models": llm_registry.list_models("deepseek"),
                 "default_model": llm_registry.default_model("deepseek"),
-                "common_option_schema": [],
+                "common_option_schema": deepcopy(duration_options),
                 "provider_option_schema": [],
                 "supports": {
                     "chat_completion": True,
@@ -204,7 +208,7 @@ class CapabilityDescriptorService:
                 "kind": "cloud",
                 "supported_models": llm_registry.list_models("openai"),
                 "default_model": llm_registry.default_model("openai"),
-                "common_option_schema": [],
+                "common_option_schema": deepcopy(duration_options),
                 "provider_option_schema": [],
                 "supports": {
                     "chat_completion": True,
@@ -503,7 +507,8 @@ class CapabilityDescriptorService:
                 "provider": "demucs",
                 "display_name": "Demucs",
                 "kind": "local",
-                "supported_models": ["htdemucs", "htdemucs_ft", "htdemucs_6s"],
+                "supported_models": ["htdemucs", "htdemucs_ft", "htdemucs_6s", "mdx", "mdx_extra",
+                                     "mel_band_roformer", "bs_roformer"],
                 "default_model": "htdemucs",
                 "common_option_schema": [],
                 "provider_option_schema": [],

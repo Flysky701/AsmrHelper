@@ -17,12 +17,10 @@ import threading
 from typing import Any
 from uuid import uuid4
 
-import numpy as np
 import soundfile as sf
 
 from src.app.errors import AppExecutionError, AppValidationError
 from src.app.persistence.draft_store import DraftConflictError, DraftStore, get_draft_store
-from src.core.speech.compiler import compile_recipe
 from src.core.speech.store import SpeechStore, build_plan
 from src.core.subtitles.exporter import SubtitleExporter
 from src.core.subtitles.loader import detect_subtitle_language
@@ -31,6 +29,7 @@ from src.core.subtitles.parser import SubtitleParser
 from src.core.subtitles.text_utils import normalize_language_code
 from src.mixer import Mixer
 from src.mixer.binaural import plan_cue_slots
+from src.core.speech.remake import REMAKE_KEYS, extract_voice_reference_candidate, validate_timeline_options
 from src.utils import get_ffmpeg, sanitize_filename
 
 
@@ -1019,155 +1018,9 @@ class DraftSessionService:
             )
         return segments
 
-    def _extract_voice_reference_candidate(
-        self,
-        audio_path: Path,
-        staging_dir: Path,
-        segments: Sequence[Mapping[str, Any]],
-    ) -> dict[str, Any]:
-        """Select highest RMS-to-noise-floor 6-10s clean window and write mono PCM_16 candidate."""
-        info = _probe_audio_metadata(audio_path)
-        total_duration = float(info["duration"])
-        if total_duration <= 0.1:
-            raise AppValidationError("Audio track is too short for voice reference extraction")
-
-        # Decode via soundfile (or FFmpeg fallback for compressed containers) in blocks
-        hop_sec = 0.1
-        frame_rms: list[float] = []
-        frame_clip: list[float] = []
-
-        def _scan_stream(readable_path: Path) -> int:
-            with sf.SoundFile(str(readable_path)) as stream:
-                sr = stream.samplerate
-                block_frames = max(1, int(round(hop_sec * sr)))
-                for block in stream.blocks(blocksize=block_frames, dtype="float32", always_2d=True):
-                    mono = np.mean(block, axis=1)
-                    if len(mono) == 0:
-                        continue
-                    rms = float(np.sqrt(np.mean(np.square(mono, dtype=np.float64))))
-                    clip = float(np.mean(np.abs(mono) >= 0.995))
-                    frame_rms.append(rms)
-                    frame_clip.append(clip)
-                return sr
-
-        decoded_temp_dir: tempfile.TemporaryDirectory[str] | None = None
-        readable = audio_path
-        try:
-            try:
-                sample_rate = _scan_stream(readable)
-            except Exception:
-                decoded_temp_dir = tempfile.TemporaryDirectory(prefix="asmr-ref-decode-")
-                readable = Path(decoded_temp_dir.name) / "decoded.wav"
-                subprocess.run(
-                    [
-                        get_ffmpeg(),
-                        "-nostdin",
-                        "-v",
-                        "error",
-                        "-i",
-                        str(audio_path),
-                        "-vn",
-                        "-ac",
-                        "1",
-                        "-c:a",
-                        "pcm_s16le",
-                        "-y",
-                        str(readable),
-                    ],
-                    check=True,
-                    capture_output=True,
-                    timeout=180,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                frame_rms.clear()
-                frame_clip.clear()
-                sample_rate = _scan_stream(readable)
-
-            rms_arr = np.asarray(frame_rms, dtype=np.float64)
-            clip_arr = np.asarray(frame_clip, dtype=np.float64)
-            if len(rms_arr) == 0:
-                raise AppValidationError("Audio stream contains no readable samples")
-
-            global_noise = float(np.percentile(rms_arr, 15)) + 1e-6
-            min_win_sec = min(6.0, total_duration)
-            max_win_sec = min(10.0, max(min_win_sec, total_duration))
-
-            candidate_intervals: list[tuple[float, float]] = []
-            # Slide 8s (clamped to [6, 10]s) windows at 0.5s steps
-            target_win = min(8.0, max_win_sec)
-            win_frames = max(1, int(round(target_win / hop_sec)))
-            step_frames = max(1, int(round(0.5 / hop_sec)))
-            for start_f in range(0, max(1, len(rms_arr) - win_frames + 1), step_frames):
-                end_f = min(len(rms_arr), start_f + win_frames)
-                candidate_intervals.append((start_f * hop_sec, min(total_duration, end_f * hop_sec)))
-
-            # Also consider contiguous cue groups falling in [6.0, 10.0]s so transcript aligns cleanly
-            for i in range(len(segments)):
-                s_start = float(segments[i]["start"])
-                for j in range(i, len(segments)):
-                    s_end = float(segments[j]["end"])
-                    span = s_end - s_start
-                    if span > 10.0:
-                        break
-                    if span >= min_win_sec:
-                        candidate_intervals.append((max(0.0, s_start), min(total_duration, s_end)))
-
-            best_score = -1e9
-            best_window = (0.0, min(total_duration, max_win_sec))
-            best_snr_db = 0.0
-            best_rms = 0.0
-
-            for w_start, w_end in candidate_intervals:
-                i0 = max(0, int(math.floor(w_start / hop_sec)))
-                i1 = min(len(rms_arr), max(i0 + 1, int(math.ceil(w_end / hop_sec))))
-                sub_rms = rms_arr[i0:i1]
-                sub_clip = clip_arr[i0:i1]
-                speech_level = float(np.percentile(sub_rms, 80))
-                local_noise = max(global_noise, float(np.percentile(sub_rms, 15)) + 1e-6)
-                snr_db = 20.0 * math.log10(max(speech_level, 1e-7) / local_noise)
-                clip_penalty = 50.0 * float(np.mean(sub_clip))
-                dur = w_end - w_start
-                dur_bonus = 2.0 if 6.0 <= dur <= 10.0 else 0.0
-                score = snr_db + dur_bonus - clip_penalty
-                if score > best_score:
-                    best_score = score
-                    best_window = (w_start, w_end)
-                    best_snr_db = snr_db
-                    best_rms = float(np.sqrt(np.mean(np.square(sub_rms))))
-
-            ref_start, ref_end = best_window
-            out_path = staging_dir / "voice_reference_candidate.wav"
-            with sf.SoundFile(str(readable)) as stream:
-                first = max(0, min(stream.frames - 1, int(round(ref_start * sample_rate))))
-                last = max(first + 1, min(stream.frames, int(round(ref_end * sample_rate))))
-                stream.seek(first)
-                samples = stream.read(last - first, dtype="float32", always_2d=True)
-                mono_out = np.mean(samples, axis=1)
-                sf.write(str(out_path), mono_out, sample_rate, subtype="PCM_16")
-        finally:
-            if decoded_temp_dir is not None:
-                decoded_temp_dir.cleanup()
-
-        overlapping_texts = [
-            str(seg.get("source_text") or "").strip()
-            for seg in segments
-            if float(seg["end"]) > ref_start + 0.05 and float(seg["start"]) < ref_end - 0.05
-            and str(seg.get("source_text") or "").strip()
-        ]
-        return {
-            "path": str(out_path),
-            "source_audio_path": str(audio_path),
-            "start": round(ref_start, 3),
-            "end": round(ref_end, 3),
-            "duration": round(ref_end - ref_start, 3),
-            "sample_rate": sample_rate,
-            "snr_db": round(best_snr_db, 2),
-            "rms": round(best_rms, 5),
-            "transcript": " ".join(overlapping_texts),
-        }
-
     @staticmethod
-    def _cue_cache_key(snapshot: Mapping[str, Any], text: str, delivery: str, emotion: str) -> str:
+    def _cue_cache_key(snapshot: Mapping[str, Any], text: str, delivery: str, emotion: str,
+                       *, reference_id=None, verification=None) -> str:
         recipe = snapshot.get("recipe", {})
         raw_recipe_id = str(recipe.get("id", ""))
         stable_recipe_id = "" if raw_recipe_id.startswith("pipeline-") else raw_recipe_id
@@ -1185,6 +1038,13 @@ class DraftSessionService:
             "delivery": delivery,
             "emotion": emotion,
         }
+        if reference_id:
+            payload["cue_reference"] = reference_id
+        if verification:
+            payload["verification"] = {
+                "max_retries": verification.get("max_retries", 2),
+                "min_similarity": verification.get("min_similarity", .75),
+            }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         ).hexdigest()
@@ -1230,6 +1090,18 @@ class DraftSessionService:
             }
         )
 
+    def _run_dubbing(self, voice_plan, synthesize):
+        if not voice_plan.get("auto_clone") or voice_plan.get("recipe_id") or voice_plan.get("snapshot"):
+            return synthesize(voice_plan), None
+        speech = self._get_speech_service()
+        snapshot = speech.auto_dubbing_snapshot(voice_plan["target_lang"])
+        options = {key: voice_plan[key] for key in REMAKE_KEYS if key in voice_plan}
+        return speech.run_auto_dubbing(
+            snapshot, lambda: voice_plan.get("reference_candidate"), options,
+            lambda selected, remake: synthesize({**voice_plan, **remake, "snapshot": selected}),
+            fallback_reason=voice_plan.get("auto_clone_fallback"),
+        )
+
     def _create_managed_task(self, speech_service: Any, *, task_type: str, draft_id: str) -> str:
         tasks_svc = None if self._standalone else getattr(speech_service, "tasks", None)
         if tasks_svc is not None and hasattr(tasks_svc, "create_task_spec"):
@@ -1270,6 +1142,7 @@ class DraftSessionService:
         voice_plan: Mapping[str, Any],
         staging_dir: Path,
         sample_count: int,
+        source_audio=None,
     ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], float | None]:
         """Synthesize 1-2 representative sample cues during Phase 1 without running full-track TTS."""
         candidates = [
@@ -1315,7 +1188,18 @@ class DraftSessionService:
                 saved_plan = speech_service.store.create("plans", plan)
                 experiment_id = uuid4().hex
                 media_root = staging_dir / "samples" / experiment_id
-                speech_service.store.create(
+                remake = {key: voice_plan[key] for key in REMAKE_KEYS if key in voice_plan}
+                source_cues = [{**seg, "start_time": seg["start"], "end_time": seg["end"]} for seg in candidates]
+                assets, all_refs = speech_service.timeline_references(
+                    snapshot, source_cues, source_audio, remake, staging_dir / "references",
+                    language=voice_plan.get("source_lang", "ja"),
+                )
+                refs = {f"sample-{index + 1}": ref for index, seg in enumerate(chosen)
+                        if (ref := all_refs.get(f"sentence-{candidates.index(seg) + 1}")) is not None}
+                vc_refs = refs
+                if remake.get("vc_refinement", {}).get("enabled") and not refs and all_refs:
+                    vc_refs = {"sample-1": next(iter(all_refs.values()))}
+                experiment = speech_service.store.create(
                     "experiments",
                     {
                         "id": experiment_id,
@@ -1325,9 +1209,12 @@ class DraftSessionService:
                         "kind": "formal",
                         "media_root": str(media_root),
                         "snapshot": snapshot,
+                        **({"vc_refinement": remake["vc_refinement"], "remake_references": assets,
+                            "cue_references": vc_refs}
+                           if remake.get("vc_refinement", {}).get("enabled") else {}),
                     },
                 )
-                requests = compile_recipe(snapshot["recipe"], saved_plan, snapshot["assets"])
+                requests = speech_service.compile_timeline_requests(snapshot, saved_plan, remake, assets, refs, chosen)
                 takes = speech_service.run_requests(
                     requests,
                     snapshot,
@@ -1335,8 +1222,15 @@ class DraftSessionService:
                     experiment_id=experiment_id,
                     plan_id=saved_plan["id"],
                     media_root=media_root,
+                    **({"extra_assets": assets} if assets else {}),
                 )
-                for seg, take in zip(chosen, takes, strict=True):
+                previews = takes
+                if remake.get("vc_refinement", {}).get("enabled"):
+                    selected = list(zip(saved_plan["segments"], takes, strict=True))
+                    previews = [take for _, take in speech_service._refine_takes(
+                        experiment, selected, media_root, lambda: False,
+                    )]
+                for seg, take, preview, request in zip(chosen, takes, previews, requests, strict=True):
                     seg_text = str(seg["translation"]).strip()
                     dur = float(take["audio"]["duration"])
                     units = count_spoken_units(seg_text)
@@ -1344,19 +1238,24 @@ class DraftSessionService:
                     total_dur += dur
                     delivery = str(seg.get("delivery") or snapshot["recipe"].get("default_delivery", "normal"))
                     emotion = str(seg.get("emotion") or snapshot["recipe"].get("default_emotion", "neutral"))
-                    cache_key = self._cue_cache_key(snapshot, seg_text, delivery, emotion)
+                    cache_key = self._cue_cache_key(
+                        snapshot, seg_text, delivery, emotion,
+                        reference_id=refs.get(request["segment_id"]) if remake.get("reference_mode", "single") != "single" else None,
+                        verification=remake if remake.get("verify_with_asr") else None,
+                    )
                     take_cache[f"{seg['cue_id']}:{cache_key}"] = {
                         "take_id": take["id"],
                         "audio_path": take["audio_path"],
                         "duration": dur,
+                        **({"warnings": take["audio"]["warnings"]} if take["audio"].get("warnings") else {}),
                     }
                     sample_takes.append(
                         {
                             "index": seg["index"],
                             "cue_id": seg["cue_id"],
                             "text": seg_text,
-                            "audio_path": take["audio_path"],
-                            "duration": round(dur, 3),
+                            "audio_path": preview["audio_path"],
+                            "duration": round(dur if preview is take else sf.info(preview["audio_path"]).duration, 3),
                             "take_id": take["id"],
                         }
                     )
@@ -1408,6 +1307,9 @@ class DraftSessionService:
         voice_plan: dict[str, Any] | None = None,
         extract_voice_reference: bool = False,
         prepare_stems: bool = False,
+        separation_model: str | None = None,
+        auto_detect_delivery: bool = False,
+        duration_aware: bool = False,
         synthesize_samples: bool = False,
         sample_cue_count: int = 0,
         chars_per_second: float = 4.2,
@@ -1451,6 +1353,11 @@ class DraftSessionService:
             "max_atempo": max_atempo,
             **deepcopy(voice_plan or {}),
         }
+        if auto_detect_delivery:
+            resolved_voice_plan["auto_detect_delivery"] = True
+        if duration_aware:
+            resolved_voice_plan["duration_aware"] = True
+        validate_timeline_options(resolved_voice_plan)
         if script_path is not None:
             resolved_voice_plan["script_path"] = str(Path(script_path).expanduser().resolve())
         elif primary_track and primary_track.get("paired_scripts"):
@@ -1488,14 +1395,19 @@ class DraftSessionService:
                     from src.core.engines.separator.service import SeparatorEngineRuntime
                     opts = {key: value for key, value in (asr_options or {}).items()
                             if key in {"remote_worker_url", "remote_worker_token", "remote_worker_timeout"}}
-                    result = SeparatorEngineRuntime().separate(input_path=mixed, output_dir=str(staging_dir / "stems"),
-                                                              stems=["vocals"], provider_options=opts)
+                    result = SeparatorEngineRuntime().separate(
+                        input_path=mixed, output_dir=str(staging_dir / "stems"),
+                        stems=["vocals", "no_vocals"] if separation_model and not effects else ["vocals"],
+                        provider_options=opts, **({"model": separation_model} if separation_model else {}),
+                    )
                     vocals = result["vocals"]
+                    if not effects:
+                        effects = result.get("no_vocals")
                 stems["vocals"] = str(vocals)
                 if not effects:
                     effects = str(staging_dir / "effects.wav")
                     extract_difference(mixed, vocals, effects)
-                    stems["se_only"] = effects
+                stems["se_only"] = effects
             candidate_subtitles: list[str] = []
             if subtitle_path is not None:
                 candidate_subtitles = [str(Path(subtitle_path).expanduser().resolve())]
@@ -1560,6 +1472,15 @@ class DraftSessionService:
                     resolved_voice_plan["script_path"], segments)
                 subtitle_source_mode += "_with_script"
 
+            source_audio = (
+                primary_track["paired_stems"].get("vocals")
+                or primary_track["paired_stems"].get("no_se")
+                or primary_track["path"]
+            ) if primary_track is not None else None
+            if resolved_voice_plan.get("auto_detect_delivery") and source_audio:
+                from src.core.asr.acoustic_profiler import annotate_delivery
+                segments = annotate_delivery(source_audio, segments, overwrite=True)
+
             # Run optional LLM translation when cues have no translations yet (source-only subtitle or ASR)
             has_any_existing_translation = any(
                 bool(str(s.get("translation", "")).strip()) for s in segments
@@ -1579,17 +1500,25 @@ class DraftSessionService:
                 if indices_to_translate:
                     if self._is_llm_available(llm_provider):
                         source_texts = [str(segments[i]["source_text"]) for i in indices_to_translate]
+                        duration_options, duration_args = {}, {}
+                        if resolved_voice_plan.get("duration_aware"):
+                            duration_options = {"duration_aware": True, "chars_per_second": chars_per_second}
+                            duration_args = {"available_seconds": [
+                                float(segments[i]["end"]) - float(segments[i]["start"])
+                                for i in indices_to_translate
+                            ]}
                         if self._llm_runtime is not None and self._llm_service is None:
                             translated_items = self._llm_runtime.translate_texts(
                                 texts=source_texts,
                                 profile={
                                     "provider": llm_provider or "deepseek",
                                     "model": llm_model,
-                                    "common_options": {},
+                                    "common_options": duration_options,
                                     "provider_options": llm_options or {},
                                 },
                                 source_lang=source_lang,
                                 target_lang=target_lang,
+                                **duration_args,
                             )
                         else:
                             llm_res = self._get_llm_service().translate_texts(
@@ -1599,6 +1528,7 @@ class DraftSessionService:
                                 source_lang=source_lang,
                                 target_lang=target_lang,
                                 provider_options=llm_options,
+                                **({"common_options": duration_options, **duration_args} if duration_args else {}),
                             )
                             translated_items = list(llm_res.items)
                         for seg_idx, trans_text in zip(indices_to_translate, translated_items, strict=False):
@@ -1607,28 +1537,38 @@ class DraftSessionService:
                         warnings.append("未检测到已配置的 LLM 翻译凭据，保留未翻译原文并在质检报告中标记。")
 
             reference_quality: dict[str, Any] | None = None
-            want_ref = bool(extract_voice_reference or resolved_voice_plan.get("mode") == "clone")
-            if want_ref and primary_track is not None:
-                clean_audio = Path(
-                    primary_track["paired_stems"].get("vocals")
-                    or primary_track["paired_stems"].get("no_se")
-                    or primary_track["path"]
-                )
-                reference_quality = self._extract_voice_reference_candidate(clean_audio, staging_dir, segments)
+            automatic_clone = bool(resolved_voice_plan.get("auto_clone") and not resolved_voice_plan.get("recipe_id"))
+            want_ref = bool(extract_voice_reference or automatic_clone or resolved_voice_plan.get("mode") == "clone")
+            if want_ref and source_audio:
+                try:
+                    reference_quality = extract_voice_reference_candidate(
+                        Path(source_audio), staging_dir, segments, prefer_speech=automatic_clone,
+                    )
+                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+                    if not automatic_clone:
+                        raise
                 resolved_voice_plan["reference_candidate"] = reference_quality
 
             effective_sample_count = int(sample_cue_count) if sample_cue_count > 0 else (2 if synthesize_samples else 0)
             sample_takes: list[dict[str, Any]] = []
             take_cache: dict[str, dict[str, Any]] = {}
             effective_cps = chars_per_second
-            if effective_sample_count > 0:
-                sample_takes, take_cache, measured_cps = self._synthesize_sample_cues(
-                    draft_id=draft_id,
-                    segments=segments,
-                    voice_plan=resolved_voice_plan,
-                    staging_dir=staging_dir,
-                    sample_count=effective_sample_count,
+            if effective_sample_count > 0 and any(has_speech_text(str(seg.get("translation", ""))) for seg in segments):
+                samples, fallback_reason = self._run_dubbing(
+                    resolved_voice_plan,
+                    lambda voice: self._synthesize_sample_cues(
+                        draft_id=draft_id,
+                        segments=segments,
+                        voice_plan=voice,
+                        staging_dir=staging_dir,
+                        sample_count=effective_sample_count,
+                        source_audio=source_audio,
+                    ),
                 )
+                sample_takes, take_cache, measured_cps = samples
+                if fallback_reason:
+                    resolved_voice_plan["auto_clone_fallback"] = fallback_reason
+                    warnings.append(f"{fallback_reason}，已使用默认音色。")
                 resolved_voice_plan["sample_takes"] = sample_takes
                 if measured_cps is not None and "chars_per_second" not in (voice_plan or {}):
                     effective_cps = measured_cps
@@ -1694,6 +1634,9 @@ class DraftSessionService:
     def get_draft(self, draft_id: str) -> dict[str, Any]:
         return self.store.get_draft(draft_id).to_dict()
 
+    def delete_draft(self, draft_id: str, *, expected_revision: int) -> None:
+        self.store.delete_draft(draft_id, expected_revision=expected_revision)
+
     def get_audit_report(self, draft_id: str) -> dict[str, Any]:
         record = self.store.get_draft(draft_id)
         return {
@@ -1754,6 +1697,7 @@ class DraftSessionService:
                 seg["speaker"] = str(edit["speaker"]) if edit["speaker"] is not None else None
             if "delivery" in edit and edit["delivery"] is not None:
                 seg["delivery"] = str(edit["delivery"])
+                seg.pop("auto_delivery", None)
             if "emotion" in edit and edit["emotion"] is not None:
                 seg["emotion"] = str(edit["emotion"])
 
@@ -1774,6 +1718,7 @@ class DraftSessionService:
             if not isinstance(voice_plan_patch, Mapping):
                 raise AppValidationError("voice_plan_patch must be an object")
             voice_plan.update(deepcopy(dict(voice_plan_patch)))
+            validate_timeline_options(voice_plan)
 
         script_alignment = current.audit_report.get("script_alignment")
         script_changed = voice_plan.get("script_path") != current.voice_plan.get("script_path")
@@ -1880,17 +1825,33 @@ class DraftSessionService:
         prior_take_cache: Mapping[str, dict[str, Any]],
         checkpoint_take: Callable[[dict], None],
         regenerate_cue_ids: frozenset[str] = frozenset(),
+        original_sample_rate: int | None = None,
     ) -> tuple[dict[str, Any], dict[str, dict[str, Any]], int, int]:
         """Synthesize timeline via SpeechService, reusing unchanged takes across commits."""
         speech_service = self._get_speech_service()
         snapshot = self._resolve_speech_snapshot(speech_service, voice_plan)
         updated_cache = deepcopy(dict(prior_take_cache))
         max_atempo = float(voice_plan.get("max_atempo") or 1.35)
+        validate_timeline_options(voice_plan)
+        acoustic = voice_plan.get("acoustic_options") or {}
+        remake = {key: voice_plan[key] for key in REMAKE_KEYS if key in voice_plan}
+        borrow_slack = voice_plan.get("borrow_silence_slack", True)
+        has_real_store = isinstance(getattr(speech_service, "store", None), SpeechStore)
+        assets, refs = ({}, {})
+        if has_real_store:
+            assets, refs = speech_service.timeline_references(
+                snapshot, spoken_cues, binaural_source_path, remake,
+                tts_output_path.parent / "references", language=voice_plan.get("source_lang", "ja"),
+            )
 
         cue_keys = []
         reusable_hits = []
-        for cue in spoken_cues:
-            signature = self._cue_cache_key(snapshot, cue["text"], cue["delivery"], cue["emotion"])
+        for index, cue in enumerate(spoken_cues, 1):
+            ref_id = refs.get(f"sentence-{index}") if remake.get("reference_mode", "single") != "single" else None
+            signature = self._cue_cache_key(
+                snapshot, cue["text"], cue["delivery"], cue["emotion"], reference_id=ref_id,
+                verification=remake if remake.get("verify_with_asr") else None,
+            )
             key = f"{cue['cue_id']}:{signature}"
             cue_keys.append(key)
             # Older drafts and preview samples used content-only keys.
@@ -1914,11 +1875,14 @@ class DraftSessionService:
             if (has_timeline_var_kw or "binaural_source_path" in timeline_sig.parameters) and binaural_source_path:
                 extra_timeline_kwargs["binaural_source_path"] = binaural_source_path
             if has_timeline_var_kw or "borrow_silence_slack" in timeline_sig.parameters:
-                extra_timeline_kwargs["borrow_silence_slack"] = True
+                extra_timeline_kwargs["borrow_silence_slack"] = borrow_slack
             if has_timeline_var_kw or "max_atempo" in timeline_sig.parameters:
                 extra_timeline_kwargs["max_atempo"] = max_atempo
 
-            has_real_store = isinstance(getattr(speech_service, "store", None), SpeechStore)
+            for key, value in (("acoustic_options", acoustic), ("remake_options", remake),
+                               ("original_sample_rate", original_sample_rate)):
+                if value and (has_timeline_var_kw or key in timeline_sig.parameters):
+                    extra_timeline_kwargs[key] = value
 
             if not has_real_store:
                 if regenerate_cue_ids:
@@ -1978,13 +1942,20 @@ class DraftSessionService:
                 "snapshot": snapshot,
                 "timeline": timeline,
                 "reference_duration": reference_duration,
-                "borrow_silence_slack": True,
+                "borrow_silence_slack": borrow_slack,
                 "max_atempo": max_atempo,
             }
             if binaural_source_path:
                 experiment_payload["binaural_source_path"] = str(binaural_source_path)
+            if acoustic:
+                experiment_payload["acoustic_options"] = acoustic
+            if original_sample_rate:
+                experiment_payload["original_sample_rate"] = original_sample_rate
+            if remake.get("vc_refinement", {}).get("enabled"):
+                experiment_payload.update(vc_refinement=remake["vc_refinement"],
+                                          remake_references=assets, cue_references=refs)
             experiment = speech_service.store.create("experiments", experiment_payload)
-            requests = compile_recipe(snapshot["recipe"], saved_plan, snapshot["assets"])
+            requests = speech_service.compile_timeline_requests(snapshot, saved_plan, remake, assets, refs, spoken_cues)
 
             if requests[0]["compiler_version"] != snapshot["compiler_version"]:
                 raise AppValidationError("编译器版本已改变，请重新提交任务")
@@ -2022,6 +1993,7 @@ class DraftSessionService:
                                 "sample_rate": info.samplerate,
                                 "channels": info.channels,
                                 "format": info.format,
+                                **({"warnings": cached_entry["warnings"]} if cached_entry.get("warnings") else {}),
                             },
                             "elapsed_seconds": 0.0,
                             "reused": True,
@@ -2044,6 +2016,7 @@ class DraftSessionService:
                     updated_cache[missing_keys[take["segment_id"]]] = {
                         "take_id": take["id"], "audio_path": take["audio_path"],
                         "duration": take.get("audio", {}).get("duration"),
+                        **({"warnings": take["audio"]["warnings"]} if take.get("audio", {}).get("warnings") else {}),
                     }
                     checkpoint_take(updated_cache)
                     speech_service.select({"experiment_id": experiment["id"],
@@ -2052,6 +2025,7 @@ class DraftSessionService:
                 speech_service.run_requests(
                     missing_requests, snapshot, task_id=task_id, experiment_id=experiment["id"],
                     plan_id=saved_plan["id"], media_root=media_root, on_take=save_take,
+                    **({"extra_assets": assets} if assets else {}),
                 )
 
             assemble_sig = inspect.signature(speech_service.assemble)
@@ -2062,7 +2036,7 @@ class DraftSessionService:
             if (has_assemble_var_kw or "binaural_source_path" in assemble_sig.parameters) and binaural_source_path:
                 extra_assemble_kwargs["binaural_source_path"] = binaural_source_path
             if has_assemble_var_kw or "borrow_silence_slack" in assemble_sig.parameters:
-                extra_assemble_kwargs["borrow_silence_slack"] = True
+                extra_assemble_kwargs["borrow_silence_slack"] = borrow_slack
             if has_assemble_var_kw or "max_atempo" in assemble_sig.parameters:
                 extra_assemble_kwargs["max_atempo"] = max_atempo
 
@@ -2142,6 +2116,7 @@ class DraftSessionService:
             artifacts = deepcopy(committing_record.artifacts)
             artifacts["output_dir"] = str(target_dir)
             artifacts["subtitles"] = exported_subs
+            audit_report = None
 
             if enable_dubbing:
                 if primary_track is None:
@@ -2156,6 +2131,9 @@ class DraftSessionService:
                         "end_time": float(seg["end"]),
                         "delivery": str(seg.get("delivery") or default_delivery),
                         "emotion": str(seg.get("emotion") or default_emotion),
+                        "source_text": str(seg.get("source_text") or "").strip(),
+                        "auto_delivery": bool(seg.get("auto_delivery")),
+                        "source_rms_db": seg.get("source_rms_db"),
                     }
                     for idx, seg in enumerate(committing_record.segments)
                     if has_speech_text(str(seg.get("translation") or seg.get("source_text") or ""))
@@ -2175,17 +2153,35 @@ class DraftSessionService:
                     self.store.update_draft(draft_id, expected_revision=committing_record.revision,
                                             increment_revision=False, artifacts=artifacts)
 
-                assembly, updated_cache, reused_count, synthesized_count = self._synthesize_with_take_reuse(
-                    draft_id=draft_id,
-                    spoken_cues=spoken_cues,
-                    voice_plan=committing_record.voice_plan,
-                    tts_output_path=tts_track_path,
-                    reference_duration=float(primary_track.get("duration") or 0.0),
-                    binaural_source_path=str(binaural_ref) if binaural_ref else None,
-                    prior_take_cache=artifacts.get("take_cache") or {},
-                    regenerate_cue_ids=requested,
-                    checkpoint_take=save_progress,
-                )
+                voice_plan = deepcopy(committing_record.voice_plan)
+                sample_rate = primary_track.get("sample_rate") if voice_plan.get("acoustic_options") else None
+
+                def synthesize(voice):
+                    snapshot = voice.get("snapshot") or {}
+                    switching_voice = (snapshot.get("auto_dubbing")
+                                       and snapshot["recipe"]["provider_id"] == "edge"
+                                       and not voice_plan.get("auto_clone_fallback"))
+                    return self._synthesize_with_take_reuse(
+                        draft_id=draft_id,
+                        spoken_cues=spoken_cues,
+                        voice_plan=voice,
+                        tts_output_path=tts_track_path,
+                        reference_duration=float(primary_track.get("duration") or 0.0),
+                        binaural_source_path=str(binaural_ref) if binaural_ref else None,
+                        prior_take_cache=artifacts.get("take_cache") or {},
+                        regenerate_cue_ids=frozenset() if switching_voice else requested,
+                        checkpoint_take=save_progress,
+                        original_sample_rate=sample_rate,
+                    )
+
+                result, fallback_reason = self._run_dubbing(voice_plan, synthesize)
+                assembly, updated_cache, reused_count, synthesized_count = result
+                if fallback_reason:
+                    voice_plan["auto_clone_fallback"] = fallback_reason
+                    warning = f"{fallback_reason}，已使用默认音色。"
+                    assembly["warnings"] = [*assembly.get("warnings", []), warning]
+                    audit_report = deepcopy(committing_record.audit_report)
+                    audit_report["warnings"] = list(dict.fromkeys([*audit_report.get("warnings", []), warning]))
 
                 opts = dict(mix_options or {})
                 se_only_stem = primary_track.get("paired_stems", {}).get("se_only")
@@ -2193,6 +2189,10 @@ class DraftSessionService:
                     opts.get("background_path")
                     or (se_only_stem if se_only_stem and opts.get("prefer_se_stem", True) else primary_track["path"])
                 )
+                mixed_bed = bg_audio_path
+                if opts.get("room_tone_inpaint") and bg_audio_path != primary_track["path"]:
+                    from src.mixer.room_tone import prepare_room_tone_bed
+                    mixed_bed = prepare_room_tone_bed(bg_audio_path, primary_track["path"], spoken_cues, staging_dir)
                 mixer = self._mixer_factory(
                     original_volume=float(opts.get("original_volume", 0.95 if se_only_stem else 0.85)),
                     tts_volume_ratio=float(opts.get("tts_volume_ratio", 0.65)),
@@ -2201,10 +2201,11 @@ class DraftSessionService:
                 safe_stem = sanitize_filename(base_stem).strip("_ ") or "output"
                 mixed_output_path = target_dir / f"{safe_stem}_dubbed.wav"
                 mixed_path_str = mixer.mix(
-                    original_path=bg_audio_path,
+                    original_path=mixed_bed,
                     tts_path=str(tts_track_path),
                     output_path=str(mixed_output_path),
-                    adjust_tts_volume=bool(opts.get("adjust_tts_volume", True)),
+                    adjust_tts_volume=bool(opts.get("adjust_tts_volume",
+                        committing_record.voice_plan.get("acoustic_options", {}).get("loudness_match") != "per_cue")),
                     output_length=str(opts.get("output_length", "main")),
                     **({"sidechain_ducking": True} if opts.get("sidechain_ducking") else {}),
                 )
@@ -2217,9 +2218,10 @@ class DraftSessionService:
                     "mixed_audio_path": str(mixed_path_str),
                     "background_audio_path": bg_audio_path,
                     "binaural_source_path": str(binaural_ref) if binaural_ref else None,
-                    "borrow_silence_slack": True,
+                    "borrow_silence_slack": committing_record.voice_plan.get("borrow_silence_slack", True),
                     "channels": assembly.get("channels"),
                     "processing": assembly.get("processing"),
+                    **({"warnings": assembly["warnings"]} if assembly.get("warnings") else {}),
                     "assembly_id": assembly.get("id"),
                     "reused_take_count": reused_count,
                     "synthesized_take_count": synthesized_count,
@@ -2232,6 +2234,8 @@ class DraftSessionService:
                 increment_revision=False,
                 state="completed",
                 artifacts=artifacts,
+                voice_plan=voice_plan if enable_dubbing else None,
+                audit_report=audit_report,
             )
             return completed.to_dict()
         except (AppValidationError, DraftConflictError):

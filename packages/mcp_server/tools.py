@@ -46,6 +46,8 @@ class PrepareDraftArgs(BaseModel):
     source_lang: str = Field(default="ja", description="Source audio/subtitle language code.")
     target_lang: str = Field(default="zh", description="Target translation language code.")
     enable_translation: bool = Field(default=True, description="Run LLM translation when cues lack target text.")
+    duration_aware: bool = Field(default=False, description="Include each cue's time and character budget during translation.")
+    auto_detect_delivery: bool = Field(default=False, description="Suggest normal, soft or whisper delivery from the source.")
     force_asr: bool = Field(default=False, description="Force ASR recognition even when companion subtitles exist.")
     asr_provider: str | None = Field(default=None, description="Optional ASR provider ID (e.g., anime_whisper, faster_whisper).")
     asr_model: str | None = Field(default=None, description="Optional ASR model identifier.")
@@ -55,6 +57,7 @@ class PrepareDraftArgs(BaseModel):
     llm_options: dict[str, Any] | None = Field(default=None, description="Optional LLM provider options.")
     voice_plan: dict[str, Any] | None = Field(default=None, description="Optional VoiceLab recipe_id or speech options.")
     prepare_stems: bool = Field(default=False, description="Prepare vocals and effects using paired stems or source separation.")
+    separation_model: str | None = Field(default=None, description="Separation model when preparing missing stems, e.g. mel_band_roformer.")
     extract_voice_reference: bool = Field(default=False, description="Extract highest-SNR 6-10s clean reference candidate.")
     synthesize_samples: bool = Field(default=False, description="Synthesize 1-2 sample cues before review gate.")
     sample_cue_count: int = Field(default=0, ge=0, le=2, description="Explicit number of sample cues (0..2).")
@@ -293,6 +296,8 @@ class McpToolRegistry:
             source_lang=args.source_lang,
             target_lang=args.target_lang,
             enable_translation=args.enable_translation,
+            duration_aware=args.duration_aware,
+            auto_detect_delivery=args.auto_detect_delivery,
             force_asr=args.force_asr,
             asr_provider=args.asr_provider,
             asr_model=args.asr_model,
@@ -302,6 +307,7 @@ class McpToolRegistry:
             llm_options=args.llm_options,
             voice_plan=voice_plan or None,
             prepare_stems=args.prepare_stems,
+            separation_model=args.separation_model,
             extract_voice_reference=args.extract_voice_reference,
             synthesize_samples=args.synthesize_samples,
             sample_cue_count=args.sample_cue_count,

@@ -9,7 +9,8 @@ models:
     dependency_group: faster_whisper
     required_runtime_packages: ["faster-whisper>=1.0.0"]
     display_name: Faster-Whisper Tiny
-    description: Fastest Whisper model with the lowest accuracy.
+    description: 快速识别 · 推荐 CPU，支持 NVIDIA GPU
+    inference_vram_gb: 2
     estimated_size_mb: 78
     install_root: models
     install_path: whisper/tiny
@@ -51,7 +52,8 @@ models:
     dependency_group: faster_whisper
     required_runtime_packages: ["faster-whisper>=1.0.0"]
     display_name: Faster-Whisper Base
-    description: Recommended balanced Whisper model.
+    description: 通用识别 · 推荐 CPU，支持 NVIDIA GPU
+    inference_vram_gb: 2
     estimated_size_mb: 148
     install_root: models
     install_path: whisper/base
@@ -92,7 +94,8 @@ models:
     dependency_group: faster_whisper
     required_runtime_packages: ["faster-whisper>=1.0.0"]
     display_name: Faster-Whisper Small
-    description: Higher-accuracy Whisper model.
+    description: 语音识别与配音复核 · CPU 可用，支持 NVIDIA GPU
+    inference_vram_gb: 3
     estimated_size_mb: 486
     install_root: models
     install_path: whisper/small
@@ -133,7 +136,8 @@ models:
     dependency_group: faster_whisper
     required_runtime_packages: ["faster-whisper>=1.0.0"]
     display_name: Faster-Whisper Medium
-    description: High-accuracy Whisper model.
+    description: 高精度识别 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 4
     estimated_size_mb: 1530
     install_root: models
     install_path: whisper/medium
@@ -174,7 +178,8 @@ models:
     dependency_group: faster_whisper
     required_runtime_packages: ["faster-whisper>=1.0.0"]
     display_name: Faster-Whisper Large-v3
-    description: Highest-accuracy Whisper model.
+    description: 高精度多语识别 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 6
     estimated_size_mb: 3090
     install_root: models
     install_path: whisper/large-v3
@@ -216,7 +221,8 @@ models:
     dependency_group: fun_asr
     required_python_extras: [funasr]
     display_name: Fun-ASR Nano 2512
-    description: Fun-ASR Nano multilingual speech recognition model weights from Hugging Face.
+    description: 多语识别 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 4
     estimated_size_mb: 1990
     install_root: models
     install_path: funasr/Fun-ASR-Nano-2512
@@ -262,7 +268,8 @@ models:
     dependency_group: fun_asr
     required_python_extras: [funasr]
     display_name: Fun-ASR MLT Nano 2512
-    description: Fun-ASR multilingual 31-language model weights from Hugging Face.
+    description: 31 种语言识别 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 4
     estimated_size_mb: 1990
     install_root: models
     install_path: funasr/Fun-ASR-MLT-Nano-2512
@@ -308,7 +315,7 @@ models:
     dependency_group: fun_asr
     required_python_extras: [funasr]
     display_name: FunASR FSMN VAD
-    description: Voice activity detector required to split long audio before Fun-ASR recognition.
+    description: 语音活动检测 · CPU 可用
     estimated_size_mb: 5
     install_root: models
     install_path: funasr/fsmn-vad
@@ -352,7 +359,8 @@ models:
     required_python_extras: [qwen_asr]
     required_runtime_packages: ["torch>=2.4.0"]
     display_name: Qwen3-ASR 0.6B
-    description: Qwen3-ASR 0.6B multilingual offline ASR model from Hugging Face.
+    description: 轻量多语识别 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 4
     estimated_size_mb: 1880
     install_root: models
     install_path: qwen3asr/Qwen3-ASR-0.6B
@@ -399,7 +407,8 @@ models:
     required_python_extras: [qwen_asr]
     required_runtime_packages: ["torch>=2.4.0"]
     display_name: Qwen3-ASR 1.7B
-    description: Qwen3-ASR 1.7B multilingual offline ASR model from Hugging Face.
+    description: 高精度多语识别 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 6
     estimated_size_mb: 4700
     install_root: models
     install_path: qwen3asr/Qwen3-ASR-1.7B
@@ -447,7 +456,8 @@ models:
     required_python_extras: [qwen_asr]
     required_runtime_packages: ["torch>=2.4.0"]
     display_name: Qwen3 Forced Aligner 0.6B
-    description: Official Qwen3 forced aligner required for word and sentence timestamps.
+    description: 词句时间对齐 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 4
     estimated_size_mb: 1880
     install_root: models
     install_path: qwen3asr/Qwen3-ForcedAligner-0.6B
@@ -491,7 +501,8 @@ models:
     required_python_extras: [anime_whisper]
     required_runtime_packages: ["torch>=2.4.0", "transformers>=4.57.3,<5.0.0", "numpy>=1.24.0", "imageio-ffmpeg>=0.4.0"]
     display_name: Anime Whisper (experimental)
-    description: Optional Japanese ASR via Transformers; native segment timestamps need real-audio validation.
+    description: 日语动漫语音识别 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 6
     estimated_size_mb: 3030
     install_root: models
     install_path: anime-whisper
@@ -536,7 +547,8 @@ models:
     dependency_group: qwen3_tts
     required_python_extras: [qwen3]
     display_name: Qwen3 CustomVoice
-    description: Preset-speaker Qwen3 TTS model.
+    description: 预设音色配音 · 推荐 NVIDIA GPU
+    inference_vram_gb: 8
     estimated_size_mb: 4520
     install_root: models
     install_path: qwen3tts/models--Qwen--Qwen3-TTS-12Hz-1.7B-CustomVoice
@@ -583,7 +595,8 @@ models:
     dependency_group: qwen3_tts
     required_python_extras: [qwen3]
     display_name: Qwen3 VoiceDesign
-    description: Natural-language voice design model.
+    description: 文字设计音色 · 推荐 NVIDIA GPU
+    inference_vram_gb: 8
     estimated_size_mb: 4520
     install_root: models
     install_path: qwen3tts/models--Qwen--Qwen3-TTS-12Hz-1.7B-VoiceDesign
@@ -629,7 +642,8 @@ models:
     dependency_group: qwen3_tts
     required_python_extras: [qwen3]
     display_name: Qwen3 Base
-    description: Voice clone Qwen3 TTS model.
+    description: 参考录音克隆 · 推荐 NVIDIA GPU
+    inference_vram_gb: 8
     estimated_size_mb: 4540
     install_root: models
     install_path: qwen3tts/models--Qwen--Qwen3-TTS-12Hz-1.7B-Base
@@ -677,7 +691,8 @@ models:
     required_python_extras: [voxcpm2]
     required_runtime_packages: [voxcpm>=2.0.0, soundfile>=0.12.0]
     display_name: VoxCPM2
-    description: "2B-parameter tokenizer-free TTS by OpenBMB. 30 languages, voice design, controllable cloning, 48kHz output."
+    description: 音色设计与克隆 · 推荐 NVIDIA GPU
+    inference_vram_gb: 8
     estimated_size_mb: 4960
     install_root: models
     install_path: voxcpm2
@@ -712,7 +727,7 @@ models:
     kind: local
     category: separator
     provider: demucs
-    capability_models: [htdemucs, htdemucs_ft, htdemucs_6s]
+    capability_models: [htdemucs]
     family_id: demucs
     variant_group: demucs_main
     variant_tier: standard
@@ -720,8 +735,9 @@ models:
     dependency_group: demucs
     required_python_extras: [audio]
     display_name: Demucs HTDemucs
-    description: Demucs separator provided by the installed Python package.
-    estimated_size_mb: 337
+    description: 人声分离 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 8
+    estimated_size_mb: 84
     install_root: models
     install_path: demucs/htdemucs
     required_files: []
@@ -739,12 +755,273 @@ models:
       - type: http
         endpoint: https://dl.fbaipublicfiles.com/demucs/hybrid_transformer
 
+  - id: demucs-htdemucs_ft
+    kind: local
+    category: separator
+    provider: demucs
+    family_id: demucs
+    capability_models: [htdemucs_ft]
+    display_name: Demucs htdemucs_ft
+    estimated_size_mb: 337
+    description: 多轨分离 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 8
+    install_root: models
+    install_path: demucs/htdemucs_ft
+    supports_install: true
+    supports_remove: true
+    install_strategy: package
+    upstream_name: htdemucs_ft
+    required_python_extras: [audio]
+    runtime_profile: python_package_local
+    download_sources:
+      - type: http
+        endpoint: https://dl.fbaipublicfiles.com/demucs/hybrid_transformer
+
+  - id: demucs-htdemucs_6s
+    kind: local
+    category: separator
+    provider: demucs
+    family_id: demucs
+    capability_models: [htdemucs_6s]
+    display_name: Demucs htdemucs_6s
+    estimated_size_mb: 55
+    description: 六轨分离 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 8
+    install_root: models
+    install_path: demucs/htdemucs_6s
+    supports_install: true
+    supports_remove: true
+    install_strategy: package
+    upstream_name: htdemucs_6s
+    required_python_extras: [audio]
+    runtime_profile: python_package_local
+    download_sources:
+      - type: http
+        endpoint: https://dl.fbaipublicfiles.com/demucs/hybrid_transformer
+
+  - id: demucs-mdx
+    kind: local
+    category: separator
+    provider: demucs
+    family_id: demucs
+    capability_models: [mdx]
+    display_name: Demucs mdx
+    estimated_size_mb: 691
+    description: 多轨分离 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 8
+    install_root: models
+    install_path: demucs/mdx
+    supports_install: true
+    supports_remove: true
+    install_strategy: package
+    upstream_name: mdx
+    required_python_extras: [audio]
+    runtime_profile: python_package_local
+    download_sources:
+      - type: http
+        endpoint: https://dl.fbaipublicfiles.com/demucs/mdx_final
+
+  - id: demucs-mdx_extra
+    kind: local
+    category: separator
+    provider: demucs
+    family_id: demucs
+    capability_models: [mdx_extra]
+    display_name: Demucs mdx_extra
+    estimated_size_mb: 670
+    description: 多轨分离 · CPU 可用，推荐 NVIDIA GPU
+    inference_vram_gb: 8
+    install_root: models
+    install_path: demucs/mdx_extra
+    supports_install: true
+    supports_remove: true
+    install_strategy: package
+    upstream_name: mdx_extra
+    required_python_extras: [audio]
+    runtime_profile: python_package_local
+    download_sources:
+      - type: http
+        endpoint: https://dl.fbaipublicfiles.com/demucs/mdx_final
+
+  - id: mel_band_roformer
+    kind: local
+    category: separator
+    provider: audio_separator
+    family_id: audio_separator
+    display_name: Mel-Band RoFormer
+    description: 人声分离 · 推荐工作节点使用 NVIDIA GPU
+    inference_vram_gb: 8
+    preferred_runtime: gpu_worker
+    install_root: models
+    install_path: audio_separator/mel_band_roformer
+    supports_install: true
+    supports_remove: true
+    install_strategy: release_files
+    estimated_size_mb: 1008
+    required_files:
+      - model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt
+      - model_mel_band_roformer_ep_3005_sdr_11.4360.yaml
+    download_sources:
+      - type: http
+        endpoint: https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs
+
+  - id: bs_roformer
+    kind: local
+    category: separator
+    provider: audio_separator
+    family_id: audio_separator
+    display_name: BS-RoFormer
+    description: 人声分离 · 推荐工作节点使用 NVIDIA GPU
+    inference_vram_gb: 8
+    preferred_runtime: gpu_worker
+    install_root: models
+    install_path: audio_separator/bs_roformer
+    supports_install: true
+    supports_remove: true
+    install_strategy: release_files
+    estimated_size_mb: 639
+    required_files:
+      - model_bs_roformer_ep_317_sdr_12.9755.ckpt
+      - model_bs_roformer_ep_317_sdr_12.9755.yaml
+    download_sources:
+      - type: http
+        endpoint: https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs
+
+  - id: denoise_mel_band_roformer
+    kind: local
+    category: separator
+    provider: audio_separator
+    family_id: audio_separator
+    display_name: Mel-Band RoFormer Denoise
+    description: 干声降噪 · 推荐工作节点使用 NVIDIA GPU
+    inference_vram_gb: 8
+    preferred_runtime: gpu_worker
+    install_root: models
+    install_path: audio_separator/denoise_mel_band_roformer
+    supports_install: true
+    supports_remove: true
+    install_strategy: release_files
+    capability_models: [denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt]
+    estimated_size_mb: 913
+    required_files:
+      - denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt
+      - denoise_mel_band_roformer_aufr33_sdr_27.9959_config.yaml
+    download_sources:
+      - type: http
+        endpoint: https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs
+
+  - id: seed_vc
+    kind: local
+    category: vc
+    provider: seed_vc
+    family_id: seed_vc
+    display_name: Seed-VC
+    estimated_size_mb: 1884
+    description: 音色转换 · 在 GPU 工作节点运行
+    inference_vram_gb: 8
+    preferred_runtime: gpu_worker
+    install_root: models
+    install_path: seed_vc
+    supports_install: true
+    supports_remove: true
+    install_strategy: release_files
+    upstream_name: Plachta/Seed-VC
+    required_files:
+      - DiT_seed_v2_uvit_whisper_small_wavenet_bigvgan_pruned.pth
+      - config_dit_mel_seed_uvit_whisper_small_wavenet.yml
+      - campplus/campplus_cn_common.bin
+      - bigvgan/config.json
+      - bigvgan/bigvgan_generator.pt
+      - whisper/config.json
+      - whisper/preprocessor_config.json
+      - whisper/model.safetensors
+    download_sources:
+      - type: http
+        endpoint: https://huggingface.co/Plachta/Seed-VC/resolve/main
+      - type: http
+        directory: campplus
+        endpoint: https://huggingface.co/funasr/campplus/resolve/main
+      - type: http
+        directory: bigvgan
+        endpoint: https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x/resolve/main
+      - type: http
+        directory: whisper
+        endpoint: https://huggingface.co/openai/whisper-small/resolve/main
+
+  - id: cosyvoice2
+    kind: local
+    category: tts
+    provider: cosyvoice2
+    family_id: cosyvoice2
+    display_name: CosyVoice 2 · 0.5B
+    description: 参考录音克隆 · 推荐工作节点使用 NVIDIA GPU
+    inference_vram_gb: 6
+    preferred_runtime: gpu_worker
+    install_root: models
+    install_path: cosyvoice2
+    supports_install: true
+    supports_remove: true
+    install_strategy: huggingface_snapshot
+    estimated_size_mb: 4860
+    upstream_name: FunAudioLLM/CosyVoice2-0.5B
+    required_files:
+      - cosyvoice2.yaml
+      - llm.pt
+      - flow.pt
+      - hift.pt
+      - campplus.onnx
+      - speech_tokenizer_v2.onnx
+      - CosyVoice-BlankEN/config.json
+      - CosyVoice-BlankEN/model.safetensors
+      - CosyVoice-BlankEN/vocab.json
+      - CosyVoice-BlankEN/merges.txt
+      - CosyVoice-BlankEN/tokenizer_config.json
+
+  - id: gpt_sovits
+    kind: local
+    category: tts
+    provider: gpt_sovits
+    family_id: gpt_sovits
+    display_name: GPT-SoVITS v2
+    estimated_size_mb: 1740
+    description: 参考录音克隆 · 工作节点支持 CPU，推荐 NVIDIA GPU
+    inference_vram_gb: 6
+    preferred_runtime: gpu_worker
+    install_root: models
+    install_path: gpt_sovits
+    supports_install: true
+    supports_remove: true
+    install_strategy: release_files
+    upstream_name: lj1995/GPT-SoVITS
+    download_sources:
+      - type: http
+        endpoint: https://huggingface.co/lj1995/GPT-SoVITS/resolve/8f8857563c040d542de108a2c18b0425abd6c9c5
+      - type: http
+        directory: G2PWModel
+        endpoint: https://huggingface.co/alextomcat/G2PWModel/resolve/86417ec388c4ccde374ef14427f9ee39945524a3
+    required_files:
+      - gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt
+      - gsv-v2final-pretrained/s2G2333k.pth
+      - chinese-hubert-base/config.json
+      - chinese-hubert-base/preprocessor_config.json
+      - chinese-hubert-base/pytorch_model.bin
+      - chinese-roberta-wwm-ext-large/config.json
+      - chinese-roberta-wwm-ext-large/tokenizer.json
+      - chinese-roberta-wwm-ext-large/pytorch_model.bin
+      - G2PWModel/config.py
+      - G2PWModel/g2pW.onnx
+      - G2PWModel/MONOPHONIC_CHARS.txt
+      - G2PWModel/POLYPHONIC_CHARS.txt
+      - G2PWModel/bopomofo_to_pinyin_wo_tune_dict.json
+      - G2PWModel/char_bopomofo_dict.json
+      - G2PWModel/version
+
   - id: deepseek
     kind: cloud
     category: llm
     provider: deepseek
     display_name: DeepSeek API
-    description: DeepSeek-hosted LLM provider.
+    description: 云端语言模型 · 无需本机显存
     api_key_config: api.deepseek_api_key
     supports_install: false
     supports_remove: false
@@ -754,7 +1031,7 @@ models:
     category: llm
     provider: openai
     display_name: OpenAI API
-    description: OpenAI-hosted LLM provider.
+    description: 云端语言模型 · 无需本机显存
     api_key_config: api.openai_api_key
     supports_install: false
     supports_remove: false

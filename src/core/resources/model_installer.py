@@ -109,6 +109,8 @@ class ModelInstaller:
         install_dir.parent.mkdir(parents=True, exist_ok=True)
 
         strategy = entry.install_strategy
+        if strategy == "release_files":
+            return self._download_release_files(entry, force=force)
         if strategy == "whisper":
             return self._download_whisper(entry, mirror)
         if strategy == "qwen3":
@@ -118,6 +120,37 @@ class ModelInstaller:
         if strategy == "package":
             return self._download_demucs(entry, mirror=mirror) if entry.provider == "demucs" else self.verify_local_model(entry)
         raise ValueError(f"unknown install strategy: {strategy}")
+
+    def _download_release_files(self, entry, on_progress=None, *, force=False):
+        from tempfile import NamedTemporaryFile
+        from urllib.request import urlopen
+
+        self._guard_shared(entry)
+        directory = entry.resolved_install_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        sources = {source.get("directory", ""): source["endpoint"].rstrip("/") for source in entry.download_sources}
+        for index, name in enumerate(entry.required_files):
+            target = directory / name
+            if not force and target.is_file() and target.stat().st_size:
+                continue
+            if on_progress:
+                on_progress(index / len(entry.required_files), f"下载 {name}")
+            directory_name, _, filename = name.rpartition("/")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            url = sources[directory_name] + "/" + filename if directory_name in sources else sources[""] + "/" + name
+            with urlopen(url, timeout=90) as response:
+                with NamedTemporaryFile(dir=target.parent, delete=False) as stream:
+                    pending = Path(stream.name)
+                try:
+                    with pending.open("wb") as stream:
+                        shutil.copyfileobj(response, stream)
+                    length = response.headers.get("Content-Length")
+                    if not pending.stat().st_size or (length and pending.stat().st_size != int(length)):
+                        raise ModelDownloadError(f"下载不完整：{name}")
+                    pending.replace(target)
+                finally:
+                    pending.unlink(missing_ok=True)
+        return self.verify_local_model(entry)
 
     def _download_whisper(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
         return self.install_with_progress(entry, mirror=mirror, force=True)
@@ -235,7 +268,7 @@ class ModelInstaller:
         return self._download_snapshot_tiers(entry, "qwen3", mirror)
 
     def _download_huggingface_snapshot(self, entry: ModelEntry, mirror: Optional[str]) -> bool:
-        return self._download_snapshot_tiers(entry, "huggingface_snapshot", mirror)
+        return self._download_snapshot_tiers(entry, entry.install_strategy, mirror)
 
     # ── Async install with progress ──────────────────────────────────
 
@@ -256,6 +289,10 @@ class ModelInstaller:
             raise ValueError(f"model cannot be installed: {entry.id}")
 
         strategy = entry.install_strategy
+        if strategy == "release_files":
+            if self._reuse_shared(entry, force):
+                return True
+            return self._download_release_files(entry, on_progress, force=force)
         if strategy == "package":
             if self._reuse_shared(entry, force):
                 return True

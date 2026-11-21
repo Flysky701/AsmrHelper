@@ -299,6 +299,8 @@ class Translator:
         batch_indices: List[int],
         system_prompt: str,
         max_retries: int = None,
+        *,
+        duration_hints: list[dict] | None = None,
     ) -> List[Tuple[int, str, bool]]:
         """
         带重试的批量翻译
@@ -322,6 +324,9 @@ class Translator:
             {"id": i, "idx": idx, "src": text}
             for i, (idx, text) in enumerate(zip(batch_indices, batch, strict=True))
         ]
+        if duration_hints is not None:
+            for item in batch_data:
+                item.update(duration_hints[item["idx"]])
 
         for attempt in range(max_retries):
             temperature = temperatures[attempt] if attempt < len(temperatures) else temperatures[-1]
@@ -392,6 +397,10 @@ class Translator:
         target_lang: str = "中文",
         system_prompt: Optional[str] = None,
         delay: float = 0.1,
+        *,
+        duration_aware: bool = False,
+        available_seconds: list[float] | None = None,
+        chars_per_second: float = 4.2,
     ) -> List[str]:
         """
         批量翻译（支持批量请求 + 重试 + 质量检测 + 缓存 + 三层字典）
@@ -420,9 +429,28 @@ class Translator:
             system_prompt = self._build_system_prompt_with_dict(source_lang, target_lang, texts, batch_mode=True)
             single_system_prompt = self._build_system_prompt_with_dict(source_lang, target_lang, texts, batch_mode=False)
 
+        duration_hints = None
+        if duration_aware:
+            import math
+            if (available_seconds is None or len(available_seconds) != len(texts)
+                    or not all(type(s) in (int, float) and math.isfinite(s) and s > 0
+                               for s in available_seconds)
+                    or type(chars_per_second) not in (int, float)
+                    or not math.isfinite(chars_per_second) or chars_per_second <= 0):
+                raise ValueError("等长译制需要每句的正数时长和有效的每秒字数")
+            duration_hints = [
+                {"available_seconds": round(seconds, 3),
+                 "max_characters": max(1, math.floor(seconds * chars_per_second))}
+                for seconds in available_seconds
+            ]
+            system_prompt += (
+                "\n译文用于配音。每条输入含可用秒数 available_seconds 和建议字数上限 "
+                "max_characters。优先用自然、紧凑的表达在时限内保留原意、称呼和语气。"
+            )
         cache_context = self._cache_context(source_lang, target_lang, system_prompt, preprocessed) if self.use_cache else ""
-        def cache_key(text):
-            return f"translation-v2:{cache_context}:{text}"
+        def cache_key(index, text):
+            hint = json.dumps(duration_hints[index], sort_keys=True) if duration_hints else ""
+            return f"translation-v2:{cache_context}:{hint}:{text}" if hint else f"translation-v2:{cache_context}:{text}"
 
         # Step 3: 空文本 + 无意义文本预处理
         results = [""] * len(texts)
@@ -451,7 +479,7 @@ class Translator:
             # 缓存命中检查（使用预处理后的文本作为 key）
             cache = self._get_cache()
             if cache:
-                cached = cache.get(cache_key(pre))
+                cached = cache.get(cache_key(i, pre))
                 if cached is not None:
                     cache_hits[i] = cached
                     continue
@@ -472,11 +500,13 @@ class Translator:
         if total_need > 0:
             if self.use_batch and total_need > 1:
                 results = self._translate_batch_mode(
-                    need_translate, results, system_prompt, t0, single_system_prompt=single_system_prompt
+                    need_translate, results, system_prompt, t0, single_system_prompt=single_system_prompt,
+                    **({"duration_hints": duration_hints} if duration_hints is not None else {}),
                 )
             else:
                 results = self._translate_single_mode(
-                    need_translate, results, single_system_prompt or system_prompt, t0
+                    need_translate, results, single_system_prompt or system_prompt, t0,
+                    **({"duration_hints": duration_hints} if duration_hints is not None else {}),
                 )
 
         # 填入缓存命中的结果
@@ -492,7 +522,7 @@ class Translator:
             cache = self._get_cache()
             for i, pre in need_translate:
                 if results[i] and results[i] != pre:  # 只有实际翻译成功的才缓存
-                    cache.set(cache_key(pre), results[i], self.model)
+                    cache.set(cache_key(i, pre), results[i], self.model)
 
         # Step 7: 后处理（修正 LLM 顽固错误）
         results = self._postprocess_texts(results)
@@ -574,6 +604,7 @@ class Translator:
         t0: float,
         *,
         single_system_prompt: Optional[str] = None,
+        duration_hints: list[dict] | None = None,
     ) -> List[str]:
         """批量翻译模式"""
         batch_size = self.batch_size
@@ -592,7 +623,8 @@ class Translator:
 
             # 尝试批量翻译
             batch_results = self._translate_batch_with_retry(
-                batch_texts, batch_indices, system_prompt
+                batch_texts, batch_indices, system_prompt,
+                **({"duration_hints": duration_hints} if duration_hints is not None else {}),
             )
 
             # 处理失败项（逐条重试）
@@ -601,7 +633,9 @@ class Translator:
                     results[idx] = text
                 else:
                     # 批量失败，降级为逐条翻译（使用纯文本单句提示词，避免返回 JSON 数组）
-                    translated, ok = self._translate_single_with_retry(text, fallback_prompt)
+                    translated, ok = self._translate_single_with_retry(
+                        text, self._prompt_with_duration(fallback_prompt, duration_hints, idx)
+                    )
                     if not ok:
                         raise TranslationError(f"第 {idx + 1} 段翻译失败，重试已用尽；未生成完整翻译结果")
                     results[idx] = translated
@@ -618,13 +652,17 @@ class Translator:
         results: List[str],
         system_prompt: str,
         t0: float,
+        *,
+        duration_hints: list[dict] | None = None,
     ) -> List[str]:
         """逐条翻译模式（备用）"""
         total = len(need_translate)
         print("[Translator] 使用逐条翻译模式...")
 
         for i, (idx, text) in enumerate(need_translate):
-            translated, success = self._translate_single_with_retry(text, system_prompt)
+            translated, success = self._translate_single_with_retry(
+                text, self._prompt_with_duration(system_prompt, duration_hints, idx)
+            )
             if not success:
                 raise TranslationError(f"第 {idx + 1} 段翻译失败，重试已用尽；未生成完整翻译结果")
             results[idx] = translated
@@ -635,6 +673,14 @@ class Translator:
                 print(f"  翻译进度: {i+1}/{total}, 耗时: {elapsed:.1f}s")
 
         return results
+
+    @staticmethod
+    def _prompt_with_duration(prompt, hints, index):
+        if hints is None:
+            return prompt
+        hint = hints[index]
+        return (f"{prompt}\n译文用于配音，可用时长 {hint['available_seconds']} 秒，"
+                f"建议不超过 {hint['max_characters']} 字。用自然紧凑的表达保留原意和语气。")
 
     def _run_quality_check(
         self,

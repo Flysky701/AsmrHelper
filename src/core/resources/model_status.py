@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 from src.config import config
 from src.core.runtime import RuntimeProfileResolver, get_runtime_profile_resolver
+from src.core.runtime.profiles import RuntimeProbeNotCached
 
 from .model_catalog import ModelEntry
 from .provider_verification import (
@@ -84,7 +85,7 @@ class ModelStatusResolver:
             provider_verifications or get_provider_verification_registry()
         )
 
-    def resolve(self, entry: ModelEntry) -> ModelStatus:
+    def resolve(self, entry: ModelEntry, *, cached_only: bool = False) -> ModelStatus:
         if entry.kind == "cloud":
             api_key = str(config.get(entry.api_key_config or "", "") or "").strip()
             if api_key:
@@ -147,17 +148,27 @@ class ModelStatusResolver:
         from .model_assets import complete, shared
         path = entry.resolved_install_dir()
         weights_ready = complete(entry, path)
-        issues = self._runtime_issues(entry)
+        if entry.preferred_runtime == "gpu_worker":
+            state = ModelState.INSTALLED if weights_ready else ModelState.INVALID if path.exists() else ModelState.MISSING
+            return ModelStatus(entry.id, state, "权重用于工作节点", path, weights_ready=weights_ready,
+                               shared_readonly=shared(entry, path))
+        try:
+            issues = self._runtime_issues(entry, cached_only=True) if cached_only else self._runtime_issues(entry)
+        except RuntimeProbeNotCached as exc:
+            issues = [ModelStatusIssue('RUNTIME_CHECK_PENDING', str(exc), '运行环境待检测')]
         runtime_ready = not issues
         if not weights_ready:
             missing = next((name for name in entry.required_files if not (path / name).is_file() or not (path / name).stat().st_size), str(path))
             issues.append(ModelStatusIssue('MODEL_ASSET_INVALID' if path.exists() else 'MODEL_ASSET_MISSING', missing, f'权重缺失或不完整：{missing}；依赖检测不能确认模型可运行'))
-        detail = ('权重文件完整' if weights_ready else '权重缺失或不完整') + '；' + ('依赖检查通过' if runtime_ready else '运行环境需处理') + '；尚未实际加载验证'
+        runtime_detail = '依赖检查通过' if runtime_ready else '运行环境需处理'
+        if issues and issues[0].code == 'RUNTIME_CHECK_PENDING':
+            runtime_detail = issues[0].message
+        detail = ('权重文件完整' if weights_ready else '权重缺失或不完整') + '；' + runtime_detail + '；尚未实际加载验证'
         return ModelStatus(entry.id, ModelState.INSTALLED if weights_ready else ModelState.INVALID if path.exists() else ModelState.MISSING,
                            detail, path, executable=weights_ready and runtime_ready, issues=tuple(issues),
                            weights_ready=weights_ready, runtime_ready=runtime_ready, shared_readonly=shared(entry, path))
 
-    def _runtime_issues(self, entry: ModelEntry) -> list[ModelStatusIssue]:
+    def _runtime_issues(self, entry: ModelEntry, *, cached_only: bool = False) -> list[ModelStatusIssue]:
         issues: list[ModelStatusIssue] = []
         modules: list[str] = []
         runtime = self._runtime_resolver.resolve(entry.runtime_profile)
@@ -183,15 +194,18 @@ class ModelStatusResolver:
         unique_modules = list(dict.fromkeys(modules))
         missing_modules: list[str] = []
         combined_import_failed = False
+        probe_options = {'cached_only': True} if cached_only else {}
         if not runtime_missing and (runtime.isolated or self._cached_imports) and runtime.python_executable.is_file():
-            if not self._runtime_resolver.check_modules(runtime.id, unique_modules):
+            if not self._runtime_resolver.check_modules(runtime.id, unique_modules, **probe_options):
                 combined_import_failed = True
                 missing_modules = [
                     module
                     for module in unique_modules
-                    if not self._runtime_resolver.check_modules(runtime.id, [module])
+                    if not self._runtime_resolver.check_modules(runtime.id, [module], **probe_options)
                 ]
         elif not runtime_missing:
+            if cached_only and unique_modules:
+                raise RuntimeProbeNotCached(runtime.id)
             missing_modules = [
                 module for module in unique_modules if not self._import_checker(module)
             ]
@@ -225,13 +239,14 @@ class ModelStatusResolver:
                 )
 
         if entry.requires_gpu and not runtime_missing:
-            has_gpu = (
-                self._runtime_resolver.has_ctranslate2_cuda(runtime.id)
-                if runtime_key == "faster_whisper" else
-                self._runtime_resolver.has_cuda(runtime.id)
-                if (runtime.isolated or self._cached_gpu) and runtime.python_executable.is_file()
-                else self._gpu_checker()
-            )
+            if runtime_key == "faster_whisper":
+                has_gpu = self._runtime_resolver.has_ctranslate2_cuda(runtime.id, **probe_options)
+            elif (runtime.isolated or self._cached_gpu) and runtime.python_executable.is_file():
+                has_gpu = self._runtime_resolver.has_cuda(runtime.id, **probe_options)
+            elif cached_only:
+                raise RuntimeProbeNotCached(runtime.id)
+            else:
+                has_gpu = self._gpu_checker()
             if not has_gpu:
                 issues.append(
                     ModelStatusIssue(

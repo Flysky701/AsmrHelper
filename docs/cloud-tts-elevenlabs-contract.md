@@ -11,7 +11,7 @@ specifies `POST /v1/text-to-speech/{voice_id}`, `xi-api-key`, a JSON body contai
 `text`, `model_id`, optional `language_code`, and optional per-request `voice_settings`.
 The response is audio bytes. The adapter requests `output_format=wav_24000` and
 uses the existing audio validation/output path. It does not use OpenAI's endpoint.
-Voice IDs refer to existing remote voices; saving a local recipe does not create
+The searchable account catalog uses `GET /v2/voices` with token pagination. Selecting a result stores its `voice_id`. Voice IDs refer to existing remote voices; saving a local recipe does not create
 or clone a voice. Custom proxy prefixes and official regional hosts are supported
 through the connection base URL.
 
@@ -34,22 +34,7 @@ Auto omits `language_code`; explicit languages are sent verbatim. Unknown langua
 codes are rejected locally because the service can silently ignore unsupported
 codes. There is no reference-language field or reference upload.
 
-[Voice settings](https://elevenlabs.io/docs/api-reference/voices/settings/get-default)
-defines stability and its 0–1 range. It is exposed only for Flash v2.5, default 0.5.
-The current common API page does not specify v3's model-specific stability
-constraints; this adapter rejects that option for v3 rather than guessing.
-[Pace guidance](https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices)
-specifies speed 0.7–1.2, default 1.0, exposed for v3 and Flash v2.5. Other settings and
-emotion/delivery transformations are not exposed; unsupported supplied options
-fail validation. Pauses remain local postprocessing. No voice settings are edited
-on the server.
-
-For v4, the adapter follows the minimal official example and omits `voice_settings`
-entirely. No speed, stability, similarity or style numeric override is exposed for
-v4 until its specific parameter contract is verified. This is an adapter limitation,
-not a claim that the model lacks those features. Text, including user-written audio
-tags, is preserved verbatim; automatic delivery/emotion transformations remain
-unsupported. Existing v3/Flash defaults and the original model ordering are retained.
+Voice controls follow the [model-specific product guide](https://elevenlabs.io/docs/eleven-creative/playground/text-to-speech) and the [Create speech request](https://elevenlabs.io/docs/api-reference/text-to-speech/convert). Flash v2.5 exposes speed, stability and similarity. V3 offers three stability levels. V4 exposes stability and similarity. Unspecified controls use the settings saved on the selected account voice. Older v3 presets with neutral speed remain usable. Other v3 speed overrides need removal before synthesis. User-written audio tags pass through unchanged.
 
 ## Validation
 

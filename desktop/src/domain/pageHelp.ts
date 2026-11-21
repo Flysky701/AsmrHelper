@@ -70,8 +70,15 @@ export const PAGE_HELP = {
   "local-tts": { title: "TTS 合成模型", document: "desktop-page-help.md#TTS 合成模型", steps: [{"title": "查看本分类模型", "detail": "查看本机语音合成（TTS）模型与环境。"}, {"title": "查看资源状态", "detail": "检查模型权重、依赖环境与安装目录。"}, {"title": "按需验证资源", "detail": "支持一键安装、校验完整性或修复环境。"}, {"title": "回到使用页面", "detail": "就绪后在音色库或工作台中选择该引擎。"}] },
   "local-llm": { title: "LLM 语言模型", document: "desktop-page-help.md#LLM 语言模型", steps: [{"title": "查看本分类模型", "detail": "查看本地大语言模型（LLM）与运行环境。"}, {"title": "查看资源状态", "detail": "检查模型权重、依赖环境与安装目录。"}, {"title": "按需验证资源", "detail": "支持一键安装、校验完整性或修复环境。"}, {"title": "回到使用页面", "detail": "就绪后在翻译或台本清洗中选择该引擎。"}] },
   "local-other": { title: "其他资源", document: "desktop-page-help.md#其他资源", steps: [{"title": "查看本分类模型", "detail": "查看音频分离、对齐等辅助模型与工具。"}, {"title": "查看资源状态", "detail": "检查模型权重、依赖环境与安装目录。"}, {"title": "按需验证资源", "detail": "支持一键安装、校验完整性或修复环境。"}, {"title": "回到使用页面", "detail": "就绪后在工作台或对应工具中使用。"}] },
-  "workbench-common": {"title": "工作台：常用参数", "document": "workbench.md", "steps": [{"title": "选择流水线", "detail": "选择已保存流水线，加载预设节点配置。"}, {"title": "导入并绑定素材", "detail": "导入音频或字幕，在素材组中绑定输入槽位。"}, {"title": "工作台：常用参数", "detail": "快速调整各节点的引擎、音色、语言与连接。"}, {"title": "开始处理", "detail": "勾选要处理的素材组并提交运行。"}, {"title": "查看结果", "detail": "在任务中心查看进度、错误和产物。"}]},
-  "workbench-advanced": {"title": "工作台：高级参数", "document": "workbench.md", "steps": [{"title": "选择流水线", "detail": "选择已保存流水线，加载预设节点配置。"}, {"title": "导入并绑定素材", "detail": "导入音频或字幕，在素材组中绑定输入槽位。"}, {"title": "工作台：高级参数", "detail": "按需微调节点高级选项，或另存为新预设。"}, {"title": "开始处理", "detail": "勾选要处理的素材组并提交运行。"}, {"title": "查看结果", "detail": "在任务中心查看进度、错误和产物。"}]},
+  "workbench-common": { title: "工作台：常用参数", document: "workbench.md", steps: [
+    { title: "选择要调整的节点", detail: "在流程节点列表中点选节点。窄面板可用顶部下拉菜单切换。" },
+    { title: "调整当前节点", detail: "按需设置引擎、模型、语言、连接或音色。修改后会在节点旁显示「已调整」。" },
+    { title: "返回素材队列", detail: "点「完成调整」后可用当前参数运行。「另存为流水线」可供下次使用。" },
+  ] },
+  "workbench-advanced": { title: "工作台：高级参数", document: "workbench.md", steps: [
+    { title: "查看当前节点的高级参数", detail: "支持高级参数的节点会显示「高级」按钮。切换节点时，参数区会回到顶部。" },
+    { title: "返回素材队列", detail: "点「完成调整」后可用当前参数运行。「另存为流水线」可供下次使用。" },
+  ] },
 } satisfies Record<string, { title: string; document: string; steps: { title: string; detail: string }[] }>
 export type PageHelpTopic = keyof typeof PAGE_HELP
 
@@ -85,7 +92,7 @@ export const SERVICE_ADDRESSES = [
 export const VOICE_STARTERS = [
   { label: 'Fish Audio', model: 's2.1-pro-free', voice: '已有 Voice ID；可查询或手填' },
   { label: 'Gemini TTS', model: 'gemini-3.8-flash-tts', voice: 'Kore' },
-  { label: 'ElevenLabs', model: 'eleven_v3', voice: '自己的真实 Voice ID' },
+  { label: 'ElevenLabs', model: 'eleven_v3', voice: '从账号音色库选择' },
   { label: 'MiMo TTS', model: 'mimo-v2.5-tts', voice: 'mimo_default' },
 ]
 export const AUDITION_EXAMPLE = '欢迎使用。放松下来，听一听这段中文配音。'

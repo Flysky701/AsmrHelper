@@ -3,8 +3,10 @@ import './EnginesResources.css'
 import { displayPath } from '@/utils/displayPath'
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { modelsApi } from '@/api/models'
+import { speechApi, type SpeechProvider } from '@/api/speech'
 import { resourcesApi } from '@/api/resources'
 import ExternalServices from '@/components/ExternalServices'
+import RemoteComputePanel from '@/components/RemoteComputePanel'
 import QuickStartHelp from '@/components/QuickStartHelp'
 import ModelWeightRemoval from '@/components/ModelWeightRemoval'
 import type { ModelSummaryResponse, ModelStatusResponse, ResourceStatusResponse } from '@/api/types'
@@ -40,6 +42,13 @@ const CATEGORY_COLORS: Record<string, { bg: string; fg: string }> = {
   separator: { bg: 'oklch(93% 0.03 85)', fg: 'oklch(45% 0.12 85)' },
 }
 
+const GPU_EXAMPLES = [
+  { upTo: 4, card: 'RTX 3050 6 GB' },
+  { upTo: 6, card: 'RTX 4060 8 GB' },
+  { upTo: 8, card: 'RTX 3060 12 GB' },
+  { upTo: 12, card: 'RTX 4060 Ti 16 GB' },
+]
+
 const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   installed: { dot: 'oklch(60% 0.16 145)', label: '权重文件完整' },
   ready: { dot: 'oklch(60% 0.16 145)', label: '就绪' },
@@ -57,15 +66,6 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   unknown: { dot: 'oklch(62% 0.02 240)', label: '状态未知' },
 }
 
-function formatEstimatedSize(sizeMb?: number | null): string {
-  if (!sizeMb || sizeMb <= 0) return ''
-  if (sizeMb >= 1000) {
-    const sizeGb = sizeMb / 1000
-    return formatMessage("约 {0} GB", [sizeGb >= 10 ? sizeGb.toFixed(0) : sizeGb.toFixed(1)])
-  }
-  return formatMessage("约 {0} MB", [Math.round(sizeMb)])
-}
-
 export default function EnginesResources() {
   useI18n()
   const view = useNavStore(state => state.enginesView)
@@ -76,11 +76,15 @@ export default function EnginesResources() {
 
   return (
     <div className="engines-page" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <header style={{ padding: '20px 24px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div className="page-heading" style={{ marginBottom: 14 }}><div className="page-title-row"><h1 className="page-title">{t("引擎与资源")}</h1><QuickStartHelp topic={view === 'external' ? 'connections' : `local-${localCategory}`} /></div></div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+      <header style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+        <div className="page-heading app-page-heading"><div className="page-title-row"><h1 className="page-title">{t("算力与模型")}</h1><QuickStartHelp topic={view === 'external' ? 'connections' : `local-${localCategory}`} /></div></div>
+        <div className="app-page-toolbar" style={{ justifyContent: 'space-between' }}>
           <div role="tablist" aria-label={t("资源类型")} style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {([{ id: 'local', label: t("本地模型") }, { id: 'external', label: t("外部服务") }] as const).map(tab => (
+            {([
+              { id: 'local', label: t("本机模型与镜像") },
+              { id: 'remote', label: t("远端 GPU 算力") },
+              { id: 'external', label: t("外部 API 服务") },
+            ] as const).map(tab => (
               <button key={tab.id} id={`engines-tab-${tab.id}`} role="tab" aria-selected={view === tab.id}
                 aria-controls={`engines-panel-${tab.id}`} onClick={() => setView(tab.id)}
                 style={{ padding: '8px 18px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', cursor: 'pointer',
@@ -111,10 +115,38 @@ export default function EnginesResources() {
       <div role="tabpanel" id="engines-panel-local" aria-labelledby="engines-tab-local" hidden={view !== 'local'} style={{ flex: 1, minHeight: 0 }}>
         <LocalResources onCategory={setLocalCategory} refreshRef={refreshRef} onBusyChange={setRefreshDisabled} />
       </div>
+      <div role="tabpanel" id="engines-panel-remote" aria-labelledby="engines-tab-remote" hidden={view !== 'remote'} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 24 }}>
+        <RemoteComputePanel />
+      </div>
       <div role="tabpanel" id="engines-panel-external" aria-labelledby="engines-tab-external" hidden={view !== 'external'} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 24 }}>
         <ExternalServices />
       </div>
     </div>
+  )
+}
+
+function CloudSpeechModels() {
+  const [providers, setProviders] = useState<SpeechProvider[]>([])
+  const openServices = useNavStore(state => state.setEnginesView)
+  useEffect(() => {
+    let active = true
+    void speechApi.providers().then(({ providers }) => {
+      if (active) setProviders(providers.filter(provider => ['fish_audio', 'gemini', 'elevenlabs', 'mimo'].includes(provider.provider_id)))
+    }).catch(() => {})
+    return () => { active = false }
+  }, [])
+  if (!providers.length) return null
+  return (
+    <details className="engines-cloud-speech">
+      <summary>{t('云端语音模型 · 无需本机显存')}</summary>
+      <dl>{providers.map(provider => (
+        <div key={provider.provider_id}>
+          <dt>{provider.name}</dt>
+          <dd>{Array.from(new Set(provider.modes.flatMap(mode => mode.models))).join(' · ')}</dd>
+        </div>
+      ))}</dl>
+      <button style={actionStyle} onClick={() => openServices('external')}>{t('配置语音服务')}</button>
+    </details>
   )
 }
 
@@ -145,11 +177,15 @@ function LocalResources({
   const [sourceRoots, setSourceRoots] = useState<string[]>([])
   const [sourceBusy, setSourceBusy] = useState(false)
   const [sourceMessage, setSourceMessage] = useState('')
+  const [domesticMirror, setDomesticMirror] = useState(() => {
+    try { return window.localStorage.getItem('asmr_helper_download_region') !== 'global' } catch { return true }
+  })
+  const [mirrorCopied, setMirrorCopied] = useState(false)
   const loadRequestId = useRef(0)
 
   useEffect(() => { onBusyChange(loading || statusLoading) }, [loading, statusLoading, onBusyChange])
 
-  const loadData = async (preserveError = false) => {
+  const loadData = async (preserveError = false, checkRuntime = false) => {
     const requestId = ++loadRequestId.current
     setLoading(true)
     setStatusLoading(true)
@@ -173,7 +209,7 @@ function LocalResources({
     }
 
     try {
-      const statuses = await modelsApi.statuses()
+      const statuses = await modelsApi.statuses(checkRuntime)
       if (requestId !== loadRequestId.current) return
       setModelStatuses(statuses)
     } catch (statusError) {
@@ -186,7 +222,7 @@ function LocalResources({
     }
   }
 
-  refreshRef.current = () => { void loadData() }
+  refreshRef.current = () => { void loadData(false, true) }
   useEffect(() => { void loadData() }, [])
 
   const handleInstall = async (model: ModelSummaryResponse, operation: 'runtime' | 'download') => {
@@ -351,6 +387,47 @@ function LocalResources({
           </div>
         )}
 
+        <section style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-card)', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <strong style={{ fontSize: 14 }}>{t("国内极速下载源（V2 三级回退）")}</strong>
+              <span style={{ fontSize: 11.5, padding: '2px 8px', borderRadius: 999, background: domesticMirror ? 'var(--success-soft)' : 'var(--panel-muted)', color: domesticMirror ? 'var(--success)' : 'var(--muted)', fontWeight: 600 }}>
+                {domesticMirror ? 'ModelScope → HF-Mirror → HuggingFace' : 'HuggingFace 官方直连'}
+              </span>
+            </div>
+            <span style={{ fontSize: 'var(--text-help)', color: 'var(--muted)' }}>
+              {t("国内网络建议开启，模型权重优先从魔搭社区（ModelScope）拉取并校验 SHA256。")}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', fontWeight: 550 }}>
+              <input
+                type="checkbox"
+                checked={domesticMirror}
+                onChange={(e) => {
+                  const next = e.target.checked
+                  setDomesticMirror(next)
+                  try { window.localStorage.setItem('asmr_helper_download_region', next ? 'cn' : 'global') } catch {}
+                }}
+              />
+              {t("启用国内镜像优先")}
+            </label>
+            <button
+              type="button"
+              style={actionStyle}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(`$env:ASMR_HELPER_DOWNLOAD_REGION="${domesticMirror ? 'cn' : 'global'}"`)
+                  setMirrorCopied(true)
+                  window.setTimeout(() => setMirrorCopied(false), 2000)
+                } catch {}
+              }}
+            >
+              {mirrorCopied ? t("已复制环境变量") : t("复制环境变量")}
+            </button>
+          </div>
+        </section>
+
         <section style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-card)', padding: 16 }}>
           <h2 className="section-title" style={{ marginBottom: 6 }}>{t("使用已有模型")}</h2>
           <div className="engines-source-actions">
@@ -434,6 +511,7 @@ function LocalResources({
             ))}
           </div>
 
+          {activeTab === 'tts' && <CloudSpeechModels />}
           {/* Model groups */}
           {Object.entries(tabGroups).length === 0 ? (
             <div style={{ fontSize: 'var(--text-control)', color: 'var(--muted)', padding: '16px' }}>{t("该分类下暂无模型")}</div>
@@ -481,6 +559,9 @@ function LocalResources({
                     <div>
                       {groupModels.map(model => {
                         const status = getStatus(model.model_id)
+                        const pendingRuntime = status?.issues.some(issue => issue.code === 'RUNTIME_CHECK_PENDING') ?? false
+                        const vram = model.inference_vram_gb ?? 0
+                        const gpuExample = GPU_EXAMPLES.find(({ upTo }) => upTo >= vram)
                         const dependencies = (model.required_assets || []).map(id => ({
                           id,
                           name: models.find(item => item.model_id === id)?.display_name || id,
@@ -490,7 +571,7 @@ function LocalResources({
                           asset && ['missing', 'not_installed', 'invalid'].includes(asset.status),
                         )
                         const runtimeUnavailable =
-                          status?.executable === false &&
+                          model.preferred_runtime !== 'gpu_worker' && !pendingRuntime && status?.executable === false &&
                           (status.status === 'installed' || status.status === 'configured') &&
                           !status.issues.some(issue => [
                             'PROVIDER_UNVERIFIED',
@@ -524,19 +605,25 @@ function LocalResources({
                           }}>
                             <div className="engines-model-info">
                               <div style={{ fontWeight: 500 }}>{model.display_name}</div>
-                              <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '2px' }}>
-                                {model.backend || model.family_id || model.kind}
-                                {model.estimated_size_mb ? ` · ${formatEstimatedSize(model.estimated_size_mb)}` : ''}
+                              <div className="engines-model-description">
+                                {t(model.description || model.backend)}
+                                {vram > 0 && (
+                                  <span title={t('按单任务推理估算，实际占用随音频长度和批量设置变化。')}>
+                                    {' · '}{formatMessage(model.preferred_runtime === 'gpu_worker'
+                                      ? '工作节点显存建议 ≥ {0} GB' : 'GPU 显存建议 ≥ {0} GB', [vram])}
+                                    {gpuExample && <> · {formatMessage('如 {0}', [gpuExample.card])}</>}
+                                  </span>
+                                )}
                               </div>
                               {status && <div style={{ fontSize: 11.5, marginTop: 6, overflowWrap: 'anywhere' }}>
-                                <details className="engines-status-details"><summary>{t("状态明细")}</summary><p>{t("权重：")}{status.status === 'unknown' ? t("待确认") : status.weights_ready ? t("文件完整") : t("缺失或不完整")} {t("· 环境：")}{status.status === 'unknown' ? t("待确认") : status.runtime_ready ? t("依赖检查通过") : t("未就绪")} {t("· 推理：尚未验证")}</p></details>
+                                <details className="engines-status-details"><summary>{t("状态明细")}</summary><p>{t("权重：")}{status.status === 'unknown' ? t("待确认") : status.weights_ready ? t("文件完整") : t("缺失或不完整")} {model.preferred_runtime === 'gpu_worker' ? t('· 在工作节点运行') : <>{t("· 环境：")}{pendingRuntime ? t('待检测') : status.status === 'unknown' ? t("待确认") : status.runtime_ready ? t("依赖检查通过") : t("未就绪")} {t("· 推理：尚未验证")}</>}</p></details>
                                 <div className="engines-model-location">
                                   {status.path ? <span className="model-path" title={status.path}>{t("位置：")}{status.path}</span> : <span>{t("位置：未找到")}</span>}
                                 </div>
                               </div>}
                               {status?.issues?.length ? (
                                 <div style={{ fontSize: '11px', color: 'oklch(48% 0.12 65)', marginTop: '4px' }}>
-                                  {status.issues.map(issue => issue.message).join('；')}
+                                  {status.issues.map(issue => issue.code === 'RUNTIME_CHECK_PENDING' ? t('运行环境待检测') : issue.message).join('；')}
                                 </div>
                               ) : null}
                               {dependencies.length > 0 && (
@@ -558,7 +645,7 @@ function LocalResources({
                                   </button>
                                 ) : (
                                   <>
-                                    <button title={formatMessage("目标环境：{0}。安装依赖并对齐项目版本，可能替换已有包；不下载模型权重。", [model.runtime_profile || 'main'])} onClick={() => void handleInstall(model, 'runtime')} style={actionStyle}>{t("安装/修复环境")}</button>
+                                    {model.preferred_runtime !== 'gpu_worker' && <button title={formatMessage("目标环境：{0}。安装依赖并对齐项目版本，可能替换已有包；不下载模型权重。", [model.runtime_profile || 'main'])} onClick={() => void handleInstall(model, 'runtime')} style={actionStyle}>{t("安装/修复环境")}</button>}
                                     {model.supports_install && (!status.weights_ready || missingDependencies) &&
                                       <button onClick={() => void handleInstall(model, 'download')} style={actionStyle}>{t("下载模型权重")}</button>}
                                     <button onClick={() => void handleVerify(model.model_id)} style={actionStyle}>{t("检查状态")}</button>

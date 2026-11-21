@@ -221,6 +221,10 @@
   font-size: 11.5px;
 }
 
+.draft-btn--danger {
+  color: var(--error);
+}
+
 .draft-notice {
   padding: 10px 12px;
   border-radius: var(--radius-sm);

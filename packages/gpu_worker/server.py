@@ -11,6 +11,7 @@ import base64
 from email.parser import BytesParser
 import email.policy
 import hmac
+from importlib.util import find_spec
 import json
 from typing import Any
 
@@ -31,11 +32,15 @@ from packages.protocol.compute import (
     SeparationResult,
     TtsBatchRequest,
     TtsBatchResult,
+    VcBatchRequest,
+    VcBatchResult,
     WorkerCapabilities,
 )
 from packages.protocol.errors import ComputeErrorCode, ComputeErrorPayload, ComputeRemoteError
 
 from .handlers import WorkerHandlers, classify_compute_exception
+from .optional_model_process import optional_model_available
+from .seed_vc_handler import run_seed_vc_batch
 from .vram_lease import ModelLeaseManager
 
 MAX_UPLOAD_BYTES = 512 * 1024 * 1024  # 512 MB guard for full-length ASMR tracks
@@ -254,7 +259,26 @@ def create_worker_app(
         dependencies=[Depends(verify_bearer)],
     )
     async def get_capabilities() -> WorkerCapabilities:
-        return worker_handlers.lease_manager.capabilities()
+        caps = worker_handlers.lease_manager.capabilities()
+        caps.optional_tts_providers = [
+            provider for provider in ("cosyvoice2", "gpt_sovits") if optional_model_available(provider)
+        ]
+        if handlers is not None:
+            return caps
+        modules = {
+            "separate": {"demucs": "demucs", "roformer": "audio_separator"},
+            "asr": {"faster_whisper": "faster_whisper", "fun_asr": "funasr",
+                    "qwen3_asr": "qwen_asr", "anime_whisper": "transformers"},
+            "align": {"qwen3_forced_aligner": "qwen_asr"},
+            "tts_batch": {"qwen3": "qwen_tts", "voxcpm2": "voxcpm"},
+        }
+        caps.installed_providers = {
+            task: [provider for provider, module in providers.items() if find_spec(module) is not None]
+            for task, providers in modules.items()
+        }
+        caps.installed_providers["tts_batch"].extend(caps.optional_tts_providers)
+        caps.installed_providers["vc_batch"] = ["seed_vc"] if optional_model_available("seed_vc") else []
+        return caps
 
     @app.post(
         "/v1/lease/evict",
@@ -405,5 +429,35 @@ def create_worker_app(
             )
         except Exception as exc:
             raise classify_compute_exception(exc, "tts_batch") from exc
+
+    @app.post("/v1/vc/batch", response_model=VcBatchResult, dependencies=[Depends(verify_bearer)])
+    async def run_vc_batch(request: Request) -> VcBatchResult:
+        options, files, _ = await _parse_compute_request(request, stage="vc_batch")
+        vc_req = VcBatchRequest.model_validate(options)
+        reference_ids = options.get("uploaded_reference_ids", [])
+        if not isinstance(reference_ids, list) or not all(isinstance(i, str) for i in reference_ids):
+            raise ComputeRemoteError(
+                code=ComputeErrorCode.INVALID_REQUEST, message="Invalid uploaded_reference_ids",
+                stage="vc_batch", retryable=False,
+            )
+        refs = {
+            ref_id: files[f"reference_{index}"][1]
+            for index, ref_id in enumerate(reference_ids) if f"reference_{index}" in files
+        }
+        sources = {
+            item.id: files[f"source_{index}"][1]
+            for index, item in enumerate(vc_req.items) if f"source_{index}" in files
+        }
+        vc_req.references = {}
+        for item in vc_req.items:
+            item.source_audio_path = None
+            item.output_path = None
+        try:
+            return await run_in_threadpool(
+                run_seed_vc_batch, worker_handlers.lease_manager, vc_req,
+                source_uploads=sources, reference_uploads=refs, include_audio_b64=True,
+            )
+        except Exception as exc:
+            raise classify_compute_exception(exc, "vc_batch") from exc
 
     return app

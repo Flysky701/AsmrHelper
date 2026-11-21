@@ -53,6 +53,7 @@ class LlmCapabilityService:
         common_options: dict[str, Any] | None = None,
         provider_options: dict[str, Any] | None = None,
         output_path: str | None = None,
+        available_seconds: list[float] | None = None,
     ) -> TranslationResult:
         profile = self._profile_builder.build(
             category="llm",
@@ -69,6 +70,7 @@ class LlmCapabilityService:
                 profile=profile,
                 source_lang=source_lang,
                 target_lang=target_lang,
+                **({"available_seconds": available_seconds} if available_seconds is not None else {}),
             )
         except ValueError as exc:
             raise AppValidationError(str(exc)) from exc

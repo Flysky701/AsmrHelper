@@ -1,0 +1,535 @@
+.wb-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 332px;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 960px) {
+  .wb-layout {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+}
+
+/* ── Center Media Workspace ─────────────────────────────── */
+.wb-stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  position: relative;
+}
+
+.wb-stage.is-drag-over::after {
+  content: '松开以导入音声、目录或字幕';
+  position: absolute;
+  inset: 14px;
+  border-radius: var(--radius-card);
+  border: 2px dashed var(--accent);
+  background: rgba(235, 248, 252, 0.92);
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 650;
+  display: grid;
+  place-items: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.wb-stage-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: none;
+}
+
+.wb-stage-toolbar__left,
+.wb-stage-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wb-btn {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--fg);
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wb-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.wb-btn--primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
+
+.wb-btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+}
+
+.wb-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted-strong);
+}
+
+.wb-pending-chip {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #e07a3f66;
+  background: #fff5ee;
+  color: #c25b20;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wb-banner {
+  margin: 12px 20px 0;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  background: var(--accent-soft);
+  color: var(--fg);
+  border: 1px solid var(--accent-ghost-border);
+  flex: none;
+}
+
+.wb-banner.is-error {
+  background: var(--error-soft);
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.wb-canvas {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-dropzone {
+  flex: 1 1 0;
+  min-height: 280px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 24px;
+  gap: 10px;
+}
+
+.wb-dropzone__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+}
+
+.wb-dropzone h2 {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 650;
+  color: var(--fg);
+}
+
+.wb-dropzone p {
+  margin: 0;
+  max-width: 460px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.wb-dropzone__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.wb-media-panel {
+  flex: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-xs);
+}
+
+.wb-media-header,
+.wb-media-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) 86px minmax(0, 2fr) 154px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+}
+
+.wb-media-header {
+  background: var(--panel-muted);
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.wb-media-row {
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.wb-media-row:last-of-type {
+  border-bottom: none;
+}
+
+.wb-media-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.wb-media-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.wb-type-badge {
+  display: inline-flex;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--panel-muted);
+  color: var(--muted-strong);
+}
+
+.wb-type-badge.is-audio,
+.wb-type-badge.is-folder {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.wb-media-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.wb-mini-btn {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wb-mini-btn.is-danger {
+  color: var(--error);
+}
+
+.wb-inspect-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--panel-muted);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted-strong);
+}
+
+.wb-directory-details {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding: 12px 14px;
+  font-size: 12.5px;
+}
+
+.wb-directory-details h3 {
+  margin: 0 0 4px;
+  font-size: inherit;
+  font-weight: 650;
+}
+
+.wb-directory-details p {
+  margin: 0;
+  color: var(--muted-strong);
+}
+
+.wb-directory-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-directory-list > li + li {
+  border-top: 1px solid var(--border);
+}
+
+.wb-directory-stems {
+  margin: 0 0 6px 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+
+.wb-directory-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding-block: 5px;
+}
+
+.wb-directory-path {
+  overflow-wrap: anywhere;
+}
+
+.wb-directory-file > button {
+  grid-column: 3;
+}
+
+.wb-directory-role {
+  color: var(--muted-strong);
+}
+
+.wb-stage-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 11.5px;
+  color: var(--muted);
+  flex: none;
+}
+
+/* ── Right Fixed Studio Inspector ───────────────────────── */
+.wb-inspector {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+
+.wb-inspector__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.wb-inspector__head h2 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--fg);
+}
+
+.wb-text-link {
+  border: none !important;
+  background: transparent !important;
+  padding: 2px 4px !important;
+  min-height: 0 !important;
+  color: var(--accent) !important;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.wb-inspector__body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wb-prop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wb-prop__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wb-prop__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-strong);
+}
+
+.wb-prop__hint {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.wb-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted);
+  border: 1px solid var(--border);
+}
+
+.wb-segmented button {
+  min-height: 30px !important;
+  padding: 4px 6px !important;
+  border: none !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: var(--muted-strong) !important;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.wb-segmented button[aria-pressed='true'] {
+  background: var(--surface-elevated) !important;
+  color: var(--accent) !important;
+  font-weight: 650;
+  box-shadow: var(--shadow-xs);
+}
+
+.wb-lang-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.wb-arrow {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wb-accordion {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.wb-accordion > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-strong);
+}
+
+.wb-accordion__content {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wb-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.wb-inspector__foot {
+  flex: none;
+  padding: 14px 18px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wb-gate-check {
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.wb-run-btn {
+  width: 100%;
+  min-height: 40px !important;
+  border-radius: var(--radius-button) !important;
+  border: 1px solid var(--accent) !important;
+  background: var(--accent) !important;
+  color: #fff !important;
+  font-size: 13.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.wb-run-btn:hover:not(:disabled) {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+}
+
+.wb-run-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

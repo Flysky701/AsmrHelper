@@ -129,6 +129,18 @@ class RuntimeRouter:
         url, _, _ = self._resolve_remote_config(payload)
         return bool(url)
 
+    def remote_capabilities(self, payload: Mapping[str, Any] | None = None):
+        """Probe a configured worker without using the inference timeout."""
+        if self._remote_client is not None:
+            return self._remote_client.capabilities()
+        from packages.gpu_worker.client import ComputeClient
+
+        url, token, timeout = self._resolve_remote_config(payload)
+        if not url:
+            return None
+        with ComputeClient.from_remote(url, token, min(timeout, 5.0), transport=self._remote_transport) as client:
+            return client.capabilities()
+
     @contextmanager
     def _open_remote_client(self, payload: Mapping[str, Any]):
         if self._remote_client is not None:

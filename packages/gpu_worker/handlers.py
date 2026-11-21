@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+from threading import Lock
 from typing import Any
 import uuid
 
@@ -341,6 +342,8 @@ class WorkerHandlers:
         self._asr_fn = asr_fn
         self._align_fn = align_fn
         self._tts_fn = tts_fn
+        self._tts_verification_lock = Lock()
+        self._vox_synthesis_lock = Lock()
 
     def _resolve_input_audio(
         self,
@@ -397,7 +400,7 @@ class WorkerHandlers:
         audio_bytes: bytes | None = None,
         include_audio_b64: bool = False,
     ) -> SeparationResult:
-        """Execute Demucs source separation statelessly."""
+        """Execute source separation statelessly."""
         stage = "separate"
         try:
             with tempfile.TemporaryDirectory(prefix="gpu-sep-") as tmp:
@@ -427,13 +430,34 @@ class WorkerHandlers:
                             stems=list(request.stems),
                         )
                 else:
-                    raw_stems = self._run_demucs_separation(
-                        lease_key=lease_key,
-                        model_name=request.model,
-                        src_audio=src_audio,
-                        out_dir=out_dir,
-                        requested_stems=list(request.stems),
-                    )
+                    from .roformer_handler import AudioSeparatorHandler, audio_separator_model
+
+                    separator_model = audio_separator_model(request.model)
+                    if separator_model:
+                        try:
+                            sf.info(str(src_audio))
+                        except RuntimeError:
+                            decoded = tmp_dir / "decoded_source.wav"
+                            if not _ffmpeg_decode_to_wav(src_audio, decoded):
+                                raise
+                            src_audio = decoded
+                        with self.lease_manager.lease(
+                            f"separate:audio_separator:{separator_model}",
+                            lambda: AudioSeparatorHandler(separator_model),
+                            family="separate",
+                        ) as separator:
+                            raw_stems = separator.separate(
+                                src_audio, tmp_dir / "audio_separator", out_dir,
+                                _safe_stem_prefix(src_audio.name), list(request.stems),
+                            )
+                    else:
+                        raw_stems = self._run_demucs_separation(
+                            lease_key=lease_key,
+                            model_name=request.model,
+                            src_audio=src_audio,
+                            out_dir=out_dir,
+                            requested_stems=list(request.stems),
+                        )
 
                 stem_paths: dict[str, str] = {}
                 stem_b64: dict[str, str] = {}
@@ -746,30 +770,14 @@ class WorkerHandlers:
                 )
 
                 lease_key = f"tts:{request.provider_id}:{request.model or 'default'}:{request.device}:{request.precision}"
-                if self._tts_fn is not None:
-                    with self.lease_manager.lease(
-                        lease_key,
-                        lambda: _UnloadableHandle(self._tts_fn),
-                        family="tts",
-                    ) as handle:
-                        items_out = [
-                            self._run_callback_tts_item(
-                                fn=handle.target,
-                                item=item,
-                                request=request,
-                                resolved_refs=resolved_refs,
-                                temp_dir=tmp_dir,
-                                include_audio_b64=include_audio_b64,
-                            )
-                            for item in request.items
-                        ]
+                warnings: list[str] = []
+                if request.verify_with_asr:
+                    items_out, warnings = self._run_verified_tts_batch(
+                        lease_key, request, resolved_refs, tmp_dir, include_audio_b64,
+                    )
                 else:
-                    items_out = self._run_engine_tts_batch(
-                        lease_key=lease_key,
-                        request=request,
-                        resolved_refs=resolved_refs,
-                        temp_dir=tmp_dir,
-                        include_audio_b64=include_audio_b64,
+                    items_out = self._synthesize_tts_items(
+                        lease_key, request, resolved_refs, tmp_dir, include_audio_b64,
                     )
 
                 return TtsBatchResult(
@@ -777,9 +785,114 @@ class WorkerHandlers:
                     model=request.model,
                     output_format=request.output_format,
                     items=items_out,
+                    warnings=warnings,
                 )
         except Exception as exc:
             raise classify_compute_exception(exc, stage) from exc
+
+    def _synthesize_tts_items(
+        self,
+        lease_key: str,
+        request: TtsBatchRequest,
+        resolved_refs: dict[str, str],
+        temp_dir: Path,
+        include_audio_b64: bool,
+    ) -> list[TtsBatchItemResult]:
+        if self._tts_fn is None:
+            return self._run_engine_tts_batch(
+                lease_key=lease_key, request=request, resolved_refs=resolved_refs,
+                temp_dir=temp_dir, include_audio_b64=include_audio_b64,
+            )
+        with self.lease_manager.lease(
+            lease_key, lambda: _UnloadableHandle(self._tts_fn), family="tts",
+        ) as handle:
+            return [
+                self._run_callback_tts_item(
+                    fn=handle.target, item=item, request=request, resolved_refs=resolved_refs,
+                    temp_dir=temp_dir, include_audio_b64=include_audio_b64,
+                )
+                for item in request.items
+            ]
+
+    def _run_verified_tts_batch(
+        self,
+        lease_key: str,
+        request: TtsBatchRequest,
+        resolved_refs: dict[str, str],
+        temp_dir: Path,
+        include_audio_b64: bool,
+    ) -> tuple[list[TtsBatchItemResult], list[str]]:
+        from .tts_verifier import audio_issue, load_whisper, recognize, transcript_similarity
+
+        results: list[TtsBatchItemResult] = []
+        warnings: list[str] = []
+        for item in request.items:
+            best_path: Path | None = None
+            best_score = -1.0
+            last_error: ComputeErrorPayload | None = None
+            for attempt in range(request.max_retries + 1):
+                attempt_dir = temp_dir / f"candidate_{uuid.uuid4().hex}"
+                attempt_dir.mkdir()
+                candidate = attempt_dir / "synthesis.wav"
+                options = dict(item.options)
+                if attempt:
+                    merged = {**request.options, **item.options}
+                    options["seed"] = (int(merged.get("seed", -1)) + attempt) % (2**31)
+                    temperature = float(merged.get("temperature", 0.7))
+                    options["temperature"] = min(1.5, max(0.1, temperature + 0.1 * attempt))
+                    options["do_sample"] = True
+                staged_item = item.model_copy(update={"output_path": str(candidate), "options": options})
+                staged_request = request.model_copy(update={"items": [staged_item], "output_format": "wav"})
+                result, = self._synthesize_tts_items(
+                    lease_key, staged_request, resolved_refs, attempt_dir, False,
+                )
+                if not result.ok:
+                    last_error = result.error
+                    continue
+                issue = audio_issue(candidate)
+                if issue:
+                    last_error = ComputeErrorPayload(
+                        code=ComputeErrorCode.AUDIO_DECODE_ERROR,
+                        message=f"TTS verification rejected {issue}", stage="tts_batch",
+                    )
+                    continue
+                with self._tts_verification_lock:
+                    with self.lease_manager.lease(
+                        "tts_verification:whisper:small:cpu",
+                        load_whisper, family="tts_verification", heavy=False,
+                    ) as whisper:
+                        transcript = recognize(whisper, candidate, item.language)
+                score = transcript_similarity(item.text, transcript)
+                if score > best_score:
+                    best_path, best_score = candidate, score
+                if score >= request.min_similarity:
+                    break
+
+            if best_path is None:
+                results.append(TtsBatchItemResult(
+                    item_id=item.item_id, ok=False, output_format=request.output_format,
+                    error=last_error or ComputeErrorPayload(
+                        code=ComputeErrorCode.EXECUTION_ERROR,
+                        message="TTS verification found no usable audio", stage="tts_batch",
+                    ),
+                ))
+                continue
+            if best_score < request.min_similarity:
+                warnings.append(
+                    f"{item.item_id}: best TTS transcript similarity {best_score:.2f} "
+                    f"was below {request.min_similarity:.2f}"
+                )
+            try:
+                results.append(self._finalize_tts_item_file(
+                    item=item, produced_file=best_path, output_format=request.output_format,
+                    include_audio_b64=include_audio_b64,
+                ))
+            except Exception as exc:
+                results.append(TtsBatchItemResult(
+                    item_id=item.item_id, ok=False, output_format=request.output_format,
+                    error=classify_compute_exception(exc, "tts_batch").payload,
+                ))
+        return results, warnings
 
     def _stage_tts_references(
         self,
@@ -897,7 +1010,7 @@ class WorkerHandlers:
     ) -> TtsBatchItemResult:
         ref_key = item.reference_id or item.variant_value or "default"
         ref_path = resolved_refs.get(ref_key) or resolved_refs.get("default")
-        staged_out = temp_dir / f"tts_{item.item_id}_{uuid.uuid4().hex[:8]}.wav"
+        staged_out = temp_dir / f"tts_{uuid.uuid4().hex}.wav"
         try:
             res = fn(
                 item=item,
@@ -907,7 +1020,10 @@ class WorkerHandlers:
             )
             if isinstance(res, tuple) and len(res) == 2:
                 samples, sr = res
-                sf.write(str(staged_out), np.asarray(samples, dtype="float32"), int(sr))
+                sf.write(
+                    str(staged_out), np.asarray(samples, dtype="float32"), int(sr),
+                    subtype="FLOAT" if request.verify_with_asr else None,
+                )
             elif isinstance(res, (str, Path)):
                 staged_out = Path(res)
             return self._finalize_tts_item_file(
@@ -937,6 +1053,13 @@ class WorkerHandlers:
         provider = request.provider_id
         batch_opts = dict(request.options)
 
+        if provider in {"cosyvoice2", "gpt_sovits"}:
+            from .cosyvoice_handler import run_optional_tts_batch
+
+            return run_optional_tts_batch(
+                self, request, resolved_refs, temp_dir, include_audio_b64=include_audio_b64,
+            )
+
         if provider == "voxcpm2":
             def _load_voxcpm2() -> Any:
                 from src.core.engines.tts.voxcpm2 import VoxCPM2Engine
@@ -955,9 +1078,11 @@ class WorkerHandlers:
                 )
 
             results: list[TtsBatchItemResult] = []
-            with self.lease_manager.lease(lease_key, _load_voxcpm2, family="tts") as engine:
+            with self._vox_synthesis_lock, self.lease_manager.lease(
+                lease_key, _load_voxcpm2, family="tts",
+            ) as engine:
                 for item in request.items:
-                    staged_out = temp_dir / f"vox_{item.item_id}_{uuid.uuid4().hex[:8]}.wav"
+                    staged_out = temp_dir / f"vox_{uuid.uuid4().hex}.wav"
                     try:
                         merged = {**batch_opts, **item.options}
                         engine.cfg_value = float(merged.get("cfg_value", engine.cfg_value))
@@ -973,6 +1098,11 @@ class WorkerHandlers:
                         design_prefix = item.variant_value if item.variant_kind == "design" else ""
                         instruct = "，".join(p for p in (design_prefix, item.instruction) if p)
                         synth_text = f"({instruct}){item.text}" if instruct else item.text
+                        ref_text = item.options.get("reference_text")
+                        if not ref_text and item.options.get("reference_language"):
+                            ref_text = item.reference_transcript
+                        engine.default_prompt_wav = engine.default_reference_wav if ref_text else None
+                        engine.default_prompt_text = str(ref_text) if ref_text else None
                         engine.synthesize(synth_text, str(staged_out))
                         results.append(
                             self._finalize_tts_item_file(
@@ -1011,6 +1141,10 @@ class WorkerHandlers:
                     request.precision,
                     torch.float32 if device == "cpu" else torch.bfloat16,
                 )
+                if device.startswith("cuda") and dtype == torch.bfloat16:
+                    with torch.cuda.device(device):
+                        if not torch.cuda.is_bf16_supported(including_emulation=False):
+                            dtype = torch.float16
                 model_path = (
                     resolve_model_reference(request.model)
                     if request.model
@@ -1025,7 +1159,7 @@ class WorkerHandlers:
 
                 qwen_model = handle.target
                 for item in request.items:
-                    staged_out = temp_dir / f"qwen_{item.item_id}_{uuid.uuid4().hex[:8]}.wav"
+                    staged_out = temp_dir / f"qwen_{uuid.uuid4().hex}.wav"
                     try:
                         merged = {**batch_opts, **item.options}
                         gen_kwargs: dict[str, Any] = {
@@ -1046,10 +1180,11 @@ class WorkerHandlers:
                             if not ref_audio:
                                 raise ValueError("Voice clone requires reference audio")
                             xvec_only = bool(merged.get("x_vector_only_mode", False))
+                            ref_text = item.options.get("reference_text") or item.reference_transcript
                             wavs, rate = qwen_model.generate_voice_clone(
                                 **gen_kwargs,
                                 ref_audio=ref_audio,
-                                ref_text=None if xvec_only else (item.reference_transcript or None),
+                                ref_text=None if xvec_only else (ref_text or None),
                                 x_vector_only_mode=xvec_only,
                             )
                         elif item.variant_kind == "design":
@@ -1064,7 +1199,7 @@ class WorkerHandlers:
                             wavs, rate = qwen_model.generate_custom_voice(
                                 **gen_kwargs, speaker=speaker, instruct=item.instruction
                             )
-                        sf.write(str(staged_out), wavs[0], rate)
+                        sf.write(str(staged_out), wavs[0], rate, subtype="FLOAT" if request.verify_with_asr else None)
                         results.append(
                             self._finalize_tts_item_file(
                                 item=item,

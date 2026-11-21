@@ -117,10 +117,16 @@ def serve(bundle: Path, data: Path, port: int, token: str, *, source_root: Path 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path, required=True)
-    parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--serve", action="store_true")
+    parser.add_argument("--port", type=int)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--serve", action="store_true")
+    mode.add_argument("--mcp", action="store_true", help="Serve MCP over stdio for an installed desktop workspace")
     parser.add_argument("--source-root", type=Path)
     args = parser.parse_args()
+    if args.mcp and (args.source_root is not None or args.port is not None):
+        parser.error("--mcp only accepts an installed --data-dir")
+    if not args.mcp and args.port is None:
+        parser.error("--port is required for desktop startup")
     if args.source_root is not None:
         root = args.source_root.resolve(strict=True)
         if root != Path(__file__).resolve().parents[1] or not (root / "src/api/http/app.py").is_file():
@@ -136,6 +142,19 @@ def main() -> int:
     data = extended_path(args.data_dir.resolve())
     if data == bundle or bundle in data.parents:
         raise RuntimeError("Workspace must be outside the bundled backend resources")
+    if args.mcp:
+        if not (data / ".asmr-helper-workspace.json").is_file():
+            parser.error("Open the installed desktop app and select this workspace before starting MCP")
+        python = prepare_runtime(bundle, data)
+        if not Path(sys.executable).samefile(python):
+            return subprocess.call([
+                str(python), "-I", "-B", str(Path(__file__).resolve()),
+                "--mcp", "--data-dir", str(data),
+            ])
+        configure_environment(bundle, data)
+        from packages.mcp_server.server import main as serve_mcp
+
+        return serve_mcp()
     data.mkdir(parents=True, exist_ok=True)
     token = os.environ.get("ASMR_HELPER_DESKTOP_TOKEN", "")
     if len(token) < 32:

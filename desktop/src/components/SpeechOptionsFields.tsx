@@ -13,6 +13,7 @@ export default function SpeechOptionsFields({ provider, mode, model, values, onC
 }) {
   useI18n()
   const id = useId()
+  const inheritVoice = provider?.provider_id === 'elevenlabs'
   const fields = availableSpeechOptions(provider, mode, model).filter(([key]) => !omit.includes(key))
   const unknown = unsupportedSpeechOptions(provider, mode, values, model)
   const issue = speechOptionsIssue(provider, mode, values, model)
@@ -20,14 +21,14 @@ export default function SpeechOptionsFields({ provider, mode, model, values, onC
   return <div className="speech-options-fields">
     {fields.map(([key, field]) => {
       const controlId = id + key
-      const value = values[key] ?? field.default
+      const value = inheritVoice ? values[key] : values[key] ?? field.default
       if (provider?.provider_id === 'qwen3' && mode === 'reference' && key === 'x_vector_only_mode') return <QwenReferenceMode key={key} value={value === true} onChange={next => update(key, next)} />
       return <div key={key} className="speech-option">
         <label htmlFor={controlId}>{t(speechProviderText(field.title || names[key] || key))}</label>
         {field.type === 'boolean' ? <input id={controlId} type="checkbox" checked={value === true} aria-describedby={field.description ? controlId + '-hint' : undefined} onChange={event => update(key, event.target.checked)} />
-          : field.enum ? <select id={controlId} value={String(value ?? '')} onChange={event => update(key, ['number', 'integer'].includes(field.type || '') ? Number(event.target.value) : event.target.value)}>{field.enum.map(option => <option key={String(option)} value={String(option)}>{String(option)}</option>)}</select>
+          : field.enum ? <select id={controlId} value={String(value ?? '')} onChange={event => update(key, event.target.value === '' ? undefined : ['number', 'integer'].includes(field.type || '') ? Number(event.target.value) : event.target.value)}>{inheritVoice && <option value="">{t('沿用音色设置')}</option>}{field.enum.map(option => <option key={String(option)} value={String(option)}>{String(option)}</option>)}</select>
           : field.type === 'string' && (field.maxLength || 0) > 200 ? <textarea id={controlId} rows={3} maxLength={field.maxLength} value={String(value ?? '')} onChange={event => update(key, event.target.value || undefined)} />
-          : <input id={controlId} type={['number', 'integer'].includes(field.type || '') ? 'number' : 'text'} min={field.minimum} max={field.maximum} maxLength={field.maxLength} step={field.type === 'integer' ? 1 : 'any'} value={String(value ?? '')} aria-describedby={field.description ? controlId + '-hint' : undefined}
+          : <input id={controlId} placeholder={inheritVoice ? t('沿用音色设置') : undefined} type={['number', 'integer'].includes(field.type || '') ? 'number' : 'text'} min={field.minimum} max={field.maximum} maxLength={field.maxLength} step={field.type === 'integer' ? 1 : 'any'} value={String(value ?? '')} aria-describedby={field.description ? controlId + '-hint' : undefined}
             onChange={event => update(key, event.target.value === '' ? undefined : ['number', 'integer'].includes(field.type || '') ? Number(event.target.value) : event.target.value)} />}
         {field.description && <details className="speech-option-help"><summary>{t("参数说明")}</summary><p id={controlId + '-hint'}>{t(speechProviderText(field.description))}</p></details>}
       </div>

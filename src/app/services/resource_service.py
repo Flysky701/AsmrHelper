@@ -167,11 +167,15 @@ class ResourceService:
                     model=model_id, code="MODEL_UNSUPPORTED", requirement=model_id,
                     message="字幕对齐仅支持 Qwen3-ForcedAligner-0.6B"))
             else:
-                status = self._model_service.get_model_status(model_id)
-                if not status.executable:
-                    issues.append(self._issue(stage="align", category="alignment", provider="qwen3_forced_aligner",
-                        model=model_id, code="MODEL_NOT_EXECUTABLE", requirement=model_id,
-                        message=status.detail or "请先安装对齐模型及运行环境", action="engines"))
+                remote, issue = self._check_remote_stage("align", "alignment", "qwen3_forced_aligner", model_id)
+                if issue:
+                    issues.append(issue)
+                if not remote:
+                    status = self._model_service.get_model_status(model_id)
+                    if not status.executable:
+                        issues.append(self._issue(stage="align", category="alignment", provider="qwen3_forced_aligner",
+                            model=model_id, code="MODEL_NOT_EXECUTABLE", requirement=model_id,
+                            message=status.detail or "请先安装对齐模型及运行环境", action="engines"))
         for stage_name, category in self._STAGE_CATEGORIES.items():
             stage = stages.get(stage_name)
             if not isinstance(stage, dict) or not bool(stage.get("enabled", True)):
@@ -262,6 +266,33 @@ class ResourceService:
                         message=str(exc),
                     )
                 )
+                continue
+
+            optional_model = False
+            if category == "separator":
+                from packages.gpu_worker.roformer_handler import audio_separator_model
+
+                try:
+                    optional_model = audio_separator_model(requested_model or "") is not None
+                except ValueError as exc:
+                    issues.append(self._issue(stage=stage_name, category=category, provider=provider,
+                        model=requested_model, code="MODEL_UNSUPPORTED", requirement=requested_model,
+                        message=str(exc)))
+                    continue
+            if category in {"separator", "asr"}:
+                remote, issue = self._check_remote_stage(
+                    stage_name, category, provider, requested_model,
+                    {"profile": {**stage, "common_options": common_options, "provider_options": provider_options}},
+                    worker_provider="roformer" if optional_model else provider,
+                )
+                if issue:
+                    issues.append(issue)
+                if remote:
+                    continue
+            if optional_model:
+                issues.append(self._issue(stage=stage_name, category=category, provider=provider,
+                    model=requested_model, code="REMOTE_WORKER_REQUIRED", requirement="remote_worker",
+                    message="RoFormer 分离需要配置远端 GPU Worker"))
                 continue
 
             requirements = dict(descriptor.get("runtime_requirements") or {})
@@ -410,6 +441,27 @@ class ResourceService:
                 issues = [issue for issue in issues if issue["stage"] != "translate"]
         return issues
 
+    def _check_remote_stage(self, stage, category, provider, model, payload=None, *, worker_provider=None):
+        from packages.protocol.errors import ComputeRemoteError
+        from src.core.runtime import get_runtime_router
+
+        try:
+            caps = get_runtime_router().remote_capabilities(payload)
+            if caps is None:
+                return False, None
+            if stage not in caps.supported_tasks:
+                detail = "远端 GPU Worker 未提供该节点所需的功能"
+            elif stage in caps.installed_providers and (worker_provider or provider) not in caps.installed_providers[stage]:
+                detail = f"远端 GPU Worker 尚未安装 {worker_provider or provider} 的运行环境"
+            else:
+                return True, None
+        except ComputeRemoteError as exc:
+            detail = f"远端 GPU Worker 连接检查失败（{exc.code}）"
+        except ValueError:
+            detail = "远端 GPU Worker 地址、超时或返回的数据无效"
+        return True, self._issue(stage=stage, category=category, provider=provider, model=model,
+            code="REMOTE_WORKER_NOT_READY", requirement="remote_worker", message=detail, action="engines")
+
     def _check_graph_profile(self, profile: dict, *, node_context=None) -> list[dict[str, object]]:
         from contextlib import nullcontext
         from .graph_pipeline_service import freeze_graph_speech, node_profile, prepare_graph_profile
@@ -430,9 +482,8 @@ class ResourceService:
                         model=None, code="FFMPEG_NOT_READY", requirement="ffmpeg",
                         message=detail, action="settings"))
                 continue
-            if node["kind"] == "audio_export":
-                # Materials and graph options were already checked. A byte copy
-                # requires no model inventory, engine connection or FFmpeg.
+            if node["kind"] in {"audio_export", "delivery_detect"}:
+                # These local operations have no engine or FFmpeg prerequisite.
                 continue
             if node["kind"] == "translate" and not node.get("options", {}).get("connection_ref"):
                 issues.append(self._issue(stage=node["id"], category="llm", provider=node["provider"],
@@ -449,7 +500,15 @@ class ResourceService:
                         raise ValueError("配音编译器版本已改变，请重新提交")
                     context = get_speech_service().connection_context(snapshot["connection"])
                     context.update(model=snapshot["recipe"]["model"], mode=snapshot["recipe"]["mode"])
-                    readiness = get_provider(snapshot["recipe"]["provider_id"]).probe(context)
+                    provider = get_provider(snapshot["recipe"]["provider_id"])
+                    options = node["options"]
+                    dynamic = options.get("reference_mode") in ("per_style", "per_cue")
+                    automatic_clone = "auto_clone_connection" in snapshot
+                    if not automatic_clone and (dynamic or options.get("verify_with_asr")) and not provider._has_remote_worker(context):
+                        raise ValueError("动态参考与 ASR 验卡需要 Colab GPU Worker 配音连接")
+                    if not automatic_clone and dynamic and context["mode"] != "reference":
+                        raise ValueError("动态参考需要使用参考克隆模式的配音配方")
+                    readiness = provider.probe(context)
                     if not readiness.get("ready"):
                         raise ValueError(readiness.get("detail") or "语音引擎未就绪")
                 except (ValueError, KeyError, FileNotFoundError) as exc:

@@ -1,18 +1,40 @@
 import { create } from 'zustand'
 
 export type Language = 'zh-CN' | 'en'
+export type ThemeMode = 'light' | 'dark' | 'system' | 'custom'
+export type SurfaceBase = 'light' | 'dark'
 export const APPEARANCE_KEY = 'asmr-helper.appearance.v1'
 export const BACKGROUND_KEY = 'asmr-helper.background.v1'
-type Preferences = { language: Language; overlay: number }
+type Preferences = {
+  language: Language
+  overlay: number
+  theme: ThemeMode
+  customSurface: SurfaceBase
+  accentColor: string
+}
 type Background = { name: string; data: string }
-const defaults: Preferences = { language: 'zh-CN', overlay: 0.78 }
+const VALID_THEMES: ThemeMode[] = ['light', 'dark', 'system', 'custom']
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/
+const defaults: Preferences = {
+  language: 'zh-CN',
+  overlay: 0.78,
+  theme: 'light',
+  customSurface: 'light',
+  accentColor: '#117f8d',
+}
 
 export function readPreferences(): Preferences {
   try {
     const value = JSON.parse(localStorage.getItem(APPEARANCE_KEY) || '{}')
-    return { language: value?.language === 'en' ? 'en' : 'zh-CN',
+    return {
+      language: value?.language === 'en' ? 'en' : 'zh-CN',
       overlay: typeof value?.overlay === 'number' && Number.isFinite(value.overlay)
-        ? Math.min(0.94, Math.max(0.72, value.overlay)) : defaults.overlay }
+        ? Math.min(0.94, Math.max(0.72, value.overlay)) : defaults.overlay,
+      theme: VALID_THEMES.includes(value?.theme) ? value.theme : defaults.theme,
+      customSurface: value?.customSurface === 'dark' ? 'dark' : defaults.customSurface,
+      accentColor: typeof value?.accentColor === 'string' && HEX_COLOR.test(value.accentColor)
+        ? value.accentColor : defaults.accentColor,
+    }
   } catch { return defaults }
 }
 
@@ -39,8 +61,13 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => ({
   ...readPreferences(), ...readBackground(),
   setPreferences: patch => {
     const current = get()
-    const next = { language: patch.language ?? current.language,
-      overlay: Math.min(0.94, Math.max(0.72, patch.overlay ?? current.overlay)) }
+    const next: Preferences = {
+      language: patch.language ?? current.language,
+      overlay: Math.min(0.94, Math.max(0.72, patch.overlay ?? current.overlay)),
+      theme: patch.theme && VALID_THEMES.includes(patch.theme) ? patch.theme : current.theme,
+      customSurface: patch.customSurface === 'dark' || patch.customSurface === 'light' ? patch.customSurface : current.customSurface,
+      accentColor: patch.accentColor && HEX_COLOR.test(patch.accentColor) ? patch.accentColor : current.accentColor,
+    }
     try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify(next)); set({ ...next, issue: current.issue === 'storageFailed' ? '' : current.issue }); return true }
     catch { set({ issue: 'storageFailed' }); return false }
   },

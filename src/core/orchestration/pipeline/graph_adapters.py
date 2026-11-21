@@ -120,7 +120,8 @@ class GraphStageRunner:
             return run_audio_node(node, inputs, directory, cancel_event)
         kind = node["kind"]
         audio, speech, subtitle = (inputs.get(port) for port in ("audio", "speech", "subtitle"))
-        for value in (audio, speech):
+        reference = inputs.get("reference_audio")
+        for value in (audio, speech, reference):
             if value is not None:
                 if value.kind != "audio" or not value.path or not Path(value.path).is_file():
                     raise ValueError("所选音频输入不存在或类型错误")
@@ -130,9 +131,25 @@ class GraphStageRunner:
         if subtitle is not None:
             _subtitle(subtitle)
             language = subtitle.metadata["language"]
-            expected = plan.target_lang if kind == "tts" else plan.source_lang
-            if kind in {"tts", "translate", "align"} and language != expected:
-                raise ValueError("所选字幕语言与节点所需语言不匹配")
+            if kind in {"tts", "translate", "align"}:
+                expected = plan.target_lang if kind == "tts" else plan.source_lang
+                if language != expected:
+                    raise ValueError("所选字幕语言与节点所需语言不匹配")
+        if kind == "delivery_detect":
+            from src.core.asr.acoustic_profiler import annotate_delivery
+            from src.core.subtitles import SubtitleExporter
+
+            if audio is None or subtitle is None:
+                raise ValueError("发声方式识别需要音频和字幕")
+            _paired(audio, subtitle)
+            if max(cue["end"] for cue in subtitle.segments) > _duration(audio) + .1:
+                raise ValueError("字幕时间轴超出所选音频时长")
+            cues = annotate_delivery(audio.path, subtitle.segments)
+            directory = Path(directory)
+            directory.mkdir(parents=True, exist_ok=True)
+            target = directory / "subtitle.vtt"
+            SubtitleExporter().export_bilingual_subtitle(cues, str(target), bilingual=False)
+            return {"subtitle": GraphValue("subtitle", str(target), cues, deepcopy(subtitle.metadata))}
         if kind == "align":
             if audio is None or subtitle is None:
                 raise ValueError("时间轴校准需要音频和字幕")
@@ -148,24 +165,38 @@ class GraphStageRunner:
                 raise ValueError("混音延迟无效")
             if plan.mix.output_length not in ("main", "longest"):
                 raise ValueError("混音输出长度必须为 main 或 longest")
+            if plan.mix.room_tone_inpaint:
+                if reference is None or not speech.segments:
+                    raise ValueError("底噪填补需要原音参考和带句子时间轴的配音节点")
+                _paired(audio, reference)
         if kind == "tts" and subtitle is not None:
+            if reference is not None:
+                _paired(reference, subtitle)
             duration = subtitle.metadata.get("duration")
             if duration is None:
                 duration = max(cue["end"] for cue in subtitle.segments)
             if (isinstance(duration, bool) or not isinstance(duration, (int, float))
                     or not math.isfinite(duration) or duration <= 0
-                    or max(cue["end"] for cue in subtitle.segments) > duration + .1):
+                    or max(cue["end"] for cue in subtitle.segments) > duration + .1
+                    or reference is not None
+                    and max(cue["end"] for cue in subtitle.segments) > _duration(reference) + .1):
                 raise ValueError("配音字幕时间轴与参考时长不一致")
             plan = replace(plan, tts=replace(plan.tts, common_options={
                 **plan.tts.common_options, "reference_duration": float(duration),
+                **({"binaural_source_path": reference.path} if reference is not None else {}),
             }))
         if kind == "export" and subtitle is not None:
             plan = replace(plan, source_lang=subtitle.metadata["language"])
+        segments = subtitle.segments if subtitle else None
+        if kind == "mix" and plan.mix.room_tone_inpaint:
+            segments = speech.segments
         result = self.executor.execute_stage(
             kind, plan, directory=directory,
             audio_path=audio.path if audio else None,
             speech_path=speech.path if speech else None,
-            segments=deepcopy(subtitle.segments) if subtitle else None,
+            segments=deepcopy(segments),
+            **({"room_tone_source_path": reference.path} if kind == "mix"
+               and plan.mix.room_tone_inpaint else {}),
             cancel_event=cancel_event,
         )
         directory = Path(directory)
@@ -173,14 +204,28 @@ class GraphStageRunner:
             source = subtitle if kind == "tts" else audio
             metadata = deepcopy(source.metadata if source else {})
             metadata.update(self.audio_inspector(Path(result["path"])))
+            if kind == "tts" and (warnings := result.get("steps", {}).get("tts", {}).get("warnings")):
+                metadata["warnings"] = warnings
             if kind == "mix":
                 metadata.update(output_length=plan.mix.output_length,
                                 tts_delay_ms=plan.mix.tts_delay_ms,
                                 delay_behavior=("trim_before_zero" if plan.mix.tts_delay_ms < 0
                                                 else "pad_start" if plan.mix.tts_delay_ms > 0 else "none"))
-            value = GraphValue("audio", result["path"], metadata=metadata)
+                if warnings := speech.metadata.get("warnings"):
+                    metadata["warnings"] = warnings
+            value = GraphValue("audio", result["path"],
+                               segments=deepcopy(subtitle.segments) if kind == "tts" else [],
+                               metadata=metadata)
             _duration(value)
-            return {"audio": value}
+            outputs = {"audio": value}
+            if kind == "separate" and result.get("background_path"):
+                background = result["background_path"]
+                outputs["background"] = GraphValue(
+                    "audio", background,
+                    metadata={**audio.metadata, **self.audio_inspector(Path(background))},
+                )
+                _duration(outputs["background"])
+            return outputs
 
         source = audio if kind == "asr" else subtitle
         metadata = deepcopy(source.metadata if source else {})

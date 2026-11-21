@@ -43,6 +43,9 @@ class MixConfig:
     tts_volume_ratio: float = 0.5
     tts_delay_ms: float = 0.0
     output_length: str = "main"
+    sidechain_ducking: bool = False
+    adjust_tts_volume: bool = True
+    room_tone_inpaint: bool = False
 
 
 @dataclass(slots=True)

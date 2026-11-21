@@ -412,6 +412,24 @@ def test_prepare_draft_runs_asr_and_llm_when_no_subtitles_exist(isolated_env):
 # ─── 4. FastAPI `/api/v1/drafts/*` TestClient Flow ────────────────────────
 
 
+def test_delete_draft_requires_current_revision_and_leaves_materials(isolated_env):
+    path = isolated_env.tmp_path / "audio.wav"
+    path.write_bytes(b"test audio")
+    store = isolated_env.draft_store
+    store.create_draft(draft_id="failed", state="failed", work_dir=str(path.parent),
+                       title="Failed", tracks=[{"path": str(path)}])
+    store.create_draft(draft_id="active", state="committing", work_dir=str(path.parent), title="Active")
+    app = create_app()
+    app.dependency_overrides[dependencies.draft_session_service] = lambda: isolated_env.service
+    with TestClient(app) as client:
+        assert client.delete("/api/v1/drafts/active?expected_revision=1").status_code == 409
+        assert client.delete("/api/v1/drafts/failed?expected_revision=2").status_code == 409
+        assert client.delete("/api/v1/drafts/failed?expected_revision=1").status_code == 204
+        assert client.get("/api/v1/drafts/failed").status_code == 404
+        assert client.get("/api/v1/drafts/active").status_code == 200
+    assert path.read_bytes() == b"test audio"
+
+
 def test_fastapi_draft_routes_end_to_end(isolated_env):
     work_dir = isolated_env.tmp_path / "http_work"
     _write_stereo_wav(work_dir / "scene1.wav", duration_sec=6.0)
@@ -851,4 +869,95 @@ def test_saved_voicelab_recipe_and_sample_take_reuse_on_commit(isolated_env):
     assert len(isolated_env.tts_calls) == 1
     assert committed["artifacts"]["dubbing"]["reused_take_count"] == 1
     assert committed["artifacts"]["dubbing"]["synthesized_take_count"] == 1
+
+
+@pytest.mark.parametrize("fail_on_commit", [False, True])
+def test_automatic_draft_dubbing_uses_one_voice_for_the_whole_track(isolated_env, monkeypatch, fail_on_commit):
+    clone = get_provider("qwen3")
+    monkeypatch.setattr(clone, "probe", lambda _: {"ready": True})
+    monkeypatch.setattr(clone, "_has_remote_worker", lambda _: False)
+    offline_synthesize = get_provider("edge").synthesize
+    clone_calls = []
+
+    def synthesize(request, output_path, context, cancel_check):
+        clone_calls.append(request["text"])
+        asset_id, digest = next(iter(request["asset_hashes"].items()))
+        assert context["assets"][asset_id]["sha256"] == digest
+        assert Path(context["assets"][asset_id]["path"]).is_file()
+        assert request["parameters"]["options"]["x_vector_only_mode"] is True
+        if fail_on_commit and len(clone_calls) > 1:
+            sf.write(output_path, np.zeros(8000), 16000)
+            return {}
+        return offline_synthesize(request, output_path, context, cancel_check)
+
+    monkeypatch.setattr(clone, "synthesize", synthesize)
+    source = _write_stereo_wav(isolated_env.tmp_path / "source.wav", duration_sec=7)
+    source.with_suffix(".srt").write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nただいま\n我回来啦\n"
+        "2\n00:00:04,000 --> 00:00:06,000\nおやすみ\n晚安好梦\n",
+        encoding="utf-8",
+    )
+    draft = isolated_env.service.prepare_draft(
+        source, enable_translation=False, sample_cue_count=1, auto_detect_delivery=True,
+        voice_plan={"auto_clone": True, "reference_mode": "per_style"},
+    )
+    assert [request["provider_id"] for request in isolated_env.tts_calls] == ["qwen3"]
+    assert not isolated_env.speech_svc.store.list("assets")
+    isolated_env.tts_calls.clear()
+
+    committed = isolated_env.service.commit_draft(
+        draft["draft_id"], isolated_env.tmp_path / "dubbed", enable_dubbing=True,
+    )
+    assert len(clone_calls) == 2
+    assert committed["state"] == "completed"
+    dubbing = committed["artifacts"]["dubbing"]
+    if fail_on_commit:
+        assert [request["provider_id"] for request in isolated_env.tts_calls] == ["edge", "edge"]
+        assert dubbing["reused_take_count"] == 0
+        assert "原声克隆合成失败" in committed["voice_plan"]["auto_clone_fallback"]
+        assert "原声克隆合成失败，已使用默认音色。" in committed["audit_report"]["warnings"]
+    else:
+        assert [request["provider_id"] for request in isolated_env.tts_calls] == ["qwen3"]
+        assert dubbing["reused_take_count"] == 1
+        assert "auto_clone_fallback" not in committed["voice_plan"]
+
+
+@pytest.mark.parametrize("clone_ready", [True, False])
+def test_automatic_queue_dubbing_respects_clone_readiness(isolated_env, monkeypatch, clone_ready):
+    from src.app.services.graph_pipeline_service import freeze_graph_speech, make_node_plan
+    from src.core.orchestration.pipeline.executor import PipelineExecutor
+    from src.core.orchestration.pipeline.graph_adapters import GraphStageRunner, GraphValue
+
+    speech = isolated_env.speech_svc
+    monkeypatch.setattr("src.app.services.speech_service.get_speech_service", lambda: speech)
+    clone = get_provider("qwen3")
+    monkeypatch.setattr(clone, "probe", lambda _: {"ready": clone_ready})
+    monkeypatch.setattr(clone, "_has_remote_worker", lambda _: False)
+    monkeypatch.setattr(clone, "synthesize", get_provider("edge").synthesize)
+    monkeypatch.setattr(PipelineExecutor, "_try_clear_gpu", staticmethod(lambda: None))
+    node = {"id": "tts", "kind": "tts", "provider": "speech", "source_lang": "ja", "target_lang": "ja",
+            "options": {"auto_clone": True, "verify_with_asr": True, "reference_mode": "per_style"}}
+    frozen = freeze_graph_speech({"graph": {"nodes": [node]}})
+    output_dir = isolated_env.tmp_path / "queue"
+    task, _ = speech.tasks.create_task_spec(task_type="speech.generate", task_source="test", session_id="test")
+    plan = make_node_plan(node, task_id=task.task_id, output_dir=str(output_dir),
+                          snapshots=frozen["_graph_runtime"]["node_snapshots"])
+    source = _write_stereo_wav(isolated_env.tmp_path / "source.wav", duration_sec=6)
+    metadata = {"duration": 6, "timeline_id": "source", "pair_confirmed": True}
+    inputs = {
+        "reference_audio": GraphValue("audio", str(source), metadata=metadata),
+        "subtitle": GraphValue("subtitle", None, [{"start": 2, "end": 4, "text": "おかえり"}],
+                               {**metadata, "language": "ja"}),
+    }
+    output = GraphStageRunner().run(node, inputs, plan, output_dir)["audio"]
+
+    assert Path(output.path).is_file()
+    request = isolated_env.tts_calls[0]
+    if clone_ready:
+        assert request["provider_id"] == "qwen3"
+        assert request["asset_hashes"]
+        assert not output.metadata.get("warnings")
+    else:
+        assert request["parameters"]["variant"]["value"] == "ja-JP-NanamiNeural"
+        assert "Qwen3 克隆模型或连接不可用，已使用默认音色。" in output.metadata["warnings"]
 

@@ -102,5 +102,5 @@ export function bindingIssues(graph: GraphDefinition, bindings: GraphBindings, m
   })
 }
 
-export const PORT_NAMES: Record<string, string> = { audio: '音频', speech: '叠加音轨', subtitle: '字幕' }
+export const PORT_NAMES: Record<string, string> = { audio: '音频', background: '背景与触发音', speech: '叠加音轨', subtitle: '字幕' }
 export const TYPE_NAMES: Record<string, string> = { audio: 'Audio', subtitle: 'VTT / 字幕' }

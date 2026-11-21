@@ -25,6 +25,10 @@ class RuntimeProbeError(RuntimeError):
     """Raised when runtime availability could not be determined reliably."""
 
 
+class RuntimeProbeNotCached(RuntimeError):
+    """A passive status request has no current result for this runtime."""
+
+
 @dataclass(frozen=True)
 class RuntimeProfile:
     id: str
@@ -249,11 +253,13 @@ class RuntimeProfileResolver:
                 continue
         return max(capabilities, default=None)
 
-    def check_modules(self, profile_id: str | None, modules: Iterable[str]) -> bool:
+    def check_modules(self, profile_id: str | None, modules: Iterable[str], *, cached_only: bool = False) -> bool:
+        if cached_only:
+            return self._check_modules(profile_id, modules, cached_only=True)
         with self._flight_lock(profile_id):
             return self._check_modules(profile_id, modules)
 
-    def _check_modules(self, profile_id: str | None, modules: Iterable[str]) -> bool:
+    def _check_modules(self, profile_id: str | None, modules: Iterable[str], *, cached_only: bool = False) -> bool:
         profile = self.resolve(profile_id)
         if not profile.python_executable.is_file():
             return False
@@ -264,6 +270,8 @@ class RuntimeProfileResolver:
         cached = self._get_cached_probe(cache_key)
         if cached is not None:
             return cached
+        if cached_only:
+            raise RuntimeProbeNotCached(profile.id)
         budget = self._ASR_IMPORT_TIMEOUT if profile.id in {"fun_asr", "qwen_asr"} else 30
         script = (
             "import importlib, json, time\n"
@@ -413,21 +421,37 @@ class RuntimeProfileResolver:
         except (StopIteration, ValueError) as exc:
             raise RuntimeProbeError("invalid CTranslate2 verification result") from exc
 
-    def has_ctranslate2_cuda(self, profile_id: str | None) -> bool:
+    def has_ctranslate2_cuda(self, profile_id: str | None, *, cached_only: bool = False) -> bool:
+        if cached_only:
+            return self._has_ctranslate2_cuda(profile_id, cached_only=True)
+        with self._flight_lock(profile_id):
+            return self._has_ctranslate2_cuda(profile_id)
+
+    def _has_ctranslate2_cuda(self, profile_id: str | None, *, cached_only: bool = False) -> bool:
         profile = self.resolve(profile_id)
         if not profile.python_executable.is_file():
             return False
+        cache_key = (profile.id, "cuda:ctranslate2")
+        cached = self._get_cached_probe(cache_key)
+        if cached is not None:
+            return cached
+        if cached_only:
+            raise RuntimeProbeNotCached(profile.id)
         result = subprocess.run([str(profile.python_executable), "-c",
             "from src.core.runtime.ctranslate2_runtime import cuda_available; "
             "raise SystemExit(0 if cuda_available() else 1)"],
             cwd=str(self.project_root), env=self.subprocess_env(), capture_output=True, timeout=30, check=False)
-        return result.returncode == 0
+        available = result.returncode == 0
+        self._set_cached_probe(cache_key, available)
+        return available
 
-    def has_cuda(self, profile_id: str | None) -> bool:
+    def has_cuda(self, profile_id: str | None, *, cached_only: bool = False) -> bool:
+        if cached_only:
+            return self._has_cuda(profile_id, cached_only=True)
         with self._flight_lock(profile_id):
             return self._has_cuda(profile_id)
 
-    def _has_cuda(self, profile_id: str | None) -> bool:
+    def _has_cuda(self, profile_id: str | None, *, cached_only: bool = False) -> bool:
         profile = self.resolve(profile_id)
         if not profile.python_executable.is_file():
             return False
@@ -435,6 +459,8 @@ class RuntimeProfileResolver:
         cached = self._get_cached_probe(cache_key)
         if cached is not None:
             return cached
+        if cached_only:
+            raise RuntimeProbeNotCached(profile.id)
         try:
             result = subprocess.run(
                 [

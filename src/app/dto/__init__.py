@@ -143,7 +143,9 @@ class ModelSummary:
     category: str
     backend: str
     display_name: str
+    description: str = ""
     estimated_size_mb: int | None = None
+    inference_vram_gb: int | None = None
     install_strategy: str = ""
     capability_models: list[str] = field(default_factory=list)
     supports_install: bool = False

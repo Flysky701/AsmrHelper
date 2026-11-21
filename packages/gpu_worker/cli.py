@@ -24,6 +24,7 @@ from packages.protocol.compute import (
     LeaseEvictResult,
     SeparationRequest,
     TtsBatchRequest,
+    VcBatchRequest,
 )
 from packages.protocol.errors import ComputeErrorCode, ComputeRemoteError
 
@@ -84,6 +85,10 @@ def execute_once_job(
         tts_req = TtsBatchRequest.model_validate(raw_req)
         needs_b64 = any(not item.output_path for item in tts_req.items)
         res_model = worker.tts_batch(tts_req, include_audio_b64=needs_b64)
+    elif task == "vc_batch":
+        from .seed_vc_handler import run_seed_vc_batch
+
+        res_model = run_seed_vc_batch(worker.lease_manager, VcBatchRequest.model_validate(raw_req))
     else:
         raise ComputeRemoteError(
             code=ComputeErrorCode.INVALID_REQUEST,

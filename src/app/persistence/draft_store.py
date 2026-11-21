@@ -27,7 +27,7 @@ DRAFT_STATES = (
 
 
 class DraftConflictError(AppValidationError, ValueError):
-    """Raised when an optimistic revision check fails during patch or commit."""
+    """Raised when a draft's state or revision conflicts with an update."""
 
 
 def _utc_now_iso() -> str:
@@ -349,12 +349,21 @@ class DraftStore:
                 updated_at=now,
             )
 
-    def delete_draft(self, draft_id: str) -> bool:
+    def delete_draft(self, draft_id: str, *, expected_revision: int | None = None) -> bool:
+        expected_revision = _validate_expected_revision(expected_revision)
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
-                "DELETE FROM draft_sessions WHERE draft_id = ?",
-                (draft_id,),
+                """
+                DELETE FROM draft_sessions
+                WHERE draft_id = ? AND state IN ('awaiting_review', 'completed', 'failed')
+                  AND (? IS NULL OR revision = ?)
+                """,
+                (draft_id, expected_revision, expected_revision),
             )
+            if not cursor.rowcount and connection.execute(
+                "SELECT 1 FROM draft_sessions WHERE draft_id = ?", (draft_id,),
+            ).fetchone():
+                raise DraftConflictError("草稿正在处理或状态已更新，请刷新后重试。")
             return cursor.rowcount > 0
 
 

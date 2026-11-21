@@ -12,10 +12,15 @@ from uuid import uuid4
 
 from src.core.speech.store import SpeechStore, build_plan, validate_plan, companion_subtitle_paths, _reference_file_operation
 from src.core.speech.compiler import compile_recipe
-from src.core.speech.providers import get_provider
+from src.core.speech.providers import ProviderError, get_provider
+from src.core.speech.remake import extract_voice_reference_candidate, prepare_references, validate_timeline_options
 from src.core.tasks import TaskDispatcher
 from .task_service import get_task_service, get_task_dispatcher
 from .artifact_service import get_artifact_service
+
+
+class AutoCloneError(RuntimeError):
+    """An automatic clone attempt failed before it produced usable speech."""
 
 
 class SpeechService:
@@ -177,7 +182,7 @@ class SpeechService:
         provider = get_provider(recipe.get("provider_id"))
         ref = recipe.get("connection_ref")
         default_id = "engine-default-" + provider.provider_id
-        connection_required = getattr(provider, "http", provider.remote)
+        connection_required = getattr(provider, "connection_required", getattr(provider, "http", provider.remote))
         if not ref and allow_default:
             selected = self.store.default_connection(provider.provider_id)
             if selected is not None:
@@ -580,12 +585,13 @@ class SpeechService:
             self._validate_reference(recipe)
         return self._snapshot_recipe(recipe, connection)
 
-    def _snapshot_recipe(self, recipe, connection):
+    def _snapshot_recipe(self, recipe, connection, *, task_assets=None):
         recipe, connection = deepcopy(recipe), deepcopy(connection)
         if connection["provider_id"] != recipe["provider_id"]:
             raise ValueError("连接已更换引擎，请保存新的配方")
-        assets = self.assets()
-        self._validate_reference(recipe)
+        assets = self.assets() if task_assets is None else task_assets
+        if task_assets is None:
+            self._validate_reference(recipe)
         validation_plan = build_plan("配置校验。")
         validation_plan["use_recipe_defaults"] = True
         requests = compile_recipe(recipe, validation_plan, assets)
@@ -604,6 +610,70 @@ class SpeechService:
                     connection[field] = ready[field]
         return {"recipe": recipe, "connection": connection, "assets": selected_assets,
                 "compiler_version": requests[0]["compiler_version"], "provider_version": requests[0]["provider_version"]}
+
+    def auto_dubbing_snapshot(self, language):
+        voices = {"zh": "zh-CN-XiaoxiaoNeural", "ja": "ja-JP-NanamiNeural", "en": "en-US-JennyNeural"}
+        fallback = self.pipeline_snapshot({
+            "provider": "edge", "model": "edge-tts",
+            "options": {"voice": voices.get(language, voices["zh"]), "language": language},
+        })
+        try:
+            connection = self._recipe_connection({"provider_id": "qwen3"})
+        except ValueError:
+            connection = None
+        return {**fallback, "auto_clone_connection": connection}
+
+    def run_auto_dubbing(self, snapshot, get_reference, options, synthesize, *,
+                         fallback_reason=None, cancel_check=lambda: False):
+        """Use one voice across all cues, including when a clone attempt fails mid-run."""
+        if cancel_check():
+            raise InterruptedError("用户取消配音")
+        fallback = {key: value for key, value in snapshot.items() if key != "auto_clone_connection"}
+        connection = snapshot["auto_clone_connection"]
+        if not connection and not fallback_reason:
+            fallback_reason = "Qwen3 克隆连接不可用"
+        if not fallback_reason:
+            from subprocess import SubprocessError
+            try:
+                reference = get_reference()
+                if (not reference or reference["duration"] < .5
+                        or not math.isfinite(reference["rms"]) or reference["rms"] < .0001):
+                    raise ValueError("未提取到可用的参考干声")
+                path = Path(reference["path"])
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                asset_id = f"auto-{digest}"
+                assets = {asset_id: {"path": str(path.resolve()), "sha256": digest,
+                                     "transcript": reference["transcript"]}}
+            except (OSError, ValueError, RuntimeError, SubprocessError):
+                fallback_reason = "未提取到可用的参考干声"
+
+        if not fallback_reason:
+            recipe = {
+                "id": "pipeline-" + uuid4().hex, "revision": 1, "name": "自动原声克隆",
+                "provider_id": "qwen3", "model": "qwen3-base", "mode": "reference",
+                "connection_ref": connection["id"], "language": fallback["recipe"]["language"],
+                "variant": {"kind": "reference", "value": asset_id},
+                "provider_options": {"schema_version": 1, "x_vector_only_mode": True},
+            }
+            try:
+                clone = self._snapshot_recipe(recipe, connection, task_assets=assets)
+                worker = get_provider("qwen3")._has_remote_worker(self.connection_context(clone["connection"]))
+            except (OSError, ValueError, RuntimeError):
+                fallback_reason = "Qwen3 克隆模型或连接不可用"
+            else:
+                if cancel_check():
+                    raise InterruptedError("用户取消配音")
+                clone_options = {**options, "verify_with_asr": bool(options.get("verify_with_asr") and worker)}
+                try:
+                    return synthesize({**clone, "auto_dubbing": True}, clone_options), None
+                except (AutoCloneError, ProviderError) as exc:
+                    if getattr(exc, "code", None) == "cancelled":
+                        raise
+                    fallback_reason = "原声克隆合成失败"
+        if cancel_check():
+            raise InterruptedError("用户取消配音")
+        fallback_options = {**options, "reference_mode": "single", "verify_with_asr": False, "vc_refinement": {}}
+        return synthesize({**fallback, "auto_dubbing": True}, fallback_options), fallback_reason
 
     @_reference_file_operation
     def generate(self, experiment_id, body):
@@ -695,8 +765,37 @@ class SpeechService:
         binaural_source_path: str | Path | None = None,
         borrow_silence_slack: bool = False,
         max_atempo: float | None = None,
+        acoustic_options: dict | None = None,
+        remake_options: dict | None = None,
+        reference_language: str = "ja",
+        original_sample_rate: int | None = None,
     ):
         """Formal dubbing uses the identical compiler/runner as laboratory takes."""
+        if "auto_clone_connection" in snapshot:
+            def get_reference():
+                if binaural_source_path is None:
+                    return None
+                cues = [{"start": cue["start_time"], "end": cue["end_time"],
+                         "source_text": cue.get("original")} for cue in segments]
+                return extract_voice_reference_candidate(
+                    Path(binaural_source_path), Path(output_path).resolve().parent / "voice-reference", cues,
+                    prefer_speech=True,
+                )
+
+            assembly, reason = self.run_auto_dubbing(
+                snapshot, get_reference, remake_options or {},
+                lambda selected, options: self.synthesize_timeline(
+                    selected, segments, output_path, task_id, cancel_check, reference_duration,
+                    binaural_source_path=binaural_source_path, borrow_silence_slack=borrow_silence_slack,
+                    max_atempo=max_atempo, acoustic_options=acoustic_options, remake_options=options,
+                    reference_language=reference_language, original_sample_rate=original_sample_rate,
+                ),
+                cancel_check=cancel_check,
+            )
+            if reason:
+                assembly["warnings"] = [*assembly.get("warnings", []), f"{reason}，已使用默认音色。"]
+            return assembly
+
         text = "".join(s["text"] for s in segments)
         plan = build_plan(text)
         plan["segments"] = []
@@ -712,6 +811,12 @@ class SpeechService:
         plan = self.store.create("plans", plan)
         experiment_id = uuid4().hex
         media_root = Path(output_path).resolve().parent / "speech" / experiment_id
+        remake = dict(remake_options or {})
+        validate_timeline_options({**remake, "acoustic_options": acoustic_options or {}})
+        assets, refs = self.timeline_references(
+            snapshot, segments, binaural_source_path, remake, media_root / "references",
+            language=reference_language,
+        )
         experiment_record = {
             "id": experiment_id,
             "name": f"正式配音 {task_id}",
@@ -729,14 +834,22 @@ class SpeechService:
             experiment_record["borrow_silence_slack"] = True
         if max_atempo is not None:
             experiment_record["max_atempo"] = float(max_atempo)
+        if acoustic_options:
+            experiment_record["acoustic_options"] = acoustic_options
+        if original_sample_rate:
+            experiment_record["original_sample_rate"] = original_sample_rate
+        if remake.get("vc_refinement", {}).get("enabled"):
+            experiment_record.update(vc_refinement=remake["vc_refinement"],
+                                     remake_references=assets, cue_references=refs)
         experiment = self.store.create("experiments", experiment_record)
-        requests = compile_recipe(snapshot["recipe"], plan, snapshot["assets"])
+        requests = self.compile_timeline_requests(snapshot, plan, remake, assets, refs, segments)
         if requests[0]["compiler_version"] != snapshot["compiler_version"]:
             raise ValueError("编译器版本已改变，请重新提交任务")
         if requests[0]["provider_version"] != snapshot.get("provider_version"):
             raise ValueError("引擎版本已改变，请重新提交任务")
         takes = self.run_requests(requests, snapshot, task_id=task_id, experiment_id=experiment["id"],
-            plan_id=plan["id"], cancel_check=cancel_check, media_root=media_root)
+            plan_id=plan["id"], cancel_check=cancel_check, media_root=media_root,
+            **({"extra_assets": assets} if assets else {}))
         for take in takes:
             self.select({"experiment_id": experiment["id"], "segment_id": take["segment_id"], "take_id": take["id"]})
         return self.assemble(
@@ -747,9 +860,65 @@ class SpeechService:
             binaural_source_path=binaural_source_path,
             borrow_silence_slack=borrow_silence_slack,
             max_atempo=max_atempo,
+            **({"cancel_check": cancel_check} if remake.get("vc_refinement", {}).get("enabled") else {}),
         )
 
-    def run_requests(self, requests, snapshot, *, task_id, experiment_id, plan_id, cancel_check=lambda: False, progress=None, media_root=None, on_take=None):
+    def timeline_references(self, snapshot, segments, source, options, directory, *, language="ja"):
+        mode = options.get("reference_mode", "single")
+        use_vc = options.get("vc_refinement", {}).get("enabled", False)
+        if mode == "single" and not use_vc and not options.get("verify_with_asr"):
+            return {}, {}
+        provider = get_provider(snapshot["recipe"]["provider_id"])
+        context = self.connection_context(snapshot["connection"])
+        auto_dubbing = snapshot.get("auto_dubbing")
+        if ((mode != "single" and not auto_dubbing or options.get("verify_with_asr"))
+                and not provider._has_remote_worker(context)):
+            raise ValueError("动态参考与 ASR 验卡需要 Colab GPU Worker 配音连接")
+        if mode != "single" and snapshot["recipe"].get("mode") != "reference":
+            raise ValueError("动态参考需要使用参考克隆模式的配音配方")
+        if use_vc and not provider._has_remote_worker(context):
+            from src.core.engines.separator import SeparatorEngineRuntime
+            if not SeparatorEngineRuntime().has_remote_worker():
+                raise ValueError("Seed-VC 需要配置远端 GPU Worker")
+        if not source and (mode != "single" or use_vc):
+            raise ValueError("动态参考或 Seed-VC 需要同一时间轴的原声参考")
+        if mode == "single" and not use_vc:
+            return {}, {}
+        try:
+            assets, selected = prepare_references(
+                source, segments, mode if mode != "single" else "per_style", directory, language=language,
+                require_transcript=mode != "single" and not auto_dubbing,
+                match_level=bool(auto_dubbing and mode == "per_style"),
+            )
+        except (OSError, RuntimeError):
+            if not auto_dubbing or use_vc:
+                raise
+            return {}, {}
+        if use_vc and not selected and snapshot["recipe"]["variant"]["kind"] != "reference":
+            raise ValueError("未找到可供 Seed-VC 使用的原声片段")
+        return assets, {f"sentence-{index + 1}": ref_id for index, ref_id in selected.items()}
+
+    @staticmethod
+    def compile_timeline_requests(snapshot, plan, options, assets, refs, cues):
+        auto_delivery_ids = {segment["id"] for segment, cue in zip(plan["segments"], cues, strict=True)
+                             if snapshot.get("auto_dubbing") or cue.get("auto_delivery")}
+        if snapshot.get("auto_dubbing"):
+            plan = {**plan, "segments": [{**segment, "emotion": "neutral"} for segment in plan["segments"]]}
+        requests = compile_recipe(
+            snapshot["recipe"], plan, {**snapshot["assets"], **assets},
+            **({"cue_references": refs} if options.get("reference_mode", "single") != "single" else {}),
+            **({"auto_delivery_ids": auto_delivery_ids} if auto_delivery_ids else {}),
+        )
+        if options.get("verify_with_asr"):
+            for request in requests:
+                request["verification"] = {
+                    "verify_with_asr": True,
+                    "max_retries": options.get("max_retries", 2),
+                    "min_similarity": options.get("min_similarity", .75),
+                }
+        return requests
+
+    def run_requests(self, requests, snapshot, *, task_id, experiment_id, plan_id, cancel_check=lambda: False, progress=None, media_root=None, on_take=None, extra_assets=None):
         recipe, connection = snapshot["recipe"], snapshot["connection"]
         if (not connection.get("id") or recipe.get("connection_ref") != connection["id"]
                 or recipe.get("provider_id") != connection.get("provider_id")
@@ -762,8 +931,9 @@ class SpeechService:
             raise ValueError("语音请求与固定配方或连接快照不一致，请建立新任务")
         from contextlib import nullcontext
         context = self.connection_context(snapshot["connection"])
-        context["assets"] = deepcopy(snapshot["assets"])
+        context["assets"] = {**deepcopy(snapshot["assets"]), **(extra_assets or {})}
         context["checkpoint_each_take"] = on_take is not None
+        cloning = snapshot.get("auto_dubbing") and recipe["mode"] == "reference"
         outputs = []
         batch_provider = get_provider(recipe["provider_id"]) if len(requests) > 1 else None
         session_cm = (
@@ -787,6 +957,7 @@ class SpeechService:
                 output = Path(media_root if media_root is not None else self.store.root) / "audio" / (take_id + ".wav")
                 output.parent.mkdir(parents=True, exist_ok=True)
                 started = time.monotonic()
+                valid_audio = False
                 try:
                     connection_id = snapshot["connection"]["id"]
                     with self._lock:
@@ -807,12 +978,18 @@ class SpeechService:
                     import numpy as np
                     with sf.SoundFile(output) as stream:
                         decoded_frames = 0
+                        signal_present = False
                         for block in stream.blocks(blocksize=65536, dtype="float32"):
                             if not np.isfinite(block).all():
                                 raise ValueError("引擎返回无效音频采样")
                             decoded_frames += len(block)
+                            if cloning and not signal_present:
+                                signal_present = bool(np.max(np.abs(block)) > .0001)
                         if decoded_frames != info.frames:
                             raise ValueError("引擎返回不完整音频")
+                        if cloning and not signal_present:
+                            raise ValueError("克隆引擎返回静音")
+                    valid_audio = True
                     take = self.store.create("takes", {"id": take_id, "task_id": task_id,
                         "experiment_id": experiment_id, "plan_id": plan_id, "recipe_id": snapshot["recipe"]["id"],
                         "segment_id": request["segment_id"], "compiled_request": request,
@@ -824,9 +1001,13 @@ class SpeechService:
                     self.artifacts.register_artifact(task_id=task_id, artifact_type="audio.speech_take",
                         path=str(output), label=f"台词 {index + 1} 候选", preview_kind="audio", stage="tts",
                         metadata={"take_id": take_id, "experiment_id": experiment_id})
-                except BaseException:
+                except BaseException as exc:
                     if not any(t["id"] == take_id for t in outputs):
                         output.unlink(missing_ok=True)
+                    if (not valid_audio and cloning
+                            and isinstance(exc, Exception) and not isinstance(exc, InterruptedError)
+                            and getattr(exc, "code", None) != "cancelled" and not cancel_check()):
+                        raise AutoCloneError("原声克隆未生成可用音频") from exc
                     raise
                 finally:
                     provider.release()
@@ -887,7 +1068,8 @@ class SpeechService:
         return self.store.update("experiments", experiment_id, {"mix_context": {
             "source_path": str(source), "source_sha256": digest.hexdigest(), **mix_options}})
 
-    def _align_take(self, take, slot_duration, *, media_root=None, max_atempo: float | None = None):
+    def _align_take(self, take, slot_duration, *, media_root=None, max_atempo: float | None = None,
+                    time_stretch_engine="ffmpeg_atempo"):
         """Derived duration-fit audio; raw takes remain immutable and reusable."""
         import soundfile as sf
         import subprocess
@@ -908,6 +1090,8 @@ class SpeechService:
             key_src = f"{take['id']}:{slot_duration:.9f}:max={ratio:.9f}:atempo-v1"
         else:
             key_src = f"{take['id']}:{slot_duration:.9f}:atempo-v1"
+        if time_stretch_engine == "pytsmod_wsola":
+            key_src += ":wsola-v1"
         key = hashlib.sha256(key_src.encode()).hexdigest()
         target = Path(media_root if media_root is not None else self.store.root) / "aligned" / (key + ".wav")
         if not target.exists():
@@ -919,15 +1103,93 @@ class SpeechService:
             steps.append(f"atempo={factor:.9f}")
             temporary = target.with_suffix(".pending.wav")
             try:
-                result = subprocess.run([get_ffmpeg(), "-v", "error", "-y", "-i", take["audio_path"],
-                    "-af", ",".join(steps), str(temporary)], capture_output=True, timeout=120,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-                if result.returncode or not temporary.exists() or sf.info(temporary).frames == 0:
+                if time_stretch_engine == "pytsmod_wsola":
+                    from src.mixer.acoustic_matching import stretch_wsola
+                    try:
+                        audio, rate = sf.read(take["audio_path"], dtype="float32", always_2d=True)
+                        sf.write(temporary, stretch_wsola(audio, rate, ratio), rate, subtype="FLOAT")
+                    except ImportError as exc:
+                        raise ValueError("WSOLA 需要项目的可选 audio 依赖 pytsmod") from exc
+                else:
+                    result = subprocess.run([get_ffmpeg(), "-v", "error", "-y", "-i", take["audio_path"],
+                        "-af", ",".join(steps), str(temporary)], capture_output=True, timeout=120,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                    if result.returncode:
+                        raise ValueError("音频时长适配失败，原始候选仍保留")
+                if not temporary.exists() or sf.info(temporary).frames == 0:
                     raise ValueError("音频时长适配失败，原始候选仍保留")
                 temporary.replace(target)
             finally:
                 temporary.unlink(missing_ok=True)
         return str(target), ratio
+
+    def _refine_takes(self, experiment, ordered_takes, media_root, cancel_check):
+        from contextlib import contextmanager
+        from packages.gpu_worker.client import ComputeClient, RemoteHttpTransport
+        from packages.protocol.compute import VcBatchItem, VcBatchRequest
+        from src.core.engines.separator.service import SeparatorEngineRuntime
+
+        snapshot = experiment["snapshot"]
+        options = experiment["vc_refinement"]
+        provider = get_provider(snapshot["recipe"]["provider_id"])
+        context = self.connection_context(snapshot["connection"])
+        assets = {**snapshot["assets"], **experiment.get("remake_references", {})}
+        cue_refs = experiment.get("cue_references", {})
+        fallback = snapshot["recipe"]["variant"]
+        fallback_id = (fallback["value"] if fallback["kind"] == "reference"
+                       else next(iter(cue_refs.values()), None))
+        references, items, refined = {}, [], []
+        folder = media_root / "refined"
+        folder.mkdir(parents=True, exist_ok=True)
+        for segment, take in ordered_takes:
+            ref_id = cue_refs.get(segment["id"]) or fallback_id
+            if ref_id is None:
+                raise ValueError("未找到可供 Seed-VC 使用的原声片段")
+            if ref_id not in references:
+                asset = assets[ref_id]
+                path = Path(asset["path"])
+                if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != asset["sha256"]:
+                    raise ValueError("变声参考素材已修改或不可用")
+                references[ref_id] = str(path)
+            output = folder / f"{take['id']}.wav"
+            if not output.is_file():
+                items.append(VcBatchItem(id=take["id"], source_audio_path=take["audio_path"],
+                                         reference_id=ref_id, output_path=str(output)))
+            refined.append((segment, {**take, "audio_path": str(output),
+                "id": f"{take['id']}-seedvc", "original_take_id": take["id"],
+                "audio": {"warnings": take.get("audio", {}).get("warnings", [])}}))
+
+        @contextmanager
+        def open_client():
+            if provider._has_remote_worker(context):
+                url, token, timeout, transport = provider._resolve_remote_worker_config(context)
+                with ComputeClient(RemoteHttpTransport(base_url=url, api_key=token, timeout=timeout,
+                                                      transport=transport)) as client:
+                    yield client
+            else:
+                with SeparatorEngineRuntime()._open_remote_client() as client:
+                    yield client
+
+        if items:
+            with open_client() as client:
+                for position in range(0, len(items), 16):
+                    if cancel_check():
+                        raise InterruptedError("已取消变声")
+                    batch = items[position:position + 16]
+                    result = client.vc_batch(VcBatchRequest(
+                        provider_id=options.get("provider", "seed_vc"),
+                        diffusion_steps=options.get("diffusion_steps", 25),
+                        items=batch, references={item.reference_id: references[item.reference_id] for item in batch},
+                    ))
+                    by_id = {item.id: item for item in result.items}
+                    for item in batch:
+                        converted = by_id.get(item.id)
+                        if not converted or not converted.ok or not Path(item.output_path).is_file():
+                            detail = converted.error.message if converted and converted.error else "未收到音频"
+                            raise ValueError(f"Seed-VC 转换失败：{detail}")
+            if cancel_check():
+                raise InterruptedError("已取消变声")
+        return refined
 
     @_reference_file_operation
     def assemble(
@@ -940,6 +1202,8 @@ class SpeechService:
         binaural_source_path: str | Path | None = None,
         borrow_silence_slack: bool = False,
         max_atempo: float | None = None,
+        acoustic_options: dict | None = None,
+        cancel_check=lambda: False,
     ):
         import numpy as np
         import soundfile as sf
@@ -958,6 +1222,13 @@ class SpeechService:
             borrow_silence_slack or experiment.get("borrow_silence_slack", False)
         )
         max_atempo = max_atempo if max_atempo is not None else experiment.get("max_atempo")
+        acoustic = acoustic_options if acoustic_options is not None else experiment.get("acoustic_options", {})
+        validate_timeline_options({"acoustic_options": acoustic})
+        binaural_mode = acoustic.get("binaural_mode")
+        stretch_engine = acoustic.get("time_stretch_engine", "ffmpeg_atempo")
+        enhanced = (binaural_mode is not None or stretch_engine == "pytsmod_wsola"
+                    or acoustic.get("loudness_match") == "per_cue"
+                    or acoustic.get("eq_matching") or acoustic.get("reverb_match"))
 
         plan = self.store.get("plans", experiment["plan_id"])
         selected = {s["segment_id"]: self.store.get("takes", s["take_id"]) for s in experiment["selections"]}
@@ -967,13 +1238,15 @@ class SpeechService:
             if take is None:
                 raise ValueError("请先为每句台词选择真实候选")
             ordered_takes.append((segment, take))
+        if experiment.get("vc_refinement", {}).get("enabled"):
+            ordered_takes = self._refine_takes(experiment, ordered_takes, media_root, cancel_check)
 
         stereo_mode = False
         binaural_path: Path | None = None
         if binaural_source_path is not None:
             binaural_path = Path(binaural_source_path)
             source_info = sf.info(str(binaural_path))
-            if source_info.channels == 2:
+            if source_info.channels == 2 and binaural_mode != "off":
                 stereo_mode = True
                 take_rates = [
                     int(take.get("audio", {}).get("sample_rate") or sf.info(take["audio_path"]).samplerate)
@@ -984,6 +1257,9 @@ class SpeechService:
                 rate = 44100
         else:
             rate = 44100
+        if enhanced:
+            rate = int(experiment.get("original_sample_rate") or (source_info.samplerate
+                       if binaural_path else max(sf.info(take["audio_path"]).samplerate for _, take in ordered_takes)))
 
         slot_plans = None
         if timeline and borrow_silence_slack and ordered_takes:
@@ -1017,6 +1293,7 @@ class SpeechService:
             from src.mixer.binaural import estimate_cue_panning, pan_mono_to_stereo
 
         cursor, chunks, processing = 0, [], []
+        warnings = []
         for idx, (segment, take) in enumerate(ordered_takes):
             pause = take["compiled_request"].get("pause_ms", 0) / 1000
             if timeline:
@@ -1030,6 +1307,7 @@ class SpeechService:
                     slot_dur,
                     media_root=media_root,
                     max_atempo=max_atempo,
+                    **({"time_stretch_engine": stretch_engine} if stretch_engine != "ffmpeg_atempo" else {}),
                 )
             else:
                 aligned_path, ratio = (take["audio_path"], 1)
@@ -1040,9 +1318,23 @@ class SpeechService:
                 audio = resample_poly(audio, rate // divisor, source_rate // divisor).astype("float32")
             start = round(timeline[segment["id"]]["start"] * rate) if timeline else cursor
             seg_samples = len(audio)
-            if stereo_mode and binaural_path is not None:
-                cue_start = float(timeline[segment["id"]]["start"]) if timeline else (start / rate)
-                cue_end = float(timeline[segment["id"]]["end"]) if timeline else ((start + seg_samples) / rate)
+            cue_start = float(timeline[segment["id"]]["start"]) if timeline else (start / rate)
+            cue_end = float(timeline[segment["id"]]["end"]) if timeline else ((start + seg_samples) / rate)
+            if enhanced:
+                from src.mixer.acoustic_matching import process_cue
+                reference, reference_rate = None, rate
+                if binaural_path is not None and (binaural_mode == "dynamic_hrtf"
+                        or acoustic.get("loudness_match") == "per_cue" or acoustic.get("eq_matching")):
+                    reference_rate = source_info.samplerate
+                    left = max(0, min(source_info.frames, round(cue_start * reference_rate)))
+                    right = max(left, min(source_info.frames, round(cue_end * reference_rate)))
+                    reference, _ = sf.read(binaural_path, start=left, stop=right, dtype="float32", always_2d=True)
+                # Let the existing static renderer handle legacy and explicit static panning.
+                dsp_options = acoustic if binaural_mode == "dynamic_hrtf" else {
+                    k: v for k, v in acoustic.items() if k != "binaural_mode"
+                }
+                audio = process_cue(audio, rate, reference, reference_rate, dsp_options)
+            if stereo_mode and binaural_path is not None and audio.ndim == 1:
                 pan = estimate_cue_panning(binaural_path, cue_start, cue_end)
                 placed_audio = pan_mono_to_stereo(audio, pan)
             else:
@@ -1052,16 +1344,20 @@ class SpeechService:
             cursor = start + seg_samples + round(pause * rate)
             proc_entry = {
                 "segment_id": segment["id"],
-                "take_id": take["id"],
+                "take_id": take.get("original_take_id", take["id"]),
                 "start": start / rate,
                 "duration": seg_samples / rate,
                 "pause_ms": pause * 1000,
-                "operation": "atempo_resample_and_place" if ratio > 1 else "resample_and_place",
+                "operation": ("wsola_resample_and_place" if stretch_engine == "pytsmod_wsola" else
+                              "atempo_resample_and_place") if ratio > 1 else "resample_and_place",
                 "time_stretch": ratio,
                 "aligned_path": aligned_path,
             }
             if pan is not None:
                 proc_entry["pan"] = round(float(pan), 6)
+            if take_warnings := take.get("audio", {}).get("warnings"):
+                proc_entry["warnings"] = take_warnings
+                warnings.extend(f"{segment['id']}: {warning}" for warning in take_warnings)
             if slot_plans is not None:
                 proc_entry["borrowed_seconds"] = round(float(slot_plans[idx]["borrowed_sec"]), 6)
                 proc_entry["over_speed"] = bool(slot_plans[idx]["over_speed"])
@@ -1086,7 +1382,7 @@ class SpeechService:
         assembly_id = uuid4().hex
         target = media_root / "assemblies" / (assembly_id + ".wav")
         target.parent.mkdir(parents=True, exist_ok=True)
-        sf.write(target, np.clip(mixed, -1, 1), rate, subtype="PCM_16")
+        sf.write(target, np.clip(mixed, -1, 1), rate, subtype="FLOAT" if enhanced else "PCM_16")
         mixed_path = None
         if experiment.get("mix_context"):
             from src.mixer import Mixer
@@ -1100,7 +1396,9 @@ class SpeechService:
                 raise ValueError("原混音素材已改变，不能覆盖采用结果")
             mixed_path = target.with_name(assembly_id + "-mix.wav")
             Mixer(original_volume=mix["original_volume"], tts_volume_ratio=mix["tts_volume_ratio"],
-                tts_delay_ms=mix["tts_delay_ms"]).mix(original_path=str(source), tts_path=str(target), output_path=str(mixed_path))
+                tts_delay_ms=mix["tts_delay_ms"]).mix(original_path=str(source), tts_path=str(target),
+                    output_path=str(mixed_path),
+                    **{key: mix[key] for key in ("sidechain_ducking", "adjust_tts_volume") if key in mix})
         assembly_record = {
             "id": assembly_id,
             "experiment_id": experiment_id,
@@ -1114,6 +1412,8 @@ class SpeechService:
         }
         if stereo_mode:
             assembly_record["channels"] = 2
+        if warnings:
+            assembly_record["warnings"] = warnings
         assembly = self.store.create("assemblies", assembly_record)
         if output_path:
             import shutil

@@ -23,9 +23,11 @@ class ElevenLabsSpeechProvider(SpeechProvider):
         self.options_schema = {
             **deepcopy(COMMON),
             "speed": {**_number(.7, 1.2, 1), "title": "Speed",
-                "applies_to_models": ["eleven_v3", "eleven_flash_v2_5"]},
-            "stability": {**_number(0, 1, .5), "title": "Stability",
                 "applies_to_models": ["eleven_flash_v2_5"]},
+            "stability": {**_number(0, 1, .5), "title": "Stability",
+                "model_overrides": {"eleven_v3": {"enum": [0, .5, 1]}}},
+            "similarity_boost": {**_number(0, 1, .75), "title": "Voice similarity",
+                "applies_to_models": ["eleven_flash_v2_5", "eleven_v4"]},
         }
         self.modes = [{"id": "hosted", "variant_kinds": ["hosted"], "models": list(MODELS)}]
 
@@ -36,29 +38,31 @@ class ElevenLabsSpeechProvider(SpeechProvider):
         return result
 
     def runtime_options(self, model, mode):
-        if model not in MODELS or mode != "hosted" or model == "eleven_v4":
+        if model not in MODELS or mode != "hosted":
             return []
-        return ["speed", "stability"] if model == "eleven_flash_v2_5" else ["speed"]
+        return [key for key, rule in self.options_schema.items()
+                if key != "schema_version" and model in rule.get("applies_to_models", MODELS)]
 
     def voice_sources(self, mode):
         return {"kind": "hosted", "presets": [], "default": None, "required": True,
-            "allow_custom": True, "description": "Enter an existing ElevenLabs Voice ID"}
+            "allow_custom": True, "description": "Choose an account voice or enter its ID"}
 
     def _options(self, recipe):
-        # Enforce model applicability even with older generic schema consumers.
-        supplied = recipe.get("provider_options", {})
-        if recipe.get("model") == "eleven_v3" and isinstance(supplied, dict) and "stability" in supplied:
-            raise ProviderError("invalid_options", "Eleven v3 stability is not exposed by this adapter")
-        options = super()._options(recipe)
-        if recipe.get("model") == "eleven_v3":
-            options.pop("stability", None)
-        return options
+        supplied = recipe.get("provider_options")
+        if (recipe.get("model") == "eleven_v3" and isinstance(supplied, dict)
+                and type(supplied.get("speed")) in (float, int) and supplied["speed"] == 1):
+            # Previous versions stored the neutral speed on every v3 recipe.
+            supplied = {k: v for k, v in supplied.items() if k != "speed"}
+            recipe = {**recipe, "provider_options": supplied}
+        validated = super()._options(recipe)
+        # Unspecified controls inherit this voice's settings on the account.
+        return {k: v for k, v in validated.items() if k in supplied}
 
     def validate(self, recipe, assets):
         super().validate(recipe, assets)
         variant = recipe["variant"]
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", variant["value"]):
-            raise ProviderError("invalid_variant", "Enter an existing ElevenLabs Voice ID, not a URL")
+            raise ProviderError("invalid_variant", "Choose an account voice or enter its ID, not a URL")
         if variant.get("style", "normal") != "normal":
             raise ProviderError("unsupported_intent", "This adapter does not promise a hosted voice's delivery style")
         if recipe.get("language", "auto") not in LANGUAGES:
@@ -88,14 +92,18 @@ class ElevenLabsSpeechProvider(SpeechProvider):
             "variant": params.get("variant"), "language": params.get("language", "auto"),
             "provider_options": params.get("options")}
         recompiled = self.compile(recipe, params, request.get("text"), {})
-        if recompiled != params:
+        expected = params
+        legacy_options = params.get("options", {})
+        if (request["model"] == "eleven_v3" and type(legacy_options.get("speed")) in (float, int)
+                and legacy_options["speed"] == 1):
+            expected = {**params, "options": {k: v for k, v in legacy_options.items() if k != "speed"}}
+        if recompiled != expected:
             raise ProviderError("snapshot_mismatch", "The ElevenLabs request differs from its compiled parameters")
         params = recompiled
         options = params["options"]
         body = {"text": request["text"], "model_id": request["model"]}
-        voice_settings = {key: options[key] for key in self.runtime_options(request["model"], "hosted")}
-        # v4 follows the official minimal convert example: do not inherit numeric
-        # settings from older models without a verified model-specific contract.
+        voice_settings = {key: options[key] for key in self.runtime_options(request["model"], "hosted")
+                          if key in options}
         if voice_settings:
             body["voice_settings"] = voice_settings
         if params["language"] != "auto":

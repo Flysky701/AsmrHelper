@@ -40,6 +40,8 @@ class ModelService:
         entry = self.get_model(model_id)
         if entry.kind != "local":
             raise ValueError("只有本地模型需要运行环境")
+        if entry.preferred_runtime == "gpu_worker":
+            raise ValueError("请在工作节点准备此模型的运行环境")
         with self._install_lock:
             self._install_runtime_packages(entry)
             issues = self.status_resolver._runtime_issues(entry)
@@ -50,11 +52,15 @@ class ModelService:
     def get_status(self, model_id: str) -> ModelStatus:
         return self.status_resolver.resolve(self.get_model(model_id))
 
-    def get_all_statuses(self, kind: str | None = None, category: str | None = None) -> List[ModelStatus]:
+    def get_all_statuses(
+        self, kind: str | None = None, category: str | None = None, *, cached_only: bool = False,
+    ) -> List[ModelStatus]:
         statuses: list[ModelStatus] = []
         for entry in self.list_models(kind=kind, category=category):
             try:
-                statuses.append(self.status_resolver.resolve(entry))
+                status = (self.status_resolver.resolve(entry, cached_only=True) if cached_only
+                          else self.status_resolver.resolve(entry))
+                statuses.append(status)
             except Exception as exc:
                 logger.warning("model status probe failed model_id=%s: %s", entry.id, exc)
                 issue = ModelStatusIssue(

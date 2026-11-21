@@ -40,6 +40,8 @@ class PrepareDraftRequest(BaseModel):
     source_lang: str = "ja"
     target_lang: str = "zh"
     enable_translation: bool = True
+    duration_aware: bool = False
+    auto_detect_delivery: bool = False
     force_asr: bool = False
     asr_provider: str | None = None
     asr_model: str | None = None
@@ -49,6 +51,7 @@ class PrepareDraftRequest(BaseModel):
     llm_options: dict[str, Any] | None = None
     voice_plan: dict[str, Any] | None = None
     prepare_stems: bool = False
+    separation_model: str | None = None
     extract_voice_reference: bool = False
     synthesize_samples: bool = False
     sample_cue_count: int = Field(default=0, ge=0, le=2)

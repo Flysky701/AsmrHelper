@@ -35,10 +35,10 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   useI18n()
   return <label className="graph-param-field"><span>{t(label)}</span>{children}</label>
 }
-function Advanced({ section, children }: { section: GraphParameterSection; children: ReactNode }) {
+function Advanced({ section, children, label = '高级参数' }: { section: GraphParameterSection; children: ReactNode; label?: string }) {
   useI18n()
   if (section === 'common') return null
-  return section === 'all' ? <details className="graph-param-advanced"><summary>{t("高级参数")}</summary><div className="graph-param-section">{children}</div></details>
+  return section === 'all' ? <details className="graph-param-advanced"><summary>{t(label)}</summary><div className="graph-param-section">{children}</div></details>
     : <div className="graph-param-section">{children}</div>
 }
 function Language({ node, field, onChange }: Props & { field: 'source_lang' | 'target_lang' }) {
@@ -96,7 +96,8 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all', all
       </>}
       {['asr', 'translate', 'separate'].includes(node.kind)
         && <CapabilityParameters node={node} onChange={scopedChange} requestChange={requestChange} requestEngineChange={requestEngineChange} section={section} />}
-      {node.kind === 'tts' && <SpeechPresetParameters node={node} onChange={scopedChange} requestChange={requestChange} section={section} />}
+      {node.kind === 'delivery_detect' && <p className="graph-param-note">{t('从同一时间轴的音频中识别耳语与轻柔发声，并把逐句标注传给后续配音。')}</p>}
+      {node.kind === 'tts' && <SpeechPresetParameters node={node} onChange={scopedChange} requestChange={requestChange} onSectionChange={() => setPending(null)} />}
       {common && isMultitrackMix(node) && <MixTrackParameters node={node} onChange={scopedChange} allowStructureChanges={allowStructureChanges} />}
       {node.kind === 'mix' && !isMultitrackMix(node) && <>
         {common && <div className="graph-param-grid">{([['original_volume', '音频轨音量', 0.85], ['tts_volume_ratio', '配音轨音量', 0.5]] as const).map(([key, label, fallback]) =>
@@ -109,7 +110,15 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all', all
         </select><small>{t(mixOutputLengthChoice?.description || "请选择有效的输出时长策略；原参数尚未更改。")}</small></Field>}
         <Advanced section={section}><Field label={t("配音延迟（毫秒）")}><input type="number" step={1} value={String(node.options.tts_delay_ms ?? 0)}
           onChange={event => scopedChange(setGraphOption(node, 'options', 'tts_delay_ms', event.target.value === '' ? undefined : Number(event.target.value)))} />
-          <small>{t("正数后移，负数前移。")}</small></Field></Advanced>
+          <small>{t("正数后移，负数前移。")}</small></Field>
+          <Toggle label="配音时压低背景" checked={node.options.sidechain_ducking === true}
+            onChange={value => scopedChange(setGraphOption(node, 'options', 'sidechain_ducking', value))} />
+          <Toggle label="自动调整配音总体音量" checked={node.options.adjust_tts_volume !== false}
+            onChange={value => scopedChange(setGraphOption(node, 'options', 'adjust_tts_volume', value))} />
+          <Toggle label="填补分离背景的底噪空洞" checked={node.options.room_tone_inpaint === true} disabled={!allowStructureChanges}
+            onChange={value => scopedChange(setGraphOption(node, 'options', 'room_tone_inpaint', value))} />
+          {node.options.room_tone_inpaint === true && <small>{t("连接分离背景、配音节点和同一时间轴的原声。")}</small>}
+        </Advanced>
       </>}
       {node.kind === 'audio_difference' && <DifferenceParameters node={node} onChange={scopedChange} section={section} />}
       {common && node.kind === 'export' && <Field label={t("目标字幕格式")}><select value={String(node.options.subtitle_format ?? 'srt')}
@@ -120,6 +129,11 @@ function NodeParameters({ node, onChange, disabled = false, section = 'all', all
       {switchNotice && <p role="status" className="graph-param-note">{t(switchNotice)}</p>}
     </fieldset>
   </div>
+}
+
+function Toggle({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }) {
+  return <label className="graph-mix-mute"><input type="checkbox" checked={checked} disabled={disabled}
+    onChange={event => onChange(event.target.checked)} />{t(label)}</label>
 }
 
 function MixTrackParameters({ node, onChange, allowStructureChanges }: Props) {
@@ -261,7 +275,8 @@ function CapabilityField({ node, field, value, onChange }: { node: GraphNode; fi
       : node.provider === 'qwen3_asr' && field.name === 'forced_aligner'
         ? node.provider_options.return_time_stamps === true ? 'qwen3-forced-aligner-0.6b（时间戳已开启）' : '未启用对齐模型'
         : current == null ? '未显式设置' : format('引擎默认：{0}', [typeof current === 'boolean' ? t(current ? '开启' : '已关闭') : String(current)])
-  return <div className="graph-param-field"><label htmlFor={id}>{t(optionNames[field.name] || field.name)}{field.required ? t("（必填）") : ''}</label>
+  const durationLabels: Record<string, string> = { duration_aware: '按字幕时长约束译文', chars_per_second: '每秒建议字数' }
+  return <div className="graph-param-field"><label htmlFor={id}>{t(durationLabels[field.name] || optionNames[field.name] || field.name)}{field.required ? t("（必填）") : ''}</label>
     {field.type === 'object' ? <ObjectOption id={id} value={value} fallback={field.default} onChange={onChange} />
       : field.type === 'array' && field.name === 'hotwords' ? <HotwordsOption id={id} value={value} onChange={onChange} />
       : field.type === 'boolean' ? <input id={id} type="checkbox" disabled={!!disabledReason} checked={current === true} onChange={event => onChange(event.target.checked)} />
@@ -356,6 +371,7 @@ export function LegacySpeechParameters({ node, onChange, requestChange, requestE
   const modes = provider?.modes.filter(item => !item.models.length || item.models.includes(node.model ?? '')) ?? []
   const mode = modes.find(item => item.id === source?.mode)
   const compatibleSource = !!source && !!mode && mode.variant_kinds.includes(source.variant.kind)
+  const hostedCatalog = source?.mode === 'hosted' && ['fish_audio', 'gemini', 'elevenlabs'].includes(provider?.provider_id || '')
   const catalog = compatibleSource ? mode?.voice_sources : undefined
   const matchingConnections = connections.filter(item => item.provider_id === node.provider)
   const selectedConnection = matchingConnections.find(item => item.id === source?.connection_ref)
@@ -455,20 +471,20 @@ export function LegacySpeechParameters({ node, onChange, requestChange, requestE
       {common && !node.options.speech_recipe_id && source && <>
         {matchingConnections.length > 1 && <div className="graph-param-actions"><button type="button" aria-expanded={connectionChoice} onClick={() => setConnectionChoice(value => !value)}>{t("更换运行配置")}</button></div>}
         {(connectionMissing || connectionChoice || !source.connection_ref && provider?.connection_required) && connectionControl}
-        {compatibleSource && provider?.provider_id === 'fish_audio' && source.mode === 'hosted' && <FishVoicePicker connectionId={selectedConnection?.id || ''} value={source.variant.value} onSelect={changeValue} />}
-        {catalog && provider?.provider_id !== 'fish_audio' && source.mode !== 'default' && <Field label={modeNames[source.mode] || t("声音来源")}>
+        {compatibleSource && hostedCatalog && <FishVoicePicker providerId={provider?.provider_id} connectionId={selectedConnection?.id || ''} value={source.variant.value} onSelect={changeValue} />}
+        {catalog && !hostedCatalog && source.mode !== 'default' && <Field label={t((capabilities?.reference as { upload?: boolean } | undefined)?.upload ? '参考录音（发送到服务商）' : modeNames[source.mode] || '声音来源')}>
           {source.variant.kind === 'reference' ? <select value={source.variant.value} onChange={event => changeValue(event.target.value)}>
             <option value="">{t("选择已保存参考录音")}</option>
             {source.variant.value && !reference && <option value={source.variant.value}>{t("原参考录音（不可用）")}</option>}
             {assets.map(item => <option key={item.id} value={item.id}>{item.name || item.id} · {item.language || t("语言未知")}</option>)}
           </select> : catalog.presets.length && !catalog.allow_custom ? <select value={source.variant.value} onChange={event => changeValue(event.target.value)}>
             {!catalog.presets.some(item => item.id === source.variant.value) && <option value={source.variant.value}>{source.variant.value || t("选择声音")}</option>}
-            {catalog.presets.map(item => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}
+            {catalog.presets.map(item => <option key={item.id} value={item.id}>{t(speechProviderText(item.name || item.id))}{item.trait && ' · ' + t(item.trait)}{item.language && ' · ' + t(languageNames[item.language as GraphLanguage] || item.language)}</option>)}
           </select> : source.mode === 'design' ? <textarea value={source.variant.value} rows={3} onChange={event => changeValue(event.target.value)} />
             : <><input list={voiceList} value={source.variant.value} onChange={event => changeValue(event.target.value)} placeholder={t(speechProviderText(catalog.description))} />
               <datalist id={voiceList}>{catalog.presets.map(item => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</datalist></>}
         </Field>}
-        {catalog?.description && provider?.provider_id !== 'fish_audio' && <details><summary>{t("声音来源说明")}</summary><p className="graph-param-note">{t(speechProviderText(catalog.description))}</p></details>}
+        {catalog?.description && !hostedCatalog && <details><summary>{t("声音来源说明")}</summary><p className="graph-param-note">{t(speechProviderText(catalog.description))}</p></details>}
         {reference && <div className="graph-param-reference"><p>{reference.name || reference.id} {t(" · 参考录音语言：")}{reference.language === 'auto' || !reference.language ? t("未明确") : t(languageNames[reference.language as GraphLanguage] || reference.language)} · {reference.confirmed ? t("原文已核对") : t("原文未确认")}</p>
           <audio controls preload="none" src={speechApi.referenceAudio(reference.id)} aria-label={t("试听所选参考录音")} />
           <p>{t("参考原文（不翻译）：")}{reference.transcript || t("未提供")}</p></div>}

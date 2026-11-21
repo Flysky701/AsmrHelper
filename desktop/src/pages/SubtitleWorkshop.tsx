@@ -33,28 +33,6 @@ const S = {
     overflow: 'hidden',
   },
 
-  // Sub navigation
-  subNav: {
-    background: 'var(--surface)',
-    borderBottom: '1px solid var(--border)',
-    display: 'flex',
-    alignItems: 'center',
-    padding: '0 24px',
-    gap: 0,
-    height: 40,
-    flexShrink: 0,
-  },
-  subNavItem: (active: boolean) => ({
-    padding: '8px 16px',
-    fontSize: 13,
-    fontWeight: 500,
-    color: active ? 'var(--accent)' : 'var(--muted)',
-    cursor: 'pointer' as const,
-    borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-    transition: 'color 0.12s, border-color 0.12s',
-    whiteSpace: 'nowrap' as const,
-  }),
-
   // Workspace base
   workspace: (active: boolean) => ({
     display: active ? 'flex' : 'none',
@@ -165,8 +143,8 @@ const S = {
     padding: '8px 12px',
     borderRadius: 6,
     alignItems: 'start',
-    border: modified ? '1px solid var(--warning)' : active ? '1px solid oklch(90% 0.04 255)' : '1px solid transparent',
-    background: active ? 'oklch(97% 0.01 255)' : 'transparent',
+    border: modified ? '1px solid var(--warning)' : active ? '1px solid var(--accent-ghost-border)' : '1px solid transparent',
+    background: active ? 'var(--accent-soft)' : 'transparent',
     borderLeft: modified ? '3px solid var(--warning)' : undefined,
     transition: 'background 0.1s, border-color 0.1s',
   }),
@@ -198,8 +176,8 @@ const S = {
     color: 'var(--fg)',
   },
   segCellTranslated: {
-    color: 'oklch(35% 0.02 255)',
-    background: 'oklch(98% 0.003 240)',
+    color: 'var(--muted-strong)',
+    background: 'var(--panel-muted)',
   },
   segCellEmpty: {
     color: 'var(--muted)',
@@ -354,7 +332,7 @@ const S = {
     marginBottom: 4,
   },
   modeCard: (active: boolean) => ({
-    background: active ? 'oklch(98% 0.005 255)' : 'var(--surface)',
+    background: active ? 'var(--accent-soft)' : 'var(--surface)',
     border: active ? '1px solid var(--accent)' : '1px solid var(--border)',
     borderRadius: 8,
     padding: 16,
@@ -365,7 +343,7 @@ const S = {
     width: 36,
     height: 36,
     borderRadius: 8,
-    background: active ? 'oklch(95% 0.02 255)' : 'var(--bg)',
+    background: active ? 'var(--accent-soft)' : 'var(--bg)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -401,8 +379,8 @@ const S = {
 
   // VTT preview
   vttPreview: {
-    background: 'var(--fg)',
-    color: 'oklch(90% 0.005 250)',
+    background: 'var(--panel-muted)',
+    color: 'var(--fg)',
     borderRadius: 8,
     padding: 16,
     fontFamily: 'var(--font-mono)',
@@ -1036,7 +1014,16 @@ export default function SubtitleWorkshop() {
   // ── Render ─────────────────────────────────────────────
   return (
     <div className="subtitle-workshop" style={S.container}>
-      <header className="page-heading subtitle-page-heading"><div className="page-title-row"><h1 className="page-title">{t("字幕工坊")}</h1><QuickStartHelp topic={activeTab === 'editor' ? 'subtitle-editor' : activeTab === 'translate' ? 'subtitle-translate' : scriptMode === 'text_only' ? 'script-text' : scriptMode === 'full' ? 'script-audio' : 'script-vtt'} /></div></header>
+      <nav className="app-page-toolbar subtitle-sub-nav" aria-label={t("字幕与台本工具")}>
+        <div className="review-studio-switch">
+          {([['editor', '字幕编辑'], ['translate', '字幕翻译'], ['script', '台本转字幕']] as const).map(([tab, label]) => (
+            <button type="button" key={tab} aria-pressed={activeTab === tab} onClick={() => switchTab(tab)}>
+              {t(label)}
+            </button>
+          ))}
+        </div>
+        <div className="page-title-row"><QuickStartHelp topic={activeTab === 'editor' ? 'subtitle-editor' : activeTab === 'translate' ? 'subtitle-translate' : scriptMode === 'text_only' ? 'script-text' : scriptMode === 'full' ? 'script-audio' : 'script-vtt'} /></div>
+      </nav>
       {/* Status message */}
       {(message || error) && (
         <div className="subtitle-status-message" style={{
@@ -1050,16 +1037,6 @@ export default function SubtitleWorkshop() {
           {error || message}
         </div>
       )}
-
-      {/* Sub Navigation */}
-      <nav className="subtitle-sub-nav" style={S.subNav}>
-        <div style={S.subNavItem(activeTab === 'editor')} onClick={() => switchTab('editor')}>
-          {t("字幕编辑")}</div>
-        <div style={S.subNavItem(activeTab === 'translate')} onClick={() => switchTab('translate')}>
-          {t("翻译")}</div>
-        <div style={S.subNavItem(activeTab === 'script')} onClick={() => switchTab('script')}>
-          {t("台本转字幕")}</div>
-      </nav>
 
       {/* ── Workspace 1: Editor ─────────────────────────── */}
       <div className="subtitle-editor-workspace" style={S.editorWorkspace(activeTab === 'editor')}>

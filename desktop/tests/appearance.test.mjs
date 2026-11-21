@@ -22,11 +22,11 @@ function storage(initial = {}) {
 test('corrupt and unsupported preferences fall back; overlay stays readable', () => {
   storage({ 'asmr-helper.appearance.v1': '{broken' })
   const { readPreferences } = load('../src/stores/appearanceStore.ts')
-  assert.deepEqual(readPreferences(), { language: 'zh-CN', overlay: 0.78 })
-  localStorage.setItem('asmr-helper.appearance.v1', JSON.stringify({ language: 'xx', overlay: 0 }))
-  assert.deepEqual(readPreferences(), { language: 'zh-CN', overlay: 0.72 })
-  localStorage.setItem('asmr-helper.appearance.v1', JSON.stringify({ language: 'en', overlay: 12 }))
-  assert.deepEqual(readPreferences(), { language: 'en', overlay: 0.94 })
+  assert.deepEqual(readPreferences(), { language: 'zh-CN', overlay: 0.78, theme: 'light', customSurface: 'light', accentColor: '#117f8d' })
+  localStorage.setItem('asmr-helper.appearance.v1', JSON.stringify({ language: 'xx', overlay: 0, theme: 'invalid', accentColor: 'red' }))
+  assert.deepEqual(readPreferences(), { language: 'zh-CN', overlay: 0.72, theme: 'light', customSurface: 'light', accentColor: '#117f8d' })
+  localStorage.setItem('asmr-helper.appearance.v1', JSON.stringify({ language: 'en', overlay: 12, theme: 'custom', customSurface: 'dark', accentColor: '#7c3aed' }))
+  assert.deepEqual(readPreferences(), { language: 'en', overlay: 0.94, theme: 'custom', customSurface: 'dark', accentColor: '#7c3aed' })
 })
 test('a quota error retains the previous background; restore removes only the image', () => {
   const data = storage()

@@ -149,7 +149,7 @@ def test_catalog_and_capabilities_are_conservative():
     assert len(provider.voice_sources("builtin")["presets"]) == 9
     assert provider.voice_sources("builtin")["allow_custom"] is False
     assert provider.runtime_options("mimo-v2.5-tts", "builtin") == ["style_description"]
-    assert provider.runtime_options("mimo-v2.5-tts-voiceclone", "reference") == []
+    assert provider.runtime_options("mimo-v2.5-tts-voiceclone", "reference") == ["style_description"]
     assert not provider.capabilities()["reference"]["supported"]
     assert not provider.capabilities()["streaming"]
     assert provider.capabilities()["emotion"]["evidence"] == "unverified"

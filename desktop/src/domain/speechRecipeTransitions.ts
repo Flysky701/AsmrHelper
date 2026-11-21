@@ -16,7 +16,7 @@ function optionsFor(recipe: SpeechRecipe, provider: SpeechProvider | undefined, 
   for (const [key, field] of availableSpeechOptions(provider, mode, model)) {
     const value = recipe.provider_options[key]
     if (value !== undefined && !speechOptionsIssue(provider, mode, { schema_version: 1, [key]: value }, model)) options[key] = value
-    else if (field.default !== undefined) options[key] = field.default
+    else if (field.default !== undefined && provider?.provider_id !== 'elevenlabs') options[key] = field.default
   }
   return options
 }

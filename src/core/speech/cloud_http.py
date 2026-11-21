@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+from pathlib import Path
 from io import BytesIO
 from urllib.parse import urlsplit
 
@@ -28,6 +30,22 @@ def join_endpoint(base, endpoint):
         if base_parts[-overlap:] == endpoint_parts[:overlap]:
             return base + "/" + "/".join(endpoint_parts[overlap:])
     return base + endpoint
+
+
+def reference_audio(request, context, *, max_bytes=None):
+    aid = request["parameters"]["variant"]["value"]
+    asset = context.get("assets", {}).get(aid, {})
+    digest = request.get("asset_hashes", {}).get(aid)
+    path = Path(asset.get("path", ""))
+    if not digest or digest != asset.get("sha256") or not path.is_file():
+        raise ProviderError("asset_changed", "参考录音缺失或已变更")
+    with path.open("rb") as stream:
+        raw = stream.read(max_bytes + 1) if max_bytes else stream.read()
+    if max_bytes and len(raw) > max_bytes:
+        raise ProviderError("reference_too_large", "参考录音超出服务商大小限制")
+    if hashlib.sha256(raw).hexdigest() != digest:
+        raise ProviderError("asset_changed", "参考录音已变更")
+    return raw, path.suffix.lower()
 
 
 def decode_base64(value):

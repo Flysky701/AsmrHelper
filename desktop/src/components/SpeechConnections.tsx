@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import SpeechConnectionManager from './SpeechConnectionManager'
 import { useConnectionDraftGuard } from '@/hooks/useConnectionDraftGuard'
 import { speechApi } from '@/api/speech'
-import { speechProviderBaseUrl } from '@/domain/speechAdvancedOptions'
+import { connectionDeploymentNames, speechConnectionDraftForProvider } from '@/domain/speechConnections'
 import type { SpeechConnection, SpeechConnectionDefault, SpeechProvider } from '@/api/speech'
 
 type Editor = Partial<SpeechConnection> & { name: string; provider_id: string; deployment: SpeechConnection['deployment']; api_key: string }
@@ -43,18 +43,18 @@ export default function SpeechConnections() {
   async function edit(connection?: SpeechConnection) {
     if (!(await canDiscard())) return
     setNotice('')
-    const initialProvider = providers.find(item => item.provider_id === 'openai_compatible') || providers[0]
     const next: Editor = connection ? {
       id: connection.id, name: connection.name, provider_id: connection.provider_id,
       deployment: connection.deployment, base_url: connection.base_url || '',
       credential_configured: connection.credential_configured, api_key: '',
-    } : { name: '', provider_id: initialProvider?.provider_id || '', deployment: 'cloud', base_url: speechProviderBaseUrl(initialProvider), api_key: '' }
+    } : { name: '', provider_id: '', deployment: 'cloud', base_url: '', api_key: '' }
     editorBaseline.current = JSON.stringify(next)
     setEditor(next)
   }
 
   async function save() {
     if (!editor) return
+    if (!editor.provider_id) { setNotice('请选择语音服务商'); return }
     if (!editor.name.trim() || !editor.base_url?.trim()) {
       setNotice('请填写连接名称和 API 地址'); return
     }
@@ -64,7 +64,7 @@ export default function SpeechConnections() {
       // Omit blank credentials and non-editable settings to preserve the saved connection.
       const saved = await speechApi.connection({
         ...(editor.id ? { id: editor.id } : {}), name: editor.name.trim(),
-        provider_id: editor.provider_id, deployment: editor.provider_id === 'fish_audio' ? 'cloud' : editor.deployment,
+        provider_id: editor.provider_id, deployment: editor.deployment,
         base_url: editor.base_url.trim(),
         ...(editor.api_key ? { api_key: editor.api_key } : {}),
       })
@@ -77,6 +77,14 @@ export default function SpeechConnections() {
     finally { setBusy('') }
   }
 
+  async function changeProvider(providerId: string) {
+    const provider = providers.find(item => item.provider_id === providerId)
+    if (!editor || !provider || providerId === editor.provider_id) return
+    if (editor.id && !(await canDiscard())) return
+    setEditor(speechConnectionDraftForProvider(editor, provider))
+    setNotice('')
+  }
+
   async function check(connection: SpeechConnection) {
     setBusy('检查中…')
     try {
@@ -87,6 +95,8 @@ export default function SpeechConnections() {
   }
 
   const external = connections.filter(connection => providers.some(provider => provider.provider_id === connection.provider_id))
+  const selectedProvider = providers.find(provider => provider.provider_id === editor?.provider_id)
+  const deployments = selectedProvider?.connection_deployments ?? (['cloud', 'lan', 'local'] as const)
   return <section className="external-service-section">
     <div className="external-service-heading">
       <span className="external-service-tag">TTS</span><h2>{t("外部语音合成")}</h2>
@@ -109,11 +119,27 @@ export default function SpeechConnections() {
       {editor && <fieldset disabled={!!busy} className="external-service-editor">
         <div className="external-service-card-heading"><h3>{editor.id ? t('编辑语音服务') : t('添加语音服务')}</h3><button className="external-service-button" onClick={async () => { if (await canDiscard()) setEditor(null) }}>{t("收起")}</button></div>
         <label className="external-service-field">{t("连接名称")}<input value={editor.name} maxLength={80} onChange={event => setEditor({ ...editor, name: event.target.value })} placeholder={t("例如：日常配音")} /></label>
-        <label className="external-service-field">{t("接口协议")}<select value={editor.provider_id} disabled={!!editor.id} onChange={event => setEditor({ ...editor, provider_id: event.target.value, base_url: speechProviderBaseUrl(providers.find(item => item.provider_id === event.target.value)), deployment: 'cloud', api_key: '' })}>
-          {providers.map(item => <option key={item.provider_id} value={item.provider_id}>{item.name}</option>)}
-        </select></label>
-        {editor.provider_id !== 'fish_audio' && <label className="external-service-field">{t("运行位置")}<select value={editor.deployment} onChange={event => setEditor({ ...editor, deployment: event.target.value as SpeechConnection['deployment'] })}><option value="cloud">{t("云端")}</option><option value="lan">{t("局域网")}</option><option value="local">{t("本机服务")}</option></select></label>}
-        <label className="external-service-field">{t("API 地址")}<input value={editor.base_url || ''} onChange={event => setEditor({ ...editor, base_url: event.target.value })} placeholder={t("填写服务商文档中的 API 基础地址")} /></label>
+        <label className="external-service-field">{t("语音服务商")}
+          <select value={editor.provider_id} onChange={event => void changeProvider(event.target.value)}>
+            {editor.id ? <>
+              <option value={editor.provider_id}>{selectedProvider?.name ?? editor.provider_id}</option>
+              <optgroup label={t('新增其他服务商连接')}>
+                {providers.filter(item => item.provider_id !== editor.provider_id).map(item => (
+                  <option key={item.provider_id} value={item.provider_id}>{item.name}</option>
+                ))}
+              </optgroup>
+            </> : <>
+              <option value="" disabled>{t("选择服务商")}</option>
+              {providers.map(item => <option key={item.provider_id} value={item.provider_id}>{item.name}</option>)}
+            </>}
+          </select>
+        </label>
+        {selectedProvider && deployments.length > 1 && <label className="external-service-field">{t("运行位置")}
+          <select value={editor.deployment} onChange={event => setEditor({ ...editor, deployment: event.target.value as SpeechConnection['deployment'] })}>
+            {deployments.map(deployment => <option key={deployment} value={deployment}>{t(connectionDeploymentNames[deployment])}</option>)}
+          </select>
+        </label>}
+        <label className="external-service-field">{t("API 基础地址")}<input value={editor.base_url || ''} onChange={event => setEditor({ ...editor, base_url: event.target.value })} placeholder={t("填写服务商文档中的 API 基础地址")} /></label>
         <label className="external-service-field">{t("API 密钥")}<input type="password" autoComplete="off" value={editor.api_key} onChange={event => setEditor({ ...editor, api_key: event.target.value })} placeholder={editor.credential_configured ? t('已配置；留空保持此连接的密钥') : t('输入 API 密钥')} /></label>
         <div className="external-service-actions" style={{ marginTop: 16 }}><button className="external-service-button external-service-primary" onClick={() => void save()}>{t(busy || '保存服务')}</button><button className="external-service-button" onClick={async () => { if (await canDiscard()) setEditor(null) }}>{t("取消")}</button></div>
       </fieldset>}

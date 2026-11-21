@@ -1,9 +1,10 @@
-"""MiMo's chat-completions TTS contract (built-in voices, non-streaming)."""
+"""MiMo's chat-completions TTS contract (built-in, design and reference voices)."""
 from __future__ import annotations
 
+import base64
 from urllib.parse import urlsplit
 
-from .cloud_http import decode_base64, join_endpoint, post_audio
+from .cloud_http import decode_base64, join_endpoint, post_audio, reference_audio
 from .providers import COMMON, ProviderError, SpeechProvider
 
 
@@ -16,6 +17,10 @@ VOICES = (
 )
 
 
+MODELS_BY_MODE = {"builtin": "mimo-v2.5-tts", "design": "mimo-v2.5-tts-voicedesign",
+                  "reference": "mimo-v2.5-tts-voiceclone"}
+
+
 class MimoSpeechProvider(SpeechProvider):
     default_base_url = "https://api.xiaomimimo.com/v1"
 
@@ -25,7 +30,8 @@ class MimoSpeechProvider(SpeechProvider):
         self.options_schema = {**COMMON, "style_description": {
             "type": "string", "maxLength": 2000, "default": "",
             "title": "Speech style", "description": "Natural-language delivery instructions; not spoken text."}}
-        self.modes = [{"id": "builtin", "variant_kinds": ["builtin"], "models": ["mimo-v2.5-tts"]}]
+        self.modes = [{"id": mode, "variant_kinds": [mode], "models": [model]}
+                      for mode, model in MODELS_BY_MODE.items()]
 
     def capabilities(self, model=None, mode=None):
         caps = super().capabilities(model, mode)
@@ -37,25 +43,28 @@ class MimoSpeechProvider(SpeechProvider):
         return caps
 
     def runtime_options(self, model, mode):
-        return ["style_description"] if model == "mimo-v2.5-tts" and mode == "builtin" else []
+        return ["style_description"] if mode in MODELS_BY_MODE and model == MODELS_BY_MODE[mode] else []
 
     def voice_sources(self, mode):
-        return {"kind": mode, "presets": [{"id": key, "name": name, "language": lang}
-                for key, name, lang in VOICES] if mode == "builtin" else [],
-            "default": "mimo_default" if mode == "builtin" else None,
+        if mode != "builtin":
+            return super().voice_sources(mode)
+        return {"kind": mode, "presets": [{"id": key, "name": name, "language": lang,
+                "trait": "" if key == "mimo_default" else ("女声" if key in {"冰糖", "茉莉", "Mia", "Chloe"} else "男声")}
+                for key, name, lang in VOICES],
+            "default": "mimo_default",
             "required": True, "allow_custom": False,
             "description": "Built-in MiMo voices; mimo_default depends on the service region."}
 
     def validate(self, recipe, assets):
         super().validate(recipe, assets)
-        if recipe["variant"]["value"] not in {voice[0] for voice in VOICES}:
+        if recipe["mode"] == "builtin" and recipe["variant"]["value"] not in {voice[0] for voice in VOICES}:
             raise ProviderError("invalid_variant", "MiMo TTS requires a documented built-in voice")
         if recipe.get("language", "auto") not in {"auto", "zh", "en"}:
             raise ProviderError("invalid_language", "MiMo integration currently supports auto, Chinese and English")
 
     def compile(self, recipe, segment, text, assets):
         params = super().compile(recipe, segment, text, assets)
-        cues = []
+        cues = [params["variant"]["value"].strip()] if recipe["mode"] == "design" else []
         if params["language"] != "auto":
             cues.append("Speak in " + {"zh": "Chinese", "en": "English"}[params["language"]] + ".")
         if params["delivery"] != "normal":
@@ -80,15 +89,23 @@ class MimoSpeechProvider(SpeechProvider):
         # Revalidate the frozen request before any billable operation.
         recipe = {"model": request["model"], "mode": request["mode"], "connection_ref": request["connection_ref"],
             "variant": params["variant"], "language": params["language"], "provider_options": params["options"]}
-        expected = self.compile(recipe, params, request["text"], {})
+        expected = self.compile(recipe, params, request["text"], context.get("assets", {}))
         if params != expected:
             raise ProviderError("invalid_snapshot", "MiMo compiled parameters do not match the provider contract")
         messages = []
         if params["instruction"]:
             messages.append({"role": "user", "content": params["instruction"]})
         messages.append({"role": "assistant", "content": request["text"]})
-        body = {"model": request["model"], "messages": messages,
-            "audio": {"format": "wav", "voice": params["variant"]["value"]}, "stream": False}
+        audio = {"format": "wav"}
+        if recipe["mode"] == "builtin":
+            audio["voice"] = params["variant"]["value"]
+        elif recipe["mode"] == "reference":
+            raw, suffix = reference_audio(request, context, max_bytes=10_000_000 // 4 * 3)
+            mime = {".wav": "audio/wav", ".mp3": "audio/mpeg"}.get(suffix)
+            if not mime:
+                raise ProviderError("invalid_reference", "MiMo 参考录音需要 WAV 或 MP3")
+            audio["voice"] = f"data:{mime};base64," + base64.b64encode(raw).decode("ascii")
+        body = {"model": request["model"], "messages": messages, "audio": audio, "stream": False}
         return post_audio(join_endpoint(base, "/chat/completions"), {"api-key": key}, body,
             output_path, connection, decoder=self._decode_response)
 

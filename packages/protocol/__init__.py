@@ -18,6 +18,10 @@ from .compute import (
     TtsBatchRequest,
     TtsBatchResult,
     TtsSynthesizeItem,
+    VcBatchItem,
+    VcBatchItemResult,
+    VcBatchRequest,
+    VcBatchResult,
     WorkerCapabilities,
 )
 from .drafts import DraftSession, QualityAuditReport
@@ -47,4 +51,8 @@ __all__ = [
     "TtsBatchRequest",
     "TtsBatchItemResult",
     "TtsBatchResult",
+    "VcBatchItem",
+    "VcBatchItemResult",
+    "VcBatchRequest",
+    "VcBatchResult",
 ]

@@ -33,6 +33,8 @@ from packages.protocol.compute import (
     SeparationResult,
     TtsBatchRequest,
     TtsBatchResult,
+    VcBatchRequest,
+    VcBatchResult,
     WorkerCapabilities,
 )
 from packages.protocol.errors import ComputeErrorCode, ComputeErrorPayload, ComputeRemoteError
@@ -69,6 +71,8 @@ class ComputeTransport(Protocol):
     def align(self, request: AlignmentRequest) -> AlignmentResult: ...
 
     def tts_batch(self, request: TtsBatchRequest) -> TtsBatchResult: ...
+
+    def vc_batch(self, request: VcBatchRequest) -> VcBatchResult: ...
 
     def close(self) -> None: ...
 
@@ -188,6 +192,9 @@ class LocalSubprocessTransport:
     def tts_batch(self, request: TtsBatchRequest) -> TtsBatchResult:
         data = self._run_once("tts_batch", request.model_dump())
         return TtsBatchResult.model_validate(data)
+
+    def vc_batch(self, request: VcBatchRequest) -> VcBatchResult:
+        return VcBatchResult.model_validate(self._run_once("vc_batch", request.model_dump()))
 
     def close(self) -> None:
         return None
@@ -519,6 +526,40 @@ class RemoteHttpTransport:
                 item_res.output_path = str(target_path)
         return result
 
+    def vc_batch(self, request: VcBatchRequest) -> VcBatchResult:
+        stage = "vc_batch"
+        files: dict[str, tuple[str, bytes, str]] = {}
+        wire_req = request.model_copy(deep=True)
+        wire_req.references = {}
+        wire_req.output_format = "flac"
+        for ref_index, (ref_id, path) in enumerate(request.references.items()):
+            data, _, _ = encode_audio_file_bytes(path, "flac", stage=stage)
+            files[f"reference_{ref_index}"] = ("reference.flac", data, "audio/flac")
+        for index, item in enumerate(wire_req.items):
+            if item.source_audio_path:
+                data, _, _ = encode_audio_file_bytes(item.source_audio_path, "flac", stage=stage)
+                files[f"source_{index}"] = ("source.flac", data, "audio/flac")
+            item.source_audio_path = None
+            item.output_path = None
+
+        payload = wire_req.model_dump(exclude_none=True)
+        if files:
+            payload["uploaded_reference_ids"] = list(request.references)
+            raw = self._request_json(
+                "POST", "/v1/vc/batch", stage=stage, files=files,
+                data={"request": json.dumps(payload, ensure_ascii=False)},
+            )
+        else:
+            raw = self._request_json("POST", "/v1/vc/batch", stage=stage, json_body=payload)
+        result = VcBatchResult.model_validate(raw)
+        targets = {item.id: item.output_path for item in request.items}
+        for item in result.items:
+            target = targets.get(item.id)
+            if item.ok and item.audio_b64 and target:
+                materialize_audio_bytes_to_path(base64.b64decode(item.audio_b64), target, stage=stage)
+                item.output_path = target
+        return result
+
     def close(self) -> None:
         if self._owns_client:
             self._client.close()
@@ -616,6 +657,9 @@ class ComputeClient:
 
     def tts_batch(self, request: TtsBatchRequest) -> TtsBatchResult:
         return self.transport.tts_batch(request)
+
+    def vc_batch(self, request: VcBatchRequest) -> VcBatchResult:
+        return self.transport.vc_batch(request)
 
     def close(self) -> None:
         self.transport.close()

@@ -87,3 +87,14 @@
   .model-removal-trigger { justify-self: start; padding-left: 0; }
   .model-removal-panel { padding: 12px; }
 }
+
+.engines-cloud-speech {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.engines-cloud-speech summary { cursor: pointer; font-weight: 600; }
+.engines-cloud-speech dl div { margin: 12px 0; }
+.engines-cloud-speech dt { font-weight: 600; }
+.engines-cloud-speech dd { margin: 4px 0; overflow-wrap: anywhere; }

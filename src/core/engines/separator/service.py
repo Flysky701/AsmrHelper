@@ -194,6 +194,8 @@ class SeparatorEngineRuntime:
                 ) from exc
             return dict(result.stem_paths)
 
+        if model.lower() in {"mel_band_roformer", "bs_roformer"} or Path(model).suffix.lower() in {".ckpt", ".onnx"}:
+            raise ValueError("RoFormer 分离需要配置远端 GPU Worker")
         if self._registry is not None:
             separator = self._registry.get("demucs", model_name=model)
             return separator.separate(str(source), output_dir, stems=stems)

@@ -12,8 +12,8 @@ export const modelsApi = {
 
   status: (modelId: string) => api.get<ModelStatusResponse>(`/models/${encodeURIComponent(modelId)}/status`),
 
-  statuses: () =>
-    api.get<ModelStatusResponse[]>('/models/statuses'),
+  statuses: (checkRuntime = false) =>
+    api.get<ModelStatusResponse[]>(checkRuntime ? '/models/statuses' : '/models/statuses?cached_only=true'),
 
   runtime: (modelId: string) =>
     api.post<TaskStatusResponse>(`/models/${encodeURIComponent(modelId)}/runtime`),

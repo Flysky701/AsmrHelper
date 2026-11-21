@@ -4,49 +4,44 @@ import { confirmAction } from '@/utils/confirmAction'
 import { useEffect, useRef, useState } from 'react'
 import { settingsApi } from '@/api/settings'
 import type { SettingsView } from '@/api/settings'
-import type { GraphPresetItem, PresetItem } from '@/api/types'
-import { GRAPH_CATALOG } from '@/domain/workflowGraph'
-import { editorDirty } from '@/domain/workflowDraft'
 import { useFileSelector } from '@/hooks/useFileSelector'
 import { useNavStore } from '@/stores/navStore'
-import { presetDeleteConfirmation, useWorkflowStore } from '@/stores/workflowStore'
 import './Settings.css'
 import AppearanceSettings from '@/components/AppearanceSettings'
 import WorkspaceSettings from '@/components/WorkspaceSettings'
+import AgentMcpSettings from '@/components/AgentMcpSettings'
 
-type Preset = PresetItem | GraphPresetItem
 type Paths = SettingsView['paths']
-type Category = 'presets' | 'paths' | 'appearance'
-type CatalogTab = 'active' | 'builtin'
+type Category = 'appearance' | 'paths' | 'agent'
+
 const EMPTY_PATHS: Paths = { output_dir: '', vtt_dir: '', model_cache_dir: '', temp_dir: '' }
 const PATH_FIELDS: { key: keyof Paths; label: string; placeholder: string; hint: string; compatibility?: boolean }[] = [
   { key: 'output_dir', label: '输出目录', placeholder: '留空使用工作区 / output', hint: '默认结果位置；任务指定的输出位置优先。' },
-  { key: 'vtt_dir', label: 'VTT 字幕目录', placeholder: '留空保留默认配置', hint: '兼容字段；节点流水线仍在工作台指定字幕输入。', compatibility: true },
+  { key: 'vtt_dir', label: 'VTT 字幕目录', placeholder: '留空保留默认配置', hint: '兼容字段；节点流水线仍在创作台指定字幕输入。', compatibility: true },
   { key: 'model_cache_dir', label: '默认模型目录', placeholder: '留空使用工作区 / models', hint: '外部目录只读；缺失权重下载到本项目 models。' },
   { key: 'temp_dir', label: '临时文件目录', placeholder: '留空使用工作区 / debug / runtime', hint: '供工作区会话存放处理中间文件。' },
 ]
 const reason = (error: unknown) => error instanceof Error ? error.message : String(error)
-const inputs = (preset: Preset) => 'graph' in preset ? preset.graph.input_slots.map(slot => slot.label).join(' + ') || t('未定义输入') : t('在编辑页确认输入')
-const outputs = (preset: Preset) => 'graph' in preset ? preset.graph.outputs.map(output => output.label || `${output.node_id} · ${t(output.port === 'audio' ? '音频' : '字幕')}`).join(' / ') || '未定义产出' : preset.outputs.map(stage => t(GRAPH_CATALOG[stage as keyof typeof GRAPH_CATALOG]?.label || stage)).join(' / ')
 
-function Icon({ kind }: { kind: 'graph' | 'folder' | 'refresh' | 'plus' | 'search' }) {
-  return <svg viewBox="0 0 20 20" aria-hidden="true">{kind === 'graph' ? <path d="M2 3h6v6H2zM12 11h6v6h-6zM8 6h7v5M5 9v5h7" /> : kind === 'folder' ? <path d="M2 5h6l2 2h8v9H2zM2 5V3h6l2 2" /> : kind === 'refresh' ? <path d="M16 7a6 6 0 1 0 0 7M16 3v4h-4" /> : kind === 'plus' ? <path d="M10 3v14M3 10h14" /> : <><circle cx="8" cy="8" r="5" /><path d="m12 12 5 5" /></>}</svg>
+function Icon({ kind }: { kind: 'graph' | 'folder' | 'refresh' }) {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      {kind === 'graph' ? (
+        <path d="M2 3h6v6H2zM12 11h6v6h-6zM8 6h7v5M5 9v5h7" />
+      ) : kind === 'folder' ? (
+        <path d="M2 5h6l2 2h8v9H2zM2 5V3h6l2 2" />
+      ) : (
+        <path d="M16 7a6 6 0 1 0 0 7M16 3v4h-4" />
+      )}
+    </svg>
+  )
 }
 
 export default function Settings() {
   useI18n()
-  const workflow = useWorkflowStore()
   const { selectFolder } = useFileSelector()
   const [category, setCategory] = useState<Category>('appearance')
-  const [catalogTab, setCatalogTab] = useState<CatalogTab>('active')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
-  const [notice, setNotice] = useState('')
-  const [actionError, setActionError] = useState('')
-  const [working, setWorking] = useState(false)
   const [workspaceBusy, setWorkspaceBusy] = useState(false)
-  const [modal, setModal] = useState<{ kind: 'copy' | 'template'; preset: Preset; label: string } | null>(null)
-  const dialog = useRef<HTMLDialogElement>(null)
   const [paths, setPaths] = useState<Paths>(EMPTY_PATHS)
   const [savedPaths, setSavedPaths] = useState<Paths | null>(null)
   const [pathsLoading, setPathsLoading] = useState(false)
@@ -55,28 +50,24 @@ export default function Settings() {
   const [pathsMessage, setPathsMessage] = useState('')
   const [pathsSaveError, setPathsSaveError] = useState(false)
   const [browsing, setBrowsing] = useState<keyof Paths | null>(null)
-  const mounted = useRef(true), loadGeneration = useRef(0), actionRef = useRef(false)
+  const mounted = useRef(true)
+  const loadGeneration = useRef(0)
+  const actionRef = useRef(false)
   const versions = useRef({ output_dir: 0, vtt_dir: 0, model_cache_dir: 0, temp_dir: 0 })
   const pathState = useRef({ paths, savedPaths, pathsSaving, browsing })
   pathState.current = { paths, savedPaths, pathsSaving, browsing }
   const dirty = !!savedPaths && PATH_FIELDS.some(field => paths[field.key] !== savedPaths[field.key])
+  const busy = workspaceBusy || pathsSaving || browsing !== null
   const navigation = useRef({ dirty, busy: false })
-  const busy = workspaceBusy || working || workflow.saving || pathsSaving || browsing !== null
-  navigation.current = { dirty, busy: busy || modal !== null }
-  const guardRef = useRef<(() => Promise<boolean>) | null>(null)
-  const catalogBusy = busy || workflow.catalogLoading || workflow.templatesLoading
-  const templates = workflow.builtinTemplates.filter(preset => preset.builtin)
-  const catalog = catalogTab === 'active' ? workflow.catalog : templates
-  const filtered = catalog.filter(preset => preset.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
-  // A disappearing selection stays unselected; it never chooses another workflow to run.
-  const selected = filtered.find(preset => preset.id === selectedId) || null
-  const catalogError = catalogTab === 'active' ? workflow.catalogError : workflow.templatesError
+  navigation.current = { dirty, busy }
 
   async function loadPaths() {
     if (pathState.current.pathsSaving || pathState.current.browsing) return
-    const generation = ++loadGeneration.current, readVersions = { ...versions.current }
+    const generation = ++loadGeneration.current
+    const readVersions = { ...versions.current }
     const previous = pathState.current.savedPaths
-    setPathsLoading(true); setPathsLoadError('')
+    setPathsLoading(true)
+    setPathsLoadError('')
     try {
       const response = await settingsApi.get()
       if (!mounted.current || generation !== loadGeneration.current) return
@@ -86,26 +77,31 @@ export default function Settings() {
         versions.current[key] === readVersions[key] && (previous === null || current[key] === previous[key]) ? fresh[key] : current[key],
       ])) as Paths)
     } catch (error) {
-      if (mounted.current && generation === loadGeneration.current) setPathsLoadError(`无法读取路径设置：${reason(error)}。当前输入已保留。`)
-    } finally { if (mounted.current && generation === loadGeneration.current) setPathsLoading(false) }
+      if (mounted.current && generation === loadGeneration.current) {
+        setPathsLoadError(`无法读取路径设置：${reason(error)}。当前输入已保留。`)
+      }
+    } finally {
+      if (mounted.current && generation === loadGeneration.current) setPathsLoading(false)
+    }
   }
 
   useEffect(() => {
     mounted.current = true
-    void useWorkflowStore.getState().loadCatalog()
-    void useWorkflowStore.getState().loadBuiltinTemplates()
     void loadPaths()
     return () => { mounted.current = false; loadGeneration.current++ }
   }, [])
+
   useEffect(() => {
     const guard = async () => {
-      if (navigation.current.busy || actionRef.current) { setNotice('正在处理设置，请稍候再离开。'); return false }
+      if (navigation.current.busy || actionRef.current) return false
       return !navigation.current.dirty || await confirmAction(t('路径有未保存的修改。离开设置页将放弃这些路径修改，继续离开？'))
     }
-    guardRef.current = guard
     useNavStore.getState().setNavigationGuard(guard)
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (navigation.current.dirty || navigation.current.busy || actionRef.current) { event.preventDefault(); event.returnValue = '' }
+      if (navigation.current.dirty || navigation.current.busy || actionRef.current) {
+        event.preventDefault()
+        event.returnValue = ''
+      }
     }
     window.addEventListener('beforeunload', beforeUnload)
     return () => {
@@ -113,87 +109,54 @@ export default function Settings() {
       window.removeEventListener('beforeunload', beforeUnload)
     }
   }, [])
-  useEffect(() => { if (modal && dialog.current && !dialog.current.open) dialog.current.showModal() }, [modal?.kind, modal?.preset.id])
-
-  async function openEditor(preset?: Preset) {
-    if (catalogBusy || actionRef.current || (preset && workflow.catalogError)) return
-    if (!(await useNavStore.getState().confirmLeaveCurrentPage())) return
-    const current = useWorkflowStore.getState().editor
-    const keepCurrent = !!current && !!preset && current.preset?.id === preset.id && editorDirty(current)
-    if (!keepCurrent && editorDirty(current) && !await confirmAction(t('已有未保存的流水线草稿。打开新的编辑内容会替换该草稿；工作台素材和运行参数保留。继续？'))) return
-    actionRef.current = true; setWorking(true); setActionError('')
-    try {
-      if (!keepCurrent) {
-        if (!preset || 'graph' in preset) useWorkflowStore.getState().openEditor(preset || null, 'settings')
-        else {
-          await useWorkflowStore.getState().openLegacyEditor(preset, 'settings')
-          if (!mounted.current) return
-          const next = useWorkflowStore.getState()
-          if (next.error || !next.editor || next.editor === current) { setActionError(next.error || '转换未完成，原草稿已保留。'); return }
-        }
-      }
-      if (!mounted.current) return
-      if (useNavStore.getState().navigationGuard === guardRef.current) useNavStore.getState().setNavigationGuard(null)
-      useNavStore.getState().setPage('workflow-presets')
-    } finally { actionRef.current = false; if (mounted.current) setWorking(false) }
-  }
-
-  async function deletePreset(preset: Preset) {
-    if (catalogBusy || catalogError || actionRef.current || !await confirmAction(t(presetDeleteConfirmation(preset)))) return
-    actionRef.current = true; setWorking(true); setActionError(''); setNotice('')
-    try {
-      const result = await useWorkflowStore.getState().deleteCatalogPreset(preset)
-      if (!mounted.current) return
-      if (result) {
-        setSelectedId(current => current === preset.id ? null : current)
-        setNotice(result === 'already_missing' ? `“${preset.label}”已不存在，目录引用已清除。`
-          : `预设“${preset.label}”已删除。`)
-      } else setActionError(useWorkflowStore.getState().error || '删除未完成，请刷新目录后重试。')
-    } finally { actionRef.current = false; if (mounted.current) setWorking(false) }
-  }
-
-  async function submitModal() {
-    if (!modal || !modal.label.trim() || catalogBusy || actionRef.current) return
-    const submitted = modal
-    actionRef.current = true; setWorking(true); setActionError(''); setNotice('')
-    try {
-      const result = submitted.kind === 'copy'
-        ? await useWorkflowStore.getState().copyPreset(submitted.preset.id, submitted.label.trim())
-        : await useWorkflowStore.getState().addBuiltinTemplate(submitted.preset.id, submitted.preset.revision, submitted.label.trim())
-      if (!mounted.current) return
-      if (result) {
-        setNotice(`${submitted.kind === 'copy' ? '副本' : '预设'}“${result.label}”已添加。`)
-        dialog.current?.close(); setModal(null)
-      } else setActionError(useWorkflowStore.getState().error || '未能保存，请重试。')
-    } finally { actionRef.current = false; if (mounted.current) setWorking(false) }
-  }
 
   function changePath(key: keyof Paths, value: string) {
     versions.current[key]++
     setPaths(current => ({ ...current, [key]: value }))
     setPathsMessage('')
   }
+
   async function browse(key: keyof Paths) {
     if (busy || !savedPaths || pathsLoadError) return
     const version = versions.current[key]
-    setBrowsing(key); actionRef.current = true
+    setBrowsing(key)
+    actionRef.current = true
     try {
       const value = await selectFolder()
       if (!mounted.current || value === null) return
       if (version === versions.current[key]) changePath(key, value)
-      else { setPathsMessage('选择文件夹期间该字段已有修改，已保留最新输入。'); setPathsSaveError(false) }
-    } catch (error) { if (mounted.current) { setPathsMessage(`选择失败：${reason(error)}`); setPathsSaveError(true) } }
-    finally { actionRef.current = false; if (mounted.current) setBrowsing(null) }
+      else {
+        setPathsMessage('选择文件夹期间该字段已有修改，已保留最新输入。')
+        setPathsSaveError(false)
+      }
+    } catch (error) {
+      if (mounted.current) {
+        setPathsMessage(`选择失败：${reason(error)}`)
+        setPathsSaveError(true)
+      }
+    } finally {
+      actionRef.current = false
+      if (mounted.current) setBrowsing(null)
+    }
   }
+
   async function savePaths() {
     if (busy || pathsLoading || pathsLoadError || !savedPaths || !dirty || actionRef.current) return
     const changed = Object.fromEntries(PATH_FIELDS.filter(({ key }) => paths[key] !== savedPaths[key]).map(({ key }) => [key, paths[key]]))
-    const submittedVersions = { ...versions.current }, previous = savedPaths
-    actionRef.current = true; setPathsSaving(true); setPathsMessage(''); setPathsSaveError(false)
+    const submittedVersions = { ...versions.current }
+    const previous = savedPaths
+    actionRef.current = true
+    setPathsSaving(true)
+    setPathsMessage('')
+    setPathsSaveError(false)
     try {
       const validation = await settingsApi.validate({ paths: changed })
       if (!mounted.current) return
-      if (!validation.valid) { setPathsMessage(`验证失败：${validation.errors.join('；')}`); setPathsSaveError(true); return }
+      if (!validation.valid) {
+        setPathsMessage(`验证失败：${validation.errors.join('；')}`)
+        setPathsSaveError(true)
+        return
+      }
       const response = await settingsApi.update({ paths: changed })
       if (!mounted.current) return
       const fresh = response.settings.paths
@@ -202,60 +165,153 @@ export default function Settings() {
         versions.current[key] === submittedVersions[key] && (key in changed || current[key] === previous[key]) ? fresh[key] : current[key],
       ])) as Paths)
       setPathsMessage('路径已保存，已有文件未移动。')
-    } catch (error) { if (mounted.current) { setPathsMessage(`保存失败：${reason(error)}。当前输入已保留。`); setPathsSaveError(true) } }
-    finally { actionRef.current = false; if (mounted.current) setPathsSaving(false) }
+    } catch (error) {
+      if (mounted.current) {
+        setPathsMessage(`保存失败：${reason(error)}。当前输入已保留。`)
+        setPathsSaveError(true)
+      }
+    } finally {
+      actionRef.current = false
+      if (mounted.current) setPathsSaving(false)
+    }
   }
 
-  const openModal = (kind: 'copy' | 'template', preset: Preset) => {
-    if (catalogBusy || catalogError) return
-    setActionError(''); setModal({ kind, preset, label: kind === 'copy' ? `${preset.label.slice(0, 96)}（副本）` : preset.label })
-  }
-  return <div className="settings-page">
-    <aside className="settings-sidebar"><h1 className="page-title">{t("设置")}</h1><p className="settings-sidebar-caption">{t("工作区")}</p>
-      <nav className="settings-categories" aria-label={t("设置分类")}>
-        <button type="button" aria-current={category === 'appearance' ? 'page' : undefined} onClick={() => setCategory('appearance')}><span aria-hidden="true">◐</span><span>{t("外观与语言")}</span></button>
-        <button type="button" aria-current={category === 'presets' ? 'page' : undefined} onClick={() => setCategory('presets')}><Icon kind="graph" /><span>{t("预设管理")}</span></button>
-        <button type="button" aria-current={category === 'paths' ? 'page' : undefined} onClick={() => setCategory('paths')}><Icon kind="folder" /><span>{t("文件与缓存")}</span></button>
-      </nav>
-    </aside>
-    <main className="settings-main" aria-label={t("设置内容")}>
-      <header className="settings-header page-heading"><div className="page-heading__copy"><div className="page-title-row"><h2 className="panel-title">{category === 'appearance' ? t("外观与语言") : category === 'presets' ? t("预设管理") : t("文件与缓存")}</h2><QuickStartHelp topic={category === 'appearance' ? 'appearance' : category === 'paths' ? 'paths' : catalogTab === 'active' ? 'preset-catalog' : 'preset-templates'} /></div></div>
-        <div className="settings-header-actions page-heading__actions">{category === 'presets' ? <><button className="settings-button quiet" disabled={catalogBusy} onClick={() => { void Promise.all([workflow.loadCatalog(), workflow.loadBuiltinTemplates()]) }}><Icon kind="refresh" />{t("刷新")}</button><button className="settings-button primary" disabled={catalogBusy} onClick={() => void openEditor()}><Icon kind="plus" />{t("新建流水线")}</button></> : category === 'paths' ? <button className="settings-button quiet" disabled={busy || pathsLoading} onClick={() => void loadPaths()}><Icon kind="refresh" />{t("重新读取")}</button> : null}</div>
+  return (
+    <div className="settings-page">
+      <header className="page-heading app-page-heading settings-page-heading">
+        <div className="page-title-row"><h1 className="page-title">{t('设置')}</h1><QuickStartHelp topic={category === 'appearance' ? 'appearance' : 'paths'} /></div>
       </header>
-      <div className="settings-body">
-        {category === 'appearance' ? <AppearanceSettings /> : category === 'presets' ? <>
-          {(notice || workflow.catalogNotice) && <p className="settings-status" role="status">{t(notice || workflow.catalogNotice || '')}</p>}
-          {actionError && !modal && <p className="settings-status error" role="alert">{t(actionError)}</p>}
-          <div className="settings-catalog-toolbar"><nav className="settings-catalog-tabs" aria-label={t("预设目录")}>
-            <button aria-current={catalogTab === 'active' ? 'page' : undefined} onClick={() => { setCatalogTab('active'); setSelectedId(null) }}>{t("当前目录")} <small>{workflow.catalog.length}</small></button>
-            <button aria-current={catalogTab === 'builtin' ? 'page' : undefined} onClick={() => { setCatalogTab('builtin'); setSelectedId(null) }}>{t("添加内置模板")} <small>{templates.length}</small></button>
-          </nav><label className="settings-search"><Icon kind="search" /><input aria-label={t("搜索预设")} placeholder={t("搜索流水线名称")} value={query} onChange={event => setQuery(event.target.value)} /></label></div>
-          {catalogError && <p className="settings-status error" role="alert">{t("目录读取失败：")}{catalogError}{t("。已保留上次列表，读取成功前暂停修改。")}</p>}
-          {(workflow.catalogLoading || workflow.templatesLoading) && <p className="settings-status" role="status">{t("正在读取共享目录…")}</p>}
-          <div className="settings-preset-layout"><section className="settings-catalog-list" aria-label={t("流水线列表")}>
-            <div className="settings-list-heading"><span>{catalogTab === 'active' ? t("可用流水线") : t("可添加的内置模板")}</span><span>{filtered.length} {t("个预设")}</span></div>
-            {filtered.map(preset => <article className={`settings-preset-row${selected?.id === preset.id ? ' selected' : ''}`} key={preset.id}>
-              <button type="button" className="settings-preset-summary" aria-label={format("查看 {0}", [preset.label])} aria-pressed={selected?.id === preset.id} onClick={() => setSelectedId(preset.id)}><span className="settings-preset-title"><strong>{preset.label}</strong><Icon kind="graph" /></span><span className="settings-preset-flow">{inputs(preset)} → {outputs(preset)}</span><span className="settings-preset-meta"><span className={`settings-chip${preset.builtin ? '' : ' custom'}`}>{preset.builtin ? t("内置") : t("自定义")}</span><span>{'graph' in preset ? format("{0} 个节点", [preset.graph.nodes.length]) : t("旧版流程")}</span><span>{t("· 修订")} {preset.revision}</span></span></button>
-              <div className="settings-row-actions">{catalogTab === 'active' ? <><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => void openEditor(preset)}>{preset.builtin ? t("另存编辑") : t("编辑")}</button><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => openModal('copy', preset)}>{t("复制")}</button></> : <button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => openModal('template', preset)}>{t("添加到目录")}</button>}{catalogTab === 'active' && <button className="settings-text-button danger" disabled={catalogBusy || !!catalogError} aria-label={format("删除 {0}", [preset.label])} onClick={() => void deletePreset(preset)}>{t("删除")}</button>}</div>
-            </article>)}
-            {!filtered.length && !workflow.catalogLoading && !workflow.templatesLoading && <div className="settings-empty"><Icon kind="folder" /><strong>{query ? t("没有匹配的流水线") : catalogTab === 'active' ? t("当前目录为空") : t("没有可添加的模板")}</strong><p>{catalogTab === 'active' ? t("新建流水线，或添加内置模板。") : t("添加后进入当前目录，不会自动打开。")}</p></div>}
-          </section>
-          <aside className="settings-definition" aria-label={t("所选预设概览")}>{selected ? <>
-            <h3>{selected.label}</h3><p>{selected.description || t("暂无说明")}</p>
-            {'graph' in selected && <div className="settings-flow-preview"><div className="settings-flow-label"><span>{t("流程节点")}</span><span>{selected.graph.nodes.length} {t("节点")}</span></div><div className="settings-flow-nodes">{selected.graph.nodes.map(node => <span className="settings-flow-node" key={node.id}><strong>{t(GRAPH_CATALOG[node.kind]?.label || node.kind)}</strong><small>{node.id}</small></span>)}</div></div>}
-            <dl><div><dt>{t("适用输入")}</dt><dd>{inputs(selected)}</dd></div><div><dt>{t("交付内容")}</dt><dd>{outputs(selected)}</dd></div><div><dt>{t("来源")}</dt><dd>{selected.builtin ? t("内置 · 另存后编辑") : t("自定义")} {t("· 修订")} {selected.revision}</dd></div></dl><div className="settings-definition-footer"><button className="settings-text-button" disabled={catalogBusy || !!catalogError} onClick={() => catalogTab === 'active' ? void openEditor(selected) : openModal('template', selected)}>{catalogTab === 'active' ? selected.builtin ? t("另存并编辑 ↗") : t("编辑流水线 ↗") : t("添加到目录")}</button></div>
-          </> : <div className="settings-empty"><Icon kind="graph" /><strong>{t("选择一个流水线")}</strong><p>{t("查看输入、节点与交付内容。")}</p></div>}</aside></div>
-        </> : <>
-          <WorkspaceSettings disabled={busy || dirty || pathsLoading} onBusy={setWorkspaceBusy} />
-          {dirty && <p className="settings-paths-summary">{t("请先保存或放弃下方路径草稿，再切换工作目录。")}</p>}
-          {pathsLoading && <p className="settings-status" role="status">{t("正在读取路径…")}</p>}
-          {pathsLoadError && <p className="settings-status error" role="alert">{t(pathsLoadError)}<button onClick={() => void loadPaths()} disabled={pathsLoading || busy}>{t("重试")}</button></p>}
-          {pathsMessage && <p className={`settings-status${pathsSaveError ? ' error' : ''}`} role={pathsSaveError ? 'alert' : 'status'}>{t(pathsMessage)}</p>}
-          {[0, 2].map(start => <section className="settings-path-section" key={start}><h3><Icon kind="folder" />{start === 0 ? t("输出与字幕") : t("模型与临时文件")}</h3>{PATH_FIELDS.slice(start, start + 2).map(field => <div className="settings-path-field" key={field.key}><div className="settings-field-label"><label htmlFor={`settings-${field.key}`}>{t(field.label)}</label>{field.compatibility && <span>{t("兼容")}</span>}</div><div className="settings-path-row"><input id={`settings-${field.key}`} value={paths[field.key]} disabled={!savedPaths || pathsSaving || !!pathsLoadError} placeholder={t(field.placeholder)} autoComplete="off" spellCheck={false} onChange={event => changePath(field.key, event.target.value)} /><button className="settings-button" disabled={!savedPaths || busy || !!pathsLoadError} aria-label={format("浏览{0}", [t(field.label)])} onClick={() => void browse(field.key)}><Icon kind="folder" />{browsing === field.key ? t("选择中…") : t("浏览")}</button></div><p>{t(field.hint)}</p></div>)}</section>)}
-        </>}
-      </div>
-      {category === 'paths' && <footer className="settings-save-bar"><span className={dirty ? 'changed' : ''}>● {dirty ? t("有未保存的修改") : savedPaths ? t("使用已保存的路径") : t("尚未读取路径")}</span><div><button className="settings-button quiet" disabled={!dirty || busy || pathsLoading} onClick={() => { if (savedPaths) { PATH_FIELDS.forEach(({ key }) => versions.current[key]++); setPaths({ ...savedPaths }); setPathsMessage('') } }}>{t("放弃修改")}</button><button className="settings-button primary" disabled={!dirty || busy || pathsLoading || !!pathsLoadError} onClick={() => void savePaths()}>{pathsSaving ? t("正在保存…") : t("保存路径")}</button></div></footer>}
-    </main>
-    {modal && <dialog ref={dialog} className="settings-dialog" aria-labelledby="settings-dialog-title" onCancel={event => { if (busy) event.preventDefault(); else setModal(null) }} onClose={() => { if (!busy) setModal(null) }}><form onSubmit={event => { event.preventDefault(); void submitModal() }}><header><h2 id="settings-dialog-title">{modal.kind === 'copy' ? t("复制流水线") : t("添加内置模板")}</h2><p>{modal.preset.label}  {t("· 修订")} {modal.preset.revision}</p></header><div className="settings-dialog-body"><label htmlFor="settings-preset-name">{modal.kind === 'copy' ? t("副本名称") : t("新预设名称")}</label><input id="settings-preset-name" autoFocus maxLength={100} value={modal.label} disabled={busy} onChange={event => setModal(current => current ? { ...current, label: event.target.value } : null)} /><p>{modal.kind === 'copy' ? t("复制已保存的流程，另存为独立预设。") : t("使用新名称添加，不会覆盖已有预设。")}</p>{actionError && <p className="settings-status error" role="alert">{t(actionError)}</p>}</div><footer><button type="button" className="settings-button" disabled={busy} onClick={() => { dialog.current?.close(); setModal(null) }}>{t("取消")}</button><button className="settings-button primary" disabled={catalogBusy || !modal.label.trim()}>{working ? t("正在处理…") : modal.kind === 'copy' ? t("保存副本") : t("添加到目录")}</button></footer></form></dialog>}
-  </div>
+      <aside className="settings-sidebar">
+        <p className="settings-sidebar-caption">{t('系统与工作区')}</p>
+        <nav className="settings-categories" aria-label={t('设置分类')}>
+          <button type="button" aria-current={category === 'appearance' ? 'page' : undefined} onClick={() => setCategory('appearance')}>
+            <span aria-hidden="true">◐</span><span>{t('外观与语言')}</span>
+          </button>
+          <button type="button" aria-current={category === 'paths' ? 'page' : undefined} onClick={() => setCategory('paths')}>
+            <Icon kind="folder" /><span>{t('文件与缓存')}</span>
+          </button>
+          <button type="button" aria-current={category === 'agent' ? 'page' : undefined} onClick={() => setCategory('agent')}>
+            <Icon kind="graph" /><span>{t('Agent / MCP 接入')}</span>
+          </button>
+        </nav>
+        <div style={{ marginTop: 'auto', paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+          <button
+            type="button"
+            className="settings-button quiet"
+            style={{ width: '100%', justifyContent: 'center' }}
+            onClick={() => void useNavStore.getState().setPage('workflow-presets')}
+          >
+            {t('高级流程编排 ↗')}
+          </button>
+        </div>
+      </aside>
+
+      <main className="settings-main" aria-label={t('设置内容')}>
+        <header className="settings-header page-heading">
+          <div className="page-heading__copy">
+            <div className="page-title-row">
+              <h2 className="panel-title">
+                {category === 'appearance' ? t('外观与语言') : category === 'agent' ? t('Agent / MCP 接入') : t('文件与缓存')}
+              </h2>
+            </div>
+          </div>
+          <div className="settings-header-actions page-heading__actions">
+            {category === 'paths' ? (
+              <button className="settings-button quiet" disabled={busy || pathsLoading} onClick={() => void loadPaths()}>
+                <Icon kind="refresh" />{t('重新读取')}
+              </button>
+            ) : null}
+          </div>
+        </header>
+
+        <div className="settings-body">
+          {category === 'appearance' ? (
+            <AppearanceSettings />
+          ) : category === 'agent' ? (
+            <AgentMcpSettings />
+          ) : (
+            <>
+              <WorkspaceSettings disabled={busy || dirty || pathsLoading} onBusy={setWorkspaceBusy} />
+              {dirty && <p className="settings-paths-summary">{t('请先保存或放弃下方路径草稿，再切换工作目录。')}</p>}
+              {pathsLoading && <p className="settings-status" role="status">{t('正在读取路径…')}</p>}
+              {pathsLoadError && (
+                <p className="settings-status error" role="alert">
+                  {t(pathsLoadError)}
+                  <button onClick={() => void loadPaths()} disabled={pathsLoading || busy}>{t('重试')}</button>
+                </p>
+              )}
+              {pathsMessage && (
+                <p className={`settings-status${pathsSaveError ? ' error' : ''}`} role={pathsSaveError ? 'alert' : 'status'}>
+                  {t(pathsMessage)}
+                </p>
+              )}
+              {[0, 2].map(start => (
+                <section className="settings-path-section" key={start}>
+                  <h3><Icon kind="folder" />{start === 0 ? t('输出与字幕') : t('模型与临时文件')}</h3>
+                  {PATH_FIELDS.slice(start, start + 2).map(field => (
+                    <div className="settings-path-field" key={field.key}>
+                      <div className="settings-field-label">
+                        <label htmlFor={`settings-${field.key}`}>{t(field.label)}</label>
+                        {field.compatibility && <span>{t('兼容')}</span>}
+                      </div>
+                      <div className="settings-path-row">
+                        <input
+                          id={`settings-${field.key}`}
+                          value={paths[field.key]}
+                          disabled={!savedPaths || pathsSaving || !!pathsLoadError}
+                          placeholder={t(field.placeholder)}
+                          autoComplete="off"
+                          spellCheck={false}
+                          onChange={event => changePath(field.key, event.target.value)}
+                        />
+                        <button
+                          className="settings-button"
+                          disabled={!savedPaths || busy || !!pathsLoadError}
+                          aria-label={format('浏览{0}', [t(field.label)])}
+                          onClick={() => void browse(field.key)}
+                        >
+                          <Icon kind="folder" />{browsing === field.key ? t('选择中…') : t('浏览')}
+                        </button>
+                      </div>
+                      <p>{t(field.hint)}</p>
+                    </div>
+                  ))}
+                </section>
+              ))}
+            </>
+          )}
+        </div>
+
+        {category === 'paths' && (
+          <footer className="settings-save-bar">
+            <span className={dirty ? 'changed' : ''}>
+              ● {dirty ? t('有未保存的修改') : savedPaths ? t('使用已保存的路径') : t('尚未读取路径')}
+            </span>
+            <div>
+              <button
+                className="settings-button quiet"
+                disabled={!dirty || busy || pathsLoading}
+                onClick={() => {
+                  if (savedPaths) {
+                    PATH_FIELDS.forEach(({ key }) => versions.current[key]++)
+                    setPaths({ ...savedPaths })
+                    setPathsMessage('')
+                  }
+                }}
+              >
+                {t('放弃修改')}
+              </button>
+              <button
+                className="settings-button primary"
+                disabled={!dirty || busy || pathsLoading || !!pathsLoadError}
+                onClick={() => void savePaths()}
+              >
+                {pathsSaving ? t('正在保存…') : t('保存路径')}
+              </button>
+            </div>
+          </footer>
+        )}
+      </main>
+    </div>
+  )
 }

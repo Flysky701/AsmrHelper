@@ -8,7 +8,7 @@ Checked against official documentation on 2026-10-13:
 
 The adapter supports `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts` with one voice per request. It sends `POST /v1beta/interactions`, `x-goog-api-key`, literal transcript content, and optional `speech_metadata.style` annotations. It requests WAV at 24 kHz, sets `stream:false`, and opts out of stored interaction history with `store:false`. The response decoder takes the last audio block in model-output steps. Base64 must be valid; PCM fallback requires declared mono 24 kHz L16 and follows the documented little-endian encoding.
 
-The builtin catalog contains the documented 30 voices. Hosted mode accepts an existing persistent `voice_` identifier. This integration never creates, clones, designs, lists or deletes remote voices and rejects temporary `voicekey_` tokens.
+The builtin catalog contains the documented 30 voices. Hosted mode searches the account catalog through the paginated `GET /v1beta/voices` endpoint and saves the selected ID. It also accepts existing persistent voice IDs. Temporary `voicekey_` tokens cannot be saved.
 
 Only style text is exposed as a provider option. Normal/soft/whisper delivery and the existing emotion controls are mapped to style metadata, preserving the transcript. The integration accepts auto/Chinese/English/Japanese language annotations; Gemini detects spoken language from the input text. This field does not translate text or force its language. No unsupported sampling parameters are sent.
 

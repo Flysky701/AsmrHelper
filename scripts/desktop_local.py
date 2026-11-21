@@ -211,8 +211,12 @@ def launch(args) -> None:
         print("[READY] Current build is ready. Existing desktop window/tasks were preserved; finish them, close the old window normally, then reopen RUNGUI.bat. No duplicate window was started.")
         return
     env = os.environ.copy()
+    runtime_keys = {
+        "ASMR_HELPER_COMPUTE", "ASMR_HELPER_CUDA_LIBRARY_DIR", "ASMR_HELPER_REMOTE_WORKER_URL",
+        "ASMR_HELPER_REMOTE_WORKER_TOKEN", "ASMR_HELPER_REMOTE_WORKER_TIMEOUT",
+    }
     for key in list(env):
-        if key.startswith("ASMR_HELPER_") and key not in {"ASMR_HELPER_COMPUTE", "ASMR_HELPER_CUDA_LIBRARY_DIR"}:
+        if key.startswith("ASMR_HELPER_") and key not in runtime_keys:
             env.pop(key)
     env.update(ASMR_HELPER_SOURCE_ROOT=str(ROOT), PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1")
     env.update(ASMR_HELPER_BUILD_SHA256=receipt["sha256"], ASMR_HELPER_BUILD_SOURCE=receipt["source_fingerprint"],

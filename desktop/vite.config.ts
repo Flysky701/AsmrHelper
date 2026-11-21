@@ -20,7 +20,7 @@ export default defineConfig({
     watch: {
       // Cargo continuously writes PDB and object files here during `tauri dev`.
       // Watching those files on Windows can terminate Vite with EBUSY.
-      ignored: ['**/src-tauri/target/**'],
+      ignored: ['**/src-tauri/target/**', '**/.tmp/**'],
     },
   },
   build: {

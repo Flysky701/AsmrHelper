@@ -73,8 +73,12 @@ class AlignmentRuntime:
         import torch
         from qwen_asr import Qwen3ForcedAligner
         cuda = torch.cuda.is_available()
-        return Qwen3ForcedAligner.from_pretrained(str(path), dtype=torch.bfloat16 if cuda else torch.float32,
-                                                device_map="cuda:0" if cuda else "cpu", local_files_only=True)
+        dtype = torch.float32
+        if cuda:
+            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16
+        return Qwen3ForcedAligner.from_pretrained(
+            str(path), dtype=dtype, device_map="cuda:0" if cuda else "cpu", local_files_only=True,
+        )
 
 
 def alignment_windows(segments, duration):

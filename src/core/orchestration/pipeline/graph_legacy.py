@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from .graph_catalog import GRAPH_CATALOG
+from .graph_catalog import GRAPH_CATALOG, OPTIONAL_INPUTS
 from .graph_models import GraphValidationError
 from .graph_validation import validate_graph
 
@@ -70,6 +70,8 @@ def legacy_profile_to_graph(profile: dict) -> dict:
         _fail("旧素材绑定格式无效")
     for kind in selected:
         for port, material_type in GRAPH_CATALOG[kind]["inputs"].items():
+            if port in OPTIONAL_INPUTS.get(kind, ()):
+                continue
             role = "text" if port == "subtitle" else port
             stage_bindings = prior.get(kind, {})
             reference = stage_bindings.get(role) if isinstance(stage_bindings, dict) else None
@@ -121,6 +123,8 @@ def legacy_preset_to_graph(preset: dict, *, source_lang: str = "ja", target_lang
              "edges": [], "input_slots": [], "outputs": []}
     for node in graph["nodes"]:
         for port, material_type in GRAPH_CATALOG[node["kind"]]["inputs"].items():
+            if port in OPTIONAL_INPUTS.get(node["kind"], ()):
+                continue
             slot_id = f"{node['id']}_{port}"
             slot = {"id": slot_id, "type": material_type, "label": f"{GRAPH_CATALOG[node['kind']]['label']} {port}"}
             if material_type == "subtitle" and node["kind"] in {"align", "translate", "tts"}:

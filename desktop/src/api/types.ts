@@ -267,7 +267,9 @@ export interface ModelSummaryResponse {
   category: string
   backend: string
   display_name: string
+  description?: string
   estimated_size_mb?: number | null
+  inference_vram_gb?: number | null
   install_strategy: string
   supports_install: boolean
   supports_remove: boolean
@@ -712,4 +714,44 @@ export interface DraftCommitRequest {
 }
 
 export interface DraftCommitResponse extends DraftDetail {}
+
+export interface DraftInspectResponse {
+  work_dir: string
+  title: string
+  tracks: DraftTrackItem[]
+  audio_files: Array<{ path: string }>
+  subtitles: Array<{ path: string; valid?: boolean }>
+  scripts: Array<{ path: string }>
+  stem_pairs: Array<Record<string, unknown>>
+  readiness: Record<string, unknown>
+}
+
+export interface DraftPrepareRequest {
+  path_or_dir: string
+  track_path?: string | null
+  subtitle_path?: string | null
+  script_path?: string | null
+  title?: string | null
+  source_lang?: string
+  target_lang?: string
+  enable_translation?: boolean
+  duration_aware?: boolean
+  auto_detect_delivery?: boolean
+  force_asr?: boolean
+  asr_provider?: string | null
+  asr_model?: string | null
+  asr_options?: Record<string, unknown> | null
+  llm_provider?: string | null
+  llm_model?: string | null
+  llm_options?: Record<string, unknown> | null
+  voice_plan?: Record<string, unknown> | null
+  prepare_stems?: boolean
+  separation_model?: string | null
+  extract_voice_reference?: boolean
+  synthesize_samples?: boolean
+  sample_cue_count?: number
+  chars_per_second?: number
+  max_atempo?: number
+}
+
 

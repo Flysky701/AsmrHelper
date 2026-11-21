@@ -41,7 +41,9 @@ def mock_http(monkeypatch, handler):
 
 
 @pytest.mark.parametrize("model,options,expected", [
-    ("eleven_v3", {"schema_version": 1, "speed": .8}, {"speed": .8}),
+    ("eleven_v3", {"schema_version": 1, "stability": 1}, {"stability": 1}),
+    ("eleven_v4", {"schema_version": 1, "stability": .5, "similarity_boost": .7},
+     {"stability": .5, "similarity_boost": .7}),
     ("eleven_flash_v2_5", {"schema_version": 1, "speed": 1.2, "stability": .3}, {"speed": 1.2, "stability": .3}),
 ])
 def test_native_request_and_wav_metadata(monkeypatch, tmp_path, model, options, expected):
@@ -77,7 +79,7 @@ def test_auto_language_omitted_and_proxy_prefix_preserved(monkeypatch, tmp_path)
     ({"variant": {"kind": "hosted", "value": "../voices"}}, "invalid_variant"),
     ({"variant": {"kind": "hosted", "value": "voice", "style": "whisper"}}, "unsupported_intent"),
     ({"provider_options": {"schema_version": 1, "speed": 1.21}}, "invalid_options"),
-    ({"provider_options": {"schema_version": 1, "stability": .5}}, "invalid_options"),
+    ({"provider_options": {"schema_version": 1, "stability": .34}}, "invalid_options"),
     ({"provider_options": {"schema_version": 1, "temperature": .5}}, "invalid_options"),
 ])
 def test_unsupported_fields_rejected(changes, code):
@@ -96,8 +98,8 @@ def test_intent_and_length_limits():
         provider.compile(recipe(), {}, "x" * 5001, {})
     assert error.value.code == "invalid_text"
     provider.compile(recipe(model="eleven_flash_v2_5"), {}, "x" * 5001, {})
-    assert provider.runtime_options("eleven_v3", "hosted") == ["speed"]
-    assert provider.runtime_options("eleven_flash_v2_5", "hosted") == ["speed", "stability"]
+    assert provider.runtime_options("eleven_v3", "hosted") == ["stability"]
+    assert provider.runtime_options("eleven_flash_v2_5", "hosted") == ["speed", "stability", "similarity_boost"]
 
 
 @pytest.mark.parametrize("status,code", [(401, "authentication_failed"), (429, "rate_limited"),
@@ -131,15 +133,15 @@ def test_timeout_does_not_retry_and_cancellation_does_not_start_request(monkeypa
 def test_snapshot_revalidated_before_network(monkeypatch, tmp_path):
     mock_http(monkeypatch, lambda req: pytest.fail("Invalid snapshots must not reach the API"))
     compiled = request()
-    compiled["parameters"]["options"]["stability"] = .5
+    compiled["parameters"]["options"]["stability"] = .34
     with pytest.raises(ProviderError) as error:
         ElevenLabsSpeechProvider().synthesize(compiled, tmp_path / "audio.wav", context(), lambda: False)
     assert error.value.code == "invalid_options"
     compiled = request()
-    del compiled["parameters"]["options"]["speed"]
+    compiled["parameters"]["delivery"] = "whisper"
     with pytest.raises(ProviderError) as error:
         ElevenLabsSpeechProvider().synthesize(compiled, tmp_path / "audio.wav", context(), lambda: False)
-    assert error.value.code == "snapshot_mismatch"
+    assert error.value.code == "unsupported_intent"
 
 
 @pytest.mark.parametrize("language", ["auto", "zh", "en", "ja"])
@@ -158,8 +160,8 @@ def test_v4_minimal_payload_preserves_script(monkeypatch, tmp_path, language):
     ElevenLabsSpeechProvider().synthesize(compiled, tmp_path / "v4.wav", context(), lambda: False)
 
 
-@pytest.mark.parametrize("option,value", [("speed", 1), ("stability", .5),
-    ("similarity_boost", .5), ("style", 0)])
+@pytest.mark.parametrize("option,value", [("speed", 1), ("stability", 2),
+    ("similarity_boost", -1), ("style", 0)])
 def test_v4_rejects_unverified_settings_in_recipe_and_snapshot(monkeypatch, tmp_path, option, value):
     mock_http(monkeypatch, lambda req: pytest.fail("Unsupported v4 settings must not reach the API"))
     with pytest.raises(ProviderError) as error:
@@ -180,7 +182,7 @@ def test_v4_length_boundary_and_execution_revalidation(monkeypatch, tmp_path):
         provider.compile(value, {}, "x" * 10001, {})
     assert error.value.code == "invalid_text"
     assert provider.capabilities("eleven_v4", "hosted")["max_text_length"] == 10000
-    assert provider.runtime_options("eleven_v4", "hosted") == []
+    assert provider.runtime_options("eleven_v4", "hosted") == ["stability", "similarity_boost"]
     assert provider.modes[0]["models"] == ["eleven_v3", "eleven_flash_v2_5", "eleven_v4"]
     assert request(model="eleven_v4")["parameters"]["options"] == {"schema_version": 1}
     mock_http(monkeypatch, lambda req: pytest.fail("Overlong snapshots must not reach the API"))

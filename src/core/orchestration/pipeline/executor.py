@@ -50,7 +50,7 @@ class PipelineExecutor:
 
     def execute_stage(
         self, stage, plan, *, directory, audio_path=None, speech_path=None,
-        segments=None, cancel_event=None,
+        segments=None, cancel_event=None, room_tone_source_path=None,
     ):
         """Run exactly one capability with isolated state and strict failures.
 
@@ -94,8 +94,9 @@ class PipelineExecutor:
                 raise ValueError("翻译缺少字幕输入")
             translations = self._execute_translation(plan, cues, directory, results)
             if not results["step_errors"]:
-                cues = [{"start": cue["start"], "end": cue["end"], "text": text,
-                         "original": cue["text"]}
+                cues = [{"start": cue["start"], "end": cue["end"], "text": text, "original": cue["text"],
+                         **{key: cue[key] for key in ("delivery", "auto_delivery", "emotion", "source_rms_db")
+                            if key in cue}}
                         for cue, text in zip(cues, translations, strict=True)]
             value = results.get("steps", {}).get("translate", {}).get("output")
         elif stage == "tts":
@@ -112,6 +113,9 @@ class PipelineExecutor:
             if not Path(audio_path).is_file() or not Path(speech_path).is_file():
                 raise ValueError("混音输入音频不存在，不能复制原音代替混音")
             value = directory / "mix.wav"
+            if room_tone_source_path:
+                from src.mixer.room_tone import prepare_room_tone_bed
+                audio_path = prepare_room_tone_bed(audio_path, room_tone_source_path, cues, directory)
             self._execute_mix(plan, Path(audio_path), Path(speech_path), value, results)
         elif stage == "export":
             if not cues:
@@ -159,16 +163,25 @@ class PipelineExecutor:
         t1 = time.time()
         try:
             separator = self._separator or SeparatorEngineRuntime()
+            request_background = bool(plan.workflow.get("graph_node")) and plan.separation.common_options.get(
+                "request_background", True,
+            )
             sep_results = separator.separate(
                 input_path=plan.input_path,
                 output_dir=str(by_product_dir),
                 model=plan.separation.model,
-                stems=["vocals"],
+                stems=["vocals", "no_vocals"] if request_background else ["vocals"],
+                **({"provider_options": plan.separation.provider_options}
+                   if plan.separation.provider_options else {}),
             )
             vocals = sep_results.get("vocals")
             if not vocals:
                 raise ValueError("人声分离未返回 vocals 路径")
             vocal_path = Path(vocals)
+            if request_background:
+                background = sep_results.get("no_vocals")
+                if background:
+                    results["background_path"] = str(background)
             results["steps"]["vocal_separator"] = {
                 "duration": time.time() - t1, "output": str(vocal_path)
             }
@@ -300,6 +313,10 @@ class PipelineExecutor:
                     },
                     source_lang=plan.source_label,
                     target_lang=plan.target_label,
+                    **({"available_seconds": [
+                        float(timestamped_segments[i]["end"]) - float(timestamped_segments[i]["start"])
+                        for i in pending
+                    ]} if options.get("duration_aware") else {}),
                 )
                 if len(generated) != len(pending) or any(not isinstance(t, str) or not t.strip() for t in generated):
                     raise ValueError("翻译结果缺少条目或包含空译文，已停止配音以避免漏句")
@@ -374,6 +391,7 @@ class PipelineExecutor:
                     "original": seg.get("original", "") if plan.workflow else seg.get("text", ""),
                     "start_time": seg.get("start", 0),
                     "end_time": seg.get("end", seg.get("start", 0) + 5.0),
+                    **{key: seg[key] for key in ("delivery", "emotion", "source_rms_db", "auto_delivery") if key in seg},
                 })
 
             # Get reference duration from input
@@ -390,9 +408,20 @@ class PipelineExecutor:
             snapshot = plan.tts.provider_options.get("speech_snapshot")
             if not snapshot:
                 raise ValueError("缺少不可变配音配方快照，请从新工作台重新提交")
+            options = plan.tts.common_options
+            source = options.get("binaural_source_path")
+            if options.get("auto_detect_delivery") and source:
+                from src.core.asr.acoustic_profiler import annotate_delivery
+                voice_segments = annotate_delivery(source, voice_segments)
+            from src.core.speech.remake import REMAKE_KEYS
+            remake_options = {key: options[key] for key in REMAKE_KEYS if key in options}
             assembly = get_speech_service().synthesize_timeline(
                 snapshot, voice_segments, tts_audio_path, plan.task_id,
                 cancel_check=cancel_check, reference_duration=reference_duration,
+                **{key: options[key] for key in ("binaural_source_path", "borrow_silence_slack",
+                    "max_atempo", "acoustic_options") if key in options},
+                **({"remake_options": remake_options, "reference_language": plan.source_lang}
+                   if remake_options or "auto_clone_connection" in snapshot else {}),
             )
             results["speech_experiment_id"] = assembly["experiment_id"]
             results["speech_assembly_id"] = assembly["id"]
@@ -401,6 +430,7 @@ class PipelineExecutor:
                 "segments": len(voice_segments),
                 "output": str(tts_audio_path),
                 "engine": plan.tts.provider,
+                **({"warnings": assembly["warnings"]} if assembly.get("warnings") else {}),
             }
         except Exception as e:
             if plan.workflow.get("graph_node"):
@@ -459,6 +489,8 @@ class PipelineExecutor:
                 tts_path=str(tts_audio_path),
                 output_path=str(mix_path),
                 output_length=plan.mix.output_length,
+                **({"sidechain_ducking": True} if plan.mix.sidechain_ducking else {}),
+                **({"adjust_tts_volume": False} if not plan.mix.adjust_tts_volume else {}),
             )
             results["steps"]["mixer"] = {
                 "duration": time.time() - t1, "output": str(mix_path),
@@ -479,6 +511,8 @@ class PipelineExecutor:
                     "original_volume": plan.mix.original_volume, "tts_volume_ratio": plan.mix.tts_volume_ratio,
                     "tts_delay_ms": plan.mix.tts_delay_ms,
                     "output_length": plan.mix.output_length,
+                    **({"sidechain_ducking": True} if plan.mix.sidechain_ducking else {}),
+                    **({"adjust_tts_volume": False} if not plan.mix.adjust_tts_volume else {}),
                 })
             except Exception as exc:
                 warning = "混音音频已生成，但附加实验记录保存失败；音频结果仍可使用。"

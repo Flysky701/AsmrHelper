@@ -1,0 +1,8 @@
+.review-studio, .review-studio-body { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; }
+.review-studio-switch { display: inline-flex; gap: 2px; max-width: 100%; padding: 3px; background: var(--panel-muted); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.review-studio-switch button, .review-studio-new { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; padding: 5px 10px; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent; color: var(--muted-strong); font: inherit; font-size: var(--text-control); cursor: pointer; }
+.review-studio-switch button[aria-pressed=true] { background: var(--surface-elevated); color: var(--accent); box-shadow: var(--shadow-xs); font-weight: 600; }
+.review-studio-switch button:hover, .review-studio-new:hover { color: var(--accent); background: var(--accent-soft); }
+.review-studio-new { border-color: var(--border); background: var(--surface-elevated); color: var(--fg); }
+.review-studio-count { padding: 0 5px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: var(--text-help); font-variant-numeric: tabular-nums; }
+.subtitle-sub-nav { flex: none; padding-block: 8px; border-bottom: 1px solid var(--border); background: var(--surface); }

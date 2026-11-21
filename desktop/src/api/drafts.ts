@@ -3,8 +3,10 @@ import type {
   DraftCommitRequest,
   DraftCommitResponse,
   DraftDetail,
+  DraftInspectResponse,
   DraftListResponse,
   DraftPatchRequest,
+  DraftPrepareRequest,
   DraftState,
   DraftSummary,
   DraftSegment,
@@ -17,8 +19,10 @@ export type {
   DraftCommitRequest,
   DraftCommitResponse,
   DraftDetail,
+  DraftInspectResponse,
   DraftListResponse,
   DraftPatchRequest,
+  DraftPrepareRequest,
   DraftState,
   DraftSummary,
   DraftSegment,
@@ -87,6 +91,12 @@ export interface DraftListParams {
 }
 
 export const draftsApi = {
+  inspect: (pathOrDir: string) =>
+    api.post<DraftInspectResponse>('/drafts/inspect', { path_or_dir: pathOrDir }),
+
+  prepare: (body: DraftPrepareRequest) =>
+    api.post<DraftDetail>('/drafts/prepare', body),
+
   list: (params?: DraftListParams) => {
     const search = new URLSearchParams()
     if (params?.state) search.set('state', params.state)
@@ -97,6 +107,9 @@ export const draftsApi = {
 
   get: (draftId: string) =>
     api.get<DraftDetail>(`/drafts/${encodeURIComponent(draftId)}`),
+
+  remove: (draftId: string, revision: number) =>
+    api.delete<void>(`/drafts/${encodeURIComponent(draftId)}?expected_revision=${revision}`),
 
   getAudit: (draftId: string) =>
     api.get<QualityAuditReport>(`/drafts/${encodeURIComponent(draftId)}/audit`),

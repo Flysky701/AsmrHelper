@@ -13,13 +13,18 @@ from .providers import COMMON, ProviderError, SpeechProvider
 
 
 MODELS = ("gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts")
-VOICES = (
-    "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede",
-    "Callirrhoe", "Autonoe", "Enceladus", "Iapetus", "Umbriel", "Algieba",
-    "Despina", "Erinome", "Algenib", "Rasalgethi", "Laomedeia", "Achernar",
-    "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi",
-    "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
-)
+VOICES = {
+    "Zephyr": "明亮", "Puck": "轻快", "Charon": "讲解感",
+    "Kore": "坚定", "Fenrir": "活跃", "Leda": "年轻",
+    "Orus": "坚定", "Aoede": "轻盈", "Callirrhoe": "随和",
+    "Autonoe": "明亮", "Enceladus": "气声", "Iapetus": "清澈",
+    "Umbriel": "随和", "Algieba": "圆润", "Despina": "圆润",
+    "Erinome": "清澈", "Algenib": "沙哑", "Rasalgethi": "讲解感",
+    "Laomedeia": "轻快", "Achernar": "柔和", "Alnilam": "坚定",
+    "Schedar": "平稳", "Gacrux": "成熟", "Pulcherrima": "直接",
+    "Achird": "亲切", "Zubenelgenubi": "随性", "Vindemiatrix": "温柔",
+    "Sadachbia": "活泼", "Sadaltager": "知性", "Sulafat": "温暖",
+}
 
 
 def _decode_audio(response):
@@ -87,19 +92,19 @@ class GeminiSpeechProvider(SpeechProvider):
 
     def voice_sources(self, mode):
         if mode == "builtin":
-            return {"kind": mode, "presets": [{"id": name, "name": name} for name in VOICES],
+            return {"kind": mode, "presets": [{"id": name, "name": name, "trait": trait} for name, trait in VOICES.items()],
                     "default": "Kore", "required": True, "allow_custom": False,
                     "description": "Gemini studio voices; language follows the input text."}
         return {"kind": mode, "presets": [], "default": None, "required": True,
-                "allow_custom": True, "description": "Existing persistent voice_ ID from your Gemini account; this does not create a voice."}
+                "allow_custom": True, "description": "从 Gemini 音色库选择或填写已有音色 ID"}
 
     def validate(self, recipe, assets):
         super().validate(recipe, assets)
         voice = recipe["variant"]["value"]
         if recipe["mode"] == "builtin" and voice not in VOICES:
             raise ProviderError("invalid_variant", "请选择 Gemini 的真实内置音色")
-        if recipe["mode"] == "hosted" and not re.fullmatch(r"voice_[A-Za-z0-9_-]+", voice):
-            raise ProviderError("invalid_variant", "请填写已有的 Gemini voice_ 音色 ID")
+        if recipe["mode"] == "hosted" and (voice.startswith("voicekey_") or not re.fullmatch(r"[A-Za-z0-9_.-]+", voice)):
+            raise ProviderError("invalid_variant", "请选择 Gemini 音色库中的声音，或填写持久音色 ID")
         # The app's initial integration supports these output-text languages.
         # Gemini infers speech language from text; this is NOT a force-language field.
         language = recipe.get("language", "auto").lower().replace("_", "-").split("-", 1)[0]

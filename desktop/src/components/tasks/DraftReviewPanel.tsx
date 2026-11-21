@@ -15,6 +15,7 @@ import type {
 } from '@/api/types'
 import { t, format as formatMessage, useI18n } from '@/i18n'
 import { useAudioPlayerStore } from '@/stores/audioPlayerStore'
+import { confirmAction } from '@/utils/confirmAction'
 import { displayPath } from '@/utils/displayPath'
 import './DraftReviewPanel.css'
 
@@ -35,6 +36,8 @@ export interface CommitFormOptions {
   exportLrc: boolean
   bilingual?: boolean
   enableDubbing: boolean
+  regenerateCueIds?: string[]
+  mixOptions?: Record<string, unknown> | null
   expectedRevision?: number | null
 }
 
@@ -55,7 +58,7 @@ const SPEECH_CHAR_RE = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7afA-Za-z0-9]/
 const ACTIVE_DRAFT_STATES = new Set<DraftState>(['preparing', 'committing'])
 
 export const DRAFT_STATE_LABELS: Record<string, string> = {
-  awaiting_review: '待确认门禁',
+  awaiting_review: '待确认',
   preparing: '准备草稿中',
   committing: '正在合成交付',
   completed: '已完成交付',
@@ -137,17 +140,21 @@ export function buildDraftPatchRequest(
   segments: DraftSegment[],
   editedTranslations: Record<number, string>,
   expectedRevision: number,
+  editedDeliveries?: Record<number, string>,
 ): DraftPatchRequest {
   const edits: DraftSegmentEdit[] = []
   segments.forEach((seg, idx) => {
     const segIndex = typeof seg.index === 'number' ? seg.index : idx
     const draftValue = editedTranslations[segIndex]
-    if (draftValue === undefined) return
-    if (draftValue === (seg.translation ?? '')) return
+    const deliveryValue = editedDeliveries?.[segIndex]
+    const translationChanged = draftValue !== undefined && draftValue !== (seg.translation ?? '')
+    const deliveryChanged = deliveryValue !== undefined && deliveryValue !== (seg.delivery ?? 'normal')
+    if (!translationChanged && !deliveryChanged) return
     edits.push({
       index: segIndex,
       cue_id: seg.cue_id,
-      translation: draftValue,
+      ...(translationChanged ? { translation: draftValue } : {}),
+      ...(deliveryChanged ? { delivery: deliveryValue } : {}),
     })
   })
   return {
@@ -185,6 +192,10 @@ export function buildDraftCommitRequest(options: CommitFormOptions): DraftCommit
     export_formats: exportFormats,
     enable_dubbing: options.enableDubbing,
     bilingual: options.bilingual ?? true,
+    ...(options.regenerateCueIds && options.regenerateCueIds.length > 0
+      ? { regenerate_cue_ids: options.regenerateCueIds }
+      : {}),
+    ...(options.mixOptions ? { mix_options: options.mixOptions } : {}),
     expected_revision: options.expectedRevision ?? null,
   }
 }
@@ -285,10 +296,16 @@ export default function DraftReviewPanel({
   const [notice, setNotice] = useState('')
   const [savingPatch, setSavingPatch] = useState(false)
   const [committing, setCommitting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [filterMode, setFilterMode] = useState<SegmentFilterMode>(initialFilter)
   const [editedTranslations, setEditedTranslations] = useState<Record<number, string>>(
     () => (initialEdits ? { ...initialEdits } : {}),
   )
+  const [editedDeliveries, setEditedDeliveries] = useState<Record<number, string>>({})
+  const [retakeCueIds, setRetakeCueIds] = useState<string[]>([])
+  const [sidechainDucking, setSidechainDucking] = useState(true)
+  const [roomToneInpaint, setRoomToneInpaint] = useState(false)
+  const [binauralMode, setBinauralMode] = useState<'dynamic_hrtf' | 'static' | 'off'>('dynamic_hrtf')
 
   const selectedDraft = useMemo(
     () => drafts.find((item) => item.draft_id === selectedDraftId) ?? null,
@@ -311,6 +328,8 @@ export default function DraftReviewPanel({
     if (currentId === prevSelectedIdRef.current) return
     prevSelectedIdRef.current = currentId
     setEditedTranslations({})
+    setEditedDeliveries({})
+    setRetakeCueIds([])
     setActionError('')
     setNotice('')
     if (selectedDraft) {
@@ -358,7 +377,8 @@ export default function DraftReviewPanel({
       const freshAudit = typeof draftsApi.getAudit === 'function'
         ? await draftsApi.getAudit(draftId).catch(() => null)
         : null
-      setDrafts((current) => applyPatchedDraftState(current, fresh, freshAudit))
+      setDrafts((current) => current.some(item => item.draft_id === draftId)
+        ? applyPatchedDraftState(current, fresh, freshAudit) : current)
       setActionError('')
     } catch (error) {
       setActionError(formatMessage('读取草稿详情失败：{0}', [String(error)]))
@@ -405,10 +425,10 @@ export default function DraftReviewPanel({
   const pendingPatch = useMemo(
     () => (
       selectedDraft
-        ? buildDraftPatchRequest(selectedDraft.segments, editedTranslations, selectedDraft.revision)
+        ? buildDraftPatchRequest(selectedDraft.segments, editedTranslations, selectedDraft.revision, editedDeliveries)
         : { edits: [], expected_revision: null }
     ),
-    [editedTranslations, selectedDraft],
+    [editedDeliveries, editedTranslations, selectedDraft],
   )
 
   const referenceCandidate = useMemo(
@@ -430,7 +450,7 @@ export default function DraftReviewPanel({
   )
 
   const handleSaveEdits = async () => {
-    if (!selectedDraft || pendingPatch.edits.length === 0 || savingPatch || committing) return
+    if (!selectedDraft || pendingPatch.edits.length === 0 || savingPatch || committing || deleting) return
     setSavingPatch(true)
     setActionError('')
     setNotice('')
@@ -441,6 +461,7 @@ export default function DraftReviewPanel({
         : null
       setDrafts((current) => applyPatchedDraftState(current, updated, refreshedAudit))
       setEditedTranslations({})
+      setEditedDeliveries({})
       setNotice(formatMessage('已保存 {0} 处台词修订（版本 r{1}）', [pendingPatch.edits.length, updated.revision]))
     } catch (error) {
       if (error instanceof ApiError && (error.code === 'REVISION_CONFLICT' || error.status === 409)) {
@@ -454,7 +475,7 @@ export default function DraftReviewPanel({
   }
 
   const handleCommitDraft = async () => {
-    if (!selectedDraft || savingPatch || committing) return
+    if (!selectedDraft || savingPatch || committing || deleting) return
     const trimmedOut = outputDir.trim()
     if (!trimmedOut) {
       setActionError(t('请填写交付输出目录。'))
@@ -475,6 +496,7 @@ export default function DraftReviewPanel({
         currentRevision = patched.revision
         setDrafts((current) => applyPatchedDraftState(current, patched))
         setEditedTranslations({})
+        setEditedDeliveries({})
       }
       const commitPayload = buildDraftCommitRequest({
         outputDir: trimmedOut,
@@ -482,12 +504,25 @@ export default function DraftReviewPanel({
         exportLrc,
         bilingual,
         enableDubbing,
+        regenerateCueIds: retakeCueIds,
+        mixOptions: enableDubbing
+          ? {
+              sidechain_ducking: sidechainDucking,
+              room_tone_inpaint: roomToneInpaint,
+              binaural_mode: binauralMode,
+            }
+          : null,
         expectedRevision: currentRevision,
       })
       const committed = await draftsApi.commit(selectedDraft.draft_id, commitPayload)
       setDrafts((current) => applyPatchedDraftState(current, committed))
+      setRetakeCueIds([])
       setOutputDir(committed.artifacts?.output_dir || trimmedOut)
-      setNotice(formatMessage('已完成合成并交付至：{0}', [displayPath(committed.artifacts?.output_dir || trimmedOut)]))
+      setNotice(
+        retakeCueIds.length > 0
+          ? formatMessage('已重抽 {0} 句并重新混音交付至：{1}', [retakeCueIds.length, displayPath(committed.artifacts?.output_dir || trimmedOut)])
+          : formatMessage('已完成合成并交付至：{0}', [displayPath(committed.artifacts?.output_dir || trimmedOut)]),
+      )
     } catch (error) {
       if (error instanceof ApiError && (error.code === 'REVISION_CONFLICT' || error.status === 409)) {
         setActionError(t('草稿版本冲突，请先刷新最新草稿后再确认合成。'))
@@ -505,18 +540,35 @@ export default function DraftReviewPanel({
   const totalCueCount = selectedDraft?.segments.length ?? 0
   const isBusyState = Boolean(selectedDraft && ACTIVE_DRAFT_STATES.has(selectedDraft.state))
 
+  const handleDeleteDraft = async () => {
+    if (!selectedDraft || isBusyState || deleting || savingPatch || committing) return
+    const draft = selectedDraft
+    setDeleting(true)
+    setActionError('')
+    try {
+      if (!(await confirmAction(formatMessage('删除草稿「{0}」？', [draft.title || draft.draft_id])))) return
+      await draftsApi.remove(draft.draft_id, draft.revision)
+      setDrafts(current => current.filter(item => item.draft_id !== draft.draft_id))
+      await loadDraftList()
+    } catch (error) {
+      setActionError(formatMessage('删除草稿失败：{0}', [String(error)]))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="draft-review-panel">
-      <section className="draft-review-sidebar" aria-label={t('草稿门禁列表')}>
+      <section className="draft-review-sidebar" aria-label={t('草稿列表')}>
         <div className="draft-sidebar-header">
           <div className="draft-sidebar-title">
-            <strong>{t('草稿门禁列表')}</strong>
+            <strong>{t('草稿列表')}</strong>
             <span>{formatMessage('{0} 份草稿', [drafts.length])}</span>
           </div>
           <button
             type="button"
             className="draft-btn draft-btn--sm"
-            disabled={loadingList || savingPatch || committing}
+            disabled={loadingList || savingPatch || committing || deleting}
             onClick={() => { void loadDraftList() }}
           >
             {t('刷新草稿')}
@@ -543,6 +595,7 @@ export default function DraftReviewPanel({
                 type="button"
                 className={`draft-session-card ${isSelected ? 'is-selected' : ''}`}
                 aria-pressed={isSelected}
+                disabled={deleting}
                 onClick={() => {
                   setSelectedDraftId(draft.draft_id)
                 }}
@@ -557,7 +610,7 @@ export default function DraftReviewPanel({
                   <span>{formatMessage('{0} 条音轨 · {1} 句台词', [draft.tracks.length, draft.segments.length])}</span>
                   <span>
                     {draft.segments.length > 0
-                      ? (itemAudit.gate_passed ? t('门禁通过') : t('需复核'))
+                      ? (itemAudit.gate_passed ? t('检查通过') : t('需复核'))
                       : `r${draft.revision}`}
                   </span>
                 </div>
@@ -592,11 +645,15 @@ export default function DraftReviewPanel({
                 <button
                   type="button"
                   className="draft-btn draft-btn--sm"
-                  disabled={savingPatch || committing}
+                  disabled={savingPatch || committing || deleting}
                   onClick={() => { void reloadSelectedDraft(selectedDraft.draft_id) }}
                 >
                   {t('重新读取详情')}
                 </button>
+                {!isBusyState && <button type="button" className="draft-btn draft-btn--sm draft-btn--danger"
+                  disabled={savingPatch || committing || deleting} onClick={() => void handleDeleteDraft()}>
+                  {t(deleting ? '正在删除草稿…' : '删除草稿')}
+                </button>}
               </div>
             </header>
 
@@ -611,12 +668,12 @@ export default function DraftReviewPanel({
               {/* Quality Audit Summary Banner */}
               <section
                 className={`draft-audit-banner ${audit.gate_passed ? 'is-passed' : 'is-blocked'}`}
-                aria-label={t('质检门禁摘要')}
+                aria-label={t('检查结果')}
               >
                 <div className="draft-audit-banner__top">
                   <div className="draft-audit-banner__status">
                     <strong>
-                      {audit.gate_passed ? t('✓ 质检门禁已通过') : t('⚠ 待人工复核门禁')}
+                      {audit.gate_passed ? t('✓ 自动检查通过') : t('需人工核对')}
                     </strong>
                     <span>
                       {audit.gate_passed
@@ -763,7 +820,7 @@ export default function DraftReviewPanel({
                           type="button"
                           className="draft-btn draft-btn--sm"
                           disabled={savingPatch || committing}
-                          onClick={() => setEditedTranslations({})}
+                          onClick={() => { setEditedTranslations({}); setEditedDeliveries({}) }}
                         >
                           {t('放弃未存修改')}
                         </button>
@@ -795,6 +852,7 @@ export default function DraftReviewPanel({
                           <th>{t('时间区间')}</th>
                           <th>{t('原文')}</th>
                           <th>{t('译文修订')}</th>
+                          <th>{t('发声与操作')}</th>
                           <th>{t('质检状态')}</th>
                         </tr>
                       </thead>
@@ -804,6 +862,9 @@ export default function DraftReviewPanel({
                           const warn = segmentWarnings.get(segIndex)
                           const currentVal = editedTranslations[segIndex] ?? seg.translation ?? ''
                           const isDirty = editedTranslations[segIndex] !== undefined && editedTranslations[segIndex] !== (seg.translation ?? '')
+                          const currentDelivery = editedDeliveries[segIndex] ?? seg.delivery ?? 'normal'
+                          const cueId = seg.cue_id || ''
+                          const markedRetake = Boolean(cueId && retakeCueIds.includes(cueId))
                           return (
                             <tr
                               key={seg.cue_id || segIndex}
@@ -851,6 +912,38 @@ export default function DraftReviewPanel({
                                     }))
                                   }}
                                 />
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  <select
+                                    aria-label={formatMessage('第 {0} 句发声风格', [segIndex + 1])}
+                                    value={currentDelivery}
+                                    disabled={savingPatch || committing || isBusyState}
+                                    onChange={(event) => {
+                                      const val = event.target.value
+                                      setEditedDeliveries((prev) => ({ ...prev, [segIndex]: val }))
+                                    }}
+                                    style={{ padding: '4px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--fg)', fontSize: 12 }}
+                                  >
+                                    <option value="normal">{t('普通')}</option>
+                                    <option value="soft">{t('轻柔')}</option>
+                                    <option value="whisper">{t('耳语')}</option>
+                                  </select>
+                                  {selectedDraft.state === 'completed' && cueId ? (
+                                    <button
+                                      type="button"
+                                      className={`draft-btn draft-btn--sm${markedRetake ? ' draft-btn--primary' : ''}`}
+                                      disabled={savingPatch || committing || isBusyState}
+                                      onClick={() => {
+                                        setRetakeCueIds((prev) => (
+                                          prev.includes(cueId) ? prev.filter((id) => id !== cueId) : [...prev, cueId]
+                                        ))
+                                      }}
+                                    >
+                                      {markedRetake ? t('✓ 已标记重抽') : t('标记单句重抽')}
+                                    </button>
+                                  ) : null}
+                                </div>
                               </td>
                               <td>
                                 <div className="draft-warning-badges">
@@ -920,9 +1013,11 @@ export default function DraftReviewPanel({
                   >
                     {committing
                       ? t('正在合成并交付…')
-                      : selectedDraft.state === 'completed'
-                        ? t('重新合成并交付')
-                        : t('确认合成并交付')}
+                      : retakeCueIds.length > 0
+                        ? formatMessage('重抽 {0} 句并重新混音', [retakeCueIds.length])
+                        : selectedDraft.state === 'completed'
+                          ? t('重新合成并交付')
+                          : t('确认合成并交付')}
                   </button>
                 </div>
 
@@ -964,6 +1059,47 @@ export default function DraftReviewPanel({
                     <span>{t('启用配音混音')}</span>
                   </label>
                 </div>
+
+                {enableDubbing ? (
+                  <details style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                    <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--muted-strong)' }}>
+                      {t('ASMR 双耳与混音选项（V2）')}
+                    </summary>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', marginTop: 10 }}>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                        <span>{t('双耳声像')}</span>
+                        <select
+                          value={binauralMode}
+                          disabled={committing || savingPatch || isBusyState}
+                          onChange={(e) => setBinauralMode(e.target.value as 'dynamic_hrtf' | 'static' | 'off')}
+                          style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--fg)', fontSize: 12.5 }}
+                        >
+                          <option value="dynamic_hrtf">{t('动态双耳 HRTF（推荐）')}</option>
+                          <option value="static">{t('逐句静态声像')}</option>
+                          <option value="off">{t('单声道')}</option>
+                        </select>
+                      </label>
+                      <label className="draft-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={sidechainDucking}
+                          disabled={committing || savingPatch || isBusyState}
+                          onChange={(e) => setSidechainDucking(e.target.checked)}
+                        />
+                        <span>{t('配音发声时侧链压低背景')}</span>
+                      </label>
+                      <label className="draft-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={roomToneInpaint}
+                          disabled={committing || savingPatch || isBusyState}
+                          onChange={(e) => setRoomToneInpaint(e.target.checked)}
+                        />
+                        <span>{t('填补分离背景底噪空洞')}</span>
+                      </label>
+                    </div>
+                  </details>
+                ) : null}
 
                 {selectedDraft.state === 'completed' && selectedDraft.artifacts?.output_dir ? (
                   <div className="draft-delivered-box">

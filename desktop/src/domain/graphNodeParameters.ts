@@ -32,7 +32,8 @@ export function withGraphSpeechSource(node: GraphNode, source: GraphSpeechSource
 }
 
 export function graphNodeFromRecipe(node: GraphNode, recipe: SpeechRecipe): GraphNode {
-  const retained = Object.fromEntries(Object.entries(node.options).filter(([key]) => !['speech_recipe_id', 'speech_overrides', 'speech_source', 'voice', 'speed', 'language'].includes(key)))
+  const retained = Object.fromEntries(Object.entries(node.options).filter(([key]) => !['speech_recipe_id', 'speech_overrides', 'speech_source', 'voice', 'speed', 'language', 'auto_clone'].includes(key)))
+  if (node.options.auto_clone) delete retained.reference_mode
   const raw = node.options.speech_source
   if (raw !== undefined) {
     const source = readGraphSpeechSource(node)
@@ -104,7 +105,7 @@ export function graphSpeechIssue(node: GraphNode, provider: SpeechProvider | und
     const requirement = capabilities.reference as { transcript_required?: boolean } | undefined
     const needsText = requirement?.transcript_required || provider.provider_id === 'qwen3'
     const optional = provider.provider_id === 'qwen3' && source.provider_options.x_vector_only_mode === true
-    if (needsText && !optional && (!asset.transcript.trim() || asset.confirmed !== true)) return '当前参考克隆需要已核对的录音原文；Qwen 可显式启用“仅使用声音特征”。'
+    if (needsText && !optional && (!asset.transcript.trim() || asset.confirmed !== true)) return provider.provider_id === 'qwen3' ? '当前参考克隆需要已核对的录音原文；Qwen 可显式启用“仅使用声音特征”。' : '请先核对参考录音的原文。'
   }
   const values = recipe && 'device' in source.provider_options
     ? Object.fromEntries(Object.entries(source.provider_options).filter(([key]) => key !== 'device')) : source.provider_options
@@ -146,7 +147,7 @@ export function removeGraphMixTrack(node: GraphNode, id: string): GraphNode {
 }
 
 export function graphNodeHasAdvancedParameters(node: GraphNode): boolean {
-  return !['align', 'export'].includes(node.kind) && !isMultitrackMix(node)
+  return ['separate', 'asr', 'translate', 'mix', 'audio_difference'].includes(node.kind) && !isMultitrackMix(node)
 }
 
 export function editableGraphOptions(fields: CapabilityOptionResponse[]): CapabilityOptionResponse[] {

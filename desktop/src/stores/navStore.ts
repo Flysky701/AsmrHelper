@@ -11,16 +11,17 @@ export type PageId =
   | 'settings'
 
 export type TaskCenterView = 'tasks' | 'batches'
-export type EnginesView = 'local' | 'external'
+export type EnginesView = 'local' | 'remote' | 'external'
+export type ReviewView = 'drafts' | 'subtitles'
 
 export const PAGE_LABELS: Record<PageId, string> = {
-  workbench: '工作台',
-  'workflow-presets': '流水线编辑',
-  'subtitle-workshop': '字幕工坊',
-  'voice-lab': '声音与音色',
+  workbench: '创作台',
+  'workflow-presets': '高级流程编排',
+  'subtitle-workshop': '精修与字幕',
+  'voice-lab': '音色与配音',
   'audio-tools': '音频工具',
-  'task-center': '任务中心',
-  engines: '引擎与资源',
+  'task-center': '任务记录',
+  engines: '算力与模型',
   settings: '设置',
 }
 
@@ -30,6 +31,12 @@ let checkingNavigation = false
 interface NavStore {
   activePage: PageId
   setPage: (page: PageId) => Promise<void>
+  navCollapsed: boolean
+  toggleNavCollapsed: () => void
+  pendingDraftCount: number
+  setPendingDraftCount: (count: number) => void
+  reviewView: ReviewView
+  openReview: (view?: ReviewView) => Promise<void>
   enginesView: EnginesView
   setEnginesView: (view: EnginesView) => void
   openEngines: (view?: EnginesView) => Promise<void>
@@ -43,6 +50,17 @@ interface NavStore {
 
 export const useNavStore = create<NavStore>((set, get) => ({
   activePage: 'workbench',
+  navCollapsed: false,
+  toggleNavCollapsed: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
+  pendingDraftCount: 0,
+  setPendingDraftCount: (pendingDraftCount) => set({ pendingDraftCount }),
+  reviewView: 'drafts',
+  openReview: async (reviewView = 'drafts') => {
+    const state = get()
+    if (state.activePage === 'subtitle-workshop' && state.reviewView === reviewView) return
+    if (!(await state.confirmLeaveCurrentPage())) return
+    set({ activePage: 'subtitle-workshop', reviewView })
+  },
   setPage: async (page) => {
     const state = get()
     if (page !== state.activePage && !(await state.confirmLeaveCurrentPage())) return

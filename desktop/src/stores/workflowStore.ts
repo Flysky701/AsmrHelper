@@ -31,6 +31,7 @@ export interface WorkflowState {
   loadBuiltinTemplates: () => Promise<void>
   addBuiltinTemplate: (id: string, revision: number, label?: string) => Promise<PresetItem | GraphPresetItem | null>
   selectPreset: (preset: GraphPresetItem) => void
+  useGraphForRun: (graph: GraphDefinition) => void
   updateRuntimeNode: (node: GraphNode) => void
   setBinding: (slotId: string, value: GraphMaterialBinding | undefined) => void
   openEditor: (preset: GraphPresetItem | null, returnTo: Destination, useRuntime?: boolean) => void
@@ -156,6 +157,10 @@ export function createWorkflowStore(client: CatalogApi = pipelineApi, storage?: 
       selectPreset: preset => {
         selectionGeneration++
         set({ selectedPreset: cloneDraft(preset), runtimeGraph: cloneDraft(preset.graph), error: null, catalogNotice: null })
+      },
+      useGraphForRun: graph => {
+        selectionGeneration++
+        set({ selectedPreset: null, runtimeGraph: cloneDraft(graph), error: null, catalogNotice: null })
       },
       updateRuntimeNode: node => {
         const graph = get().runtimeGraph, previous = graph?.nodes.find(item => item.id === node.id)

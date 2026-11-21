@@ -15,6 +15,7 @@ from src.core.orchestration.pipeline.graph_audio import local_audio_node
 from src.core.orchestration.pipeline.models import PipelineExecutionContext
 from src.core.orchestration.pipeline.planner import build_execution_plan
 from src.core.orchestration.pipeline.workflow import subtitle_material
+from src.core.speech.remake import REMAKE_KEYS
 from src.core.subtitles.translation_reuse import audio_duration
 from src.app.persistence.recovery_store import file_identity
 
@@ -65,8 +66,16 @@ def capture_graph_speech_connections(profile: dict) -> dict:
             from .speech_service import get_speech_service
             if node["id"] not in snapshots:
                 raise ValueError("frozen speech snapshot unavailable; submit a new batch")
-            contexts[node["id"]] = get_speech_service().connection_context(
-                snapshots[node["id"]]["connection"])
+            speech = get_speech_service()
+            snapshot = snapshots[node["id"]]
+            contexts[node["id"]] = speech.connection_context(snapshot["connection"])
+            if "auto_clone_connection" in snapshot:
+                connection = snapshot["auto_clone_connection"]
+                try:
+                    clone = speech.connection_context(connection) if connection else None
+                except (OSError, ValueError):
+                    clone = None
+                contexts[node["id"]] = {"default_voice": contexts[node["id"]], "clone": clone}
     return deepcopy(contexts)
 
 
@@ -251,9 +260,19 @@ def _check_material_facts(graph: dict, values: dict) -> None:
             raise ValueError(f"节点 {node_id} 缺少匹配源语言的字幕")
         if node["kind"] == "tts" and language != node.get("target_lang"):
             raise ValueError(f"节点 {node_id} 缺少目标语言字幕，请自行连接翻译或更换素材")
-        if node["kind"] in {"align", "mix"} and not is_multitrack(node):
+        if node["kind"] in {"tts", "mix"} and not is_multitrack(node) and "reference_audio" in incoming:
+            reference = incoming["reference_audio"]
+            paired = incoming["subtitle" if node["kind"] == "tts" else "audio"]
+            if (not reference.get("timeline_id") or reference["timeline_id"] != paired.get("timeline_id")
+                    or reference.get("pair_confirmed") is not True or paired.get("pair_confirmed") is not True):
+                raise ValueError(f"节点 {node_id} 的参考音频尚未确认属于同一录音和时间轴")
+        if node["kind"] == "mix" and node["options"].get("room_tone_inpaint"):
+            speech = plan.inputs_for(node_id)["speech"]
+            if speech["kind"] != "node" or nodes[speech["node_id"]]["kind"] != "tts":
+                raise ValueError(f"节点 {node_id} 的底噪填补需要带时间轴的配音节点")
+        if node["kind"] in {"align", "delivery_detect", "mix"} and not is_multitrack(node):
             audio = incoming["audio"]
-            other = incoming["subtitle" if node["kind"] == "align" else "speech"]
+            other = incoming["speech" if node["kind"] == "mix" else "subtitle"]
             if (not audio.get("timeline_id") or audio.get("timeline_id") != other.get("timeline_id")
                     or audio.get("pair_confirmed") is not True or other.get("pair_confirmed") is not True):
                 raise ValueError(f"节点 {node_id} 的素材尚未确认属于同一录音和时间轴")
@@ -279,7 +298,16 @@ def freeze_graph_speech(profile: dict) -> dict:
         speech = get_speech_service()
         snapshot = snapshots.get(node["id"])
         if snapshot is None:
-            snapshot = speech.pipeline_snapshot(node_profile(node)["stages"]["tts"])
+            stage = node_profile(node)["stages"]["tts"]
+            automatic_clone = stage["options"].pop("auto_clone", False)
+            for key in ("borrow_silence_slack", "max_atempo", "acoustic_options", "auto_detect_delivery", *REMAKE_KEYS):
+                stage["options"].pop(key, None)
+            if automatic_clone:
+                if stage["provider"] != "speech" or stage.get("model") or stage["options"].keys() - {"language"}:
+                    raise ValueError("自动原声克隆需要使用独立的声音来源")
+                snapshot = speech.auto_dubbing_snapshot(node["target_lang"])
+            else:
+                snapshot = speech.pipeline_snapshot(stage)
             # Auto is a portable recipe preference; a newly submitted node has
             # an explicit output language. Freeze that choice only in this run.
             # Existing task snapshots and the saved recipe remain unchanged.
@@ -298,7 +326,7 @@ def freeze_graph_speech(profile: dict) -> dict:
 
 
 def make_node_plan(node: dict, *, task_id: str, output_dir: str, snapshots: dict):
-    if node["kind"] == "audio_export" or local_audio_node(node):
+    if node["kind"] in {"audio_export", "delivery_detect"} or local_audio_node(node):
         # This graph-only operation copies a validated audio value; it has no
         # legacy engine plan, model, connection or implicit upstream stages.
         return None

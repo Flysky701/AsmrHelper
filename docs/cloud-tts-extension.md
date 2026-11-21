@@ -9,15 +9,14 @@ or replace the existing v1.1 candidate preview.
 
 | Provider | Models | Voice source | Exposed controls |
 | --- | --- | --- | --- |
-| Gemini | `gemini-3.8-flash-tts`, `gemini-3.8-flash-lite-tts` | 30 built-in voices or existing persistent `voice_` ID | Style metadata, delivery and emotion instructions |
-| ElevenLabs | `eleven_v3`, `eleven_flash_v2_5`, `eleven_v4` | Existing Voice ID, entered manually | Speed on v3/Flash; stability only on Flash; v4 has no numeric voice overrides |
-| MiMo | `mimo-v2.5-tts` | Nine documented built-in voice IDs | Style, delivery, emotion and language instructions |
+| Gemini | `gemini-3.8-flash-tts`, `gemini-3.8-flash-lite-tts` | 30 built-in voices or an existing library voice (search or ID) | Style metadata, delivery and emotion instructions |
+| ElevenLabs | `eleven_v3`, `eleven_flash_v2_5`, `eleven_v4` | Existing account voice, selected by name or ID | Stability on v3, Flash and v4; similarity on Flash and v4; speed on Flash |
+| MiMo | `mimo-v2.5-tts`, `mimo-v2.5-tts-voicedesign`, `mimo-v2.5-tts-voiceclone` | Nine built-in voices, a design prompt or reference audio | Style, delivery, emotion and language instructions |
 
 All use single-voice, non-streaming requests and normalize audio into the existing
 WAV take/artifact pipeline. Local recipe save/load, auditions and existing TTS
 graph nodes share the same provider compiler and immutable connection snapshot.
-No remote voice creation, reference upload, voice design, multi-speaker dialogue
-or streaming was added. No new dependency or model download is required.
+Reference synthesis sends the selected recording to MiMo. Design synthesis sends the voice description. The resulting audio follows the same WAV output pipeline.
 
 Gemini detects language from the spoken text. MiMo currently exposes Chinese and
 English only; its explicit language is an instruction, not a guarantee of adherence.
@@ -27,7 +26,7 @@ Output language is separate from reference recording language.
 ElevenLabs v4 uses the ordinary HTTP TTS endpoint, as demonstrated by its official
 product-page sample. v4 Turbo ordinary REST support remains unverified and is not
 advertised; this does not imply that it is unavailable. Model-specific unsupported options
-are rejected, including stability on the current v3 adapter. Cloud responses and
+are rejected, including speed overrides on v3. Cloud responses and
 errors do not prove model quality or reproducibility.
 
 ## Configuration and acceptance

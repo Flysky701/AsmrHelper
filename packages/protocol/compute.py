@@ -15,7 +15,7 @@ from .errors import ComputeErrorPayload
 
 PROTOCOL_VERSION = "1.0"
 AudioFormat = Literal["flac", "wav"]
-DEFAULT_SUPPORTED_TASKS: tuple[str, ...] = ("separate", "asr", "align", "tts_batch")
+DEFAULT_SUPPORTED_TASKS: tuple[str, ...] = ("separate", "asr", "align", "tts_batch", "vc_batch")
 
 
 class WorkerCapabilities(BaseModel):
@@ -29,6 +29,8 @@ class WorkerCapabilities(BaseModel):
     vram_total_mb: int = Field(default=0, ge=0)
     vram_free_mb: int | None = Field(default=None, ge=0)
     loaded_models: list[str] = Field(default_factory=list)
+    optional_tts_providers: list[str] = Field(default_factory=list)
+    installed_providers: dict[str, list[str]] = Field(default_factory=dict)
     supported_tasks: list[str] = Field(
         default_factory=lambda: list(DEFAULT_SUPPORTED_TASKS)
     )
@@ -295,6 +297,9 @@ class TtsBatchRequest(BaseModel):
     reference_audio_filename: str | None = None
     references: dict[str, str] = Field(default_factory=dict)
     references_b64: dict[str, str] = Field(default_factory=dict)
+    verify_with_asr: bool = False
+    max_retries: int = Field(default=2, ge=0, le=5)
+    min_similarity: float = Field(default=0.75, ge=0.0, le=1.0)
     options: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -323,3 +328,44 @@ class TtsBatchResult(BaseModel):
     output_format: AudioFormat = "flac"
     items: list[TtsBatchItemResult] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class VcBatchItem(BaseModel):
+    id: str = Field(min_length=1)
+    source_audio_path: str | None = None
+    source_audio_b64: str | None = None
+    reference_id: str = Field(min_length=1)
+    output_path: str | None = None
+
+
+class VcBatchRequest(BaseModel):
+    provider_id: Literal["seed_vc"] = "seed_vc"
+    diffusion_steps: int = Field(default=25, ge=1, le=100)
+    output_format: AudioFormat = "flac"
+    items: list[VcBatchItem] = Field(min_length=1)
+    references: dict[str, str] = Field(default_factory=dict)
+    references_b64: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_item_ids(self) -> VcBatchRequest:
+        ids = {item.id for item in self.items}
+        if len(ids) != len(self.items):
+            raise ValueError("VC item IDs must be unique")
+        return self
+
+
+class VcBatchItemResult(BaseModel):
+    id: str
+    ok: bool = True
+    output_path: str | None = None
+    audio_b64: str | None = None
+    output_format: AudioFormat = "flac"
+    sample_rate: int | None = Field(default=None, gt=0)
+    duration_seconds: float | None = Field(default=None, ge=0)
+    error: ComputeErrorPayload | None = None
+
+
+class VcBatchResult(BaseModel):
+    provider_id: Literal["seed_vc"] = "seed_vc"
+    output_format: AudioFormat = "flac"
+    items: list[VcBatchItemResult] = Field(default_factory=list)

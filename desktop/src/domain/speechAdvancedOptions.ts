@@ -11,6 +11,7 @@ export function unsupportedSpeechOptions(provider: SpeechProvider | undefined, m
   const fields = availableSpeechOptions(provider, mode, model)
   return Object.keys(values).filter(key => {
     if (key === 'schema_version' || fields.some(([name]) => key === name)) return false
+    if (provider?.provider_id === 'elevenlabs' && model === 'eleven_v3' && key === 'speed' && values[key] === 1) return false
     const field = provider?.options_schema.properties[key]
     return !(field && values[key] === field.default && (values[key] === false || values[key] === ''))
   })

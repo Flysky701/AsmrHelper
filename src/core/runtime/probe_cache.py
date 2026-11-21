@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from stat import S_ISDIR
 import sys
 from pathlib import Path
 from uuid import uuid4
@@ -20,6 +21,8 @@ def signature(profile, project_root: Path) -> str:
         paths.append(site)
         if site.is_dir():
             for child in sorted(site.iterdir()):
+                if child.name == '__pycache__':
+                    continue
                 paths.append(child)
                 if child.is_dir() and not child.name.endswith(".dist-info"):
                     paths.append(child / "__init__.py")
@@ -33,12 +36,16 @@ def signature(profile, project_root: Path) -> str:
     for path in paths:
         try:
             stat = path.stat()
-            identities.append((str(path), stat.st_size, stat.st_mtime_ns))
+            # Importing can create caches inside package directories. The directory
+            # name, package entry point and installation metadata identify the install.
+            identities.append((str(path), 0, 0) if S_ISDIR(stat.st_mode)
+                              else (str(path), stat.st_size, stat.st_mtime_ns))
         except OSError:
             identities.append((str(path), None, None))
     data = {"version": 1, "files": identities,
             "env": {key: os.environ.get(key) for key in
-                    ("CUDA_VISIBLE_DEVICES", "PYTHONPATH", "CUDA_PATH", "PATH")}}
+                    ("CUDA_VISIBLE_DEVICES", "NVIDIA_VISIBLE_DEVICES", "PYTHONPATH", "CUDA_PATH",
+                     "LD_LIBRARY_PATH", "ASMR_HELPER_CUDA_LIBRARY_DIR")}}
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 

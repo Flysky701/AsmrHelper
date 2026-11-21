@@ -6,6 +6,7 @@ import { useSpeechPresetHandoffStore } from '@/stores/speechPresetHandoffStore'
 import type { GraphPresetItem, PresetItem } from '@/api/types'
 import WorkflowEditor from '@/components/workflow/WorkflowEditor'
 import GraphNodeParameters from '@/components/workflow/GraphNodeParameters'
+import { groupWorkflowPresets } from '@/domain/pipelinePreset'
 import { editorDirty, newGraphNode } from '@/domain/workflowDraft'
 import { validateGraph } from '@/domain/workflowGraph'
 import { useNavStore } from '@/stores/navStore'
@@ -21,6 +22,7 @@ export default function WorkflowPresets() {
   const [catalogId, setCatalogId] = useState(editor?.preset?.id || '')
   const [opening, setOpening] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [catalogOpen, setCatalogOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [addingTemplateId, setAddingTemplateId] = useState<string | null>(null)
   const [templateNames, setTemplateNames] = useState<Record<string, string>>({})
@@ -79,12 +81,20 @@ export default function WorkflowPresets() {
     if (create || item && 'graph' in item) {
       if (create) setCatalogId('')
       workflow.openEditor(create ? null : item && 'graph' in item ? item : null, returnTo)
+      setCatalogOpen(false)
+      setTemplatesOpen(false)
       return
     }
     if (!item) return
     openingRef.current = true
     setOpening(true)
-    try { await workflow.openLegacyEditor(item, returnTo) }
+    try {
+      await workflow.openLegacyEditor(item, returnTo)
+      if (useWorkflowStore.getState().editor) {
+        setCatalogOpen(false)
+        setTemplatesOpen(false)
+      }
+    }
     finally { openingRef.current = false; setOpening(false) }
   }
   async function save(mode: 'update' | 'copy') {
@@ -138,18 +148,21 @@ export default function WorkflowPresets() {
   }
 
   return <div className="workflow-presets">
-    <header className="wfp-header page-heading">
+    <header className="wfp-header page-heading app-page-heading">
       <div className="page-heading__copy"><div className="page-title-row"><h1 className="page-title">{editor ? editor.preset ? t("编辑流水线") : t("新建流水线") : t("流水线编辑器")}</h1><QuickStartHelp topic={'workflow'} /></div></div>
       <div className="wfp-actions page-heading__actions">
+        {editor && <button type="button" className="wfp-button" aria-expanded={catalogOpen} aria-controls="wfp-catalog" onClick={() => { setCatalogOpen(!catalogOpen); if (catalogOpen) setTemplatesOpen(false) }}>{t("预设管理")}</button>}
         {editor?.preset && !editor.preset.builtin && <button type="button" className="wfp-button" disabled={busy || !!saveReason} title={saveReason ? t(saveReason) : undefined} onClick={() => void save('copy')}>{t("另存为新预设")}</button>}
         {editor && <button type="button" className="wfp-button is-primary" disabled={busy || !!saveReason} title={saveReason ? t(saveReason) : undefined} aria-describedby={saveReason ? 'wfp-save-reason' : undefined} onClick={() => void save(editor.preset && !editor.preset.builtin ? 'update' : 'copy')}>{saving && !deletingId && !addingTemplateId ? t("正在保存…") : editor.preset?.builtin ? t("保存副本并返回") : t("保存并返回")}</button>}
         <button type="button" className="wfp-button" disabled={busy} onClick={goBack}>{format("返回{0}", [editor?.returnTo === 'workbench' ? t("工作台") : t("设置")])}</button>
       </div>
     </header>
-    <section className="wfp-catalog" aria-label={t("选择要编辑的流水线")}>
+    <section id="wfp-catalog" className="wfp-catalog" hidden={Boolean(editor) && !catalogOpen} aria-label={t("选择要编辑的流水线")}>
       <label><span>{t("已保存流水线")}</span><select aria-label={t("已保存流水线")} value={catalogId} disabled={busy || catalogLoading} onChange={event => setCatalogId(event.target.value)}>
         <option value="">{catalogLoading ? t("正在读取目录…") : catalog.length ? t("选择流水线") : t("活动目录为空，可新建或添加模板")}</option>
-        {catalog.map(preset => <option key={preset.id} value={preset.id}>{preset.label} · {presetKind(preset)}</option>)}
+        {groupWorkflowPresets(catalog).map(group => <optgroup key={group.label} label={t(group.label)}>
+          {group.items.map(preset => <option key={preset.id} value={preset.id}>{preset.label} · {presetKind(preset)}</option>)}
+        </optgroup>)}
       </select></label>
       <button type="button" className="wfp-button" disabled={busy || !selected} onClick={() => void openPreset()}>{opening ? t("正在转换…") : selected && !('graph' in selected) ? t("转换为节点草稿") : t("打开编辑")}</button>
       <button type="button" className="wfp-button" disabled={busy} onClick={() => void openPreset(true)}>{t("新建流水线")}</button>
@@ -163,11 +176,15 @@ export default function WorkflowPresets() {
             {templatesLoading && <p className="wfp-archive-message" role="status">{t("正在读取内置模板…")}</p>}
             {templatesError && <div className="wfp-archive-message" role="alert">{t("读取失败：")}{templatesError}<button type="button" className="wfp-button" disabled={templatesLoading || busy} onClick={() => void workflow.loadBuiltinTemplates()}>{t("重试")}</button></div>}
             {!templatesLoading && !templatesError && !builtinTemplates.length && <p className="wfp-archive-message">{t("没有可添加的内置模板。可从当前目录打开，或新建流水线。")}</p>}
-            {builtinTemplates.map(preset => <article className="wfp-archive-item" key={preset.id}>
-              <div className="wfp-archive-item-title"><strong>{preset.label}</strong><span>{presetKind(preset)}</span></div>
-              <div className="wfp-archive-restore"><label><span>{t("新预设名称")}</span><input aria-label={format("{0} 新预设名称", [preset.label])} value={templateNames[preset.id] ?? preset.label} maxLength={100} disabled={busy} onChange={event => setTemplateNames(current => ({ ...current, [preset.id]: event.target.value }))} /></label><button type="button" className="wfp-button" disabled={busy || !(templateNames[preset.id] ?? preset.label).trim()} aria-label={format("添加 {0} 到目录", [preset.label])} onClick={() => void addTemplate(preset)}>{addingTemplateId === preset.id ? t("正在添加…") : t("添加到目录")}</button></div>
-              {templateErrors[preset.id] && <p className="wfp-restore-error" role="alert">{t(templateErrors[preset.id] || '')}</p>}
-            </article>)}
+            {groupWorkflowPresets(builtinTemplates).map(group => <section className="wfp-template-group" key={group.label}>
+              <h2>{t(group.label)}</h2>
+              {group.items.map(preset => <article className="wfp-archive-item" key={preset.id}>
+                <div className="wfp-archive-item-title"><strong>{preset.label}</strong>{!('graph' in preset) && <span>{t("旧版")}</span>}</div>
+                {preset.description && <p className="wfp-archive-description">{t(preset.description)}</p>}
+                <div className="wfp-archive-restore"><label><span>{t("新预设名称")}</span><input aria-label={format("{0} 新预设名称", [preset.label])} value={templateNames[preset.id] ?? preset.label} maxLength={100} disabled={busy} onChange={event => setTemplateNames(current => ({ ...current, [preset.id]: event.target.value }))} /></label><button type="button" className="wfp-button" disabled={busy || !(templateNames[preset.id] ?? preset.label).trim()} aria-label={format("添加 {0} 到目录", [preset.label])} onClick={() => void addTemplate(preset)}>{addingTemplateId === preset.id ? t("正在添加…") : t("添加到目录")}</button></div>
+                {templateErrors[preset.id] && <p className="wfp-restore-error" role="alert">{t(templateErrors[preset.id] || '')}</p>}
+              </article>)}
+            </section>)}
           </div>
         </section>}
       </div>

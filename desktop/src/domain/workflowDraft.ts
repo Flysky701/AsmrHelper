@@ -37,6 +37,7 @@ export function newGraphNode(kind: GraphNodeKind, graph: GraphDefinition): Graph
   const defaults: Record<GraphNodeKind, [string, string | null]> = {
     separate: ['demucs', 'htdemucs'], asr: ['faster_whisper', 'faster-whisper-base'],
     align: ['qwen3_forced_aligner', 'qwen3-forced-aligner-0.6b'], translate: ['deepseek', null],
+    delivery_detect: ['local', null],
     tts: ['speech', null], mix: ['ffmpeg', null], audio_difference: ['local', null], export: ['ffmpeg', null], audio_export: ['local', null],
   }
   const [provider, model] = defaults[kind]

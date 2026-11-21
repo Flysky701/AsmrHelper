@@ -165,7 +165,13 @@ class PipelineRecovery:
         connection = self.connection_fingerprint
         if isinstance(connection, dict):
             connection = connection.get("llm" if stage == "translate" else "tts", connection)
-        return fingerprint({"version": 1, "stage": stage, "binding": asdict(binding),
+        binding_data = asdict(binding)
+        if stage == "mix":
+            for key, default in (("sidechain_ducking", False), ("adjust_tts_volume", True),
+                                 ("room_tone_inpaint", False)):
+                if binding_data.get(key) == default:
+                    del binding_data[key]
+        return fingerprint({"version": 1, "stage": stage, "binding": binding_data,
             "model": self._models.get(model), "upstream": upstream,
             "language": [self.plan.source_lang, self.plan.target_lang] if stage in ("translate", "tts", "export")
                 else self.plan.source_lang,

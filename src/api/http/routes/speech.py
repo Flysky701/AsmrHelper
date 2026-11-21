@@ -104,10 +104,14 @@ def probe(connection_id: str, body: dict | None = None, svc=Depends(get_speech_s
 @router.get("/connections/{connection_id}/voices")
 def connection_voices(connection_id: str, title: str = Query("", max_length=200),
                       page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
-                      workspace_only: bool = True,
+                      page_token: str = Query("", max_length=2048), workspace_only: bool = True,
                       scope: Literal["workspace", "mine_public", "public"] | None = None,
                       svc=Depends(get_speech_service)):
     item = call(svc.store.get, "connections", connection_id)
+    if item.get("provider_id") in {"gemini", "elevenlabs"}:
+        from src.core.speech.voice_catalog import list_account_voices
+        context = call(svc.connection_context, item)
+        return call(list_account_voices, context["connection"], title=title, page_size=page_size, page_token=page_token)
     if item.get("provider_id") != "fish_audio":
         raise HTTPException(422, "此连接不支持获取声音列表，请手填 Voice ID")
     context = call(svc.connection_context, item)

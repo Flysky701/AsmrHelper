@@ -40,8 +40,7 @@ test('one controlled Voice ID with clearly distinct account, workspace and publi
   assert.match(view.html, /我的公开音色（API 账号）/)
   assert.match(view.html, /当前工作区音色/)
   assert.match(view.html, /公共音色库（所有作者）/)
-  assert.match(setup({ scope: 'workspace' }).html, /不等同于本人公开库/)
-  assert.match(setup({ scope: 'public' }).html, /不代表属于当前账号/)
+  assert.doesNotMatch(view.html, /声音范围说明/)
   assert.equal(view.selected.length, 0)
 })
 
@@ -75,7 +74,7 @@ test('scope and search reset page without clearing selection; pagination follows
   assert.deepEqual(view.changed, [[1, 'public'], [2, 1], [0, 'filter'], [2, 1]])
   assert.deepEqual(view.selected, [])
   const last = setup({ result: { data: { ...data, has_more: false } } })
-  assert.equal(last.all.find(node => node.type === 'button' && node.props.children === '下一页').props.disabled, true)
+  assert.equal(last.all.some(node => node.type === 'button' && node.props.children === '下一页'), false)
 })
 
 test('client sends explicit scope and pagination without a second voice field', async () => {

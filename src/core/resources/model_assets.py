@@ -11,6 +11,8 @@ from src.config import PROJECT_ROOT
 
 _lock = threading.RLock()
 DEMUCS_FILES = {
+    'mdx': ['0d19c1c6-0f06f20e.th', '7ecf8ec1-70f50cc9.th', 'c511e2ab-fe698775.th', '7d865c68-3d5dd56b.th'],
+    'mdx_extra': ['e51eebcc-c1b80bdd.th', 'a1d90b5c-ae9d2452.th', '5d2d6c55-db83574e.th', 'cfa93e08-61801ae1.th'],
     'htdemucs': ['955717e8-8726e21a.th'],
     'htdemucs_ft': ['f7e0c4bc-ba3fe64a.th', 'd12395a8-e57c48e6.th', '92cfc3b6-ef3bcb9c.th', '04573f0d-f3cf25b2.th'],
     'htdemucs_6s': ['5c90dfd2-34c22ccb.th'],

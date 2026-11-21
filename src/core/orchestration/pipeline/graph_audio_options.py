@@ -19,8 +19,20 @@ def validate_audio_options(node, add):
             add("invalid_option", f"{key} 必须是允许范围内的有限数值", node["id"])
         return valid
 
+    if node.get("kind") == "tts":
+        from src.core.speech.remake import validate_timeline_options
+
+        try:
+            validate_timeline_options(options)
+        except ValueError as exc:
+            add("invalid_option", str(exc), node["id"])
+    if node.get("kind") == "mix":
+        for key in ("sidechain_ducking", "room_tone_inpaint", "adjust_tts_volume"):
+            if key in options and type(options[key]) is not bool:
+                add("invalid_option", f"{key} 必须是布尔值", node["id"])
     if node.get("kind") == "mix" and "tracks" in options:
-        if options.keys() & {"original_volume", "tts_volume_ratio", "tts_delay_ms"}:
+        if options.keys() & {"original_volume", "tts_volume_ratio", "tts_delay_ms",
+                              "sidechain_ducking", "room_tone_inpaint", "adjust_tts_volume"}:
             add("invalid_option", "多轨混音不能同时使用旧双轨音量参数", node["id"])
         tracks = options["tracks"]
         if not isinstance(tracks, list) or not 1 <= len(tracks) <= 32:

@@ -1,5 +1,5 @@
 /** Graph V2 is the only execution authority. Runtime material bindings are separate. */
-export const GRAPH_NODE_KINDS = ['separate', 'asr', 'align', 'translate', 'tts', 'mix', 'audio_difference', 'export', 'audio_export'] as const
+export const GRAPH_NODE_KINDS = ['separate', 'asr', 'align', 'delivery_detect', 'translate', 'tts', 'mix', 'audio_difference', 'export', 'audio_export'] as const
 /** Legacy kinds stay readable; the library offers only useful processing steps. */
 export const GRAPH_ADDABLE_NODE_KINDS = GRAPH_NODE_KINDS.filter(kind => kind !== 'audio_export')
 export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number]
@@ -53,20 +53,24 @@ export interface GraphCapability {
   outputs: Record<string, GraphPortType>
 }
 export const GRAPH_CATALOG: Record<GraphNodeKind, GraphCapability> = {
-  separate: { label: '人声分离', inputs: { audio: 'audio' }, outputs: { audio: 'audio' } },
+  separate: { label: '人声分离', inputs: { audio: 'audio' }, outputs: { audio: 'audio', background: 'audio' } },
   asr: { label: '语音识别', inputs: { audio: 'audio' }, outputs: { subtitle: 'subtitle' } },
   align: { label: '时间轴校准', inputs: { audio: 'audio', subtitle: 'subtitle' }, outputs: { subtitle: 'subtitle' } },
+  delivery_detect: { label: '发声方式识别', inputs: { audio: 'audio', subtitle: 'subtitle' }, outputs: { subtitle: 'subtitle' } },
   translate: { label: '字幕翻译', inputs: { subtitle: 'subtitle' }, outputs: { subtitle: 'subtitle' } },
-  tts: { label: '语音合成', inputs: { subtitle: 'subtitle' }, outputs: { audio: 'audio' } },
-  mix: { label: '混音', inputs: { audio: 'audio', speech: 'audio' }, outputs: { audio: 'audio' } },
+  tts: { label: '语音合成', inputs: { subtitle: 'subtitle', reference_audio: 'audio' }, outputs: { audio: 'audio' } },
+  mix: { label: '混音', inputs: { audio: 'audio', speech: 'audio', reference_audio: 'audio' }, outputs: { audio: 'audio' } },
   audio_difference: { label: '音频差分', inputs: { reference: 'audio', mixed: 'audio' }, outputs: { audio: 'audio' } },
   export: { label: '字幕格式转换', inputs: { subtitle: 'subtitle' }, outputs: { subtitle: 'subtitle' } },
   audio_export: { label: '音频导出', inputs: { audio: 'audio' }, outputs: { audio: 'audio' } },
 }
 export const GRAPH_OPTION_KEYS: Record<GraphNodeKind, readonly string[] | null> = {
-  separate: ['mode'], asr: null, align: [], translate: null,
-  tts: ['speech_recipe_id', 'speech_overrides', 'speech_source', 'voice', 'speed'],
-  mix: ['original_volume', 'tts_volume_ratio', 'tts_delay_ms', 'output_length', 'tracks'],
+  separate: ['mode'], asr: null, align: [], delivery_detect: [], translate: null,
+  tts: ['speech_recipe_id', 'speech_overrides', 'speech_source', 'voice', 'speed', 'auto_clone', 'borrow_silence_slack',
+    'max_atempo', 'acoustic_options', 'auto_detect_delivery', 'reference_mode', 'verify_with_asr',
+    'max_retries', 'min_similarity', 'vc_refinement'],
+  mix: ['original_volume', 'tts_volume_ratio', 'tts_delay_ms', 'output_length', 'tracks',
+    'sidechain_ducking', 'room_tone_inpaint', 'adjust_tts_volume'],
   audio_difference: ['alignment', 'offset_ms', 'match_gain', 'gain_left', 'gain_right', 'calibration_start', 'calibration_end', 'max_shift_seconds'],
   export: ['subtitle_format'], audio_export: [],
 }
@@ -88,11 +92,23 @@ export function graphMixTracks(node: GraphNode): GraphMixTrack[] {
   return Array.isArray(node.options.tracks) ? node.options.tracks.filter((track): track is GraphMixTrack => record(track) && typeof track.id === 'string') : []
 }
 export function graphNodeInputs(node: GraphNode): Record<string, GraphPortType> {
-  return isMultitrackMix(node) ? Object.fromEntries(graphMixTracks(node).map(track => [track.id, 'audio' as const])) : GRAPH_CATALOG[node.kind].inputs
+  if (isMultitrackMix(node)) return Object.fromEntries(graphMixTracks(node).map(track => [track.id, 'audio' as const]))
+  if (node.kind === 'mix' && node.options.room_tone_inpaint !== true) return { audio: 'audio', speech: 'audio' }
+  return GRAPH_CATALOG[node.kind].inputs
 }
 export function graphInputLabel(node: GraphNode, port: string): string {
   if (isMultitrackMix(node)) return `音轨 · ${port}`
+  if (port === 'reference_audio') return graphInputRequired(node, port) ? '原声参考' : '原声参考（可选）'
   return ({ audio: '音频', speech: '叠加音轨', subtitle: '字幕', reference: '基准音频（无附加音效）', mixed: '含附加音效音频' } as Record<string, string>)[port] || port
+}
+export function graphInputRequired(node: GraphNode, port: string): boolean {
+  if (isMultitrackMix(node) || port !== 'reference_audio') return true
+  if (node.kind === 'mix') return node.options.room_tone_inpaint === true
+  const acoustic = record(node.options.acoustic_options) ? node.options.acoustic_options : {}
+  const vc = record(node.options.vc_refinement) ? node.options.vc_refinement : {}
+  return node.options.auto_detect_delivery === true || ['per_style', 'per_cue'].includes(String(node.options.reference_mode))
+    || vc.enabled === true || acoustic.binaural_mode === 'dynamic_hrtf'
+    || acoustic.loudness_match === 'per_cue' || acoustic.eq_matching === true
 }
 function portableIssue(value: unknown, depth = 0): boolean {
   if (depth > 16) return true
@@ -154,11 +170,11 @@ export function validateGraph(graph: GraphDefinition): GraphIssue[] {
     const allowed = GRAPH_OPTION_KEYS[node.kind]
     if (allowed && record(node.options) && Object.keys(node.options).some(key => !allowed.includes(key))) add('unsupported_option', '节点包含当前能力不会执行的参数', node.id)
     if (!['asr', 'translate'].includes(node.kind) && record(node.provider_options) && Object.keys(node.provider_options).length) add('unsupported_option', '该节点不接收顶层 provider_options', node.id)
-    const fixed = ({ separate: 'demucs', align: 'qwen3_forced_aligner', mix: 'ffmpeg', audio_difference: 'local', export: 'ffmpeg', audio_export: 'local' } as Partial<Record<GraphNodeKind, string>>)[node.kind]
+    const fixed = ({ separate: 'demucs', align: 'qwen3_forced_aligner', delivery_detect: 'local', mix: 'ffmpeg', audio_difference: 'local', export: 'ffmpeg', audio_export: 'local' } as Partial<Record<GraphNodeKind, string>>)[node.kind]
     if (fixed && node.provider !== fixed) add('unsupported_provider', `该能力当前仅接线 ${fixed}`, node.id)
     if (node.kind === 'align' && ![null, 'default', 'qwen3-forced-aligner-0.6b'].includes(node.model)) add('unsupported_model', '校准仅支持 qwen3-forced-aligner-0.6b', node.id)
-    if (['mix', 'audio_difference', 'export', 'audio_export'].includes(node.kind) && ![null, 'default'].includes(node.model)) add('unsupported_model', '该节点不使用模型', node.id)
-    if (node.kind === 'separate' && record(node.options) && (node.options.mode ?? 'vocals') !== 'vocals') add('unsupported_option', '分离节点当前仅提供人声轨', node.id)
+    if (['mix', 'audio_difference', 'delivery_detect', 'export', 'audio_export'].includes(node.kind) && ![null, 'default'].includes(node.model)) add('unsupported_model', '该节点不使用模型', node.id)
+    if (node.kind === 'separate' && record(node.options) && (node.options.mode ?? 'vocals') !== 'vocals') add('unsupported_option', '分离节点的 audio 端口固定输出人声', node.id)
     if (node.kind === 'mix' && record(node.options)) for (const [key, value] of Object.entries(node.options)) {
       if (['original_volume', 'tts_volume_ratio', 'tts_delay_ms'].includes(key) && (typeof value !== 'number' || !Number.isFinite(value) || key !== 'tts_delay_ms' && value < 0)) add('invalid_option', '混音参数必须是有效数值，音量不能为负数', node.id)
       if (key === 'output_length' && !GRAPH_MIX_OUTPUT_LENGTHS.some(option => option === value)) add('invalid_option', '混音输出时长仅支持 main 或 longest', node.id)
@@ -177,7 +193,7 @@ export function validateGraph(graph: GraphDefinition): GraphIssue[] {
             || track.muted !== undefined && typeof track.muted !== 'boolean') add('invalid_option', '音轨音量须为非负有限数，偏移须为有限数，静音须为布尔值', node.id, track.id)
         }
       }
-      if (['original_volume', 'tts_volume_ratio', 'tts_delay_ms'].some(key => key in node.options)) add('invalid_option', '多轨混音不能同时使用旧双轨参数', node.id)
+      if (['original_volume', 'tts_volume_ratio', 'tts_delay_ms', 'sidechain_ducking', 'room_tone_inpaint', 'adjust_tts_volume'].some(key => key in node.options)) add('invalid_option', '多轨混音不能同时使用双轨混音参数', node.id)
     }
     if (node.kind === 'audio_difference' && record(node.options)) {
       const options = node.options
@@ -221,7 +237,7 @@ export function validateGraph(graph: GraphDefinition): GraphIssue[] {
     else if (actual !== expected) add('type_mismatch', `该端口需要 ${expected}，来源为 ${actual}`, node.id, port)
   }
   for (const node of graph.nodes) for (const port of Object.keys(graphNodeInputs(node))) {
-    if (!connected.has(`${node.id}:${port}`)) add('missing_input', '请选择素材槽或明确的上游产物', node.id, port)
+    if (graphInputRequired(node, port) && !connected.has(`${node.id}:${port}`)) add('missing_input', '请选择素材槽或明确的上游产物', node.id, port)
   }
   const outputs = new Set<string>()
   for (const output of graph.outputs) {

@@ -158,6 +158,7 @@ function loadDraftReviewModule(customOverrides = {}) {
       '@/api/client': client,
       '@/api/drafts': { draftsApi: {} },
       '@/stores/audioPlayerStore': { useAudioPlayerStore },
+      '@/utils/confirmAction': { confirmAction: async () => true },
       ...customOverrides,
     }),
   }
@@ -218,8 +219,8 @@ test('DraftReviewPanel renders warning badges before patch and updates gate stat
       initialEdits: { 1: '睡得好吗？' },
     }),
   )
-  assert.match(htmlBefore, /待确认门禁/)
-  assert.match(htmlBefore, /⚠ 待人工复核门禁/)
+  assert.match(htmlBefore, /待确认/)
+  assert.match(htmlBefore, /需人工核对/)
   assert.match(htmlBefore, /data-metric="untranslated">1</)
   assert.match(htmlBefore, /data-metric="japanese-residue">1</)
   assert.match(htmlBefore, /data-metric="over-speed">1</)
@@ -269,7 +270,7 @@ test('DraftReviewPanel renders warning badges before patch and updates gate stat
       initialFilter: 'all',
     }),
   )
-  assert.match(htmlAfter, /✓ 质检门禁已通过/)
+  assert.match(htmlAfter, /✓ 自动检查通过/)
   assert.match(htmlAfter, /版本 r4/)
   assert.match(htmlAfter, /data-metric="untranslated">0</)
   assert.match(htmlAfter, /data-metric="japanese-residue">0</)
@@ -406,8 +407,8 @@ test('Draft Gate i18n translates all UI controls into English and TaskCenter mou
   })
   realI18n.useI18n = () => realI18n.t
 
-  assert.equal(realI18n.t('待审草稿'), 'Draft Gate')
-  assert.equal(realI18n.t('待确认门禁'), 'Awaiting Review')
+  assert.equal(realI18n.t('待审草稿'), 'Drafts for review')
+  assert.equal(realI18n.t('待确认'), 'Awaiting Review')
   assert.equal(realI18n.t('仅看预警项'), 'Warnings Only')
   assert.equal(realI18n.t('保存修订'), 'Save Edits')
   assert.equal(realI18n.t('确认合成并交付'), 'Approve & Render')
@@ -483,7 +484,9 @@ test('Draft Gate i18n translates all UI controls into English and TaskCenter mou
   assert.match(completedAsciiHtml, /Delivered Artifacts/)
   assert.doesNotMatch(completedAsciiHtml, /[\u4e00-\u9fff]/)
 
+  const reviewStudioSource = readFileSync(new URL('../src/pages/ReviewStudio.tsx', import.meta.url), 'utf8')
+  assert.match(reviewStudioSource, /openReview\('drafts'\)/)
+  assert.match(reviewStudioSource, /<DraftReviewPanel\s*\/>/)
   const taskCenterSource = readFileSync(new URL('../src/pages/TaskCenter.tsx', import.meta.url), 'utf8')
-  assert.match(taskCenterSource, /setTaskCenterView\('drafts'\)/)
-  assert.match(taskCenterSource, /<DraftReviewPanel\s*\/>/)
+  assert.match(taskCenterSource, /openReview\('drafts'\)/)
 })

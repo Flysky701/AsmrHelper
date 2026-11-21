@@ -12,7 +12,8 @@ def text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def compile_recipe(recipe: dict, plan: dict, assets: dict[str, dict]) -> list[dict]:
+def compile_recipe(recipe: dict, plan: dict, assets: dict[str, dict], *,
+                   cue_references=None, auto_delivery_ids=()) -> list[dict]:
     if not all(isinstance(value, dict) for value in (recipe, plan, assets)):
         raise ProviderError("invalid_input", "配方、方案和素材必须是对象")
     recipe, plan, assets = deepcopy(recipe), deepcopy(plan), deepcopy(assets)
@@ -51,11 +52,25 @@ def compile_recipe(recipe: dict, plan: dict, assets: dict[str, dict]) -> list[di
         segment_text = text[start:end]
         if "text" in segment and segment["text"] != segment_text:
             raise ProviderError("text_changed", "片段文本与原文位置不符")
-        parameters = provider.compile(recipe, segment, segment_text, assets)
+        effective = recipe
+        if cue_references and sid in cue_references:
+            aid = cue_references[sid]
+            effective = {**recipe, "variant": {
+                "kind": "reference", "value": aid, "style": segment.get("delivery", "normal"),
+            }}
+        elif sid in auto_delivery_ids:
+            delivery = segment.get("delivery", "normal")
+            support = provider.capabilities(recipe["model"], recipe["mode"])["delivery"][delivery]["support"]
+            if support != "direct" and recipe["variant"].get("style", "normal") != delivery:
+                segment = {**segment, "delivery": recipe.get("default_delivery", "normal")}
+        parameters = provider.compile(effective, segment, segment_text, assets)
         hashes = {}
-        if recipe["variant"]["kind"] == "reference":
-            aid = recipe["variant"]["value"]
+        if effective["variant"]["kind"] == "reference":
+            aid = effective["variant"]["value"]
             hashes[aid] = assets[aid]["sha256"]
+            if cue_references and sid in cue_references:
+                parameters["reference_transcript"] = assets[aid]["transcript"]
+                parameters["reference_language"] = assets[aid]["language"]
         request = {
             "provider_id": provider.provider_id, "provider_version": provider.version,
             "compiler_version": COMPILER_VERSION, "model": recipe["model"], "mode": recipe["mode"],

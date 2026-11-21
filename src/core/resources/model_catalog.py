@@ -11,7 +11,7 @@ from src.config import APP_ROOT, PROJECT_ROOT
 
 DEFAULT_CATALOG_PATH = APP_ROOT / "config" / "models.yaml"
 VALID_KINDS = {"local", "cloud"}
-VALID_CATEGORIES = {"asr", "tts", "separator", "llm"}
+VALID_CATEGORIES = {"asr", "tts", "separator", "vc", "llm"}
 
 
 class ModelCatalogError(ValueError):
@@ -69,6 +69,7 @@ class ModelEntry:
     post_install_checks: List[Dict[str, Any]] = field(default_factory=list)
     sample_inference_policy: Dict[str, Any] = field(default_factory=dict)
     healthcheck_timeout_seconds: Optional[int] = None
+    inference_vram_gb: Optional[int] = None
 
     def resolved_install_root(self) -> Path:
         from src.workspace_paths import model_directory, resolve_directory
@@ -133,6 +134,7 @@ def _validate_entry(raw: Dict[str, Any]) -> ModelEntry:
         display_name=raw["display_name"],
         description=raw["description"],
         estimated_size_mb=_optional_non_negative_int(raw.get("estimated_size_mb")),
+        inference_vram_gb=_optional_non_negative_int(raw.get("inference_vram_gb"), "inference_vram_gb"),
         provider=raw.get("provider"),
         engine=raw.get("engine"),
         install_root=raw.get("install_root"),
@@ -225,11 +227,11 @@ def _optional_int(value: Any) -> Optional[int]:
         raise ModelCatalogError("healthcheck_timeout_seconds must be an integer") from exc
 
 
-def _optional_non_negative_int(value: Any) -> Optional[int]:
+def _optional_non_negative_int(value: Any, field_name: str = "estimated_size_mb") -> Optional[int]:
     if value in (None, ""):
         return None
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ModelCatalogError("estimated_size_mb must be a non-negative integer")
+        raise ModelCatalogError(f"{field_name} must be a non-negative integer")
     return value
 
 

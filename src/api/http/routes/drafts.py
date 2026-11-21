@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import JSONResponse
 
 from src.api.http.dependencies import draft_session_service
@@ -51,6 +51,8 @@ def prepare_draft(
         source_lang=body.source_lang,
         target_lang=body.target_lang,
         enable_translation=body.enable_translation,
+        duration_aware=body.duration_aware,
+        auto_detect_delivery=body.auto_detect_delivery,
         force_asr=body.force_asr,
         asr_provider=body.asr_provider,
         asr_model=body.asr_model,
@@ -60,6 +62,7 @@ def prepare_draft(
         llm_options=body.llm_options,
         voice_plan=body.voice_plan,
         prepare_stems=body.prepare_stems,
+        separation_model=body.separation_model,
         extract_voice_reference=body.extract_voice_reference,
         synthesize_samples=body.synthesize_samples,
         sample_cue_count=body.sample_cue_count,
@@ -92,6 +95,19 @@ def get_draft_audit(
     svc: DraftSessionService = Depends(draft_session_service),
 ):
     return svc.get_audit_report(draft_id)
+
+
+@router.delete("/{draft_id}", status_code=204)
+def delete_draft(
+    draft_id: str,
+    expected_revision: int = Query(ge=1),
+    svc: DraftSessionService = Depends(draft_session_service),
+):
+    try:
+        svc.delete_draft(draft_id, expected_revision=expected_revision)
+        return Response(status_code=204)
+    except DraftConflictError as exc:
+        return _conflict_response(exc)
 
 
 @router.patch("/{draft_id}", response_model=DraftSessionResponse)

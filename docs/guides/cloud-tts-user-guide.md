@@ -4,7 +4,7 @@
 
 在 **引擎与资源 → 外部服务 → 外部语音合成** 点 **添加服务**：
 
-| 接口协议 | 默认 API 地址 |
+| 语音服务商 | 默认 API 基础地址 |
 | --- | --- |
 | Fish Audio | `https://api.fish.audio/v1` |
 | Gemini TTS | `https://generativelanguage.googleapis.com/v1beta` |
@@ -23,12 +23,10 @@
 
 | 引擎 | 声音来源 / 模型 | 声音怎么选 |
 | --- | --- | --- |
-| Fish Audio | **云端音色 ID**；可选 `s2.1-pro-free`、`s2.1-pro`、`s2-pro`、`s1` | 在 **当前使用的 Voice ID** 填已有 ID；也可用 **查找声音名称 / 声音范围** 查询，在 **可用声音** 选择后自动填入 ID。 |
-| Gemini TTS | **内置声音**；先用 `gemini-3.8-flash-tts`，另有 `gemini-3.8-flash-lite-tts` | **内置说话人 ID** 保持 **Kore** 或选其他内置声音。 |
-| ElevenLabs | **云端音色 ID**；可选 `eleven_v3`、`eleven_flash_v2_5`、`eleven_v4` | **服务端音色 ID** 填自己的真实 Voice ID，不填名称或网页链接。 |
-| MiMo TTS | **内置声音**；`mimo-v2.5-tts` | **内置说话人 ID** 保持默认音色，或选“冰糖”等内置声音。 |
-
-Fish 的“声音范围”包括 **我的公开音色（API 账号）**、**当前工作区音色**、**公共音色库（所有作者）**。查不到时可手填已有 ID；公共库不代表属于本人。这里选择已有声音，不执行克隆。
+| Fish Audio | S2.1、S2、S1、Drama 3 | 从账号、工作区或公共音色库选声音，也可填 Voice ID。用参考录音时先核对录音原文，合成时会把录音与原文发送给 Fish。[官方接口](https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech) |
+| Gemini TTS | Flash TTS、Flash Lite TTS | 按音色特点从 30 个内置声音中选择，也可查询音色库，保存选中声音的 ID。[官方指南](https://aistudio.google.com/docs/speech-generation) |
+| ElevenLabs | v3、Flash v2.5、v4 | 从当前账号的音色库按名称搜索，或填已有 Voice ID。合成使用所选声音的 ID。[官方音色目录](https://elevenlabs.io/docs/api-reference/voices/search) |
+| MiMo TTS | TTS、VoiceDesign、VoiceClone | 选内置音色、用文字描述新声音，或选择 WAV/MP3 参考录音。参考录音在合成时发送给 MiMo。[官方指南](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/audio/speech-synthesis-v2.5) |
 
 ## 3. 输入短句试音
 
