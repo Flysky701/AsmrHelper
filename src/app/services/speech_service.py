@@ -15,6 +15,7 @@ from src.core.speech.compiler import compile_recipe
 from src.core.speech.providers import ProviderError, get_provider
 from src.core.speech.remake import extract_voice_reference_candidate, prepare_references, validate_timeline_options
 from src.core.tasks import TaskDispatcher
+from src.workspace_paths import windows_long_path
 from .task_service import get_task_service, get_task_dispatcher
 from .artifact_service import get_artifact_service
 
@@ -1098,7 +1099,8 @@ class SpeechService:
         if time_stretch_engine == "pytsmod_wsola":
             key_src += ":wsola-v1"
         key = hashlib.sha256(key_src.encode()).hexdigest()
-        target = Path(media_root if media_root is not None else self.store.root) / "aligned" / (key + ".wav")
+        directory = Path(media_root if media_root is not None else self.store.root) / "aligned"
+        target = windows_long_path(directory / (key + ".wav"))
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             steps, factor = [], ratio

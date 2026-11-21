@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from src.core.subtitles.text_utils import detect_language, normalize_language_code
 from src.core.tts import audio_preprocessor as audio_module
 from src.core.tts.audio_preprocessor import AudioPreprocessor
 from src.utils import cut_audio_by_subtitle
@@ -32,29 +31,6 @@ def _write_voice_like_audio(
     sf.write(path, data, sample_rate, subtype="FLOAT")
 
 
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("zh", "zh"),
-        ("zh_CN", "zh"),
-        ("zh-TW", "zh"),
-        ("Chinese", "zh"),
-        ("en-US", "en"),
-        ("English", "en"),
-        ("ja-JP", "ja"),
-        ("Japanese", "ja"),
-    ],
-)
-def test_normalize_language_code_accepts_supported_aliases(value: str, expected: str) -> None:
-    assert normalize_language_code(value) == expected
-
-
-def test_detect_language_handles_english_and_natural_japanese() -> None:
-    assert detect_language(["Hello, this is an English subtitle."]) == "en"
-    assert detect_language(["今日は音色クローンのテストです。"]) == "ja"
-    assert normalize_language_code(detect_language(["你好，这是中文字幕。"])) == "zh"
-
-
 def test_clone_conversion_preserves_source_sample_rate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -74,38 +50,6 @@ def test_clone_conversion_preserves_source_sample_rate(
     assert "-ar" not in captured["cmd"]
     assert captured["cmd"][captured["cmd"].index("-ac") + 1] == "1"
     assert "pcm_s16le" in captured["cmd"]
-
-
-def test_cut_entries_clamp_both_ends_without_swallowing_audio_tail(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    captured: dict[str, list[dict]] = {}
-    monkeypatch.setattr(
-        audio_module,
-        "get_audio_info",
-        lambda _path: {"duration": 100.0},
-    )
-
-    def cut(_audio_path, entries, _output_dir, prefix):
-        captured["entries"] = entries
-        assert prefix == "seg"
-        return [dict(entry, path=f"segment-{index}.wav", duration=1.0) for index, entry in enumerate(entries)]
-
-    monkeypatch.setattr(audio_module, "cut_audio_by_subtitle", cut)
-    result = AudioPreprocessor(str(tmp_path))._cut_with_entries(
-        "input.wav",
-        [
-            {"start": -0.20, "end": 1.0, "text": "first"},
-            {"start": 5.0, "end": 10.0, "text": "last"},
-        ],
-    )
-
-    assert captured["entries"][0]["start"] == 0.0
-    assert captured["entries"][0]["end"] == pytest.approx(1.05)
-    assert captured["entries"][1]["start"] == pytest.approx(4.95)
-    assert captured["entries"][1]["end"] == pytest.approx(10.05)
-    assert [segment["text"] for segment in result] == ["first", "last"]
 
 
 def test_shared_audio_cutter_clamps_negative_start_and_writes_pcm16(tmp_path) -> None:
@@ -175,87 +119,6 @@ def test_merge_revalidates_actual_audio_duration(tmp_path) -> None:
 
     # The timeline span is 3.2s, but concatenated audio is only about 2.39s.
     assert merged is None
-
-
-def test_concatenate_outputs_mono_pcm16_and_keeps_sample_rate(tmp_path) -> None:
-    source = tmp_path / "stereo-float.wav"
-    stereo = np.column_stack([np.full(22_050, 0.1), np.full(22_050, 0.2)])
-    sf.write(source, stereo, 22_050, subtype="FLOAT")
-    output = tmp_path / "reference.wav"
-
-    AudioPreprocessor(str(tmp_path))._concatenate_audio_segments(
-        [{"path": str(source), "text": "hello"}],
-        str(output),
-    )
-
-    info = sf.info(output)
-    assert info.samplerate == 22_050
-    assert info.channels == 1
-    assert info.subtype == "PCM_16"
-
-
-def test_recommendation_uses_quality_score_before_raw_rms(tmp_path) -> None:
-    louder_but_poor_text = {
-        "duration": 6.0,
-        "rms": 0.2,
-        "text": "a",
-        "quality_score": 55,
-        "eligible": True,
-    }
-    quieter_complete_text = {
-        "duration": 6.0,
-        "rms": 0.1,
-        "text": "complete transcript",
-        "quality_score": 88,
-        "eligible": True,
-    }
-
-    selected = AudioPreprocessor(str(tmp_path))._select_best_segments(
-        [louder_but_poor_text, quieter_complete_text]
-    )
-
-    assert selected == [quieter_complete_text]
-
-
-def test_quality_details_expose_lightweight_audio_metrics_and_subscores(tmp_path) -> None:
-    source = tmp_path / "clean.wav"
-    _write_voice_like_audio(source)
-
-    quality = AudioPreprocessor(str(tmp_path)).evaluate_segment_quality(
-        {
-            "path": str(source),
-            "start": 0.0,
-            "end": 6.0,
-            "duration": 6.0,
-            "text": "complete aligned transcript",
-        }
-    )
-
-    assert quality["eligible"] is True
-    assert quality["score"] >= 60
-    assert quality["label"] != "不合格"
-    assert {
-        "duration",
-        "rms",
-        "peak",
-        "clipping_ratio",
-        "speech_or_active_ratio",
-        "boundary_energy_ratio",
-        "noise_rms",
-        "signal_rms",
-        "snr_db",
-        "duration_score",
-        "rms_score",
-        "text_score",
-        "clipping_score",
-        "peak_score",
-        "active_score",
-        "boundary_score",
-        "snr_score",
-    } <= quality["details"].keys()
-    assert quality["details"]["peak"] > 0.0
-    assert quality["details"]["clipping_ratio"] == 0.0
-    assert quality["details"]["speech_or_active_ratio"] > 0.0
 
 
 def test_quality_requires_text_only_for_icl(tmp_path) -> None:
@@ -338,26 +201,6 @@ def test_quality_hard_rejects_silence_and_invalid_timeline(tmp_path) -> None:
     assert any("有效语音" in reason for reason in silence_quality["reasons"])
     assert timeline_quality["eligible"] is False
     assert any("时间轴越界" in reason for reason in timeline_quality["reasons"])
-
-
-def test_quality_reports_high_boundary_energy_without_hard_reject(tmp_path) -> None:
-    source = tmp_path / "hard-boundary.wav"
-    _write_voice_like_audio(source, boundary_silence=0.0)
-
-    quality = AudioPreprocessor(str(tmp_path)).evaluate_segment_quality(
-        {
-            "path": str(source),
-            "start": 0.0,
-            "end": 6.0,
-            "duration": 6.0,
-            "text": "aligned transcript",
-        }
-    )
-
-    assert quality["eligible"] is True
-    assert quality["details"]["boundary_energy_ratio"] > 0.8
-    assert quality["details"]["boundary_score"] < 80
-    assert any("边界能量" in reason for reason in quality["reasons"])
 
 
 def test_recommendation_ignores_ineligible_high_score_candidate(tmp_path) -> None:

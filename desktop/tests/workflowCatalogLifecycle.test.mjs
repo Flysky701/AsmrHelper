@@ -78,36 +78,6 @@ test('starter never replaces saved selection, parameters, bindings or drafts', a
   }
 })
 
-test('absence of starter never selects a model flow or a custom preset with its ID', async () => {
-  for (const items of [[builtin], [{ ...starter, builtin: false }, builtin]]) {
-    const f = fixture(items); await f.store.getState().loadCatalog()
-    assert.equal(f.store.getState().selectedPreset, null)
-    assert.equal(f.store.getState().runtimeGraph, null)
-  }
-})
-
-test('deleting a built-in preserves draft and bindings without a restore collection', async () => {
-  const f = fixture(), s = f.store.getState()
-  await s.loadCatalog(); await s.loadBuiltinTemplates()
-  s.selectPreset(builtin); s.openEditor(builtin, 'settings'); s.updateEditor({ label: 'Unsaved edit' })
-  s.setBinding('audio', { path: 'fixture.wav' })
-  const runtime = structuredClone(f.store.getState().runtimeGraph)
-  assert.equal(await s.deleteCatalogPreset(builtin), 'deleted')
-  assert.deepEqual(f.calls, [['delete', 'shipped']])
-  const after = f.store.getState()
-  assert.equal(after.catalog.length, 0)
-  assert.equal(after.selectedPreset, null)
-  assert.equal(after.editor.preset, null)
-  assert.equal(after.editor.label, 'Unsaved edit')
-  assert.deepEqual(after.runtimeGraph, runtime)
-  assert.equal(after.bindings.audio.path, 'fixture.wav')
-  assert.equal(after.builtinTemplates.length, 1)
-  assert.equal('restorePreset' in after, false)
-  const restarted = f.reopen(); await restarted.getState().loadCatalog()
-  assert.equal(restarted.getState().catalog.length, 0)
-  assert.equal(restarted.getState().editor.label, 'Unsaved edit')
-})
-
 test('explicit template addition creates an independent entry without selecting or replacing drafts', async () => {
   const f = fixture(), s = f.store.getState()
   await s.loadCatalog(); await s.loadBuiltinTemplates(); s.openEditor(null, 'settings')

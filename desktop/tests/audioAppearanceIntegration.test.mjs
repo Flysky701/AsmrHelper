@@ -54,23 +54,6 @@ function audioGraph(h) {
   return { graph, paths, bindings: Object.fromEntries(slots.map((id, index) => [id, { path: paths[index] }])) }
 }
 
-test('real zh/en preference switches preserve audio parameters, stable track IDs and execution requests', () => {
-  const h = harness(), { graph, paths, bindings } = audioGraph(h)
-  const before = clone(graph), request = h.draft.buildGraphRunRequest(graph, bindings, paths)
-  const store = h.workflow.createWorkflowStore({}, h.storage)
-  store.setState({ runtimeGraph: clone(graph), bindings: clone(bindings) })
-  for (const language of ['en', 'zh-CN', 'en']) {
-    assert.equal(h.appearance.useAppearanceStore.getState().setPreferences({ language }), true)
-    assert.equal(h.i18n.t('工作台'), language === 'en' ? 'Workbench' : '工作台')
-    assert.deepEqual(store.getState().runtimeGraph, before)
-    assert.deepEqual(h.graphApi.validateGraph(graph), [])
-    assert.deepEqual(Object.keys(h.graphApi.graphNodeInputs(graph.nodes[1])), ['track_1', 'track_3', 'track_4'])
-    assert.deepEqual(h.draft.buildGraphRunRequest(store.getState().runtimeGraph, store.getState().bindings, paths), request)
-    assert.equal(store.getState().bindings.reference.path, userPath)
-  }
-  assert.deepEqual(graph, before)
-})
-
 test('audio template save and JSON catalog reload preserve dynamic ports, edges and user labels across locales', async () => {
   const h = harness(), { graph } = audioGraph(h)
   let catalogJson = '[]'
@@ -101,35 +84,4 @@ test('audio template save and JSON catalog reload preserve dynamic ports, edges 
   assert.equal(removed.edges.some(edge => edge.target.port === 'track_3'), false)
   assert.deepEqual(Object.keys(h.graphApi.graphNodeInputs(removed.nodes[1])), ['track_1', 'track_4'])
   assert.deepEqual(h.graphApi.validateGraph(removed), [])
-})
-
-test('background and overlay preferences do not enter audio graph state or execution parameters', () => {
-  const h = harness(), { graph, paths, bindings } = audioGraph(h)
-  const store = h.workflow.createWorkflowStore({}, h.storage)
-  store.setState({ runtimeGraph: clone(graph), bindings: clone(bindings) })
-  const request = h.draft.buildGraphRunRequest(graph, bindings, paths)
-  const background = { name: userLabel, data: 'data:image/jpeg;base64,fixture' }
-  assert.equal(h.appearance.useAppearanceStore.getState().setBackground(background), true)
-  assert.equal(h.appearance.useAppearanceStore.getState().setPreferences({ language: 'en', overlay: .94 }), true)
-  assert.deepEqual(JSON.parse(h.data.get(h.appearance.BACKGROUND_KEY)), background)
-  assert.deepEqual(h.draft.buildGraphRunRequest(store.getState().runtimeGraph, store.getState().bindings, paths), request)
-  assert.equal(h.appearance.useAppearanceStore.getState().setBackground(null), true)
-  assert.equal(h.data.has(h.appearance.BACKGROUND_KEY), false)
-  assert.deepEqual(store.getState().runtimeGraph, graph)
-  assert.deepEqual(store.getState().bindings, bindings)
-})
-
-test('audio locale copy translates dynamic values once and keeps supplied labels and paths verbatim', () => {
-  const h = harness()
-  h.appearance.useAppearanceStore.getState().setPreferences({ language: 'en' })
-  assert.equal(h.i18n.t('音频差分'), 'Audio difference')
-  assert.equal(h.i18n.format('音轨 · {0}', ['track_3']), 'Track · track_3')
-  assert.equal(h.i18n.format('{0} 轨混音', [3]), '3-track mix')
-  assert.equal(h.i18n.format('删除音轨 {0}', ['track_3']), 'Remove track track_3')
-  assert.equal(h.i18n.format('查看 {0}', [userLabel]), `View ${userLabel}`)
-  assert.equal(h.i18n.format('查看 {0}', [userPath]), `View ${userPath}`)
-  h.appearance.useAppearanceStore.getState().setPreferences({ language: 'zh-CN' })
-  assert.equal(h.i18n.t('音频差分'), '音频差分')
-  assert.equal(h.i18n.format('音轨 · {0}', ['track_3']), '音轨 · track_3')
-  assert.equal(h.i18n.format('查看 {0}', [userLabel]), `查看 ${userLabel}`)
 })

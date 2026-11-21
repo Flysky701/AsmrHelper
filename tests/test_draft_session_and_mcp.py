@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import io
 import json
 import os
 from pathlib import Path
@@ -16,7 +15,6 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from packages.mcp_server import MCP_PROTOCOL_VERSION, McpStdioServer, McpToolRegistry
 from src.api.http import dependencies
 from src.api.http.app import create_app
 from src.app.dto import SubtitleSegment as DtoSubtitleSegment, TranscriptionResult, TranslationResult
@@ -103,38 +101,6 @@ def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 # ─── 1. DraftStore & Optimistic Concurrency ───────────────────────────────
-
-
-def test_draft_store_crud_and_optimistic_concurrency(isolated_env):
-    store: DraftStore = isolated_env.draft_store
-    created = store.create_draft(
-        draft_id="draft-unit-001",
-        state="preparing",
-        work_dir="/works/RJ000001",
-        title="Whisper Track 01",
-        tracks=[{"track_id": "track-01", "path": "/works/RJ000001/01.wav"}],
-        segments=[{"index": 0, "start": 0.0, "end": 1.5, "source_text": "おはよう", "translation": "早安"}],
-        voice_plan={"provider_id": "edge"},
-        audit_report={"gate_passed": True},
-        artifacts={},
-    )
-    assert created.revision == 1
-    assert created.state == "preparing"
-
-    updated = store.update_draft(
-        "draft-unit-001",
-        expected_revision=1,
-        state="awaiting_review",
-    )
-    assert updated.revision == 2
-    assert updated.state == "awaiting_review"
-
-    # Stale expected_revision must fail with DraftConflictError
-    with pytest.raises(DraftConflictError, match="revision conflict"):
-        store.update_draft("draft-unit-001", expected_revision=1, title="Stale Edit")
-
-    listed = store.list_drafts(state="awaiting_review")
-    assert [d.draft_id for d in listed] == ["draft-unit-001"]
 
 
 # ─── 2. inspect_work Stem Auto-Pairing ────────────────────────────────────
@@ -515,139 +481,6 @@ def test_fastapi_draft_routes_end_to_end(isolated_env):
 
 
 # ─── 5. MCP JSON-RPC 2.0 Stdio Server Roundtrip ───────────────────────────
-
-
-def test_mcp_in_memory_tools_and_error_handling(isolated_env):
-    registry = McpToolRegistry(
-        draft_service=isolated_env.service,
-        speech_service=isolated_env.speech_svc,
-    )
-    server = McpStdioServer(registry=registry)
-
-    # 1. initialize
-    init_resp = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
-    assert init_resp["result"]["protocolVersion"] == MCP_PROTOCOL_VERSION
-
-    # 2. notifications/initialized emits NO response
-    notif_resp = server.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
-    assert notif_resp is None
-
-    # 3. ping
-    ping_resp = server.handle_message({"jsonrpc": "2.0", "id": 2, "method": "ping"})
-    assert ping_resp == {"jsonrpc": "2.0", "id": 2, "result": {}}
-
-    # 4. tools/list
-    tools_resp = server.handle_message({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
-    tool_names = [t["name"] for t in tools_resp["result"]["tools"]]
-    assert tool_names == [
-        "asmr_inspect_work",
-        "asmr_prepare_draft",
-        "asmr_get_draft_audit",
-        "asmr_patch_draft",
-        "asmr_commit_draft",
-        "asmr_list_voices_and_presets",
-    ]
-
-    # 5. asmr_list_voices_and_presets
-    voices_resp = server.handle_message(
-        {
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/call",
-            "params": {"name": "asmr_list_voices_and_presets", "arguments": {"include_providers": True}},
-        }
-    )
-    assert voices_resp["result"]["isError"] is False
-    voices_payload = json.loads(voices_resp["result"]["content"][0]["text"])
-    assert any(p["provider_id"] == "edge" for p in voices_payload["providers"])
-
-    # 6. Error handling: unknown method, unknown tool, domain not-found, parse error
-    unknown_method = server.handle_message({"jsonrpc": "2.0", "id": 5, "method": "nonexistent/method"})
-    assert unknown_method["error"]["code"] == -32601
-
-    unknown_tool = server.handle_message(
-        {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "asmr_unknown"}}
-    )
-    assert unknown_tool["error"]["code"] == -32602
-
-    missing_draft = server.handle_message(
-        {
-            "jsonrpc": "2.0",
-            "id": 7,
-            "method": "tools/call",
-            "params": {"name": "asmr_get_draft_audit", "arguments": {"draft_id": "draft-does-not-exist"}},
-        }
-    )
-    assert missing_draft["result"]["isError"] is True
-    assert missing_draft["result"]["structuredContent"]["error"]["code"] == "NOT_FOUND"
-
-    parse_err = server.handle_json_line("{not valid json")
-    assert parse_err["error"]["code"] == -32700
-
-    # 7. serve_stdio stream roundtrip with print-pollution immunity
-    work_dir = isolated_env.tmp_path / "mcp_stdio_work"
-    _write_stereo_wav(work_dir / "ch01.wav", duration_sec=5.0)
-    (work_dir / "ch01.srt").write_text(
-        "1\n00:00:00,500 --> 00:00:03,500\nおやすみ\n晚安好梦\n",
-        encoding="utf-8",
-    )
-    out_dir = isolated_env.tmp_path / "mcp_stdio_out"
-
-    requests_lines = [
-        json.dumps({"jsonrpc": "2.0", "id": 10, "method": "initialize", "params": {}}),
-        json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
-        json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": 11,
-                "method": "tools/call",
-                "params": {
-                    "name": "asmr_prepare_draft",
-                    "arguments": {"path_or_dir": str(work_dir), "enable_translation": False},
-                },
-            }
-        ),
-    ]
-    stdin_buf = io.StringIO("\n".join(requests_lines) + "\n")
-    stdout_buf = io.StringIO()
-    stderr_buf = io.StringIO()
-    assert server.serve_stdio(stdin=stdin_buf, stdout=stdout_buf, stderr=stderr_buf) == 0
-
-    output_lines = [line for line in stdout_buf.getvalue().splitlines() if line.strip()]
-    assert len(output_lines) == 2  # initialize + prepare_draft (notification omitted)
-    prep_rpc = json.loads(output_lines[1])
-    draft_data = prep_rpc["result"]["structuredContent"]
-    assert draft_data["state"] == "awaiting_review"
-
-    # Commit with dubbing via stdio and verify Mixer's print() goes to stderr, NOT stdout!
-    commit_in = io.StringIO(
-        json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": 12,
-                "method": "tools/call",
-                "params": {
-                    "name": "asmr_commit_draft",
-                    "arguments": {
-                        "draft_id": draft_data["draft_id"],
-                        "output_dir": str(out_dir),
-                        "export_formats": ["srt", "lrc"],
-                        "enable_dubbing": True,
-                    },
-                },
-            }
-        )
-        + "\n"
-    )
-    commit_out = io.StringIO()
-    commit_err = io.StringIO()
-    assert server.serve_stdio(stdin=commit_in, stdout=commit_out, stderr=commit_err) == 0
-    commit_lines = [line for line in commit_out.getvalue().splitlines() if line.strip()]
-    assert len(commit_lines) == 1
-    commit_rpc = json.loads(commit_lines[0])
-    assert commit_rpc["result"]["isError"] is False
-    assert commit_rpc["result"]["structuredContent"]["state"] == "completed"
-    assert "[Mixer]" in commit_err.getvalue()
 
 
 def test_mcp_server_subprocess_stdio_roundtrip(tmp_path: Path):

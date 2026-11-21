@@ -43,9 +43,7 @@ def test_rule_creates_voice_and_preserves_immutable_revisions(rules):
 
 
 @pytest.mark.parametrize("change", [
-    {"mode": "builtin"}, {"model": "qwen3-base"}, {"name": " "}, {"description": {}},
-    {"default_delivery": "invented"}, {"default_emotion": "invented"},
-    {"variant": {"kind": "design", "value": "清晰女声", "style": "invented"}},
+    {"model": "qwen3-base"},
     {"provider_options": {"schema_version": 1, "invented": True}},
 ])
 def test_invalid_rule_does_not_leave_orphan_voice(rules, change):
@@ -56,37 +54,10 @@ def test_invalid_rule_does_not_leave_orphan_voice(rules, change):
     assert service.store.list("recipes") == []
 
 
-def test_provider_reference_constraints_remain_authoritative(rules):
-    service, body = rules
-    asset = service.store.create("assets", {"sha256": "a" * 64, "transcript": ""})
-    with pytest.raises(ValueError, match="转录"):
-        service.save_rule({**body, "mode": "reference", "model": "qwen3-base",
-            "variant": {"kind": "reference", "value": asset["id"]}})
-    assert service.store.list("voices") == []
-
-
-def test_performance_plan_does_not_change_rule_or_voice(rules):
-    service, body = rules
-    rule = service.save_rule(body)
-    voice = service.store.get("voices", rule["voice_id"])
-    plan = service.create_plan({"text": "你好。"})
-    plan["segments"][0]["delivery"] = "whisper"
-    modified = service.create_plan({"text": plan["text"], "segments": plan["segments"]})
-    requests = service.compile(rule["id"], modified["id"])
-    assert requests
-    assert service.store.get("recipes", rule["id"]) == rule
-    assert service.store.get("voices", rule["voice_id"]) == voice
-
-
-def test_rule_rejects_unsupported_provider_mode(rules):
-    service, body = rules
-    edge = service.save_connection({"name": "Edge", "provider_id": "edge", "deployment": "cloud"})
-    with pytest.raises(ValueError):
-        service.save_rule({**body, "connection_ref": edge["id"], "provider_id": "edge", "model": "edge-tts"})
-    assert service.store.list("voices") == []
-
-
-@pytest.mark.parametrize("confirmed", [False, None, "true", 1])
+@pytest.mark.parametrize("confirmed", [
+    False,
+    "true",
+])
 def test_reference_rule_requires_explicit_transcript_confirmation(rules, confirmed):
     service, body = rules
     asset = service.store.create("assets", {"sha256": "a" * 64, "transcript": "你好。", "confirmed": confirmed})

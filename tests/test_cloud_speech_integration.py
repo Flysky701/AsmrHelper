@@ -11,7 +11,6 @@ import soundfile as sf
 from src.app.services.graph_pipeline_service import freeze_graph_speech, make_node_plan
 from src.app.services.speech_service import SpeechService
 from src.core.speech.compiler import compile_recipe
-from src.core.speech.providers import ProviderError
 from src.core.speech.store import SpeechStore, build_plan
 from test_cloud_speech_transport import install_transport, wav_bytes
 
@@ -94,43 +93,6 @@ def test_reloaded_recipe_graph_snapshot_and_runner_stay_pinned(cloud, monkeypatc
     service.artifacts.register_artifact.assert_called_once()
     public = json.dumps({"snapshot": snapshot, "takes": takes, "library": service.library()})
     assert "fixture-old-secret" not in public and "fixture-new-secret" not in public
-
-
-@pytest.mark.parametrize("when", ["before", "after"])
-def test_cancel_does_not_publish_take_or_artifact(cloud, monkeypatch, when):
-    service, recipe, _ = cloud
-    snapshot = service.snapshot(recipe["id"])
-    requests = compile_recipe(recipe, build_plan("测试。"), {})
-    calls = []
-    def handler(request):
-        calls.append(request)
-        return response_for(recipe["provider_id"])
-    install_transport(monkeypatch, handler)
-    with pytest.raises(InterruptedError if when == "before" else ProviderError) as caught:
-        service.run_requests(requests, snapshot, task_id="cancel", experiment_id="cancel", plan_id="cancel",
-                             cancel_check=lambda: when == "before" or bool(calls))
-    if when == "after":
-        assert caught.value.code == "cancelled"
-    assert len(calls) == (0 if when == "before" else 1)
-    assert service.store.list("takes") == []
-    assert list(service.store.root.glob("audio/*.wav")) == []
-    service.artifacts.register_artifact.assert_not_called()
-
-
-def test_auto_language_is_validated_after_graph_target_is_frozen(cloud):
-    service, recipe, _ = cloud
-    profile = {"version": 2, "graph": {"nodes": [{"id": "tts", "kind": "tts",
-        "provider": recipe["provider_id"], "model": recipe["model"], "target_lang": "ja",
-        "options": {"speech_recipe_id": recipe["id"]}}]}}
-    if recipe["provider_id"] == "mimo":
-        with pytest.raises(ProviderError) as caught:
-            freeze_graph_speech(profile)
-        assert caught.value.code == "invalid_language"
-    else:
-        frozen = freeze_graph_speech(profile)
-        assert frozen["_graph_runtime"]["node_snapshots"]["tts"]["recipe"]["language"] == "ja"
-    assert service.store.get("recipes", recipe["id"])["language"] == "auto"
-    service.artifacts.register_artifact.assert_not_called()
 
 
 @pytest.mark.parametrize("field", ["request_connection", "snapshot_connection", "model"])

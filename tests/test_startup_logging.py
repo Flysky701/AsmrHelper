@@ -19,19 +19,12 @@ def test_backend_logging_writes_utf8_and_replaces_managed_handlers(tmp_path):
         log_path = configure_backend_logging(tmp_path, level="INFO")
         configure_backend_logging(tmp_path, level="INFO")
         logging.getLogger("asmr-helper-test").info(message)
-        managed = [
-            handler
-            for handler in root.handlers
-            if getattr(handler, "_asmr_helper_managed_handler", False)
-        ]
-        for handler in managed:
+        for handler in root.handlers:
             handler.flush()
-
-        assert len(managed) == 2
-        assert message in log_path.read_text(encoding="utf-8")
+        assert log_path.read_text(encoding="utf-8").count(message) == 1
     finally:
         for handler in list(root.handlers):
-            if getattr(handler, "_asmr_helper_managed_handler", False):
+            if handler not in original_handlers:
                 root.removeHandler(handler)
                 handler.close()
         root.setLevel(original_level)

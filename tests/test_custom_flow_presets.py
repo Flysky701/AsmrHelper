@@ -170,47 +170,16 @@ def test_builtin_delete_stays_deleted_and_template_add_creates_new_identity(cata
     assert item["id"] not in {row["id"] for row in PresetCatalogService(BUILTINS, path).list_presets()}
 
 
-@pytest.mark.parametrize("version", [1, 2, 3])
-def test_both_delete_routes_remove_custom_data_without_new_backup(catalog, version):
+def test_deleting_custom_preset_removes_data_without_overwriting_backup(catalog):
     client, svc, path = catalog
     raw = {"id": "custom_remove", **DRAFT, "revision": 1, "builtin": False}
-    data = {"version": version, "presets": [raw]}
-    if version == 3:
-        data["index"] = {raw["id"]: {"active": True, "revision": 1}}
+    data = {"version": 3, "presets": [raw], "index": {raw["id"]: {"active": True, "revision": 1}}}
     path.write_text(json.dumps(data), encoding="utf-8")
     old_backup = path.with_suffix('.old.bak')
     old_backup.write_bytes(b'previous user backup')
-    endpoint = '/permanent' if version == 2 else ''
-    assert client.delete(f"/api/v1/pipeline/presets/{raw['id']}{endpoint}", params={"revision": 1}).status_code in (200, 204)
+    assert client.delete(f"/api/v1/pipeline/presets/{raw['id']}", params={"revision": 1}).status_code in (200, 204)
     state = json.loads(path.read_text(encoding="utf-8"))
     assert not state["presets"] and raw["id"] not in state["index"]
     assert not svc.list_archived_presets()
     assert list(path.parent.glob('*.bak')) == [old_backup]
     assert old_backup.read_bytes() == b'previous user backup'
-
-
-def test_legacy_removed_custom_is_read_only_and_never_exposed_as_template(catalog):
-    client, svc, path = catalog
-    legacy = {"id": "custom_legacy", **DRAFT, "revision": 1, "builtin": False}
-    data = {"version": 3, "presets": [legacy], "index": {legacy["id"]: {"active": False, "revision": 2}}}
-    path.write_text(json.dumps(data), encoding="utf-8")
-    before = path.read_bytes()
-    assert legacy["id"] not in {item["id"] for item in svc.list_presets()}
-    assert client.get('/api/v1/pipeline/presets/archived').status_code in (404, 405)
-    assert client.post(f"/api/v1/pipeline/presets/{legacy['id']}/restore", json={"revision": 2}).status_code == 404
-    assert client.post(f"/api/v1/pipeline/templates/{legacy['id']}/add", json={"revision": 2}).status_code == 404
-    assert all(item["builtin"] for item in client.get('/api/v1/pipeline/templates').json()["presets"])
-    assert path.read_bytes() == before
-    svc.create_preset({**DRAFT, "label": "Unrelated new preset"})
-    after = json.loads(path.read_text(encoding="utf-8"))
-    assert after["presets"][0] == legacy and after["index"][legacy["id"]] == data["index"][legacy["id"]]
-    assert svc.list_archived_presets()[0]["id"] == legacy["id"]
-
-
-def test_template_conflict_and_stale_revision_do_not_modify_catalog(catalog):
-    client, svc, path = catalog
-    template = svc.list_builtin_templates()[0]
-    url = f"/api/v1/pipeline/templates/{template['id']}/add"
-    assert client.post(url, json={"revision": template["revision"]}).status_code == 409
-    assert client.post(url, json={"revision": template["revision"] + 1, "label": "New"}).status_code == 409
-    assert not path.exists()

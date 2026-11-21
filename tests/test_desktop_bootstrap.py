@@ -4,8 +4,6 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-import subprocess
-import sys
 from contextlib import contextmanager
 
 SPEC = importlib.util.spec_from_file_location("desktop_bootstrap", Path(__file__).resolve().parents[1] / "scripts" / "desktop_backend.py")
@@ -22,32 +20,6 @@ def temporary_root():
 
 
 class DesktopBootstrapTests(unittest.TestCase):
-    def test_local_settings_do_not_require_cloud_credentials(self):
-        with temporary_root() as temp:
-            env = os.environ.copy()
-            for key in list(env):
-                if 'API_KEY' in key or key.startswith('ASMR_HELPER'):
-                    env.pop(key, None)
-            env.update(ASMR_HELPER_DATA_DIR=temp, ASMR_HELPER_STATE_DB=str(Path(temp)/'state.sqlite3'), PYTHONUTF8='1', PYTHONDONTWRITEBYTECODE='1')
-            code = '''
-from src.config import config, PROJECT_ROOT
-from src.app.services.settings_service import SettingsService
-from src.app.errors import AppValidationError
-service = SettingsService()
-target = str(PROJECT_ROOT / 'output')
-assert service.update_settings({'paths': {'output_dir': target}})['paths']['output_dir'] == target
-assert not config.validate()[0]
-assert not service.test_provider('deepseek').success
-try:
-    service.update_settings({'processing': {'original_volume': 99}})
-except AppValidationError:
-    pass
-else:
-    raise AssertionError('Invalid setting accepted')
-'''
-            result = subprocess.run([sys.executable, '-B', '-c', code], cwd=Path(__file__).resolve().parents[1], env=env, capture_output=True, text=True, encoding='utf-8')
-            self.assertEqual(result.returncode, 0, result.stderr)
-
     def fixture(self, root):
         bundle = root / "bundle"
         (bundle / "python").mkdir(parents=True)

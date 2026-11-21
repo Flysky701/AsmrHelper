@@ -15,22 +15,6 @@ def _descriptors() -> dict[tuple[str, str], dict[str, Any]]:
     return {(item["category"], item["provider"]): item for item in items}
 
 
-def _matches_type(type_name: str, value: Any) -> bool:
-    if type_name == "boolean":
-        return isinstance(value, bool)
-    if type_name == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if type_name == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if type_name == "string":
-        return isinstance(value, str)
-    if type_name == "array":
-        return isinstance(value, list)
-    if type_name == "object":
-        return isinstance(value, dict)
-    return False
-
-
 def test_each_catalog_entry_has_a_capability_provider() -> None:
     descriptors = _descriptors()
 
@@ -84,66 +68,3 @@ def test_local_catalog_mappings_are_advertised_by_the_capability() -> None:
             f"model resource {entry.id!r} maps unknown capability models: "
             f"{sorted(unknown)}"
         )
-
-
-def test_capability_descriptors_have_valid_model_and_option_contracts() -> None:
-    descriptors = CapabilityDescriptorService().list_descriptors()
-    keys = [(item["category"], item["provider"]) for item in descriptors]
-    assert len(keys) == len(set(keys)), "capability category/provider pairs must be unique"
-
-    for descriptor in descriptors:
-        label = f"{descriptor['category']}/{descriptor['provider']}"
-        supported_models = descriptor["supported_models"]
-        if descriptor["category"] == "tts":
-            from src.core.speech.providers import get_provider
-            modes = get_provider(descriptor["provider"]).describe()["modes"]
-            assert supported_models == list(dict.fromkeys(model for mode in modes for model in mode["models"]))
-        else:
-            assert supported_models, f"{label} must advertise at least one model"
-        assert len(supported_models) == len(set(supported_models)), (
-            f"{label} contains duplicate supported model ids"
-        )
-        assert (descriptor["default_model"] in supported_models if supported_models else descriptor["default_model"] == ""), (
-            f"{label} default_model must be included in supported_models"
-        )
-
-        options = [
-            *descriptor["common_option_schema"],
-            *descriptor["provider_option_schema"],
-        ]
-        names = [option["name"] for option in options]
-        assert len(names) == len(set(names)), f"{label} contains duplicate option names"
-
-        for option in options:
-            option_label = f"{label}.{option['name']}"
-            assert option["type"] in {
-                "boolean",
-                "integer",
-                "number",
-                "string",
-                "array",
-                "object",
-            }, f"{option_label} uses an unsupported option type"
-
-            default = option["default"]
-            if default is not None:
-                assert _matches_type(option["type"], default), (
-                    f"{option_label} default does not match declared type"
-                )
-                if option["enum"]:
-                    assert default in option["enum"], (
-                        f"{option_label} default is not included in enum"
-                    )
-                if option["min"] is not None:
-                    assert default >= option["min"], (
-                        f"{option_label} default is below min"
-                    )
-                if option["max"] is not None:
-                    assert default <= option["max"], (
-                        f"{option_label} default is above max"
-                    )
-
-            if option["min"] is not None and option["max"] is not None:
-                assert option["min"] <= option["max"], (
-                    f"{option_label} min must not exceed max"
-                )

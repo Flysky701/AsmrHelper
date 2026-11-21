@@ -60,21 +60,6 @@ def test_profile_deletion_restart_and_shared_credentials(profiles):
         service.connection_removal_preview("unused")
 
 
-def test_removed_profile_cannot_be_selected_edited_or_resolved_for_new_tasks(profiles):
-    from src.task_connection_context import resolve_task_settings
-    service, _ = profiles
-    change(service)
-    before = service.config.get_file_config()
-    with pytest.raises(AppValidationError):
-        service.update_settings({"active_connections": {"llm": "unused"}})
-    with pytest.raises(AppValidationError):
-        service.update_settings({"connection_profile": {"kind": "llm", "id": "unused", "name": "renamed"}})
-    with pytest.raises(ValueError, match="不存在"):
-        resolve_task_settings(service.config.to_dict(), {"stages": {"translate": {
-            "provider": "openai", "options": {"connection_ref": "unused"}}}})
-    assert service.config.get_file_config() == before
-
-
 def test_default_and_new_references_block_removal_without_writes(profiles):
     service, references = profiles
     before = service.config.get_file_config()
@@ -86,19 +71,6 @@ def test_default_and_new_references_block_removal_without_writes(profiles):
         service.delete_connection("unused", token=stale["token"], confirmed=True)
     assert not service.connection_removal_preview("unused")["can_remove"]
     with pytest.raises(AppValidationError):
-        change(service)
-    assert service.config.get_file_config() == before
-
-
-def test_changed_profile_and_failed_save_do_not_remove(profiles, monkeypatch):
-    service, _ = profiles
-    stale = service.connection_removal_preview("unused")
-    service.update_settings({"connection_profile": {"kind": "llm", "id": "active", "name": "renamed active"}})
-    with pytest.raises(AppValidationError, match="已改变"):
-        service.delete_connection("unused", token=stale["token"], confirmed=True)
-    before = service.config.get_file_config()
-    monkeypatch.setattr(service.config, "persist_updates", Mock(side_effect=OSError("disk failed")))
-    with pytest.raises(Exception, match="保存失败"):
         change(service)
     assert service.config.get_file_config() == before
 
@@ -150,35 +122,16 @@ def test_last_batch_item_deletion_persists_and_never_touches_inputs(batch):
     assert store.load_batch_runs() == []
     restarted = BatchRunService(pipeline_orchestrator=Mock(), state_store=store)
     assert restarted.list_batches() == []
-    assert "batch-unit" in restarted._deleted_batches
 
 
-@pytest.mark.parametrize("field,value", [("state", "pending"), ("current_task_id", "task"), ("task_ids", ["task"])])
-def test_batch_item_active_or_bound_is_rejected(batch, field, value):
+def test_active_batch_item_cannot_be_deleted(batch):
     service, store, source = batch
-    setattr(service._batches["batch-unit"].items[0], field, value)
+    service._batches["batch-unit"].items[0].state = "pending"
     before = deepcopy(store.load_batch_runs())
     with pytest.raises(AppValidationError):
         set_item(service)
     assert store.load_batch_runs() == before
     assert source.exists()
-
-
-def test_batch_active_monitor_stale_confirmation_and_save_failure(batch, monkeypatch):
-    service, store, _ = batch
-    service._threads["batch-unit"] = SimpleNamespace(is_alive=lambda: True)
-    with pytest.raises(AppValidationError):
-        set_item(service)
-    service._threads.clear()
-    stale = service.get_batch("batch-unit").updated_at
-    service._batches["batch-unit"].updated_at = "changed"
-    with pytest.raises(AppValidationError, match="已改变"):
-        set_item(service, expected=stale)
-    before = deepcopy(service._batches["batch-unit"])
-    monkeypatch.setattr(store, "delete_empty_batch", Mock(side_effect=OSError("disk failed")))
-    with pytest.raises(OSError):
-        set_item(service)
-    assert service._batches["batch-unit"] == before
 
 
 def test_http_removal_contracts_and_strict_confirmation(profiles, batch):

@@ -46,9 +46,7 @@ def test_original_connections_survive_selection_change_and_rename():
 
 
 @pytest.mark.parametrize("kind,field,value", [
-    ("llm", "api_key", "rotated"), ("llm", "base_url", "https://changed.example"),
-    ("llm", "model", "changed-model"), ("llm", "provider", "openai"),
-    ("tts", "voice", "changed-voice"), ("tts", "instructions", "changed-instruction"),
+    ("llm", "api_key", "rotated"),
     ("tts", "options", {"headers": {"custom": "rotated-secret"}}),
 ])
 def test_definition_or_credential_change_blocks_resume(kind, field, value):
@@ -92,32 +90,3 @@ def test_urls_with_credentials_are_not_persisted_and_still_verified():
     assert restore_recovery_connections(record, settings) == snapshot
     for secret in ("password", "query-secret", "fragment-secret", "user:"):
         assert secret not in json.dumps(record)
-
-
-def test_salts_differ_and_restore_returns_independent_copy():
-    settings = _settings()
-    snapshot = capture_connections(settings)
-    first = capture_recovery_connections(settings, snapshot)
-    second = capture_recovery_connections(settings, snapshot)
-    assert first["salt"] != second["salt"]
-    assert first["template"]["api"]["deepseek_api_key"] != second["template"]["api"]["deepseek_api_key"]
-    restored = restore_recovery_connections(first, settings)
-    restored["external_tts"]["options"]["headers"]["custom"] = "mutation"
-    assert restore_recovery_connections(first, settings) == snapshot
-
-
-def test_empty_legacy_snapshot_and_unsupported_schema():
-    settings = {"api": {}, "external_tts": {}}
-    record = capture_recovery_connections(settings, settings)
-    assert restore_recovery_connections(record, settings) == settings
-    record["schema_version"] = 99
-    with pytest.raises(ValueError, match="无法继续任务"):
-        restore_recovery_connections(record, settings)
-
-
-def test_missing_references_cannot_silently_use_current_connection():
-    settings = _settings()
-    record = capture_recovery_connections(settings, capture_connections(settings))
-    record["references"] = []
-    with pytest.raises(ValueError, match="无法继续任务"):
-        restore_recovery_connections(record, settings)

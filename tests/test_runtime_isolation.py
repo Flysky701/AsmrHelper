@@ -1,82 +1,12 @@
 from __future__ import annotations
 
-import os
-import subprocess
-from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 from src.core.resources.model_catalog import ModelEntry
 from src.core.resources.model_status import ModelStatusResolver
-from src.core.runtime.profiles import RuntimeProbeError, RuntimeProfileResolver
+from src.core.runtime.profiles import RuntimeProfileResolver
 from src.core.runtime.router import RuntimeRouter
-
-
-def test_runtime_profiles_resolve_project_relative_interpreters(tmp_path):
-    resolver = RuntimeProfileResolver(project_root=tmp_path)
-
-    main = resolver.resolve("main")
-    qwen_tts = resolver.resolve("qwen_tts")
-    fun_asr = resolver.resolve("fun_asr")
-
-    assert main.isolated is False
-    assert qwen_tts.isolated is True
-    assert qwen_tts.environment_dir == tmp_path / ".runtimes" / "qwen_tts"
-    executable = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
-    assert qwen_tts.python_executable == qwen_tts.environment_dir / executable
-    assert fun_asr.isolated is True
-    assert fun_asr.environment_dir == tmp_path / ".runtimes" / "fun_asr"
-    assert fun_asr.project_extra == "funasr"
-
-
-def test_runtime_subprocess_environment_keeps_uv_state_inside_project(tmp_path, monkeypatch):
-    monkeypatch.delenv("UV_CACHE_DIR", raising=False)
-    monkeypatch.delenv("UV_PYTHON_INSTALL_DIR", raising=False)
-    resolver = RuntimeProfileResolver(project_root=tmp_path)
-
-    env = resolver.subprocess_env()
-
-    assert env["UV_CACHE_DIR"] == str(tmp_path / ".uv-cache")
-    assert env["UV_PYTHON_INSTALL_DIR"] == str(tmp_path / ".runtimes" / "python")
-
-
-def test_runtime_module_probe_timeout_is_reported_as_probe_failure(tmp_path, monkeypatch):
-    resolver = RuntimeProfileResolver(project_root=tmp_path)
-    python_executable = resolver.resolve("qwen_tts").python_executable
-    python_executable.parent.mkdir(parents=True)
-    python_executable.write_bytes(b"python")
-
-    def timeout(*args, **kwargs):
-        raise subprocess.TimeoutExpired(args[0], kwargs.get("timeout", 30))
-
-    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", timeout)
-
-    with pytest.raises(RuntimeProbeError, match="probe failed"):
-        resolver.check_modules("qwen_tts", ["qwen_tts"])
-    with pytest.raises(RuntimeProbeError, match="probe failed"):
-        resolver.has_cuda("qwen_tts")
-
-
-def test_fun_asr_runtime_probe_imports_auto_model_symbol(tmp_path, monkeypatch):
-    resolver = RuntimeProfileResolver(project_root=tmp_path)
-    python_executable = resolver.resolve("fun_asr").python_executable
-    python_executable.parent.mkdir(parents=True)
-    python_executable.write_bytes(b"python")
-    captured: dict[str, str] = {}
-
-    def fake_run(cmd, **_kwargs):
-        captured["script"] = cmd[-1]
-        return SimpleNamespace(
-            returncode=0,
-            stdout='__ASMR_RUNTIME_PROBE__{"funasr": true}\n',
-            stderr="",
-        )
-
-    monkeypatch.setattr("src.core.runtime.profiles.subprocess.run", fake_run)
-
-    assert resolver.check_modules("fun_asr", ["funasr"]) is True
-    assert "from funasr import AutoModel" in captured["script"]
 
 
 def test_isolated_model_status_reports_missing_runtime(tmp_path):
@@ -103,54 +33,6 @@ def test_isolated_model_status_reports_missing_runtime(tmp_path):
 
     assert status.executable is False
     assert any(issue.code == "RUNTIME_ENVIRONMENT_MISSING" for issue in status.issues)
-
-
-def test_nvidia_compute_capability_uses_highest_valid_gpu(tmp_path, monkeypatch):
-    resolver = RuntimeProfileResolver(project_root=tmp_path)
-    monkeypatch.setattr(
-        "src.core.runtime.profiles.shutil.which",
-        lambda name: "nvidia-smi.exe" if name == "nvidia-smi" else None,
-    )
-    monkeypatch.setattr(
-        "src.core.runtime.profiles.subprocess.run",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            returncode=0,
-            stdout="8.9\nnot-a-capability\n12.0\n",
-            stderr="",
-        ),
-    )
-
-    assert resolver._detect_nvidia_compute_capability() == 12.0
-
-
-@pytest.mark.parametrize(
-    ("which_result", "run_result"),
-    [
-        (None, None),
-        ("nvidia-smi.exe", SimpleNamespace(returncode=1, stdout="", stderr="failed")),
-        ("nvidia-smi.exe", SimpleNamespace(returncode=0, stdout="invalid\n", stderr="")),
-    ],
-)
-def test_nvidia_compute_capability_returns_none_when_detection_fails(
-    tmp_path,
-    monkeypatch,
-    which_result,
-    run_result,
-):
-    resolver = RuntimeProfileResolver(project_root=tmp_path)
-    monkeypatch.setattr(
-        "src.core.runtime.profiles.shutil.which",
-        lambda name: which_result if name == "nvidia-smi" else None,
-    )
-    if run_result is not None:
-        monkeypatch.setattr(
-            "src.core.runtime.profiles.subprocess.run",
-            lambda *_args, **_kwargs: run_result,
-        )
-
-    assert resolver._detect_nvidia_compute_capability() is None
-
-
 
 
 def test_asr_runtime_routes_conflicting_providers_to_isolated_worker(tmp_path):

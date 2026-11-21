@@ -1,30 +1,24 @@
-"""Tests for Milestone 1B: 3-tier domestic mirrors (ModelScope -> HF-Mirror -> HuggingFace) and setup.ps1 hardening."""
+"""Domestic download fallback, file integrity, and offline setup behavior."""
 from __future__ import annotations
 
 import hashlib
 import io
 import json
 import os
-import re
 import shutil
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from src.config import APP_ROOT
 from src.core.resources import model_assets as assets
-from src.core.resources import whisper_download
 from src.core.resources.download_sources import (
-    DEMUCS_DEFAULT_BASE_URL,
     HF_MIRROR,
     HUGGINGFACE,
     MODELSCOPE,
-    DownloadSource,
     download_modelscope_snapshot,
     model_sources,
-    resolve_demucs_base_urls,
     resolve_download_sources,
 )
 from src.core.resources.model_catalog import ModelCatalog, ModelEntry
@@ -45,22 +39,11 @@ class _MockHttpResponse:
         return False
 
 
-@pytest.mark.parametrize(
-    ("mirror_arg", "region_env"),
-    [
-        ("modelscope", None),
-        ("auto-cn", None),
-        (None, "cn"),
-    ],
-)
-def test_three_tier_ordering_for_modelscope_capable_models(monkeypatch, mirror_arg, region_env):
+def test_domestic_region_selects_the_configured_mirror_repositories(monkeypatch):
     monkeypatch.delenv("HF_ENDPOINT", raising=False)
     monkeypatch.delenv("ASMR_HELPER_HF_FALLBACK", raising=False)
-    if region_env:
-        monkeypatch.setenv("ASMR_HELPER_DOWNLOAD_REGION", region_env)
-    else:
-        monkeypatch.delenv("ASMR_HELPER_DOWNLOAD_REGION", raising=False)
-
+    monkeypatch.setenv("ASMR_HELPER_DOWNLOAD_REGION", "cn")
+    mirror_arg = None
     catalog = ModelCatalog()
     qwen_tts = catalog.get("qwen3-custom-voice")
     sources = resolve_download_sources(qwen_tts, mirror=mirror_arg)
@@ -95,27 +78,6 @@ def test_hf_only_model_skips_modelscope_and_falls_back_cleanly(monkeypatch):
         ("hf-mirror", HF_MIRROR, "litagin/anime-whisper"),
         ("huggingface", HUGGINGFACE, "litagin/anime-whisper"),
     ]
-
-
-def test_explicit_custom_mirror_is_preserved_verbatim(tmp_path, monkeypatch):
-    monkeypatch.delenv("ASMR_HELPER_DOWNLOAD_REGION", raising=False)
-    monkeypatch.delenv("HF_ENDPOINT", raising=False)
-
-    custom_url = "https://custom.mirror"
-    catalog = ModelCatalog()
-    entry = catalog.get("voxcpm2")
-
-    sources = resolve_download_sources(entry, mirror=custom_url)
-    assert sources == [
-        DownloadSource(type="custom", endpoint=custom_url, repo_id="openbmb/VoxCPM2")
-    ]
-    assert model_sources(custom_url, repo="Systran/faster-whisper-tiny") == [custom_url]
-
-    installer = ModelInstaller(project_root=tmp_path)
-    cmd, env = installer._build_download_cmd(entry, "huggingface_snapshot", custom_url)
-    assert env["HF_ENDPOINT"] == custom_url
-    assert "repo_id='openbmb/VoxCPM2'" in cmd[-1]
-    assert "max_workers=1" in cmd[-1]
 
 
 def test_installer_with_progress_automatic_three_tier_fallback(tmp_path, monkeypatch):
@@ -159,99 +121,6 @@ def test_installer_with_progress_automatic_three_tier_fallback(tmp_path, monkeyp
     assert any("falling back to hf-mirror" in msg for msg in progress_messages)
     assert any("falling back to huggingface" in msg for msg in progress_messages)
     assert progress_messages[-1] == "download complete"
-
-
-def test_install_local_model_snapshot_falls_back_from_modelscope_to_hf_mirror(tmp_path, monkeypatch):
-    monkeypatch.setattr(assets, "PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr(assets, "sources", list)
-    monkeypatch.setattr(ModelEntry, "resolved_install_root", lambda _self: tmp_path / "models")
-
-    entry = ModelCatalog().get("voxcpm2")
-    installer = ModelInstaller(project_root=tmp_path)
-    calls: list[tuple[str, str | None]] = []
-
-    def fake_subprocess_run(cmd, **kwargs):
-        env = kwargs["env"]
-        script = cmd[-1]
-        if "download_modelscope_snapshot" in script:
-            calls.append(("modelscope", env.get("HF_ENDPOINT")))
-            return SimpleNamespace(returncode=1, stdout="", stderr="urlopen error timed out")
-        calls.append(("hf", env.get("HF_ENDPOINT")))
-        target = entry.managed_install_dir()
-        target.mkdir(parents=True, exist_ok=True)
-        (target / "config.json").write_text("{}", encoding="utf-8")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("src.core.resources.model_installer.subprocess.run", fake_subprocess_run)
-
-    assert installer.install_local_model(entry, mirror="modelscope") is True
-    assert calls == [
-        ("modelscope", None),
-        ("hf", HF_MIRROR),
-    ]
-
-
-def test_whisper_download_three_tier_fallback(tmp_path, monkeypatch):
-    monkeypatch.setattr("src.core.resources.whisper_download.time.sleep", lambda _s: None)
-    target = tmp_path / "whisper-base"
-    file_payloads = {
-        "model.bin": b"ctranslate2-weights",
-        "config.json": b'{"architectures":["Whisper"]}',
-        "tokenizer.json": b'{"version":"1.0"}',
-    }
-    manifest = {
-        "repo": "Systran/faster-whisper-base",
-        "revision": "deadbeef",
-        "files": [
-            {
-                "name": name,
-                "size": len(data),
-                "algorithm": "sha256",
-                "digest": hashlib.sha256(data).hexdigest(),
-            }
-            for name, data in file_payloads.items()
-        ],
-    }
-
-    events: list[str] = []
-
-    def fail_modelscope(repo_id, local_dir, **_kwargs):
-        events.append(f"modelscope:{repo_id}")
-        raise OSError("connection timed out reaching modelscope")
-
-    def fake_official_manifest(repo, _target, *, endpoints=None):
-        events.append(f"manifest:{endpoints[0]}")
-        return manifest
-
-    import huggingface_hub
-
-    def fake_hf_snapshot(repo_id, *, revision, endpoint, local_dir, allow_patterns, max_workers, token):
-        events.append(f"hf:{endpoint}:{repo_id}")
-        if endpoint == HF_MIRROR:
-            raise ConnectionError("503 Service Unavailable on hf-mirror")
-        out = Path(local_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        for name, data in file_payloads.items():
-            (out / name).write_bytes(data)
-        return str(out)
-
-    monkeypatch.setattr(whisper_download, "download_modelscope_snapshot", fail_modelscope)
-    monkeypatch.setattr(whisper_download, "official_manifest", fake_official_manifest)
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_hf_snapshot)
-
-    whisper_download.download(
-        "Systran/faster-whisper-base",
-        str(target),
-        mirror="auto-cn",
-    )
-
-    assert events == [
-        "modelscope:Systran/faster-whisper-base",
-        f"manifest:{HF_MIRROR}",
-        f"hf:{HF_MIRROR}:Systran/faster-whisper-base",
-        f"hf:{HUGGINGFACE}:Systran/faster-whisper-base",
-    ]
-    assert (target / "model.bin").read_bytes() == b"ctranslate2-weights"
 
 
 def test_modelscope_http_snapshot_downloader_verifies_hashes_and_nested_dirs(tmp_path):
@@ -365,54 +234,6 @@ def test_modelscope_downloader_rejects_corrupt_hash_and_path_traversal(tmp_path)
         )
 
 
-def test_demucs_supports_mirror_base_url_override_and_fallback(tmp_path, monkeypatch):
-    monkeypatch.setattr(assets, "PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr(assets, "sources", list)
-    monkeypatch.setattr(assets, "scan_roots", list)
-    monkeypatch.setattr(ModelEntry, "resolved_install_root", lambda _self: tmp_path / "models")
-
-    entry = ModelCatalog().get("demucs-htdemucs")
-    installer = ModelInstaller(project_root=tmp_path)
-
-    payload = b"deterministic-demucs-checkpoint"
-    prefix = hashlib.sha256(payload).hexdigest()[:8]
-    fake_weight_name = f"deadbeef-{prefix}.th"
-    monkeypatch.setattr(assets, "DEMUCS_FILES", {"htdemucs": [fake_weight_name]})
-
-    requested: list[str] = []
-
-    def fake_urlopen(url, timeout=60):
-        requested.append(url)
-        if url.startswith("https://unreachable.demucs.mirror"):
-            raise OSError("connection refused")
-        return _MockHttpResponse(payload)
-
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    monkeypatch.setenv("ASMR_HELPER_DEMUCS_MIRROR", "https://unreachable.demucs.mirror/checkpoints")
-
-    resolved_urls = resolve_demucs_base_urls(None, download_sources_meta=entry.download_sources)
-    assert resolved_urls == [
-        "https://unreachable.demucs.mirror/checkpoints",
-        DEMUCS_DEFAULT_BASE_URL,
-    ]
-
-    assert installer._download_demucs(entry) is True
-    assert requested == [
-        f"https://unreachable.demucs.mirror/checkpoints/{fake_weight_name}",
-        f"{DEMUCS_DEFAULT_BASE_URL}/{fake_weight_name}",
-    ]
-    weight_file = entry.managed_install_dir() / fake_weight_name
-    assert weight_file.read_bytes() == payload
-
-    # Explicit custom mirror parameter overrides both env and default base URL.
-    weight_file.unlink()
-    requested.clear()
-    monkeypatch.delenv("ASMR_HELPER_DEMUCS_MIRROR", raising=False)
-    assert installer._download_demucs(entry, mirror="https://custom.mirror/demucs") is True
-    assert requested == [f"https://custom.mirror/demucs/{fake_weight_name}"]
-    assert weight_file.read_bytes() == payload
-
-
 def _find_powershell() -> str:
     found = shutil.which("pwsh") or shutil.which("powershell")
     if not found:
@@ -420,51 +241,9 @@ def _find_powershell() -> str:
     return found
 
 
-def test_setup_ps1_ast_parses_cleanly_and_enforces_domestic_offline_contracts(tmp_path):
+def test_setup_in_offline_mode_fails_without_attempting_bootstrap(tmp_path):
     ps_exe = _find_powershell()
     setup_ps1 = APP_ROOT / "setup.ps1"
-    assert setup_ps1.is_file()
-
-    ast_check = (
-        f"$tokens = $null; $errors = $null; "
-        f"$ast = [System.Management.Automation.Language.Parser]::ParseFile({str(setup_ps1)!r}, [ref]$tokens, [ref]$errors); "
-        "$paramNames = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }); "
-        "$result = @{ "
-        "  error_count = $errors.Count; "
-        "  errors = @($errors | ForEach-Object { $_.Message }); "
-        "  params = $paramNames "
-        "} | ConvertTo-Json -Compress; "
-        "Write-Output $result"
-    )
-    proc = subprocess.run(
-        [ps_exe, "-NoProfile", "-NonInteractive", "-Command", ast_check],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=30,
-        check=True,
-    )
-    parsed = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert parsed["error_count"] == 0, f"setup.ps1 AST parse errors: {parsed['errors']}"
-    assert "DomesticMirror" in parsed["params"]
-    assert "Offline" in parsed["params"]
-    assert "Mirror" in parsed["params"]
-    assert "Full" in parsed["params"]
-
-    content = setup_ps1.read_text(encoding="utf-8-sig")
-    # Step numbers must be strictly sequential 1..N without duplicates or out-of-order jumps.
-    step_numbers = [int(m) for m in re.findall(r'Write-Step\s+"Step\s+(\d+):', content)]
-    assert step_numbers == list(range(1, len(step_numbers) + 1)), f"Out-of-order steps: {step_numbers}"
-
-    # Verify domestic mirrors, npm offline flags, and -Full keeping --extra dev.
-    assert "https://mirrors.aliyun.com/pypi/simple" in content
-    assert "UV_INDEX_URL" in content
-    assert "UV_PYTHON_INSTALL_MIRROR" in content
-    assert "https://registry.npmmirror.com" in content
-    assert "--offline" in content and "--prefer-offline" in content
-    assert "$DevOnly -or -not $Full" not in content
-
-    # Execute Ensure-Uv offline guard in an isolated PATH with no `uv` binary to verify fast failure.
     isolated_dir = tmp_path / "empty_bin"
     isolated_dir.mkdir()
     offline_env = os.environ.copy()

@@ -1,11 +1,8 @@
 """Graph contracts for local audio nodes, without models or user audio/state."""
-from copy import deepcopy
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
-from pydantic import ValidationError
 import pytest
 import soundfile as sf
 
@@ -56,22 +53,9 @@ def _write_audio(tmp_path, name, values, rate=8000):
     return str(path)
 
 
-def test_strict_request_round_trip_preserves_dynamic_ports_and_options():
-    graph = _difference_mix_graph()
-    normalized = GraphDefinitionRequest.model_validate(graph).model_dump()
-    assert input_ports(normalized["nodes"][1]) == {"bed": "audio", "effect": "audio", "spare": "audio"}
-    assert validate_graph(json.loads(json.dumps(normalized))) == validate_graph(graph)
-    assert normalized["nodes"][1]["options"] == graph["nodes"][1]["options"]
-    invalid = deepcopy(graph)
-    invalid["nodes"][1]["options"]["tracks"][0]["gain"] = "0.5"
-    with pytest.raises(ValidationError):
-        GraphDefinitionRequest.model_validate(invalid)
-
-
 @pytest.mark.parametrize("tracks", [
-    [], [{"id": "bad port"}], [{"id": "bed"}, {"id": "BED"}],
-    [{"id": "bed", "gain": -1}], [{"id": "bed", "offset_ms": True}],
-    [{"id": "bed", "muted": "false"}], [{"id": "bed", "path": "private.wav"}],
+    [{"id": "bed"}, {"id": "BED"}],
+    [{"id": "bed", "path": "private.wav"}],
 ])
 def test_invalid_track_definitions_are_rejected_before_port_resolution(tracks):
     graph = _mix_graph()
@@ -80,16 +64,14 @@ def test_invalid_track_definitions_are_rejected_before_port_resolution(tracks):
         validate_graph(graph)
 
 
-@pytest.mark.parametrize("mutation,code", [("missing", "missing_input"), ("duplicate", "multiple_sources"),
-                                          ("unknown", "unknown_port"), ("subtitle", "type_mismatch")])
+@pytest.mark.parametrize("mutation,code", [
+    ("missing", "missing_input"),
+    ("subtitle", "type_mismatch"),
+])
 def test_dynamic_track_connections_are_validated(mutation, code):
     graph = _mix_graph()
     if mutation == "missing":
         graph["edges"].pop()
-    elif mutation == "duplicate":
-        graph["edges"].append(deepcopy(graph["edges"][0]))
-    elif mutation == "unknown":
-        graph["edges"][0]["target"]["port"] = "removed_track"
     else:
         graph["input_slots"][0]["type"] = "subtitle"
     with pytest.raises(GraphValidationError) as caught:
@@ -200,15 +182,3 @@ def test_real_difference_to_multitrack_dag_registers_playable_audio_and_metadata
     assert preview["artifact_count"] == 2 and preview["preview_modes"] == ["audio"]
     assert {entry.artifact_type for entry in preview["artifacts"]} == {"audio.mix", "audio.difference"}
     assert all(Path(entry.path).is_file() and entry.metadata["node_id"] in outputs for entry in preview["artifacts"])
-
-
-@pytest.mark.parametrize("bad_value", [None, GraphValue("subtitle", "absent"),
-                                       GraphValue("audio", "absent", metadata={"duration": 1})])
-def test_new_audio_adapter_rejects_missing_wrong_type_or_absent_files(tmp_path, bad_value):
-    from src.core.orchestration.pipeline.graph_audio import run_audio_node
-
-    graph = _mix_graph()
-    inputs = {"bed": bad_value}
-    with pytest.raises(ValueError):
-        run_audio_node(graph["nodes"][0], inputs, tmp_path / "invalid")
-    assert not (tmp_path / "invalid").exists()

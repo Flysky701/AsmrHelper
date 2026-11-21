@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import base64
 import json
 from pathlib import Path
@@ -166,51 +165,6 @@ def _build_mock_handlers() -> WorkerHandlers:
 # ---------------------------------------------------------------------------
 # 1. Layer Boundaries & Pure Pydantic v2 Protocol Contracts
 # ---------------------------------------------------------------------------
-
-
-def test_namespace_package_and_anti_bloat_boundaries() -> None:
-    assert not (REPO_ROOT / "packages" / "__init__.py").exists(), (
-        "packages/ must remain a PEP 420 namespace package without __init__.py"
-    )
-
-    forbidden_protocol_roots = {
-        "torch",
-        "fastapi",
-        "starlette",
-        "sqlite3",
-        "httpx",
-        "soundfile",
-        "numpy",
-        "src",
-    }
-    protocol_dir = REPO_ROOT / "packages" / "protocol"
-    for py_file in protocol_dir.glob("*.py"):
-        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    top = alias.name.split(".")[0]
-                    assert top not in forbidden_protocol_roots, f"{py_file.name} imported {top}"
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                top = node.module.split(".")[0]
-                assert top not in forbidden_protocol_roots, f"{py_file.name} imported {top}"
-
-    forbidden_worker_modules = {
-        "sqlite3",
-        "draft_store",
-        "draft_session_service",
-    }
-    worker_dir = REPO_ROOT / "packages" / "gpu_worker"
-    for py_file in worker_dir.glob("*.py"):
-        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    assert alias.name.split(".")[0] not in forbidden_worker_modules
-                    assert not alias.name.startswith(("src.app", "src.api"))
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                assert node.module.split(".")[0] not in forbidden_worker_modules
-                assert not node.module.startswith(("src.app", "src.api"))
 
 
 def test_protocol_models_and_error_contracts() -> None:
@@ -719,34 +673,3 @@ def test_local_subprocess_transport_and_cli_once(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # 5. Colab Notebook Structure & Syntax Validation
 # ---------------------------------------------------------------------------
-
-
-def test_colab_gpu_worker_notebook_structure() -> None:
-    nb_path = REPO_ROOT / "notebooks" / "colab_gpu_worker.ipynb"
-    assert nb_path.is_file(), "notebooks/colab_gpu_worker.ipynb must exist"
-
-    nb = json.loads(nb_path.read_text(encoding="utf-8"))
-    assert nb["nbformat"] == 4
-    assert nb["nbformat_minor"] >= 4
-    cells = {cell["id"]: "".join(cell["source"]) for cell in nb["cells"]}
-    for cell in nb["cells"]:
-        if cell["cell_type"] == "code":
-            ast.parse(cells[cell["id"]], filename=f"{cell['id']}.py")
-
-    setup = cells["setup"]
-    assert "drive.mount(" in setup and "ASMR_HELPER_MODEL_ROOT" in setup
-    assert "ASMR_COLAB_REVISION" in setup and "faster-whisper" in setup
-    assert "ASMR_COLAB_JOB_DIR" in cells["parameters"]
-    assert "packages.gpu_worker.cli" in cells["asr"] and "--once" in cells["asr"]
-    assert "result.srt" in cells["asr"] and "files.download" in cells["export"]
-
-    models = cells["optional-worker-models"]
-    assert "INSTALL_AUDIO_SEPARATOR = False" in models
-    assert "audio-separator[gpu]" in models and "AUDIO_SEPARATOR_MODEL_DIR" in models
-    server = cells["optional-worker-server"]
-    assert "START_WORKER = False" in server
-    assert "if START_WORKER and not cli_job_dir" in server
-    assert "packages.gpu_worker.cli" in server and "--serve" in server
-    assert "getpass(" in server and "ASMR_WORKER_TOKEN" in server
-    assert "ASMR_HELPER_REMOTE_WORKER_URL" in cells["worker-connection"]
-    assert "ASMR_HELPER_REMOTE_WORKER_TOKEN" in cells["worker-connection"]

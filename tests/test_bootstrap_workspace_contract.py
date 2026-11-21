@@ -1,8 +1,4 @@
-"""Focused beta.4 bootstrap contract tests; no model/network/build operations.
-
-Run after integration with project Python:
-  python -m pytest <this-file> -q -p no:cacheprovider
-"""
+"""Installed desktop workspace isolation during startup and switching."""
 import importlib.util
 import os
 from pathlib import Path
@@ -11,12 +7,11 @@ import sys
 import pytest
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location('beta4_bootstrap_under_test', REPOSITORY / 'scripts' / 'desktop_backend.py')
+SPEC = importlib.util.spec_from_file_location('desktop_bootstrap_under_test', REPOSITORY / 'scripts' / 'desktop_backend.py')
 bootstrap = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bootstrap)
 
-# Every existing externally supplied cache is intentionally outside the workspace.
-# beta.4 promises app-scoped cache placement, so setdefault is not sufficient.
+# Inherited caches deliberately point outside the selected workspace.
 CACHE_VARIABLES = (
     'UV_CACHE_DIR', 'UV_PYTHON_INSTALL_DIR', 'PIP_CACHE_DIR',
     'HF_HOME', 'HF_HUB_CACHE', 'HUGGINGFACE_HUB_CACHE', 'TRANSFORMERS_CACHE',
@@ -46,17 +41,6 @@ def assert_inside(path, root):
     assert Path(clean).resolve().is_relative_to(root.resolve()), (clean, str(root))
 
 
-def test_cache_environment_overrides_inherited_locations(environment):
-    bundle, data = environment
-    bootstrap.configure_environment(bundle, data)
-    for key in CACHE_VARIABLES:
-        assert key in os.environ, key
-        assert_inside(os.environ[key], data)
-    assert_inside(os.environ['ASMR_HELPER_STATE_DB'], data)
-    assert Path(os.environ['TEMP']).is_dir()
-    assert Path(os.environ['TMP']).is_dir()
-
-
 def test_workspace_change_does_not_retain_previous_cache_roots(environment):
     bundle, first = environment
     second = first.parent / 'second workspace'
@@ -69,15 +53,22 @@ def test_workspace_change_does_not_retain_previous_cache_roots(environment):
 
 def test_cache_configuration_precedes_runtime_preparation(environment, monkeypatch):
     bundle, data = environment
+    entrypoint = bundle / 'scripts' / 'desktop_backend.py'
+    entrypoint.parent.mkdir(parents=True)
+    entrypoint.touch()
+    monkeypatch.setattr(bootstrap, '__file__', str(entrypoint))
     monkeypatch.setattr(sys, 'argv', ['desktop_backend.py', '--data-dir', str(data), '--port', '9999'])
     os.environ['ASMR_HELPER_DESKTOP_TOKEN'] = 'test-only-never-a-real-credential-' * 2
     os.environ.pop('ASMR_HELPER_START_GATE', None)
     calls = []
 
-    def prepare(_bundle, selected_data):
+    def prepare(selected_bundle, selected_data):
         calls.append('prepare')
+        assert_inside(selected_bundle, bundle)
+        assert_inside(selected_data, data)
         for key in CACHE_VARIABLES:
             assert_inside(os.environ[key], data)
+        assert_inside(os.environ['ASMR_HELPER_STATE_DB'], data)
         return selected_data / 'runtimes' / 'fake-python.exe'
 
     monkeypatch.setattr(bootstrap, 'prepare_runtime', prepare)

@@ -86,7 +86,10 @@ def test_confirmed_delete_requires_current_preview(removal):
     assert preview["blockers"] == []
     with pytest.raises(ValueError, match="确认"):
         service.execute(entry.id, preview["token"])
-    service.execute(entry.id, preview["token"], True)
+    (entry.managed_install_dir() / "weight.bin").write_bytes(b"changed fixture weight")
+    with pytest.raises(ValueError, match="改变"):
+        service.execute(entry.id, preview["token"], True)
+    service.execute(entry.id, service.preview(entry.id)["token"], True)
     assert not entry.managed_install_dir().exists()
 
 
@@ -112,14 +115,6 @@ def test_model_references_and_running_workers_block(removal, reference):
     with pytest.raises(ValueError):
         service.execute(entry.id, preview["token"], True)
     assert (entry.managed_install_dir() / "weight.bin").exists()
-
-
-def test_file_changes_after_preview_block(removal):
-    service, entry = removal
-    preview = service.preview(entry.id)
-    (entry.managed_install_dir() / "weight.bin").write_bytes(b"changed fixture weight")
-    with pytest.raises(ValueError, match="改变"):
-        service.execute(entry.id, preview["token"], True)
 
 
 def test_overlapping_model_directory_blocks(removal):
